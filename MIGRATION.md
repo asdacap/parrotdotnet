@@ -202,9 +202,12 @@ From this repository's `AGENTS.md`:
   SA1402, SA1403, and SA1649. A Go file holding six related types becomes six
   C# files. Do not preserve upstream file boundaries at the cost of this rule.
 - **Rich domain objects, not an anemic model.** Behaviour lives on the type that
-  owns the state. A `SessionService` operating on a property-bag `Session` is
-  the shape to avoid. Go's package-level functions over structs translate to
-  methods on the type, not to a static helper class.
+  owns the state. Go's package-level functions over structs translate to methods
+  on the type, not to a static helper class. This is not hypothetical: upstream
+  `session.Session` is twelve fields and no methods, with its behaviour spread
+  across `Service`, `GoalService`, `TodoService`, and the agent coordinator's
+  `agentSession`. Porting that shape reproduces the defect. See the `Session`
+  section of `docs/architecture.md`.
 - **Dependency injection, but no IoC container.** Dependencies are passed to
   constructors — primary constructors, per `docs/style.md` — and the object
   graph is composed explicitly in `Parrot.Cli`. No `IServiceCollection`, no
