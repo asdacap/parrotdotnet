@@ -3,6 +3,12 @@
 **Status: not written.** This is the Phase 0 deliverable described in
 MIGRATION.md §0. Until it names a component, that component may not be ported.
 
+The level-1 view — which blocks exist, how they connect, and their migration
+rank — is in [architecture.md](architecture.md), drafted and awaiting review.
+This file is level 2: one filled-in entry per block from that diagram. Resolve
+the open questions at the end of `architecture.md` first; each one moves a
+boundary, and moving a boundary after an entry is written means rewriting it.
+
 ## How to fill this in
 
 The migration is top-down. Identify the top-level components of the Go system
