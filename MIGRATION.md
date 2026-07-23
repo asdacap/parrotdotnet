@@ -131,6 +131,7 @@ by the function that spawned it and the context it was handed, and `Start`/`Stop
 pairs lose exactly that property.
 
 ### Rules
+
 - Blocking on async (`.Result`, `.Wait()`, `GetAwaiter().GetResult()`) is
   forbidden outside `Program.Main`.
 - Async methods return `Task`/`ValueTask`; streaming returns
@@ -165,7 +166,7 @@ for a port from Go. Where the two disagree, `AGENTS.md` wins.
 | Open–Closed | **Yes** | The load-bearing principle. When a change forces edits across existing types, something upstream of it is modelled wrong — stop and fix the model. |
 | Liskov Substitution | *Not applicable* | Because there is no inheritance to substitute into. Compose. |
 | Interface Segregation | *Eh* | Do not shred an interface into role interfaces. A wide interface that matches one real seam beats four narrow ones nobody implements separately. |
-| Dependency Inversion | *Decent* | Depend on the abstraction at the five extension boundaries; concrete types elsewhere. |
+| Dependency Inversion | *Decent* | Depend on the abstraction at the four extension boundaries; concrete types elsewhere. |
 
 ### Rules
 

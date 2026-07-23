@@ -26,8 +26,8 @@ For reference, the upstream tree has 38 packages under `internal/`, roughly
 46k lines of implementation and 24k lines of tests. Line counts, largest first:
 
 ```text
-cli 9299   tool 4653   terminal 4646   process 2307   mcp 2045
-provider 2012   httpapi 1975   session 1905   agent 1757   app 1607
+cli 9299   tool 4653   terminal 4646   process 2307   provider 2012
+httpapi 1975   session 1905   agent 1757   app 1607
 change 1172   protocol 1094   config 1063   store 959   subagent 874
 auth 871   event 832   compaction 748   command 629   api 617
 systemcontext 542   webfetch 513   client 500   skill 469
@@ -39,6 +39,16 @@ processidentity 103   security 76   project 50
 
 A package's size is not its rank. `internal/id` is 104 lines and everything
 depends on it; `internal/cli` is 9299 lines and nothing does.
+
+## Out of scope
+
+Upstream behaviour deliberately not carried over. Upstream tests covering it are
+deleted rather than skipped, and no block in `architecture.md` absorbs it.
+
+| Dropped | Upstream | Reason |
+| --- | --- | --- |
+| MCP | `internal/mcp` (2045 lines), `internal/tool/mcp.go`, MCP transport config | Dropped entirely by decision, 2026-07-24. Removes one of upstream's five extension boundaries, leaving four: provider protocols, secret storage, tools, formatters. |
+| Windows support | Windows paths, credential storage, process trees, terminal behaviour | Upstream targets macOS and Linux; so does this. |
 
 ## Entry template
 
@@ -54,9 +64,10 @@ One section per component. An entry is not complete until every field is filled.
   it is responsible for upholding.
 - **Outbound contract**: what it requires of its dependencies, expressed as the
   abstraction it depends on rather than the concrete type it happens to get.
-- **Extension boundary**: whether this is one of the five replaceable I/O
-  boundaries upstream declares (provider protocols, secret storage, tools, MCP
-  transports, formatters). If not, it uses concrete types — see MIGRATION.md §5.
+- **Extension boundary**: whether this is one of the four replaceable I/O
+  boundaries upstream declares. Upstream names five — provider protocols, secret
+  storage, tools, MCP transports, formatters — and MCP is dropped here, leaving
+  four. If not, it uses concrete types — see MIGRATION.md §5.
 - **Rank**: migration order. A component may not be migrated before anything it
   depends on.
 - **Out of scope**: upstream behaviour deliberately not carried over, with the
