@@ -1,0 +1,21 @@
+<Project>
+
+  <!-- Test projects need a handful of rules relaxed that only make sense for
+       shipped code. Everything else stays as strict as src. -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <IsAotCompatible>false</IsAotCompatible>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <NoWarn>
+      $(NoWarn);
+      CA1515; <!-- a test class is discovered by a runner, so it stays public -->
+      CA1707; <!-- underscores in test method names are the convention here -->
+      CA1861; <!-- constant arrays as arguments are fine in test data -->
+      CA2007; <!-- ConfigureAwait is meaningless without a synchronization context -->
+      IDE0058; <!-- fluent assertion chains return a value nobody consumes -->
+    </NoWarn>
+  </PropertyGroup>
+
+</Project>

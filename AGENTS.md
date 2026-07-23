@@ -1,0 +1,101 @@
+## Guideline
+
+- No comment unless necessary
+- Change in design to clean original code is allowed.
+- Prefer rich domain object rather than anemic domain model.
+- Dependency injection, but not IoC container.
+- No dotnet events.
+- No subclass unless necessary.
+- No subinterface unless necessary.
+- Interfaces and implementations are fine and in fact preferable.
+
+## Async lifecycle
+
+- Rather than something like:
+```
+using var cls = new Something();
+cls.Start();
+cls.Stop();
+```
+
+Just do.
+
+```
+using var cls = new Something();
+await cls.Run(cancellation);
+```
+- In fact, there should probably be a single top level `Run` what is the parent of all other run.
+
+## SOLID preferences.
+
+- Single Responsibility: Eh... 
+- Open Close: Yes. Something tend to be wrong when this is not the case. 
+- Liskov Substitution: Or just straight up no inheritence. Just compose.
+- Interface Segregation: Eh...
+- Dependency Inversion: Decent...
+
+## Reading order
+
+This repository is a Go-to-.NET rewrite of parrot-coder. Before writing any
+code, read, in order:
+
+1. [MIGRATION.md](MIGRATION.md) — normative rules for the port. Not advisory.
+2. [docs/components.md](docs/components.md) — the component map. **A component
+   that is not named there may not be ported.**
+3. [docs/style.md](docs/style.md) — what the analyzers enforce and how to add an
+   exception.
+
+The upstream Go tree is at `~/repo/parrot-coder`. It is the specification: its
+`docs/architecture.md` states twelve architecture principles that survive the
+port unchanged, and its 24k lines of tests are the conformance oracle.
+
+## Environment
+
+Everything runs inside the flake's dev shell. There is no supported way to build
+against an ambient SDK, and Native AOT will not link outside it.
+
+```sh
+nix develop
+```
+
+## Gates
+
+```sh
+dotnet build Parrot.slnx -c Release
+dotnet test Parrot.slnx -c Release
+dotnet format Parrot.slnx --verify-no-changes
+dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release
+nix flake check    # nix formatting only; see the comment in flake.nix
+```
+
+Warnings are errors in every project. `AnalysisLevel` is `latest-all` and the
+trim/AOT analyzers run everywhere, so a build that succeeds is a build that is
+AOT-clean.
+
+## The rules that get broken most often
+
+- **Do not deviate from the plan.** If the plan is wrong, stop and say so rather
+  than improvising a fix.
+- **Do not port a component the map does not name.** Fix the map first.
+- **No inline suppressions.** `#pragma warning disable` and `[SuppressMessage]`
+  are not permitted; exceptions live in `.editorconfig` or
+  `Directory.Build.targets` with a stated reason.
+- **No reflection, no reflection-based JSON.** Source generation only.
+- **No stubs that return plausible values.** An unimplemented path throws.
+- **Matching an id to change behaviour is an antipattern.** Put it on the
+  abstraction.
+- **Prefer an interface over a config flag**, and do not add an interface with a
+  single implementation just to enable a mock.
+- **A failing ported test is skipped and reported**, never weakened or deleted.
+
+## Commits
+
+A commit message for a migrated component names the upstream Go packages it
+absorbed. Check `git status` for unexpected changes before committing; if there
+are any, do not commit.
+
+## Analogy
+
+A good software is like a nice garden. There are distinct clear trees, each tree can be of different shape, 
+and size, but its clearly itself, and there are roads to clearly move around the garden. The purpose of the garden
+is the tree, not the road, but without the road, its hard to plant tree. 

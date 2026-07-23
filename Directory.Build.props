@@ -1,0 +1,68 @@
+<Project>
+
+  <!-- Applies to every project. Deliberately strict: see docs/style.md. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <!-- Strict nullable: enabled everywhere, its warnings are errors via
+         TreatWarningsAsErrors, and PARROT0003 removes the "!" escape hatch. -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <EnableDefaultItems>true</EnableDefaultItems>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
+    <!-- One version for every assembly: BuildInfo reads it off Parrot.Core, so
+         setting it per-project would make `parrot version` report the wrong one. -->
+    <Version>0.0.0-dev</Version>
+  </PropertyGroup>
+
+  <!-- Native AOT is the shipping target, so every assembly must stay
+       trim- and AOT-clean even before Parrot.Cli links it in. -->
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <!-- Analysis. A warning is a build failure; there is no "fix it later" state. -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningLevel>9999</WarningLevel>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
+    <ReportAnalyzer>false</ReportAnalyzer>
+    <NoWarn></NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <!-- Roslyn only runs IDE0005 (unused using) during a build when a
+         documentation file is generated: https://github.com/dotnet/roslyn/issues/41640.
+         The file is a build artifact, not a deliverable, so CS1591 is off
+         (AGENTS.md: no comment unless necessary) and it is not published. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishDocumentationFiles>false</PublishDocumentationFiles>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="StyleCop.Analyzers" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Link="stylecop.json" />
+  </ItemGroup>
+
+  <!-- Repository-specific rules that no shipped analyzer expresses. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Parrot.Analyzers'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)tools/Parrot.Analyzers/Parrot.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

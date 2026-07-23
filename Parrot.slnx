@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Parrot.Cli/Parrot.Cli.csproj" />
+    <Project Path="src/Parrot.Core/Parrot.Core.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Parrot.Analyzers/Parrot.Analyzers.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Parrot.Cli.Tests/Parrot.Cli.Tests.csproj" />
+  </Folder>
+</Solution>

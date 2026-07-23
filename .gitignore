@@ -1,0 +1,13 @@
+bin/
+obj/
+artifacts/
+.dotnet/
+*.user
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+.tmp/
+TestResults/
+*.swp
+*.swo

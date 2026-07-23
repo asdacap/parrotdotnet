@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>parrot</AssemblyName>
+    <RootNamespace>Parrot.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PublishAot>true</PublishAot>
+    <TrimMode>full</TrimMode>
+    <!-- Keep symbols so a core dump from a released binary is still usable,
+         matching the Go build's dontStrip. -->
+    <StripSymbols>false</StripSymbols>
+    <IlcGenerateStackTraceData>true</IlcGenerateStackTraceData>
+    <AutoreleasePoolSupport>false</AutoreleasePoolSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Parrot.Core/Parrot.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Parrot.Cli.Tests" />
+  </ItemGroup>
+
+</Project>

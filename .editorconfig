@@ -1,0 +1,326 @@
+root = true
+
+# ---------------------------------------------------------------------------
+# Parrot Coder (.NET) style configuration.
+#
+# Every rule listed here is enforced at build time; TreatWarningsAsErrors in
+# Directory.Build.props turns each severity = warning entry into a hard failure.
+# Adding a suppression requires a comment stating why. See docs/style.md.
+# ---------------------------------------------------------------------------
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 120
+
+[*.{json,yml,yaml,md}]
+indent_size = 2
+
+[*.{csproj,props,targets,slnx,xml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+
+# --- Language: var --------------------------------------------------------
+# var everywhere, without exception. A local's type is the compiler's business;
+# a name that does not say what it holds is the thing to fix instead.
+csharp_style_var_for_built_in_types = true:error
+csharp_style_var_when_type_is_apparent = true:error
+csharp_style_var_elsewhere = true:error
+
+# --- Language: expression-bodied members ----------------------------------
+# Global guideline: prefer method expression syntax where applicable.
+csharp_style_expression_bodied_methods = when_on_single_line:warning
+csharp_style_expression_bodied_constructors = when_on_single_line:warning
+csharp_style_expression_bodied_operators = when_on_single_line:warning
+csharp_style_expression_bodied_properties = true:warning
+csharp_style_expression_bodied_indexers = true:warning
+csharp_style_expression_bodied_accessors = true:warning
+csharp_style_expression_bodied_lambdas = true:warning
+csharp_style_expression_bodied_local_functions = when_on_single_line:warning
+
+# --- Language: modern C# --------------------------------------------------
+csharp_style_prefer_primary_constructors = true:error
+csharp_style_pattern_matching_over_is_with_cast_check = true:warning
+csharp_style_pattern_matching_over_as_with_null_check = true:warning
+csharp_style_prefer_switch_expression = true:warning
+csharp_style_prefer_pattern_matching = true:warning
+csharp_style_prefer_not_pattern = true:warning
+csharp_style_prefer_extended_property_pattern = true:warning
+csharp_style_prefer_range_operator = true:warning
+csharp_style_prefer_index_operator = true:warning
+csharp_style_prefer_utf8_string_literals = true:warning
+csharp_style_inlined_variable_declaration = true:warning
+csharp_style_deconstructed_variable_declaration = true:warning
+csharp_style_throw_expression = true:warning
+csharp_style_conditional_delegate_call = true:warning
+csharp_style_prefer_null_check_over_type_check = true:warning
+csharp_style_prefer_local_over_anonymous_function = true:warning
+csharp_style_prefer_tuple_swap = true:warning
+csharp_style_prefer_method_group_conversion = true:warning
+csharp_style_prefer_readonly_struct = true:warning
+csharp_style_prefer_readonly_struct_member = true:warning
+csharp_style_implicit_object_creation_when_type_is_apparent = true:warning
+csharp_prefer_simple_default_expression = true:warning
+csharp_prefer_simple_using_statement = true:warning
+csharp_prefer_static_local_function = true:warning
+csharp_prefer_static_anonymous_function = true:warning
+csharp_style_namespace_declarations = file_scoped:error
+csharp_style_prefer_top_level_statements = false:warning
+csharp_using_directive_placement = outside_namespace:error
+
+# --- Language: braces and blocks -----------------------------------------
+# Braces are never optional. A single-statement if without braces is the
+# classic place a later edit silently changes control flow.
+csharp_prefer_braces = true:error
+csharp_style_allow_embedded_statements_on_same_line_experimental = false:warning
+csharp_style_allow_blank_lines_between_consecutive_braces_experimental = false:warning
+# Wrapping after "=>", after ":" in a constructor initializer, or inside a
+# conditional stays permitted: forbidding it forces long expressions past the
+# line limit, which is the worse readability trade.
+
+# --- .NET style -----------------------------------------------------------
+dotnet_style_qualification_for_field = false:error
+dotnet_style_qualification_for_property = false:error
+dotnet_style_qualification_for_method = false:error
+dotnet_style_qualification_for_event = false:error
+dotnet_style_predefined_type_for_locals_parameters_members = true:error
+dotnet_style_predefined_type_for_member_access = true:error
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:error
+dotnet_style_readonly_field = true:warning
+dotnet_style_object_initializer = true:warning
+dotnet_style_collection_initializer = true:warning
+dotnet_style_prefer_collection_expression = when_types_loosely_match:warning
+dotnet_style_explicit_tuple_names = true:warning
+dotnet_style_prefer_inferred_tuple_names = true:warning
+dotnet_style_prefer_inferred_anonymous_type_member_names = true:warning
+dotnet_style_prefer_auto_properties = true:warning
+dotnet_style_prefer_conditional_expression_over_assignment = true:suggestion
+dotnet_style_prefer_conditional_expression_over_return = true:suggestion
+dotnet_style_prefer_compound_assignment = true:warning
+dotnet_style_prefer_simplified_boolean_expressions = true:warning
+dotnet_style_prefer_simplified_interpolation = true:warning
+dotnet_style_null_propagation = true:warning
+dotnet_style_coalesce_expression = true:warning
+dotnet_style_operator_placement_when_wrapping = beginning_of_line
+dotnet_style_namespace_match_folder = true:error
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+dotnet_remove_unnecessary_suppression_exclusions = none
+
+# --- Formatting -----------------------------------------------------------
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_indent_labels = one_less_than_current
+csharp_indent_block_contents = true
+csharp_indent_braces = false
+csharp_indent_case_contents_when_block = false
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_before_colon_in_inheritance_clause = true
+csharp_space_after_colon_in_inheritance_clause = true
+csharp_space_around_binary_operators = before_and_after
+csharp_space_between_method_declaration_parameter_list_parentheses = false
+csharp_space_between_method_declaration_empty_parameter_list_parentheses = false
+csharp_space_between_method_declaration_name_and_open_parenthesis = false
+csharp_space_between_method_call_parameter_list_parentheses = false
+csharp_space_between_method_call_empty_parameter_list_parentheses = false
+csharp_space_between_method_call_name_and_opening_parenthesis = false
+csharp_space_after_comma = true
+csharp_space_before_comma = false
+csharp_space_after_dot = false
+csharp_space_before_dot = false
+csharp_space_after_semicolon_in_for_statement = true
+csharp_space_before_semicolon_in_for_statement = false
+csharp_space_around_declaration_statements = false
+csharp_space_before_open_square_brackets = false
+csharp_space_between_empty_square_brackets = false
+csharp_space_between_square_brackets = false
+csharp_preserve_single_line_statements = false
+csharp_preserve_single_line_blocks = true
+
+# --- Unused code ----------------------------------------------------------
+# Dead code is a migration hazard: it looks ported but is never exercised.
+csharp_style_unused_value_expression_statement_preference = discard_variable:warning
+csharp_style_unused_value_assignment_preference = discard_variable:warning
+dotnet_code_quality_unused_parameters = all:warning
+
+# --- Naming ---------------------------------------------------------------
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+dotnet_naming_style.interface_prefixed.capitalization = pascal_case
+dotnet_naming_style.interface_prefixed.required_prefix = I
+
+dotnet_naming_style.type_parameter_prefixed.capitalization = pascal_case
+dotnet_naming_style.type_parameter_prefixed.required_prefix = T
+
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+dotnet_naming_rule.interfaces_are_prefixed.symbols = interfaces
+dotnet_naming_rule.interfaces_are_prefixed.style = interface_prefixed
+dotnet_naming_rule.interfaces_are_prefixed.severity = error
+
+dotnet_naming_symbols.type_parameters.applicable_kinds = type_parameter
+dotnet_naming_symbols.type_parameters.applicable_accessibilities = *
+dotnet_naming_rule.type_parameters_are_prefixed.symbols = type_parameters
+dotnet_naming_rule.type_parameters_are_prefixed.style = type_parameter_prefixed
+dotnet_naming_rule.type_parameters_are_prefixed.severity = error
+
+dotnet_naming_symbols.types_and_members.applicable_kinds = namespace, class, struct, enum, delegate, event, property, method, local_function
+dotnet_naming_symbols.types_and_members.applicable_accessibilities = *
+dotnet_naming_rule.types_and_members_are_pascal.symbols = types_and_members
+dotnet_naming_rule.types_and_members_are_pascal.style = pascal_case
+dotnet_naming_rule.types_and_members_are_pascal.severity = error
+
+dotnet_naming_symbols.constants.applicable_kinds = field
+dotnet_naming_symbols.constants.applicable_accessibilities = *
+dotnet_naming_symbols.constants.required_modifiers = const
+dotnet_naming_rule.constants_are_pascal.symbols = constants
+dotnet_naming_rule.constants_are_pascal.style = pascal_case
+dotnet_naming_rule.constants_are_pascal.severity = error
+
+dotnet_naming_symbols.static_readonly_fields.applicable_kinds = field
+dotnet_naming_symbols.static_readonly_fields.applicable_accessibilities = *
+dotnet_naming_symbols.static_readonly_fields.required_modifiers = static, readonly
+dotnet_naming_rule.static_readonly_fields_are_pascal.symbols = static_readonly_fields
+dotnet_naming_rule.static_readonly_fields_are_pascal.style = pascal_case
+dotnet_naming_rule.static_readonly_fields_are_pascal.severity = error
+
+dotnet_naming_symbols.public_fields.applicable_kinds = field
+dotnet_naming_symbols.public_fields.applicable_accessibilities = public, internal, protected, protected_internal
+dotnet_naming_rule.public_fields_are_pascal.symbols = public_fields
+dotnet_naming_rule.public_fields_are_pascal.style = pascal_case
+dotnet_naming_rule.public_fields_are_pascal.severity = error
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private, private_protected
+dotnet_naming_rule.private_fields_are_underscored.symbols = private_fields
+dotnet_naming_rule.private_fields_are_underscored.style = underscore_camel_case
+dotnet_naming_rule.private_fields_are_underscored.severity = error
+
+dotnet_naming_symbols.parameters_and_locals.applicable_kinds = parameter, local
+dotnet_naming_symbols.parameters_and_locals.applicable_accessibilities = *
+dotnet_naming_rule.parameters_and_locals_are_camel.symbols = parameters_and_locals
+dotnet_naming_rule.parameters_and_locals_are_camel.style = camel_case
+dotnet_naming_rule.parameters_and_locals_are_camel.severity = error
+
+# ---------------------------------------------------------------------------
+# StyleCop
+# ---------------------------------------------------------------------------
+
+# The compiler and the .NET analyzers already cover these, or they contradict
+# a decision recorded above. Everything not listed stays on as an error.
+dotnet_diagnostic.SA0001.severity = none   # XML docs are optional (see SA1600)
+dotnet_diagnostic.SA1101.severity = none   # contradicts dotnet_style_qualification_for_* = false
+dotnet_diagnostic.SA1200.severity = none   # contradicts csharp_using_directive_placement
+dotnet_diagnostic.SA1309.severity = none   # contradicts the _field naming rule
+dotnet_diagnostic.SA1600.severity = none   # doc comments required only on public API of Parrot.Abstractions
+dotnet_diagnostic.SA1601.severity = none
+dotnet_diagnostic.SA1602.severity = none
+dotnet_diagnostic.SA1633.severity = none   # no file headers
+dotnet_diagnostic.SA1652.severity = none   # superseded by GenerateDocumentationFile
+
+# One top-level symbol per file, and the file is named after it. stylecop.json
+# widens SA1402 from its default of "class" to every type kind, so an enum or a
+# delegate smuggled in beside a class is caught too.
+dotnet_diagnostic.SA1402.severity = error   # one type per file
+dotnet_diagnostic.SA1403.severity = error   # one namespace per file
+dotnet_diagnostic.SA1649.severity = error   # file name matches the type in it
+
+# Ordering, spacing, readability: these are the point of running StyleCop.
+dotnet_diagnostic.SA1000.severity = error
+dotnet_diagnostic.SA1028.severity = error
+dotnet_diagnostic.SA1119.severity = error
+dotnet_diagnostic.SA1121.severity = error
+dotnet_diagnostic.SA1201.severity = error
+dotnet_diagnostic.SA1202.severity = error
+dotnet_diagnostic.SA1204.severity = error
+dotnet_diagnostic.SA1208.severity = error
+dotnet_diagnostic.SA1210.severity = error
+dotnet_diagnostic.SA1400.severity = error
+dotnet_diagnostic.SA1516.severity = error
+
+# ---------------------------------------------------------------------------
+# Parrot's own analyzer (tools/Parrot.Analyzers). Rules no shipped analyzer
+# expresses.
+# ---------------------------------------------------------------------------
+dotnet_diagnostic.PARROT0001.severity = error   # no events
+dotnet_diagnostic.PARROT0002.severity = error   # no delegate types
+dotnet_diagnostic.PARROT0003.severity = error   # no null-forgiving "!"
+
+# CA1030 asks for the opposite of PARROT0001: it suggests turning a Raise/Fire
+# method into an event. PARROT0001 wins.
+dotnet_diagnostic.CA1030.severity = none
+
+# ---------------------------------------------------------------------------
+# .NET analyzers: rules turned off with a stated reason.
+# ---------------------------------------------------------------------------
+
+# Parrot is a single application, not a library. Its public surface is an
+# implementation detail of the executable, so API-shape rules aimed at
+# redistributable libraries do not apply.
+dotnet_diagnostic.CA1002.severity = none   # List<T> in a public signature
+dotnet_diagnostic.CA1003.severity = none   # EventHandler<T> shape
+dotnet_diagnostic.CA1034.severity = none   # nested public types
+dotnet_diagnostic.CA1051.severity = none   # visible instance fields (records/structs)
+dotnet_diagnostic.CA1062.severity = none   # nullable reference types cover this
+dotnet_diagnostic.CA1303.severity = none   # no resource-table localization
+dotnet_diagnostic.CA1848.severity = none   # LoggerMessage source-gen is not worth it for a CLI
+dotnet_diagnostic.CA2007.severity = none   # no synchronization context in a console host
+
+# A caught-and-reported exception at a process or provider boundary is a
+# deliberate design decision recorded in the architecture rules, not a bug.
+dotnet_diagnostic.CA1031.severity = suggestion
+
+# Enforced hard: these are the ones that bite during a port.
+dotnet_diagnostic.CA1305.severity = error  # always pass IFormatProvider
+dotnet_diagnostic.CA1307.severity = error  # always pass StringComparison
+dotnet_diagnostic.CA1309.severity = error  # ordinal comparison for identifiers
+dotnet_diagnostic.CA1310.severity = error
+dotnet_diagnostic.CA2016.severity = error  # forward CancellationToken
+dotnet_diagnostic.CA2201.severity = error  # do not throw base exception types
+dotnet_diagnostic.CA2213.severity = error  # dispose owned fields
+dotnet_diagnostic.CA2215.severity = error
+dotnet_diagnostic.CA2249.severity = error
+
+# Native AOT correctness. These are never suppressible in this repository.
+dotnet_diagnostic.IL2026.severity = error
+dotnet_diagnostic.IL2046.severity = error
+dotnet_diagnostic.IL2050.severity = error
+dotnet_diagnostic.IL2055.severity = error
+dotnet_diagnostic.IL2057.severity = error
+dotnet_diagnostic.IL2060.severity = error
+dotnet_diagnostic.IL2067.severity = error
+dotnet_diagnostic.IL2070.severity = error
+dotnet_diagnostic.IL2072.severity = error
+dotnet_diagnostic.IL2075.severity = error
+dotnet_diagnostic.IL3000.severity = error
+dotnet_diagnostic.IL3050.severity = error
+dotnet_diagnostic.IL3051.severity = error
+
+# Unused/unreachable code must not survive a port.
+dotnet_diagnostic.IDE0005.severity = error  # unnecessary using
+dotnet_diagnostic.IDE0035.severity = error  # unreachable code
+dotnet_diagnostic.IDE0051.severity = error  # unused private member
+dotnet_diagnostic.IDE0052.severity = error  # unread private member
+dotnet_diagnostic.IDE0059.severity = error  # unnecessary assignment
+dotnet_diagnostic.IDE0060.severity = error  # unused parameter
+dotnet_diagnostic.IDE0161.severity = error  # file-scoped namespace
