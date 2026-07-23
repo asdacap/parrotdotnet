@@ -33,7 +33,7 @@ analyzers in `.editorconfig`, not discovered at publish time.
 Parrot.slnx
 src/
   Parrot.Core/        Everything that is not the entry point. Upstream Go
-                      packages become namespaces here (Parrot.Session,
+                      packages become namespaces here (Parrot.Agent,
                       Parrot.Tool, ...), not separate assemblies.
   Parrot.Cli/         The `parrot` executable. AOT-published.
 test/

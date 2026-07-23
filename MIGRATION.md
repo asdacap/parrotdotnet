@@ -206,8 +206,8 @@ From this repository's `AGENTS.md`:
   on the type, not to a static helper class. This is not hypothetical: upstream
   `session.Session` is twelve fields and no methods, with its behaviour spread
   across `Service`, `GoalService`, `TodoService`, and the agent coordinator's
-  `agentSession`. Porting that shape reproduces the defect. See the `Session`
-  section of `docs/architecture.md`.
+  `agentSession`. Porting that shape reproduces the defect. See the
+  `AgentSession` section of `docs/architecture.md`.
 - **Dependency injection, but no IoC container.** Dependencies are passed to
   constructors — primary constructors, per `docs/style.md` — and the object
   graph is composed explicitly in `Parrot.Cli`. No `IServiceCollection`, no

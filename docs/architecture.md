@@ -20,17 +20,16 @@ manages, because in C# the namespace no longer disambiguates it.
 +---------------------------------------------------------------------------+
 | ROOT      ParrotApplication                                               |
 +---------------------------------------------------------------------------+
-| DOMAIN    Session             TurnRunner             AgentRegistry        |
-|           TaskManager         SubagentManager        Compactor            |
-|           SystemContextBuilder                                            |
+| DOMAIN    AgentSession        AgentRegistry          TaskManager          |
+|           SubagentManager     Compactor              SystemContextBuilder |
 +---------------------------------------------------------------------------+
 | TOOLS     ToolRegistry        ITool                  PermissionBroker     |
 |           QuestionBroker      ChangeSet              ProcessRunner        |
 |           WebFetcher                                                      |
 +---------------------------------------------------------------------------+
-| PROVIDERS ProviderRegistry    IProvider              ICredentialStore     |
+| PROVIDERS ProviderRegistry    ILLMProvider           ICredentialStore     |
 +---------------------------------------------------------------------------+
-| STORAGE   SessionStore        EventBroker            EventRepository      |
+| STORAGE   AgentSessionStore   EventBroker            EventRepository      |
 |           Configuration       StatePaths                                  |
 +---------------------------------------------------------------------------+
 ```
@@ -81,44 +80,41 @@ Who calls whom. Read the indentation as "depends on".
 ```text
 ApiBackend
  |
- +-- Session ..................... a rich object, not a record plus a service
- |    |                            it owns its own state and its own drain
- |    |                                                       [principle 2]
- |    +-- SessionStore ........... loads and persists it
+ +-- AgentSession ................ a rich object, not a record plus a service.
+ |    |                           it owns its state, its drain, and its turns
+ |    |                                             [principles 2, 3, 4, 6]
+ |    +-- AgentSessionStore ...... loads and persists it
  |    +-- EventRepository
+ |    +-- SystemContextBuilder ... sampled only at a safe turn boundary
+ |    +-- Compactor
+ |    +-- AgentRegistry
  |    |
- |    +-- TurnRunner ............. one provider turn          [principle 3]
- |         |
- |         +-- SystemContextBuilder ... sampled only at a safe boundary
- |         +-- Compactor
- |         +-- AgentRegistry
- |         |
- |         +-- ToolRegistry ....... immutable snapshot per turn
- |         |    +-- ITool  <<extension boundary>>
- |         |         +-- ChangeSet ...... transactional file edits
- |         |         +-- ProcessRunner .. sandboxed exec, fails closed
- |         |         +-- WebFetcher
- |         |
- |         +-- ProviderRegistry
- |         |    +-- IProvider  <<extension boundary>>
- |         |         +-- ICredentialStore  <<extension boundary>>
- |         |
- |         +-- TaskManager ........ the task tree
- |              +-- SubagentManager
- |                   +-- Session   (recurses: a child session)
+ |    +-- ToolRegistry .......... immutable snapshot per turn
+ |    |    +-- ITool  <<extension boundary>>
+ |    |         +-- ChangeSet ...... transactional file edits
+ |    |         +-- ProcessRunner .. sandboxed exec, fails closed
+ |    |         +-- WebFetcher
+ |    |
+ |    +-- ProviderRegistry
+ |    |    +-- ILLMProvider  <<extension boundary>>   stateless
+ |    |         +-- ICredentialStore  <<extension boundary>>
+ |    |
+ |    +-- TaskManager ........... the task tree
+ |         +-- SubagentManager
+ |              +-- AgentSession   (recurses: a child session)
  |
  +-- TaskManager
  +-- PermissionBroker ............ authorises an operation, not a tool name
  +-- QuestionBroker
  +-- EventBroker ................. serialised publication    [principle 9]
       +-- EventRepository
-           +-- SessionStore
+           +-- AgentSessionStore
 
 ParrotApplication                  the composition root: constructs and owns
  |                                 every singleton above, explicitly, by hand
  +-- Configuration ............... merged once, immutable thereafter
  +-- StatePaths
-      +-- SessionStore ........... one database per session, never two hosts
+      +-- AgentSessionStore ...... one database per session, never two hosts
 ```
 
 ## The Run tree
@@ -134,33 +130,32 @@ CommandDispatcher.Run                       returns => the process exits
  |
  +-- HttpServer.Run ....................... serve mode only
  +-- TerminalChat.Run ..................... local mode only
- +-- Session.Run ......................... one drain per session
-      |
-      +-- TurnRunner.Run .................. one provider turn
+ +-- AgentSession.Run ..................... one drain per session
+      |                                     a turn is a loop iteration here,
+      |                                     not a nested Run
+      +-- ProcessRunner.Run ............... one child process
+      +-- SubagentManager.Run ............. one child session
            |
-           +-- ProcessRunner.Run .......... one child process
-           +-- SubagentManager.Run ........ one child session
-                |
-                +-- Session.Run             (recurses)
+           +-- AgentSession.Run            (recurses)
 ```
 
 There is no `Stop` anywhere. Shutdown is cancellation of the token `Program`
 holds; `IDisposable` releases handles after `Run` has already returned.
 
-## Session
+## AgentSession
 
-`Session` is the one block that must not be a record plus a service. Upstream
-`session.Session` is a twelve-field struct with **no methods**, and its behaviour
-lives in four other places — `Service`, `GoalService`, `TodoService`, and
-`agentSession`/`drainState` inside the agent coordinator. That is the anemic
-model `AGENTS.md` rejects, and MIGRATION.md §5 names it by that exact shape.
+`AgentSession` is the one block that must not be a record plus a service.
+Upstream `session.Session` is a twelve-field struct with **no methods**, and its
+behaviour lives in five other places — `Service`, `GoalService`, `TodoService`,
+`agentSession`/`drainState` in the coordinator, and the turn runner. That is the
+anemic model `AGENTS.md` rejects, and MIGRATION.md §5 names it by that shape.
 
 It carries a lot of state, which is why it is the block most likely to be got
 wrong. Everything below belongs to one session and nothing outside it reads
 any of it:
 
 ```text
-Session
+AgentSession
  |
  +-- identity ......... Id, ParentSessionId, ProjectId, ProjectRoot, Title,
  |                      CreatedAt, UpdatedAt
@@ -205,8 +200,10 @@ cancellation cannot simply drop the drain.
 
 ### A turn
 
-`Session.Run` performs this sequence per turn, in order. It is the safe
-provider-turn boundary, and context sources are sampled nowhere else:
+A turn is a loop iteration inside `AgentSession.Run`, not a separate object and
+not a nested `Run`. `AgentSession` performs this sequence per turn, in order. It
+is the safe provider-turn boundary, and context sources are sampled nowhere
+else:
 
 ```text
 1. initialize or reconcile the context epoch
@@ -216,8 +213,44 @@ provider-turn boundary, and context sources are sampled nowhere else:
 4. load active history
 5. materialize an immutable tool registry snapshot
 6. compact history if required
-7. invoke the provider
+7. call ILLMProvider                          <-- the only stateless step
+8. execute the returned tool requests, all settling before step 1 repeats
 ```
+
+## ILLMProvider
+
+Stateless, by rule. It holds no conversation, no session, no accumulated
+history — `AgentSession` holds all of it and passes what a call needs. Two
+providers serving the same session concurrently would be a bug in the session,
+not a race in the provider.
+
+The surface is deliberately shallow: a prompt goes in, messages and tool
+requests come out. Everything upstream models as protocol events, retry
+notices, or stream lifecycle stays inside the implementation.
+
+```csharp
+public interface ILLMProvider
+{
+    string Id { get; }
+
+    IReadOnlyList<LLMModel> Models { get; }
+
+    // Everything the call depends on arrives in the request. Nothing is
+    // remembered between calls.
+    Task<LLMResponse> Prompt(LLMRequest request, CancellationToken cancellationToken);
+}
+```
+
+`LLMRequest` carries the model and variant, the system context baseline, the
+message history, and the tool schemas available this turn. `LLMResponse` carries
+the assistant messages and the tool requests, plus token usage.
+
+Streaming is the open part of this shape: upstream returns a `Stream` the caller
+pumps, and live token deltas are disposable while final message state is durable
+(principle 10). A single `Task<LLMResponse>` cannot express a delta. The likely
+resolution is that `Prompt` returns the final response while deltas are
+published to the event stream as a side effect, which keeps the interface flat
+and matches principle 10 — but it is not decided. See open question 1.
 
 ## Blocks to Go packages
 
@@ -227,12 +260,12 @@ Rank is migration order. A block may not be built before anything it depends on.
 | --- | --- | --- |
 | 1 | `StatePaths` | `appdirs`, `project`, `id`, `atomicfile`, `processidentity` |
 | 1 | `Configuration` | `config`, `mode` |
-| 2 | `SessionStore` | `store`, `workspace` |
+| 2 | `AgentSessionStore` | `store`, `workspace` |
 | 2 | `EventRepository` | `event` (persistence half) |
 | 3 | `EventBroker` | `event` (broker, stream, subscription) |
 | 3 | `ICredentialStore` | `auth`, `security` |
 | 4 | `TaskManager` | `task`, `status`, `monitor` |
-| 5 | `IProvider`, `ProviderRegistry` | `provider`, `protocol` |
+| 5 | `ILLMProvider`, `ProviderRegistry` | `provider`, `protocol` |
 | 5 | `PermissionBroker`, `QuestionBroker` | `permission`, `question` |
 | 6 | `ProcessRunner` | `process` |
 | 6 | `ChangeSet` | `change` |
@@ -241,8 +274,7 @@ Rank is migration order. A block may not be built before anything it depends on.
 | 7 | `SystemContextBuilder` | `systemcontext`, `skill`, `command` |
 | 8 | `Compactor` | `compaction` |
 | 8 | `AgentRegistry` | `agent` (registry, provider resolution) |
-| 9 | `TurnRunner` | `agent` (runner) |
-| 9 | `Session` | `session` (all of it), `agent` (coordinator) |
+| 9 | `AgentSession` | `session` (all of it), `agent` (runner and coordinator) |
 | 9 | `SubagentManager` | `subagent` |
 | 10 | `ApiBackend` | `api/v1`, `httpapi` (backend half) |
 | 10 | `InProcessTransport` | `transport`, `client` |
@@ -250,27 +282,29 @@ Rank is migration order. A block may not be built before anything it depends on.
 | 11 | `ParrotApplication` | `app` |
 | 12 | `CommandDispatcher`, `TerminalChat` | `cli`, `terminal`, `diagnostics` |
 
-`Session` sits at rank 9, not at the rank 4 its state alone would suggest,
-because it owns the drain and the drain needs `TurnRunner`. That is the cost of
-collapsing the coordinator into it, and it is why `SessionStore` is ranked 2:
-session state becomes persistable long before `Session` itself can be built.
+`AgentSession` sits at rank 9, not at the rank 4 its state alone would suggest,
+because it owns the drain and the turn, and a turn needs the tool registry and
+the providers. That is the cost of collapsing the coordinator and the runner
+into it, and it is why `AgentSessionStore` is ranked 2: session state becomes
+persistable long before `AgentSession` itself can be built.
 
 ## Open questions
 
 Resolve these before filling in `components.md`; each one moves a boundary.
 
-1. **`Session` and `TurnRunner` reference each other.** `Session` owns the drain
-   and starts turns; a turn reads and appends to session state. As drawn that is
-   a cycle. It breaks if a turn becomes a `Turn` object that `Session`
-   constructs and hands what it needs — which principle 3 already argues for,
-   since it calls a provider turn an explicit, cancellable boundary, and a
-   boundary with a lifetime is a type. Not done, because it goes beyond
-   collapsing the services and wants a decision.
-2. **Does `Session` sub-divide?** It owns ten groups of state (above), which is
-   a lot for one type even when the type is correctly rich. Todos and goals are
-   the obvious candidates for owned sub-objects — `Session.Todos` rather than a
-   `TodoService` — but that is a decomposition question for level 2, not a
-   reason to hand them back to a service.
+1. **How `ILLMProvider` streams.** A flat `Task<LLMResponse>` cannot express a
+   token delta, and principle 10 wants deltas disposable but final message state
+   durable. Publishing deltas to the event stream as a side effect keeps the
+   interface shallow, which is the point of the shape, but it makes the provider
+   write somewhere — and the rule says it is stateless. Whether "stateless"
+   means "holds no conversation state" (it can publish) or "has no outbound
+   dependency at all" (`AgentSession` pumps and publishes) is the decision.
+2. **Does `AgentSession` sub-divide?** It owns ten groups of state, plus the
+   drain and the turn loop. That is a lot for one type even when the type is
+   correctly rich. Todos and goals are the obvious candidates for owned
+   sub-objects — `AgentSession.Todos` rather than a `TodoService` — but that is
+   a decomposition question for level 2, not a reason to hand them back to a
+   service.
 3. **`EventBroker` and `EventRepository` are drawn apart but commit together.**
    Principle 9 requires the durable event and its projection to commit
    atomically. If that forces one transaction, they are one block, not two.
