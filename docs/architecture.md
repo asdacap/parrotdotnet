@@ -294,7 +294,7 @@ Rank is migration order. A block may not be built before anything it depends on.
 | 5 | `PermissionBroker`, `QuestionBroker` | `permission`, `question` |
 | 6 | `ProcessRunner` | `process` |
 | 6 | `WebFetcher` | `webfetch` |
-| 7 | `ITool`, `ToolRegistry` | `tool`, `change` (patch parsing only) |
+| 7 | `ITool`, `ToolRegistry` | `tool`, `change` (patch model and parsing only) |
 | 7 | `SystemContextBuilder` | `systemcontext`, `skill`, `command` |
 | 8 | `Compactor` | `compaction` |
 | 9 | `AgentSession` | `session` (all of it), `agent` (runner and coordinator) |
