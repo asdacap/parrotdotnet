@@ -664,15 +664,25 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 
 ### `EnhancedCli` — rank 14, M7
 
-- **Absorbs** `cli/enhancedchat`, `cli/chatview`, `terminal`.
-- **Owns** the terminal: raw mode, editor, picker, markdown rendering,
+- **Absorbs** `cli/enhancedchat`, the streamed-turn part of `cli/chatview`, and
+  the live-row part of `terminal`.
+- **Owns** two sub-components. The **turn view** interprets typed gRPC events and
+  accumulates the foreground assistant text for one turn. The **live terminal
+  renderer** owns display-width layout, sanitisation, the bounded mutable row,
+  ANSI cursor operations, and promotion of stable rows into ordinary terminal
   scrollback.
-- **Inbound** the same event stream and the same payloads, rendered richly.
-- **Outbound** the generated gRPC client, the terminal.
-- **Boundary** no.
-- **Note** **not decomposed yet.** Deferred to M7 planning by decision 5; it is
-  the only entry here that is deliberately incomplete, and nothing before M7
-  depends on it.
+- **Inbound** the same event stream and payloads as `BasicCli`; terminal width is
+  sampled while laying out each enhanced frame.
+- **Outbound** the generated gRPC client and a `TextWriter` representing the
+  terminal. Provider text crosses this boundary only after control-character
+  sanitisation.
+- **Boundary** no. Both sub-components remain private to `EnhancedCli`; neither
+  is shared with `BasicCli` or moved into the domain.
+- **Note** complete physical assistant rows become immutable scrollback while
+  only the unfinished final row remains redrawable. No alternate screen is
+  used. The current line-buffered input path remains silent while a turn is
+  active; raw mode, a visible editor, picker, markdown, modal prompts, and
+  general activity-frame rendering remain deferred M7 work.
 
 ## Assemblies
 
