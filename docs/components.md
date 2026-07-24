@@ -193,15 +193,27 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 ### `EventBroker` — rank 3, M1
 
 - **Absorbs** `event` (broker, stream, subscription).
-- **Owns** live subscriptions and the fan-out channel.
+- **Owns** live subscriptions, one bounded queue per subscriber.
 - **Inbound** subscribe to a session's stream; publish. Publication is
   serialised, and **only events `EventRepository` has already committed** are
   published — a subscriber cannot observe an event a crash would un-happen.
 - **Outbound** `EventRepository`.
 - **Boundary** no.
+- **Publishing never blocks and never waits for a reader.** A subscriber that
+  stops reading loses its oldest events rather than stalling the session
+  publishing to it. Safe because these are live events, which principle 10
+  makes disposable; durability is `EventRepository`'s job from M2. A single
+  shared bounded channel — the first implementation — made a dropped listener
+  look like a hang instead of a leak.
+- **Subscriptions unregister on disposal**, so a departed listener stops
+  receiving and stops being tracked. Disposing the broker ends every
+  subscription, and disposal chains `ParrotService` → `UserSession` →
+  `EventBroker`.
 - **Note** in M1 there is no repository yet, so the broker publishes directly.
   That is the one place M1 knowingly runs ahead of the invariant, and M2 closes
-  it.
+  it. Evicting an idle *user session* is likewise deferred: M1 keeps them for
+  the process lifetime, which is right for a one-shot CLI and wrong for
+  `parrot serve` at M6.
 
 ---
 

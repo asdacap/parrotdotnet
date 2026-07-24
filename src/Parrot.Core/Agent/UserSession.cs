@@ -12,7 +12,7 @@ namespace Parrot.Agent;
 // however deep the recursion goes.
 //
 // M1 holds no database and no working-directory claim yet; that is M2.
-internal sealed class UserSession
+internal sealed class UserSession : IDisposable
 {
     private readonly ConcurrentDictionary<string, AgentSession> _agents = new(StringComparer.Ordinal);
     private readonly EventBroker _events = new();
@@ -42,4 +42,12 @@ internal sealed class UserSession
     // actually runs the turn. Subagents join _agents later, from the agent side.
     public void Send(string prompt, CancellationToken cancellationToken) =>
         _main.Start(prompt, cancellationToken);
+
+    // Ends every subscription on this session's stream. A listener blocked on
+    // MoveNext returns false rather than waiting forever.
+    public void Dispose()
+    {
+        _events.Dispose();
+        _agents.Clear();
+    }
 }

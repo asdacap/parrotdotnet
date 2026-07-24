@@ -1,23 +1,85 @@
+using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Parrot.Protocol;
 
 namespace Parrot.Events;
 
-// Serialised publication over a bounded channel (principle 9). A channel rather
-// than a .NET event: a multicast delegate has neither ordering nor backpressure.
+// Fan-out to zero or more subscribers, each with its own bounded queue.
 //
-// M1 only: with no EventRepository yet, this publishes directly rather than
-// only after a durable commit. M2 closes that, and components.md records it.
-internal sealed class EventBroker
+// Publishing never blocks and never waits for a reader. A subscriber that stops
+// reading -- a client that dropped, a CLI that stopped caring after its turn --
+// loses its oldest events rather than stalling the session that is publishing
+// to it. That is safe here because these are live events, which principle 10
+// makes disposable; durability is EventRepository's job from M2.
+//
+// A shared bounded channel would have made a dead listener look like a hang.
+internal sealed class EventBroker : IDisposable
 {
-    private readonly Channel<Event> _events =
-        Channel.CreateBounded<Event>(new BoundedChannelOptions(1024) { SingleReader = true });
+    private readonly Lock _gate = new();
+    private readonly List<Channel<Event>> _subscribers = [];
 
-    public ValueTask Publish(Event published, CancellationToken cancellationToken) =>
-        _events.Writer.WriteAsync(published, cancellationToken);
+    public ValueTask Publish(Event published, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
 
-    public void Complete() => _events.Writer.TryComplete();
+        Channel<Event>[] targets;
 
-    public IAsyncEnumerable<Event> Subscribe(CancellationToken cancellationToken) =>
-        _events.Reader.ReadAllAsync(cancellationToken);
+        lock (_gate)
+        {
+            targets = [.. _subscribers];
+        }
+
+        foreach (var target in targets)
+        {
+            _ = target.Writer.TryWrite(published);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<Event> Subscribe(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var queue = Channel.CreateBounded<Event>(
+            new BoundedChannelOptions(1024)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+            });
+
+        lock (_gate)
+        {
+            _subscribers.Add(queue);
+        }
+
+        try
+        {
+            await foreach (var published in queue.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                yield return published;
+            }
+        }
+        finally
+        {
+            // Unsubscribing is the point: without it a departed listener keeps
+            // receiving forever and the list grows for the process lifetime.
+            lock (_gate)
+            {
+                _ = _subscribers.Remove(queue);
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            foreach (var subscriber in _subscribers)
+            {
+                _ = subscriber.Writer.TryComplete();
+            }
+
+            _subscribers.Clear();
+        }
+    }
 }

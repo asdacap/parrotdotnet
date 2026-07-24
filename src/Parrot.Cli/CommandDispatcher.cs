@@ -109,14 +109,17 @@ internal static class CommandDispatcher
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        var client = await Connect(error, cancellationToken).ConfigureAwait(false);
+        var provider = await ResolveProvider(error, cancellationToken).ConfigureAwait(false);
 
-        if (client is null)
+        if (provider is null)
         {
             return ExitFailure;
         }
 
-        var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
+        using var service = new ParrotService(provider);
+
+        var listed = await ClientFor(service)
+            .ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
 
         foreach (var model in listed.Models)
         {
@@ -127,7 +130,10 @@ internal static class CommandDispatcher
         return ExitSuccess;
     }
 
-    private static async Task<Parrot.Protocol.Parrot.ParrotClient?> Connect(
+    // Resolves the credential and builds the provider. It deliberately does not
+    // build the service: the caller owns that, and owning it is what makes the
+    // disposal visible at the call site.
+    private static async Task<ILLMProvider?> ResolveProvider(
         TextWriter error,
         CancellationToken cancellationToken)
     {
@@ -145,10 +151,13 @@ internal static class CommandDispatcher
         var provider = new OpenAICompatibleProvider(
             ProviderId, new Uri("https://opencode.ai/zen/go/v1/"), key, Http);
 
-        // Local mode opens no socket: the generated client reaches the service
-        // through the in-process invoker.
-        return new Parrot.Protocol.Parrot.ParrotClient(new InProcessCallInvoker(new ParrotService(provider)));
+        return provider;
     }
+
+    // Local mode opens no socket: the generated client reaches the service
+    // through the in-process invoker.
+    private static Parrot.Protocol.Parrot.ParrotClient ClientFor(ParrotService service) =>
+        new(new InProcessCallInvoker(service));
 
     private static async Task<int> Chat(
         IReadOnlyList<string> arguments,
@@ -178,29 +187,18 @@ internal static class CommandDispatcher
             return ExitUsage;
         }
 
-        using var store = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        var key = await store.Get(ProviderId, cancellationToken).ConfigureAwait(false);
+        var provider = await ResolveProvider(error, cancellationToken).ConfigureAwait(false);
 
-        if (key is null)
+        if (provider is null)
         {
-            await error.WriteLineAsync(
-                "parrot: no credential. Run: parrot auth login --api-key-stdin".AsMemory(),
-                cancellationToken).ConfigureAwait(false);
             return ExitFailure;
         }
 
-        using var http = new HttpClient();
-        var provider = new OpenAICompatibleProvider(
-            ProviderId, new Uri("https://opencode.ai/zen/go/v1/"), key, http);
-
-        // Local mode opens no socket: the generated client reaches the service
-        // through the in-process invoker.
-        var client = new Parrot.Protocol.Parrot.ParrotClient(new InProcessCallInvoker(new ParrotService(provider)));
-
+        using var service = new ParrotService(provider);
         var prompt = string.Join(' ', words);
 
         return await BasicCli
-            .Render(client, model, prompt, output, error, cancellationToken)
+            .Render(ClientFor(service), model, prompt, output, error, cancellationToken)
             .ConfigureAwait(false);
     }
 }

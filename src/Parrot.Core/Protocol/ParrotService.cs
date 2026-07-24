@@ -8,7 +8,7 @@ namespace Parrot.Protocol;
 //
 // It deals in user sessions only. Agent sessions live inside one and are not
 // addressable here, because a user never spawns a subagent -- an agent does.
-internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase
+internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase, IDisposable
 {
     private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
 
@@ -81,6 +81,19 @@ internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase
         {
             await responseStream.WriteAsync(published, context.CancellationToken).ConfigureAwait(false);
         }
+    }
+
+    // M1 keeps every user session for the process lifetime, which is right for
+    // a one-shot CLI. Evicting an idle session is an M6 concern, when a server
+    // outlives the sessions it hosts.
+    public void Dispose()
+    {
+        foreach (var session in _userSessions.Values)
+        {
+            session.Dispose();
+        }
+
+        _userSessions.Clear();
     }
 
     private static UserSession Describe(Agent.UserSession session) =>

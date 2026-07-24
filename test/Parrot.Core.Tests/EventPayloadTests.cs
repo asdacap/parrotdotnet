@@ -17,7 +17,7 @@ internal sealed class EventPayloadTests
         LLMEventKind source,
         Event.PayloadOneofCase expectedPayload)
     {
-        var events = new EventBroker();
+        using var events = new EventBroker();
         var session = new AgentSession("session", new UnusedProvider(), events);
 
         var llmEvent = source switch
