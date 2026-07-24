@@ -74,6 +74,33 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
+    public async Task Flushing_activities_redraws_the_live_frame(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false));
+        var initial = new TerminalFrame(
+            ["running"],
+            null,
+            new ModelineValue("build", "working", "model"),
+            new PromptValue("> ", "edit", 2));
+        var redrawn = new TerminalFrame(
+            [],
+            null,
+            new ModelineValue("build", "working", "model"),
+            new PromptValue("> ", "edit", 2));
+
+        await renderer.Draw(initial, cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.FlushActivitiesAndDraw(["+ shell finished"], redrawn, cancellationToken);
+        var flushed = output.ToString()[boundary..];
+
+        _ = await Assert.That(flushed).Contains("+ shell finished\r\n");
+        _ = await Assert.That(flushed).Contains("build");
+        _ = await Assert.That(flushed).Contains("> edit");
+        _ = await Assert.That(flushed).EndsWith("\r\u001b[4C\u001b[?7h\u001b[?25h");
+    }
+
+    [Test]
     public async Task Concurrent_draws_are_serialized(CancellationToken cancellationToken)
     {
         using var output = new TrackingTextWriter();
