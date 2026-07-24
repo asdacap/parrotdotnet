@@ -1,15 +1,50 @@
+using System.Threading.Channels;
 using Grpc.Core;
+using Parrot.Cli.Commands;
 using Parrot.Protocol;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
 
-// A switch over the payload and a WriteLine. No model of the conversation
-// beyond what it has printed, and no helper. If this ever needs one, the event
-// is underspecified -- fix the event, not the CLI. It shares no rendering with
-// EnhancedCli, only the ITurnRenderer seam and the generated client.
-internal sealed class BasicCli : ITurnRenderer
+internal sealed class BasicCli(
+    GeneratedParrot.ParrotClient client,
+    SlashCommandRegistry commands,
+    Interrupts interrupts) : IInterruptListener
 {
-    public async Task<bool> RenderTurn(
+    private const string Prompt = "> ";
+
+    private readonly Channel<bool> _interrupts =
+        Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
+
+    private volatile bool _busy;
+    private volatile bool _interruptRequested;
+
+    public async Task<int> Run(
+        SlashContext context,
+        string prompt,
+        TextReader input,
+        TextWriter output,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return prompt.Length > 0
+            ? await Once(context, prompt, output, cancellationToken).ConfigureAwait(false)
+            : await Loop(context, input, output, cancellationToken).ConfigureAwait(false);
+    }
+
+    public bool Interrupted()
+    {
+        if (!_busy || _interruptRequested)
+        {
+            return false;
+        }
+
+        _interruptRequested = true;
+        return _interrupts.Writer.TryWrite(true);
+    }
+
+    internal static async Task<bool> RenderTurn(
         IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -80,4 +115,173 @@ internal sealed class BasicCli : ITurnRenderer
         ended.FinishReason == "length" && ended.OutputTokens > 0
             ? "turn ended: the token budget was spent before any content"
             : $"turn ended ({ended.FinishReason}, {ended.InputTokens} in / {ended.OutputTokens} out)";
+
+    private static SendMessageRequest Message(string userSessionId, string text) =>
+        new()
+        {
+            UserSessionId = userSessionId,
+            Text = text,
+            Delivery = Delivery.Steer,
+        };
+
+    private async Task<int> Once(
+        SlashContext context, string prompt, TextWriter output, CancellationToken cancellationToken)
+    {
+        using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var call = client.Listen(
+            new ListenRequest { UserSessionId = context.UserSessionId }, cancellationToken: listening.Token);
+
+        _ = await client.SendMessageAsync(
+            Message(context.UserSessionId, prompt), cancellationToken: cancellationToken);
+
+        var completed = await RenderTurn(call.ResponseStream, output, context.Error, listening.Token)
+            .ConfigureAwait(false);
+
+        await listening.CancelAsync().ConfigureAwait(false);
+        return completed ? CommandDispatcher.ExitSuccess : CommandDispatcher.ExitFailure;
+    }
+
+    private async Task<int> Loop(
+        SlashContext context, TextReader input, TextWriter output, CancellationToken cancellationToken)
+    {
+        await output.WriteLineAsync(
+            $"parrot {BuildInfo.Version} — /help for commands, /exit to leave".AsMemory(), cancellationToken)
+            .ConfigureAwait(false);
+
+        using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+        var listeningTo = context.UserSessionId;
+        var call = client.Listen(
+            new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
+        var rendering = Task.CompletedTask;
+        var interrupting = Interrupting(context, listening.Token);
+
+        interrupts.Install(this);
+
+        try
+        {
+            await Ready(output, cancellationToken).ConfigureAwait(false);
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var line = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                if (line is null)
+                {
+                    break;
+                }
+
+                var entered = line.Trim();
+                if (entered.Length == 0)
+                {
+                    await Ready(output, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (entered.StartsWith('/'))
+                {
+                    if (await Dispatch(context, entered, cancellationToken).ConfigureAwait(false) == SlashOutcome.Exit)
+                    {
+                        break;
+                    }
+
+                    if (!string.Equals(context.UserSessionId, listeningTo, StringComparison.Ordinal))
+                    {
+                        await streaming.CancelAsync().ConfigureAwait(false);
+                        await rendering.ConfigureAwait(false);
+                        streaming.Dispose();
+                        call.Dispose();
+
+                        streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+                        listeningTo = context.UserSessionId;
+                        call = client.Listen(
+                            new ListenRequest { UserSessionId = listeningTo },
+                            cancellationToken: streaming.Token);
+                        _busy = false;
+                    }
+
+                    await Ready(output, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                _busy = true;
+                _ = await client.SendMessageAsync(
+                    Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
+
+                if (rendering.IsCompleted)
+                {
+                    rendering = Render(call.ResponseStream, output, context.Error, streaming.Token);
+                }
+            }
+        }
+        finally
+        {
+            interrupts.Remove();
+            _ = _interrupts.Writer.TryComplete();
+            await listening.CancelAsync().ConfigureAwait(false);
+            await rendering.ConfigureAwait(false);
+            await interrupting.ConfigureAwait(false);
+            streaming.Dispose();
+            call.Dispose();
+        }
+
+        return CommandDispatcher.ExitSuccess;
+    }
+
+    private async Task Render(
+        IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        _ = await RenderTurn(stream, output, error, cancellationToken).ConfigureAwait(false);
+        _busy = false;
+        _interruptRequested = false;
+        await Ready(output, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task Interrupting(SlashContext context, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (await _interrupts.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (_interrupts.Reader.TryRead(out _))
+                {
+                    _ = await client.InterruptAsync(
+                        new InterruptRequest { UserSessionId = context.UserSessionId },
+                        cancellationToken: cancellationToken);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task Ready(TextWriter output, CancellationToken cancellationToken)
+    {
+        if (_busy || cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await output.WriteAsync(Prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<SlashOutcome> Dispatch(
+        SlashContext context, string entered, CancellationToken cancellationToken)
+    {
+        var split = entered.IndexOf(' ', StringComparison.Ordinal);
+        var name = split < 0 ? entered : entered[..split];
+        var arguments = split < 0 ? string.Empty : entered[(split + 1)..].Trim();
+        var command = commands.Find(name);
+
+        if (command is null)
+        {
+            await context.Error
+                .WriteLineAsync($"  unknown command {name}, try /help".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return SlashOutcome.Continue;
+        }
+
+        return await command.Run(context, arguments, cancellationToken).ConfigureAwait(false);
+    }
 }
