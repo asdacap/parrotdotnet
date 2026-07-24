@@ -554,10 +554,12 @@ internal sealed class EnhancedCli(
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var activity = new RawActivityView(
+            using var activity = new RawActivityView(
                 renderer,
                 prompt,
                 () => new ModelineValue(context.Mode, "working", context.Model));
+            using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var animation = activity.Run(animating.Token);
 
             async Task BeforeRender(Event published, CancellationToken token)
             {
@@ -575,16 +577,26 @@ internal sealed class EnhancedCli(
                 await activity.Prepare(published, token).ConfigureAwait(false);
             }
 
-            var completed = await RenderTurn(
-                stream,
-                output,
-                error,
-                columns,
-                cancellationToken,
-                BeforeRender,
-                false,
-                activity.Render,
-                color()).ConfigureAwait(false);
+            bool completed;
+            try
+            {
+                completed = await RenderTurn(
+                    stream,
+                    output,
+                    error,
+                    columns,
+                    cancellationToken,
+                    BeforeRender,
+                    false,
+                    activity.Render,
+                    color()).ConfigureAwait(false);
+            }
+            finally
+            {
+                await animating.CancelAsync().ConfigureAwait(false);
+                await animation.ConfigureAwait(false);
+            }
+
             if (!completed)
             {
                 return;
@@ -683,63 +695,137 @@ internal sealed class EnhancedCli(
     internal sealed class RawActivityView(
         TerminalFrameRenderer renderer,
         Func<PromptValue> prompt,
-        Func<ModelineValue> modeline)
+        Func<ModelineValue> modeline) : IDisposable
     {
+        private const int SpinnerIntervalMilliseconds = 80;
+
         private readonly StringBuilder _reasoning = new();
         private readonly Dictionary<string, (string Name, StringBuilder Arguments)> _toolCalls = [];
+        private readonly SemaphoreSlim _rendering = new(1, 1);
         private IReadOnlyList<string> _rows = [];
+        private string? _activeToolCallId;
         private bool _started;
 
-        public Task Prepare(Event published, CancellationToken cancellationToken) => published.PayloadCase is
-            Event.PayloadOneofCase.TextChunk or
-            Event.PayloadOneofCase.TurnEnded or
-            Event.PayloadOneofCase.TurnFailed
-                ? Flush(false, cancellationToken)
-                : Task.CompletedTask;
+        public void Dispose() => _rendering.Dispose();
 
-        public async Task Render(Event published, CancellationToken cancellationToken)
+        public async Task Run(CancellationToken cancellationToken)
         {
-            _started |= published.PayloadCase == Event.PayloadOneofCase.TurnStarted;
-            if (published.PayloadCase is
-                Event.PayloadOneofCase.TextChunk or
+            try
+            {
+                for (var frame = 0; ; frame++)
+                {
+                    await Task.Delay(SpinnerIntervalMilliseconds, cancellationToken).ConfigureAwait(false);
+                    await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        if (_activeToolCallId is not null
+                            && _toolCalls.TryGetValue(_activeToolCallId, out var toolCall))
+                        {
+                            await renderer.Draw(
+                                new TerminalFrame(
+                                    [],
+                                    new SpinnerValue(FormatToolCall(toolCall), frame),
+                                    modeline(),
+                                    prompt()),
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                    finally
+                    {
+                        _ = _rendering.Release();
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+        }
+
+        public async Task Prepare(Event published, CancellationToken cancellationToken)
+        {
+            if (published.PayloadCase is not (Event.PayloadOneofCase.TextChunk or
                 Event.PayloadOneofCase.TurnEnded or
-                Event.PayloadOneofCase.TurnFailed)
+                Event.PayloadOneofCase.TurnFailed))
             {
                 return;
             }
 
-            var activity = published.PayloadCase switch
+            await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                Event.PayloadOneofCase.ReasoningChunk => Reasoning(published.ReasoningChunk.Fragment),
-                Event.PayloadOneofCase.ToolCallChunk => ToolCall(published.ToolCallChunk),
-                _ => Activity(published, _started),
-            };
-            _rows = Rows(published, activity);
-            await renderer.Draw(
-                new TerminalFrame(
-                    _rows,
-                    null,
-                    modeline(),
-                    prompt()),
-                cancellationToken).ConfigureAwait(false);
+                await Flush(false, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = _rendering.Release();
+            }
+        }
 
-            if (published.PayloadCase == Event.PayloadOneofCase.ToolFinished)
+        public async Task Render(Event published, CancellationToken cancellationToken)
+        {
+            await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                await Flush(true, cancellationToken).ConfigureAwait(false);
-                _ = _toolCalls.Remove(published.ToolFinished.ToolCallId);
+                _started |= published.PayloadCase == Event.PayloadOneofCase.TurnStarted;
+                if (published.PayloadCase is
+                    Event.PayloadOneofCase.TextChunk or
+                    Event.PayloadOneofCase.TurnEnded or
+                    Event.PayloadOneofCase.TurnFailed)
+                {
+                    return;
+                }
+
+                var activity = published.PayloadCase switch
+                {
+                    Event.PayloadOneofCase.ReasoningChunk => Reasoning(published.ReasoningChunk.Fragment),
+                    Event.PayloadOneofCase.ToolCallChunk => ToolCall(published.ToolCallChunk),
+                    _ => Activity(published, _started),
+                };
+                _rows = Rows(published, activity);
+                if (IsTerminalToolEvent(published))
+                {
+                    await Flush(true, cancellationToken).ConfigureAwait(false);
+                    RemoveToolCall(published);
+                    return;
+                }
+
+                SpinnerValue? spinner = published.PayloadCase == Event.PayloadOneofCase.ToolCallChunk
+                    ? new SpinnerValue(activity, 0)
+                    : null;
+                if (spinner is not null)
+                {
+                    _rows = [];
+                }
+
+                await renderer.Draw(
+                    new TerminalFrame(
+                        _rows,
+                        spinner,
+                        modeline(),
+                        prompt()),
+                    cancellationToken).ConfigureAwait(false);
             }
-            else if (published.PayloadCase == Event.PayloadOneofCase.ToolCancelled)
+            finally
             {
-                _ = _toolCalls.Remove(published.ToolCancelled.ToolCallId);
-            }
-            else if (published.PayloadCase == Event.PayloadOneofCase.ToolError)
-            {
-                _ = _toolCalls.Remove(published.ToolError.ToolCallId);
+                _ = _rendering.Release();
             }
         }
 
         private static string FormatToolCall((string Name, StringBuilder Arguments) toolCall) =>
             $"tool call {TerminalText.Sanitize(toolCall.Name)}: {TerminalText.Sanitize(toolCall.Arguments.ToString())}";
+
+        private static bool IsTerminalToolEvent(Event published) =>
+            published.PayloadCase is Event.PayloadOneofCase.ToolFinished or
+                Event.PayloadOneofCase.ToolCancelled or
+                Event.PayloadOneofCase.ToolError;
+
+        private static string? TerminalToolCallId(Event published) => published.PayloadCase switch
+        {
+            Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
+            Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
+            Event.PayloadOneofCase.ToolError => published.ToolError.ToolCallId,
+            _ => null,
+        };
 
         private string Reasoning(string fragment)
         {
@@ -749,10 +835,17 @@ internal sealed class EnhancedCli(
 
         private IReadOnlyList<string> Rows(Event published, string activity)
         {
-            if (published.PayloadCase == Event.PayloadOneofCase.ToolFinished
-                && _toolCalls.TryGetValue(published.ToolFinished.ToolCallId, out var toolCall))
+            var toolCallId = TerminalToolCallId(published);
+            if (toolCallId is not null && _toolCalls.TryGetValue(toolCallId, out var toolCall))
             {
-                return [FormatToolCall(toolCall), activity];
+                return published.PayloadCase switch
+                {
+                    Event.PayloadOneofCase.ToolFinished => [$"+ {FormatToolCall(toolCall)}"],
+                    Event.PayloadOneofCase.ToolCancelled => [$"- {FormatToolCall(toolCall)} cancelled"],
+                    Event.PayloadOneofCase.ToolError =>
+                        [$"! {FormatToolCall(toolCall)}: {TerminalText.Sanitize(published.ToolError.Message)}"],
+                    _ => [FormatToolCall(toolCall)],
+                };
             }
 
             return activity.Length == 0 ? [] : [activity];
@@ -771,7 +864,23 @@ internal sealed class EnhancedCli(
 
             _ = toolCall.Arguments.Append(chunk.ArgumentsFragment);
             _toolCalls[chunk.ToolCallId] = toolCall;
+            _activeToolCallId = chunk.ToolCallId;
             return FormatToolCall(toolCall);
+        }
+
+        private void RemoveToolCall(Event published)
+        {
+            var toolCallId = TerminalToolCallId(published);
+            if (toolCallId is null)
+            {
+                return;
+            }
+
+            _ = _toolCalls.Remove(toolCallId);
+            if (string.Equals(_activeToolCallId, toolCallId, StringComparison.Ordinal))
+            {
+                _activeToolCallId = null;
+            }
         }
 
         private async Task Flush(bool redraw, CancellationToken cancellationToken)
