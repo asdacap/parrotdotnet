@@ -6,11 +6,10 @@ using Parrot.Store;
 namespace Parrot.Agent;
 
 // Owns every child agent in one user session. Entries are retained after they
-// finish so waiting is repeatable, while only running entries consume the two
-// concurrency limits. _gate protects admission, names, and active counts.
+// finish so waiting is repeatable, while only running entries consume the
+// per-parent concurrency limit. _gate protects admission, names, and active counts.
 internal sealed class AgentRegistry(
     IAgentSessionFactory agentSessions,
-    ProcessAgentConcurrency concurrency,
     EventBroker eventBroker,
     EventRepository eventRepository,
     CancellationToken lifetime) : IAsyncDisposable
@@ -70,42 +69,29 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent concurrency limit reached for this parent");
             }
 
-            if (!concurrency.TryAcquire())
-            {
-                throw new AgentRegistryException("subagent concurrency limit reached");
-            }
+            var sessionId = Identifier.AgentSession();
+            var name = UniqueName(requestedName, sessionId);
+            var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
+            var child = agentSessions.Create(
+                identity,
+                parent.Provider,
+                parent.Model,
+                eventBroker,
+                eventRepository,
+                _lifetime.Token);
+            var entry = new AgentEntry(child, parent.SessionId, name);
 
-            try
-            {
-                var sessionId = Identifier.AgentSession();
-                var name = UniqueName(requestedName, sessionId);
-                var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
-                var child = agentSessions.Create(
-                    identity,
-                    parent.Provider,
-                    parent.Model,
-                    eventBroker,
-                    eventRepository,
-                    _lifetime.Token);
-                var entry = new AgentEntry(child, parent.SessionId, name);
+            _entries.Add(sessionId, entry);
+            _names.Add(name, sessionId);
+            _activeByParent[parent.SessionId] = parentActive + 1;
+            entry.Start(Execute(entry, child, prompt));
 
-                _entries.Add(sessionId, entry);
-                _names.Add(name, sessionId);
-                _activeByParent[parent.SessionId] = parentActive + 1;
-                entry.Start(Execute(entry, child, prompt));
-
-                return entry.Result(
-                    AgentTaskStatus.Running,
-                    yielded: false,
-                    elapsedMilliseconds: 0,
-                    string.Empty,
-                    string.Empty);
-            }
-            catch
-            {
-                concurrency.Release();
-                throw;
-            }
+            return entry.Result(
+                AgentTaskStatus.Running,
+                yielded: false,
+                elapsedMilliseconds: 0,
+                string.Empty,
+                string.Empty);
         }
     }
 
@@ -296,7 +282,6 @@ internal sealed class AgentRegistry(
                 _activeByParent[entry.ParentSessionId] = remaining;
             }
 
-            concurrency.Release();
             entry.Complete(completed);
         }
     }

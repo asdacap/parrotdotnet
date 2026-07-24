@@ -476,7 +476,7 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Boundary** no.
 - **Note** mutually dependent with `AgentSession`; both rank 9. The implemented
   registry owns background child sessions, compact retained terminal results,
-  friendly names, and recursion/process-wide/per-parent limits. `agent_spawn` returns
+  friendly names, and recursion/per-parent limits. `agent_spawn` returns
   immediately and `wait_agent` waits or yields without canceling the child;
   user-session shutdown cancels and joins every child. Profiles, reusable
   `agent_send`, generic task APIs, and `TaskManager` remain deferred rather than
