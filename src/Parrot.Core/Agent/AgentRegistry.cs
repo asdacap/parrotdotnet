@@ -79,7 +79,7 @@ internal sealed class AgentRegistry(
 
             _entries.Add(sessionId, entry);
             _names.Add(name, sessionId);
-            entry.Start(Execute(entry, child, prompt, followUp: false));
+            entry.Start(Execute(entry, child, prompt));
 
             return entry.Result(
                 AgentTaskStatus.Running,
@@ -117,7 +117,7 @@ internal sealed class AgentRegistry(
         lock (_gate)
         {
             entry = Resolve(sessionIdOrName);
-            completion = entry.Completion;
+            completion = entry.Child.ResultSettled();
         }
 
         var started = Stopwatch.GetTimestamp();
@@ -274,7 +274,7 @@ internal sealed class AgentRegistry(
         _lifetime.Dispose();
     }
 
-    private async Task Execute(AgentEntry entry, AgentSession child, string prompt, bool followUp)
+    private async Task Execute(AgentEntry entry, AgentSession child, string prompt)
     {
         await Task.Yield();
 
@@ -288,21 +288,9 @@ internal sealed class AgentRegistry(
                 new AgentStarted { ParentAgentSessionId = entry.ParentSessionId, Name = entry.Name })
                 .ConfigureAwait(false);
             started = true;
-            completed = await ExecuteTurn(child, prompt, followUp).ConfigureAwait(false);
-
-            while (true)
-            {
-                await entry.Operation.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-
-                if (eventRepository.HasPendingInputs(child.SessionId) && !_lifetime.IsCancellationRequested)
-                {
-                    _ = entry.Operation.Release();
-                    completed = await ExecuteTurn(child, string.Empty, followUp: true).ConfigureAwait(false);
-                    continue;
-                }
-
-                break;
-            }
+            _ = await child.Send(prompt, Identifier.MessageId(), Delivery.Steer, _lifetime.Token)
+                .ConfigureAwait(false);
+            completed = Bounded(await child.ResultSettled().ConfigureAwait(false));
         }
         catch (Exception failure)
         {
@@ -324,34 +312,6 @@ internal sealed class AgentRegistry(
         lock (_gate)
         {
             entry.Complete(completed);
-        }
-
-        if (entry.Operation.CurrentCount == 0)
-        {
-            _ = entry.Operation.Release();
-        }
-    }
-
-    private async Task<AgentExecution> ExecuteTurn(AgentSession child, string prompt, bool followUp)
-    {
-        try
-        {
-            if (!followUp)
-            {
-                return Bounded(await child.Run(prompt, _lifetime.Token).ConfigureAwait(false));
-            }
-
-            return Bounded(await child.ResultSettled().ConfigureAwait(false));
-        }
-        catch (OperationCanceledException)
-        {
-            return AgentExecution.Canceled();
-        }
-        catch (Exception failure)
-        {
-            // An agent execution is a containment boundary: its failure is
-            // retained for wait_agent rather than escaping as an unobserved task.
-            return AgentExecution.Failed(Bounded(failure.Message));
         }
     }
 
@@ -447,8 +407,6 @@ internal sealed class AgentRegistry(
         public string Name { get; } = name;
 
         public Task<AgentExecution> Completion => _completion.Task;
-
-        public SemaphoreSlim Operation { get; } = new(1, 1);
 
         public bool Running { get; private set; }
 

@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Protocol;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -54,7 +55,9 @@ internal sealed class CompactorAndContextTests : IDisposable
             Model = "model",
         };
 
-        _ = await session.Run("keep this prompt", cancellationToken);
+        _ = await session.Send(
+            "keep this prompt", Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        _ = await session.ResultSettled();
 
         var inferenceRequest = provider.Requests.Single();
         _ = await Assert.That(inferenceRequest.Messages)

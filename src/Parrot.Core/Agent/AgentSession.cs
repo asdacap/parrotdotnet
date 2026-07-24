@@ -62,7 +62,6 @@ internal sealed class AgentSession(
     private string _epochContext = string.Empty;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
-    private bool _directRunning;
     private bool _wake;
 
     // Set while an interrupt is unwinding a drain. It says who disposes the
@@ -73,6 +72,8 @@ internal sealed class AgentSession(
     private bool _stopping;
 
     public string SessionId => identity.SessionId;
+
+    public string Name => identity.Name;
 
     public TodoCollection Todos { get; } = new(identity.SessionId, eventRepository, eventBroker);
 
@@ -267,51 +268,6 @@ internal sealed class AgentSession(
         return published;
     }
 
-    // Runs a child's one subtask directly rather than through the interactive
-    // drain. The registry owns this call and retains its terminal result.
-    internal async Task<AgentExecution> Run(string prompt, CancellationToken cancellationToken)
-    {
-        DirectStarted();
-
-        try
-        {
-            if (status is not null)
-            {
-                throw new InvalidOperationException("a foreground session must run through its input drain");
-            }
-
-            var selection = Selection();
-            selection.Mode?.Prepare();
-            var started = NewEvent();
-            started.TurnStarted = new TurnStarted { Model = selection.Model };
-
-            // The prompt is durable before execution is requested (principle 1).
-            await EmitEvent(started, "user", prompt, cancellationToken).ConfigureAwait(false);
-
-            _history.Add(LLMMessage.User(prompt));
-
-            return await Pass(turnOpen: true, selection, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            DirectFinished();
-        }
-    }
-
-    internal async Task<AgentExecution> Resume(CancellationToken cancellationToken)
-    {
-        DirectStarted();
-
-        try
-        {
-            return await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            DirectFinished();
-        }
-    }
-
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
     // principle 2: one owner, however many prompts arrive.
@@ -319,11 +275,6 @@ internal sealed class AgentSession(
     {
         lock (_drainGate)
         {
-            if (_directRunning)
-            {
-                return false;
-            }
-
             if (_drainCancellation is not null)
             {
                 _wake = true;
@@ -373,22 +324,6 @@ internal sealed class AgentSession(
                 State = DrainState.Idle;
                 return completed;
             }
-        }
-    }
-
-    private void DirectStarted()
-    {
-        lock (_drainGate)
-        {
-            _directRunning = true;
-        }
-    }
-
-    private void DirectFinished()
-    {
-        lock (_drainGate)
-        {
-            _directRunning = false;
         }
     }
 
