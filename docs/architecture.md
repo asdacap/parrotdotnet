@@ -715,27 +715,72 @@ needs the tool registry and the providers. `UserSession` is rank 10 because it
 owns the agent sessions inside it. This is why `SessionDatabase` is ranked 2 —
 the state becomes persistable long before either owner can be built.
 
-## Open questions
+## Decisions
 
-Resolve these before filling in `components.md`; each one moves a boundary.
+The level-1 questions, answered. Each one moved a boundary, which is why they
+were settled before `components.md` was written rather than after.
 
-1. **Does `AgentSession` sub-divide?** It owns ten groups of state, plus the
-   drain and the turn loop. That is a lot for one type even when the type is
-   correctly rich. Todos and goals are the obvious candidates for owned
-   sub-objects — `AgentSession.Todos` rather than a `TodoService` — but that is
-   a decomposition question for level 2, not a reason to hand them back to a
-   service.
-2. **`EventBroker` and `EventRepository` are drawn apart but commit together.**
-   Principle 9 requires the durable event and its projection to commit
-   atomically. If that forces one transaction, they are one block, not two.
-3. **`ToolRegistry` snapshot immutability.** Principle 4 wants an immutable
-   registry snapshot per turn. Whether that is a type or a discipline decides
-   if `ToolRegistry` is a block at all.
-4. **`ICredentialStore` versus provider auth.** ChatGPT OAuth refresh is a
-   provider concern that writes to the credential store. Which side owns the
-   refresh decides whether the dependency arrow reverses.
-5. **`EnhancedCli` is 3.5k lines of `enhancedchat` plus 4.6k of `terminal`.**
-   Almost certainly several trees. Ranked last so the shape can be decided once
-   everything it renders exists. `BasicCli` has the opposite problem: it is
-   ranked early precisely so the event contract gets tested before the TUI can
-   paper over a gap in it.
+### 1. `AgentSession` owns todos and goals as sub-objects
+
+Not separate blocks, not services. `AgentSession.Todos` and
+`AgentSession.Goals` are types that own their own state and behaviour, held by
+the session and reachable only through it. Nothing outside the session reads
+either, which by the garden test makes them branches rather than trees.
+
+The alternative — hoisting them to blocks — would have needed a way to find the
+todos for a session, and that lookup is the first step back toward the anemic
+shape this design exists to avoid.
+
+### 2. `EventBroker` and `EventRepository` stay two blocks
+
+Principle 9 requires the durable event and its query projection to commit
+atomically, and that is one transaction — but the transaction belongs entirely
+to `EventRepository`, which owns both tables. `EventBroker` never participates
+in it.
+
+The rule that keeps them separable: **the broker only ever publishes an event
+the repository has already committed.** Publication is fan-out over a
+`Channel<Event>`, serialised, after the fact. A subscriber therefore cannot
+observe an event that a crash would un-happen, which is the property principle 9
+is actually protecting.
+
+Merging them would put a fan-out loop inside a transaction, which is worse.
+
+### 3. The tool snapshot is a type
+
+`ToolSnapshot`, immutable, materialised once per turn at step 5 of the turn
+sequence. `ToolRegistry` stays a block: it is the mutable side, aware of
+configuration and enabled agents, and its job is to produce a snapshot.
+
+Discipline was the alternative and it is not enforceable — "do not mutate the
+registry mid-turn" is a comment, whereas a snapshot that has no mutators is a
+compiler error. Principle 4 wants an immutable registry within a turn, and this
+is the cheapest way to actually get it.
+
+### 4. The provider owns credential refresh
+
+`ICredentialStore` is storage and nothing else: get, set, delete, by provider
+id. It knows nothing about OAuth, expiry, or refresh.
+
+`ILLMProvider` owns refresh, because only the provider knows what its own token
+lifecycle is — when a token expires, what endpoint renews it, what a 401 means.
+It reads the credential, refreshes when it must, writes the new one back.
+
+So the arrow does not reverse: `ILLMProvider` → `ICredentialStore`, as drawn.
+This keeps the store a dumb, trivially testable boundary and keeps
+provider-specific knowledge inside the provider, which is where the
+extension boundary already is.
+
+### 5. `EnhancedCli` decomposes at M7, not now
+
+Deferred deliberately, with a trigger rather than a vague "later": it is decided
+when M7 is planned, and not before. It is the largest block, it renders
+everything else, and its internal shape is guessable only once the things it
+renders exist.
+
+This is the one question whose honest answer is "not yet". Recording it as
+deferred with a trigger is different from leaving it open — nothing between here
+and M7 depends on it, so nothing is blocked.
+
+`BasicCli` has the opposite property and is ranked early on purpose: the event
+contract gets tested before a TUI can paper over a gap in it.

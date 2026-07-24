@@ -40,13 +40,12 @@ M7  enhanced CLI               the terminal experience
 
 **Goal.** `docs/components.md` filled in, one entry per block.
 
-**Exit.** Every block in `architecture.md` has a complete entry, the remaining
-open questions are answered, and the document has been reviewed. No `<Namespace>`
+**Exit.** Every block in `architecture.md` has a complete entry, the level-1
+questions are answered, and the document has been reviewed. No `<Namespace>`
 placeholders left.
 
-**Forces.** The remaining five open questions. The one that blocked M1 — how
-`ILLMProvider` streams — is answered: `Call` takes an `ILLMEventSink` and
-returns `Task<LLMResult>`.
+**Forces.** The level-1 questions, now answered in the Decisions section of
+`architecture.md`.
 
 **No code.** This is the gate, and it is the cheapest place in the project to
 change your mind about a boundary.
