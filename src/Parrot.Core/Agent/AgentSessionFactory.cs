@@ -14,6 +14,7 @@ namespace Parrot.Agent;
 internal sealed class AgentSessionFactory(
     UserSession owner,
     string workingDirectory,
+    string blobDirectory,
     ProcessRunner processes,
     SystemContextBuilder systemContext,
     Compactor compactor,
@@ -24,7 +25,7 @@ internal sealed class AgentSessionFactory(
     private IReadOnlyList<IToolFactory> ToolFactories =>
         field ??=
         [
-            new ExecCommandToolFactory(workingDirectory, processes),
+            new ExecCommandToolFactory(workingDirectory, blobDirectory, processes),
             new ReadToolFactory(_workspace),
             new GlobToolFactory(_workspace),
             new GrepToolFactory(_workspace),

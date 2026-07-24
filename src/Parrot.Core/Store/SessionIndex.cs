@@ -15,6 +15,9 @@ internal sealed class SessionIndex(string stateDirectory)
     public string DatabaseFor(string userSessionId) =>
         Path.Combine(DirectoryFor(userSessionId), "session.db");
 
+    public string BlobDirectoryFor(string userSessionId) =>
+        Path.Combine(DirectoryFor(userSessionId), "blob");
+
     public void Publish(SessionMeta meta)
     {
         ArgumentNullException.ThrowIfNull(meta);

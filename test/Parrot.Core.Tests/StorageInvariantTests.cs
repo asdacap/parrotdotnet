@@ -106,6 +106,9 @@ internal sealed class StorageInvariantTests : IDisposable
     {
         var index = new SessionIndex(_root);
 
+        _ = await Assert.That(index.BlobDirectoryFor("listed"))
+            .IsEqualTo(Path.Combine(index.DirectoryFor("listed"), "blob"));
+
         index.Publish(new SessionMeta
         {
             Id = "listed",

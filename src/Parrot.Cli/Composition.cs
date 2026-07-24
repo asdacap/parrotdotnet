@@ -47,6 +47,11 @@ internal partial class Composition
             .Arg<string>("hostKey", "hostKey")
 
             .Bind().As(Lifetime.Singleton).To(_ => StatePaths.ResolveFromEnvironment())
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<StatePaths>(out var paths);
+                return new SessionIndex(paths.State);
+            })
             .Bind().As(Lifetime.Singleton).To(_ => ProcessRunner.Locate())
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -83,6 +88,7 @@ internal partial class Composition
             // repository.
             .Bind().As(Lifetime.Singleton).To<IAgentSessionFactorySource>(ctx =>
             {
+                ctx.Inject<SessionIndex>(out var sessionIndex);
                 ctx.Inject<ProcessRunner>(out var processes);
                 ctx.Inject<SystemContextBuilder>(out var systemContext);
                 ctx.Inject<Compactor>(out var compactor);
@@ -90,7 +96,7 @@ internal partial class Composition
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
 
                 return new AgentSessionFactorySource(
-                    workingDirectory, processes, systemContext, compactor, webFetcher);
+                    workingDirectory, sessionIndex, processes, systemContext, compactor, webFetcher);
             })
 
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>

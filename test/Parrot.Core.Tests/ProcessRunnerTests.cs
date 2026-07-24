@@ -26,14 +26,18 @@ internal sealed class ProcessRunnerTests : IDisposable
         var marker = Path.Combine(_workspace, "should-not-exist");
 
         _ = await Assert.That(async () =>
-                await runner.Run($"touch {marker}", _workspace, CancellationToken.None))
+                await runner.Run(
+                    $"touch {marker}",
+                    _workspace,
+                    Path.Combine(_workspace, "blob"),
+                    CancellationToken.None))
             .Throws<SandboxUnavailableException>();
 
         _ = await Assert.That(File.Exists(marker)).IsFalse();
     }
 
     [Test]
-    public async Task Output_is_bounded_and_reports_each_truncated_stream(
+    public async Task Oversized_output_is_spilled_completely(
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
@@ -47,13 +51,46 @@ internal sealed class ProcessRunnerTests : IDisposable
             "awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"o\"; "
             + "for (i = 0; i < 70000; i++) printf \"e\" > \"/dev/stderr\"; exit 7 }'",
             _workspace,
+            Path.Combine(_workspace, "blob"),
             cancellationToken);
 
         _ = await Assert.That(result.ExitCode).IsEqualTo(7);
-        _ = await Assert.That(result.Stdout.Length).IsEqualTo(64 << 10);
-        _ = await Assert.That(result.Stderr.Length).IsEqualTo(64 << 10);
-        _ = await Assert.That(result.StdoutTruncated).IsTrue();
-        _ = await Assert.That(result.StderrTruncated).IsTrue();
+        _ = await Assert.That(result.Stdout).IsEmpty();
+        _ = await Assert.That(result.Stderr).IsEmpty();
+        _ = await Assert.That(result.Spilled).IsTrue();
+        _ = await Assert.That(Path.IsPathFullyQualified(result.BlobPath)).IsTrue();
+        _ = await Assert.That(Path.GetDirectoryName(result.BlobPath))
+            .IsEqualTo(Path.Combine(_workspace, "blob"));
+        _ = await Assert.That(Path.GetFileName(result.BlobPath)).EndsWith("-arse.dat");
+
+        var output = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
+        _ = await Assert.That(output).IsEqualTo(
+            $"Process exited with code 7\n[stdout]\n{new string('o', 70000)}"
+            + $"\n[stderr]\n{new string('e', 70000)}");
+        _ = await Assert.That(Directory.EnumerateFiles(Path.Combine(_workspace, "blob"), ".process-*.tmp"))
+            .IsEmpty();
+    }
+
+    [Test]
+    public async Task Spill_failure_stops_a_producer_instead_of_deadlocking(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
+        var notDirectory = Path.Combine(_workspace, "not-a-directory");
+        await File.WriteAllTextAsync(notDirectory, string.Empty, cancellationToken);
+
+        _ = await Assert.That(async () =>
+                await runner.Run(
+                    "awk 'BEGIN { for (i = 0; i < 1000000; i++) printf \"x\" }'",
+                    _workspace,
+                    notDirectory,
+                    cancellationToken))
+            .Throws<IOException>();
     }
 
     [Test]
@@ -70,6 +107,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var running = runner.Run(
             "sh -c 'while :; do sleep 1; done' & echo $! > child.pid; wait",
             _workspace,
+            Path.Combine(_workspace, "blob"),
             cancellation.Token);
         var childPid = await ReadPid(pidPath);
 
@@ -105,6 +143,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var result = await runner.Run(
             "echo hi > inside.txt && (touch /host-write 2>&1 || echo blocked)",
             _workspace,
+            Path.Combine(_workspace, "blob"),
             cancellationToken);
 
         _ = await Assert.That(File.Exists(Path.Combine(_workspace, "inside.txt"))).IsTrue();

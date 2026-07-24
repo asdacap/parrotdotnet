@@ -182,8 +182,9 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 ### `SessionDatabase` — rank 2, M2
 
 - **Absorbs** `store` (database, meta), `workspace`.
-- **Owns** one SQLite file per user session, its schema, and the `meta.json`
-  projection published beside it.
+- **Owns** one SQLite file per user session, its schema, the `meta.json`
+  projection published beside it, and `sessions/<id>/blob` for complete process
+  output that exceeds the bounded in-memory result.
 - **Inbound** open, migrate, transact. Upholds the one-machine-one-database
   invariant and `journal_mode=TRUNCATE`.
 - **Outbound** `StatePaths`.
@@ -532,9 +533,17 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Absorbs** `process`.
 - **Owns** child processes, their pty, their output store, and the sandbox.
 - **Inbound** run a command. **Fails closed**: no sandbox, no execution. Not a
-  warning, not a fallback.
-- **Outbound** bubblewrap on Linux, Seatbelt on macOS.
+  warning, not a fallback. Stdout and stderr retain at most 65,536 characters
+  each in memory; if either exceeds that bound, the complete result is persisted
+  in the owning user session's blob directory and the tool returns only its full
+  absolute path. Child agents share their owning user session's directory.
+- **Outbound** bubblewrap on Linux, Seatbelt on macOS, and
+  `sessions/<id>/blob` for overflow output.
 - **Boundary** no.
+- **Dependency.** Atrox Haikunator.NET (`Haikunator` 3.0.1) generates safe blob
+  basenames; a successful Native AOT publish is its compatibility proof.
+- **Scope.** This is bounded process-output capture only: it adds no general blob
+  protocol, quotas, `read_output`, PTY, or background-process subsystem.
 
 ### `WebFetcher` — rank 6, M3
 

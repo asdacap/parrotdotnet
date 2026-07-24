@@ -27,7 +27,9 @@ internal sealed class ExecCommandToolTests : IDisposable
         }
 
         var tool = new ExecCommandTool(
-            _workspace, new ProcessRunner(CreateSandboxPassThrough(_workspace)));
+            _workspace,
+            Path.Combine(_workspace, "blob"),
+            new ProcessRunner(CreateSandboxPassThrough(_workspace)));
 
         var result = await tool.Execute(
             """{"command":"printf out; printf err >&2; exit 7"}""", cancellationToken);
@@ -37,6 +39,12 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(result).IsEqualTo("Process exited with code 7\n[stdout]\nout\n[stderr]\nerr");
         _ = await Assert.That(missing).IsEqualTo("error: Tool arguments require a string 'command'.");
         _ = await Assert.That(malformed).IsEqualTo("error: Tool arguments require a string 'command'.");
+
+        var spilled = await tool.Execute(
+            """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""",
+            cancellationToken);
+        _ = await Assert.That(Path.IsPathFullyQualified(spilled)).IsTrue();
+        _ = await Assert.That(Path.GetDirectoryName(spilled)).IsEqualTo(Path.Combine(_workspace, "blob"));
     }
 
     private static string CreateSandboxPassThrough(string workspace)

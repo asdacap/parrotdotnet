@@ -4,5 +4,7 @@ internal sealed record ProcessResult(
     int ExitCode,
     string Stdout,
     string Stderr,
-    bool StdoutTruncated,
-    bool StderrTruncated);
+    string BlobPath)
+{
+    public bool Spilled => BlobPath.Length > 0;
+}
