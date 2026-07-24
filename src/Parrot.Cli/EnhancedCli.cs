@@ -637,7 +637,7 @@ internal sealed class EnhancedCli(
                 ? Flush(cancellationToken)
                 : Task.CompletedTask;
 
-        public Task Render(Event published, CancellationToken cancellationToken)
+        public async Task Render(Event published, CancellationToken cancellationToken)
         {
             _started |= published.PayloadCase == Event.PayloadOneofCase.TurnStarted;
             if (published.PayloadCase is
@@ -645,20 +645,25 @@ internal sealed class EnhancedCli(
                 Event.PayloadOneofCase.TurnEnded or
                 Event.PayloadOneofCase.TurnFailed)
             {
-                return Task.CompletedTask;
+                return;
             }
 
             var activity = published.PayloadCase == Event.PayloadOneofCase.ReasoningChunk
                 ? Reasoning(published.ReasoningChunk.Fragment)
                 : Activity(published, _started);
             _rows = activity.Length == 0 ? [] : [activity];
-            return renderer.Draw(
+            await renderer.Draw(
                 new TerminalFrame(
                     _rows,
                     null,
                     new ModelineValue(context.Mode, "working", context.Model),
                     prompt()),
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
+
+            if (published.PayloadCase == Event.PayloadOneofCase.ToolFinished)
+            {
+                await Flush(cancellationToken).ConfigureAwait(false);
+            }
         }
 
         private string Reasoning(string fragment)
