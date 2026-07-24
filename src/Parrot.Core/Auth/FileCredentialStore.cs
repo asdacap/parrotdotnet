@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Parrot.Auth;
 
-// Credentials live in the private data directory as one whole-file JSON object,
+// Credentials live in the private config directory as one whole-file JSON object,
 // written atomically (temp file, fsync, rename) with restrictive permissions.
 // Every entry is validated on read so a malformed store fails loudly. Port of
 // Go's auth.FileStore.

@@ -234,7 +234,7 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 ### `ICredentialStore` — rank 3, M1
 
 - **Absorbs** `auth`, `security`.
-- **Owns** stored credentials, keyed by provider id, in the private data
+- **Owns** stored credentials, keyed by provider id, in the private config
   directory.
 - **Inbound** get, set, delete. Nothing else — it knows nothing of OAuth,
   expiry, or refresh.

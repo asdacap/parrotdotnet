@@ -32,6 +32,6 @@ internal sealed class StatePathsTests
         _ = await Assert.That(paths.Data).IsEqualTo(Path.Combine(dataHome, "parrotdotnet"));
         _ = await Assert.That(paths.ConfigFile).IsEqualTo(Path.Combine(configHome, "parrotdotnet", "config.yaml"));
         _ = await Assert.That(paths.CredentialsFile)
-            .IsEqualTo(Path.Combine(dataHome, "parrotdotnet", "credentials.json"));
+            .IsEqualTo(Path.Combine(configHome, "parrotdotnet", "credentials.json"));
     }
 }
