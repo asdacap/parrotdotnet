@@ -1,5 +1,6 @@
 using Parrot.Auth;
 using Parrot.Cli.Commands;
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.State;
@@ -251,11 +252,17 @@ internal static class CommandDispatcher
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        var model = DefaultModel;
+        var paths = StatePaths.ResolveFromEnvironment();
+        var configuration = Configuration.Load(paths.ConfigFile);
+
+        // The saved model is the default; the built-in one is only the fallback
+        // for a fresh install with no config yet.
+        var model = configuration.Model.Length > 0 ? configuration.Model : DefaultModel;
         var words = new List<string>();
 
         for (var index = 1; index < arguments.Count; index++)
         {
+            // A per-invocation override; unlike /model it does not persist.
             if (arguments[index] == "--model" && index + 1 < arguments.Count)
             {
                 model = arguments[++index];
@@ -273,7 +280,6 @@ internal static class CommandDispatcher
             return ExitFailure;
         }
 
-        var paths = StatePaths.ResolveFromEnvironment();
         using var store = new SessionStore(paths.State, Directory.GetCurrentDirectory(), Environment.MachineName);
         using var service = new ParrotService(provider, store);
         var client = ClientFor(service);
@@ -292,12 +298,13 @@ internal static class CommandDispatcher
                 : await OneShot.Run(client, model, piped, output, error, cancellationToken).ConfigureAwait(false);
         }
 
-        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+        using var credentials = new FileCredentialStore(paths.CredentialsFile);
 
         var session = await client.CreateSessionAsync(
             new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
 
-        var context = new SlashContext(client, credentials, ProviderId, session.Id, output, error);
+        var context = new SlashContext(
+            client, credentials, configuration, ProviderId, session.Id, output, error);
 
         return await InteractiveSession
             .Run(client, BuildRegistry(model), context, Console.In, output, cancellationToken)

@@ -1,4 +1,5 @@
 using Parrot.Auth;
+using Parrot.Config;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Commands;
@@ -8,6 +9,7 @@ namespace Parrot.Cli.Commands;
 internal sealed class SlashContext(
     GeneratedParrot.ParrotClient client,
     ICredentialStore credentials,
+    Configuration configuration,
     string providerId,
     string userSessionId,
     TextWriter output,
@@ -16,6 +18,8 @@ internal sealed class SlashContext(
     public GeneratedParrot.ParrotClient Client { get; } = client;
 
     public ICredentialStore Credentials { get; } = credentials;
+
+    public Configuration Configuration { get; } = configuration;
 
     public string ProviderId { get; } = providerId;
 

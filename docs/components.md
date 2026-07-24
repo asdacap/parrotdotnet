@@ -166,6 +166,15 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   from it. Rename gives atomicity, not serialisation: a flag write is safe, a
   read-modify-write against a concurrent host is not. See the configuration
   exception in `architecture.md`.
+- **Built (partial), M2.5.** `config.yaml` carries `model` only; the interactive
+  `/model` writes it back so the choice is the default for the next launch, the
+  `--model` flag stays a per-invocation override. YamlDotNet, edited through the
+  representation model so a one-field write keeps other keys — comments are the
+  one thing it drops, acceptable while the file is a couple of scalars. The CLI
+  owns the file I/O for now; when `ProviderRegistry` lands, reading the default
+  moves domain-side, and the nested `providers:` map is the point to add typed
+  parsing. Auth is deliberately a separate file (`credentials.json`), never in
+  here.
 
 ### `SessionDatabase` — rank 2, M2
 

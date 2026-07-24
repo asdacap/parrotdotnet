@@ -26,7 +26,11 @@ internal sealed class ModelCommand : ISlashCommand
             new UpdateSessionRequest { UserSessionId = context.UserSessionId, Model = arguments },
             cancellationToken: cancellationToken);
 
-        await context.Output.WriteLineAsync($"  model is now {updated.Model}".AsMemory(), cancellationToken)
+        // Persist it as the default for the next launch. This is the one place
+        // a model choice is written to config -- the --model flag does not.
+        context.Configuration.SetModel(updated.Model);
+
+        await context.Output.WriteLineAsync($"  model is now {updated.Model} (saved)".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
         return SlashOutcome.Continue;
