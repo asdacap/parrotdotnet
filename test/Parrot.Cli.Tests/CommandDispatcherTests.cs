@@ -2,8 +2,9 @@ namespace Parrot.Cli.Tests;
 
 internal sealed class CommandDispatcherTests
 {
+    // No `[Arguments("")]`: empty args route to `chat`, which needs a provider
+    // and cannot run here. Bare `parrot` opening a session is verified live.
     [Test]
-    [Arguments("", CommandDispatcher.ExitSuccess, "Usage:")]
     [Arguments("help", CommandDispatcher.ExitSuccess, "Usage:")]
     [Arguments("--help", CommandDispatcher.ExitSuccess, "Commands:")]
     [Arguments("-h", CommandDispatcher.ExitSuccess, "Commands:")]

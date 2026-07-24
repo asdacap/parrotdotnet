@@ -21,6 +21,7 @@ internal static class CommandDispatcher
         parrot - a coding agent that is not too much
 
         Usage:
+          parrot                      Open an interactive session
           parrot <command> [flags]
 
         Commands:
@@ -29,9 +30,10 @@ internal static class CommandDispatcher
           auth login --api-key-stdin  Store the opencode-go key read from stdin
           models                      List the models the provider serves
           sessions                    List sessions, reading meta.json only
-          chat [--model <id>] <text>  Send one prompt and stream the reply
+          chat [--model <id>] [text]  A session, or one prompt if text is given
 
-        M1 walking skeleton: one turn, no tools, no persistence.
+        Bare `parrot` is `parrot chat`. In a terminal that opens a REPL; with a
+        prompt or piped stdin it answers once. /help lists the slash commands.
         """;
 
     // One handler for the process, which is what HttpClient wants anyway.
@@ -48,7 +50,9 @@ internal static class CommandDispatcher
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
-        var command = arguments.Count == 0 ? "help" : arguments[0];
+        // No arguments opens a session, matching upstream: the common case is
+        // wanting to talk to it, not read help.
+        var command = arguments.Count == 0 ? "chat" : arguments[0];
 
         switch (command)
         {
