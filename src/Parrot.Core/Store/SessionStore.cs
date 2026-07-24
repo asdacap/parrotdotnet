@@ -57,7 +57,8 @@ internal sealed class SessionStore(
             provider,
             new EventRepository(database),
             tools,
-            new ToolContext(workingDirectory, processes),
+            workingDirectory,
+            processes,
             new SystemContextBuilder(workingDirectory, today),
             new Compactor(provider, CompactionTokenBudget));
     }

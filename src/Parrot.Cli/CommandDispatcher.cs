@@ -195,7 +195,7 @@ internal static class CommandDispatcher
     // The tools the agent may call. exec_command is the one that reaches the
     // sandbox; read_file is read-only.
     private static ToolRegistry BuiltinTools() =>
-        new([new ExecCommandTool(), new ReadFileTool()]);
+        new([new ExecCommandTool(), new ReadFileTool(), new AgentSpawnTool()]);
 
     // Composed by hand, per AGENTS.md: no container, and the registry is the
     // one place that knows which commands exist.

@@ -245,6 +245,18 @@ spawned it, and `Await` returns its result.
 **Retires.** The `AgentSession`/`AgentRegistry` mutual dependency, which is
 inherent but only proven workable once both are real.
 
+**Done (synchronous subagents).** `agent_spawn` delegates a subtask to a child
+`AgentSession` that shares the parent's broker and store -- so the child's
+events stream on the same session stream -- runs to completion, and returns its
+final text as the tool result. Recursion is bounded by a depth limit. Verified
+live: the parent spawned a child that replied BANANA and reported it back.
+
+**Divergence:** the child is spawned-and-awaited within the tool call, not run
+as a background task the parent `Await`s later. That is the simpler subagent
+shape and matches how a delegated-subtask tool usually works; the async
+background-session model, steer/queue input promotion, and interrupt are
+deferred with it. Recorded here rather than pretended complete.
+
 ---
 
 ### M6 — Serve

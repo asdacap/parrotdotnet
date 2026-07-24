@@ -1,6 +1,7 @@
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Store;
 using Parrot.Tools;
@@ -16,13 +17,19 @@ internal sealed class AgentSession(
     EventBroker eventBroker,
     EventRepository eventRepository,
     ToolRegistry tools,
-    IToolContext toolContext,
+    string workingDirectory,
+    ProcessRunner processes,
     SystemContextBuilder systemContext,
-    Compactor compactor)
+    Compactor compactor,
+    int depth) : ISubagentHost
 {
     // A turn that keeps calling tools without ever finishing is a runaway, not
     // work. This bounds one prompt's tool round-trips.
     private const int MaxToolRounds = 24;
+
+    // Recursion terminates: a subagent runs one level deeper, and a spawn beyond
+    // this refuses rather than descends.
+    private const int MaxDepth = 4;
 
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
@@ -34,11 +41,43 @@ internal sealed class AgentSession(
     // Selection is session state: an UpdateSession changes it, a prompt does not.
     public string Model { get; set; } = string.Empty;
 
+    // Built with this session as the subagent host, so a spawned child shares
+    // the broker and repository but runs under its own id.
+    private IToolContext ToolContextValue => new ToolContext(workingDirectory, processes, this, depth);
+
     // The turn is started, not awaited: admitting a prompt does not wait for it,
     // and the event stream stays open afterwards. Run lets nothing escape, so
     // discarding the task loses nothing.
     public void Start(string prompt, CancellationToken cancellationToken) =>
         _ = Run(prompt, cancellationToken);
+
+    // A subagent: a fresh child session sharing this one's broker and store, so
+    // its events surface on the same stream, run to completion, its final text
+    // returned as the spawning tool's result.
+    public async Task<string> Spawn(string prompt, int childDepth, CancellationToken cancellationToken)
+    {
+        if (childDepth > MaxDepth)
+        {
+            return "error: subagent depth limit reached";
+        }
+
+        var child = new AgentSession(
+            Identifier.AgentSession(),
+            provider,
+            eventBroker,
+            eventRepository,
+            tools,
+            workingDirectory,
+            processes,
+            systemContext,
+            compactor,
+            childDepth)
+        {
+            Model = Model,
+        };
+
+        return await child.Run(prompt, cancellationToken).ConfigureAwait(false);
+    }
 
     internal Event Translate(LLMEvent llmEvent)
     {
@@ -76,7 +115,7 @@ internal sealed class AgentSession(
         return published;
     }
 
-    private async Task Run(string prompt, CancellationToken cancellationToken)
+    private async Task<string> Run(string prompt, CancellationToken cancellationToken)
     {
         var started = Compose();
         started.TurnStarted = new TurnStarted { Model = Model };
@@ -126,7 +165,7 @@ internal sealed class AgentSession(
                     };
                     await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
                         .ConfigureAwait(false);
-                    return;
+                    return completed.AssistantText;
                 }
 
                 _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
@@ -139,6 +178,7 @@ internal sealed class AgentSession(
             }
 
             await Fail("the turn exceeded its tool-call limit", cancellationToken).ConfigureAwait(false);
+            return "the turn exceeded its tool-call limit";
         }
         catch (Exception failure)
         {
@@ -146,6 +186,7 @@ internal sealed class AgentSession(
             // this one is total: nothing here is awaited, so an escaping
             // exception would be unobserved rather than reported.
             await Fail(failure.Message, cancellationToken).ConfigureAwait(false);
+            return $"error: {failure.Message}";
         }
     }
 
@@ -189,7 +230,7 @@ internal sealed class AgentSession(
 
         return tool is null
             ? $"error: unknown tool {call.Name}"
-            : await tool.Execute(call.ArgumentsJson, toolContext, cancellationToken).ConfigureAwait(false);
+            : await tool.Execute(call.ArgumentsJson, ToolContextValue, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task Fail(string message, CancellationToken cancellationToken)

@@ -32,9 +32,11 @@ internal sealed class EventPayloadTests
             events,
             new EventRepository(database),
             new ToolRegistry([]),
-            new ToolContext(".", new ProcessRunner(string.Empty)),
+            ".",
+            new ProcessRunner(string.Empty),
             new SystemContextBuilder(".", "2026-07-24"),
-            new Compactor(new UnusedProvider(), 120_000));
+            new Compactor(new UnusedProvider(), 120_000),
+            depth: 0);
 
         var llmEvent = source switch
         {

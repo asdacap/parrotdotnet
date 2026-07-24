@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Store;
 using Parrot.Tools;
@@ -29,7 +30,8 @@ internal sealed class UserSession : IDisposable
         ILLMProvider provider,
         EventRepository eventRepository,
         ToolRegistry tools,
-        IToolContext toolContext,
+        string workingDirectory,
+        ProcessRunner processes,
         SystemContextBuilder systemContext,
         Compactor compactor)
     {
@@ -41,9 +43,11 @@ internal sealed class UserSession : IDisposable
             _eventBroker,
             eventRepository,
             tools,
-            toolContext,
+            workingDirectory,
+            processes,
             systemContext,
-            compactor)
+            compactor,
+            depth: 0)
         {
             Model = model,
         };
