@@ -15,4 +15,7 @@ internal sealed class WireRequest
 
     [JsonPropertyName("messages")]
     public IReadOnlyList<WireMessage> Messages { get; init; } = [];
+
+    [JsonPropertyName("tools")]
+    public IReadOnlyList<WireTool>? Tools { get; init; }
 }

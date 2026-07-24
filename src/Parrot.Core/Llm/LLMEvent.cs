@@ -26,6 +26,13 @@ internal sealed record LLMEvent
 
     public int OutputTokens { get; init; }
 
+    // Completed only: the fully assembled tool calls, if the model asked for
+    // any. The provider reassembles the streamed fragments so the session does
+    // not have to.
+    public IReadOnlyList<LLMToolCall> ToolCalls { get; init; } = [];
+
+    public string AssistantText { get; init; } = string.Empty;
+
     public static LLMEvent TextDelta(string fragment) =>
         new() { Kind = LLMEventKind.TextDelta, Text = fragment };
 
@@ -44,12 +51,19 @@ internal sealed record LLMEvent
     public static LLMEvent Retry(int attempt, TimeSpan retryAfter, string reason) =>
         new() { Kind = LLMEventKind.Retry, Attempt = attempt, RetryAfter = retryAfter, Text = reason };
 
-    public static LLMEvent Completed(string finishReason, int inputTokens, int outputTokens) =>
+    public static LLMEvent Completed(
+        string finishReason,
+        int inputTokens,
+        int outputTokens,
+        string assistantText,
+        IReadOnlyList<LLMToolCall> toolCalls) =>
         new()
         {
             Kind = LLMEventKind.Completed,
             FinishReason = finishReason,
             InputTokens = inputTokens,
             OutputTokens = outputTokens,
+            AssistantText = assistantText,
+            ToolCalls = toolCalls,
         };
 }

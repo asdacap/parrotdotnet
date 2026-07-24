@@ -79,6 +79,11 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
         var finishReason = string.Empty;
         var inputTokens = 0;
         var outputTokens = 0;
+        var assistantText = new System.Text.StringBuilder();
+
+        // Tool-call fragments arrive across many deltas, keyed by index: the
+        // first carries id and name, the rest append argument text.
+        var toolCalls = new SortedDictionary<int, ToolCallAssembly>();
 
         while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
         {
@@ -110,6 +115,7 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
 
             if (choice?.Delta?.Content is { Length: > 0 } content)
             {
+                _ = assistantText.Append(content);
                 yield return LLMEvent.TextDelta(content);
             }
 
@@ -117,9 +123,24 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
             {
                 yield return LLMEvent.ReasoningDelta(thought);
             }
+
+            foreach (var fragment in choice?.Delta?.ToolCalls ?? [])
+            {
+                var assembly = Accumulate(toolCalls, fragment);
+
+                if (fragment.Function?.Arguments is { Length: > 0 } argumentFragment)
+                {
+                    yield return LLMEvent.ToolCallDelta(assembly.Id, assembly.Name, argumentFragment);
+                }
+            }
         }
 
-        yield return LLMEvent.Completed(finishReason, inputTokens, outputTokens);
+        yield return LLMEvent.Completed(
+            finishReason,
+            inputTokens,
+            outputTokens,
+            assistantText.ToString(),
+            [.. toolCalls.Values.Select(call => new LLMToolCall(call.Id, call.Name, call.Arguments.ToString()))]);
     }
 
     private static WireRequest ToWire(LLMRequest request) =>
@@ -127,17 +148,69 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
         {
             Model = request.Model,
             MaxTokens = request.MaxTokens,
-            Messages = [.. request.Messages.Select(message => new WireMessage
-            {
-                Role = message.Role switch
-                {
-                    LLMRole.System => "system",
-                    LLMRole.Assistant => "assistant",
-                    _ => "user",
-                },
-                Content = message.Content,
-            })],
+            Messages = [.. request.Messages.Select(ToWireMessage)],
+            Tools = request.Tools.Count == 0 ? null : [.. request.Tools.Select(ToWireTool)],
         };
+
+    private static WireMessage ToWireMessage(LLMMessage message) =>
+        new()
+        {
+            Role = message.Role switch
+            {
+                LLMRole.System => "system",
+                LLMRole.Assistant => "assistant",
+                LLMRole.Tool => "tool",
+                _ => "user",
+            },
+            Content = message.Content.Length == 0 && message.ToolCalls.Count > 0 ? null : message.Content,
+            ToolCallId = message.ToolCallId.Length == 0 ? null : message.ToolCallId,
+            ToolCalls = message.ToolCalls.Count == 0 ? null :
+            [
+                .. message.ToolCalls.Select(call => new WireToolCall
+                {
+                    Id = call.Id,
+                    Function = new WireToolCallFunction { Name = call.Name, Arguments = call.ArgumentsJson },
+                }),
+            ],
+        };
+
+    private static WireTool ToWireTool(LLMToolDefinition tool) =>
+        new()
+        {
+            Function = new WireToolFunction
+            {
+                Name = tool.Name,
+                Description = tool.Description,
+                Parameters = System.Text.Json.Nodes.JsonNode.Parse(tool.ParametersJson),
+            },
+        };
+
+    private static ToolCallAssembly Accumulate(
+        SortedDictionary<int, ToolCallAssembly> calls, WireToolCall fragment)
+    {
+        if (!calls.TryGetValue(fragment.Index, out var assembly))
+        {
+            assembly = new ToolCallAssembly();
+            calls[fragment.Index] = assembly;
+        }
+
+        if (fragment.Id is { Length: > 0 } id)
+        {
+            assembly.Id = id;
+        }
+
+        if (fragment.Function?.Name is { Length: > 0 } name)
+        {
+            assembly.Name = name;
+        }
+
+        if (fragment.Function?.Arguments is { Length: > 0 } arguments)
+        {
+            _ = assembly.Arguments.Append(arguments);
+        }
+
+        return assembly;
+    }
 
     private static string Truncate(string body) =>
         body.Length <= 300 ? body : body[..300];

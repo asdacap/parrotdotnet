@@ -9,4 +9,7 @@ internal sealed class WireDelta
 
     [JsonPropertyName("reasoning_content")]
     public string? ReasoningContent { get; init; }
+
+    [JsonPropertyName("tool_calls")]
+    public IReadOnlyList<WireToolCall>? ToolCalls { get; init; }
 }

@@ -81,7 +81,7 @@ internal sealed class AgentSession(
         {
             Model = Model,
             MaxTokens = 4096,
-            Messages = [new LLMMessage(LLMRole.User, prompt)],
+            Messages = [LLMMessage.User(prompt)],
         };
 
         try

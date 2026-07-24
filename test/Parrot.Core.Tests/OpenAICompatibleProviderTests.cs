@@ -22,6 +22,19 @@ internal sealed class OpenAICompatibleProviderTests
 
         """;
 
+    private const string ToolCallStream = """
+        data: {"choices":[{"index":0,"finish_reason":null,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"exec_command","arguments":""}}]}}]}
+
+        data: {"choices":[{"index":0,"finish_reason":null,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"command\": "}}]}}]}
+
+        data: {"choices":[{"index":0,"finish_reason":null,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"echo hi\"}"}}]}}]}
+
+        data: {"choices":[{"index":0,"finish_reason":"tool_calls","delta":{}}],"usage":{"prompt_tokens":20,"completion_tokens":9}}
+
+        data: [DONE]
+
+        """;
+
     [Test]
     public async Task Stream_ends_with_a_completed_event_carrying_the_outcome(CancellationToken cancellationToken)
     {
@@ -56,11 +69,32 @@ internal sealed class OpenAICompatibleProviderTests
     }
 
     [Test]
+    public async Task Tool_call_fragments_assemble_into_one_completed_call(CancellationToken cancellationToken)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(ToolCallStream));
+        var events = new List<LLMEvent>();
+
+        await foreach (var published in OpenAICompatibleProvider.Consume(stream, cancellationToken))
+        {
+            events.Add(published);
+        }
+
+        var completed = events[^1];
+
+        _ = await Assert.That(completed.Kind).IsEqualTo(LLMEventKind.Completed);
+        _ = await Assert.That(completed.FinishReason).IsEqualTo("tool_calls");
+        _ = await Assert.That(completed.ToolCalls).HasSingleItem();
+        _ = await Assert.That(completed.ToolCalls[0].Id).IsEqualTo("call_1");
+        _ = await Assert.That(completed.ToolCalls[0].Name).IsEqualTo("exec_command");
+        _ = await Assert.That(completed.ToolCalls[0].ArgumentsJson).IsEqualTo("""{"command": "echo hi"}""");
+    }
+
+    [Test]
     public async Task Factories_never_produce_a_null_field(CancellationToken cancellationToken)
     {
         _ = await Assert.That(LLMEvent.TextDelta("x").ToolName).IsEmpty();
         _ = await Assert.That(LLMEvent.Retry(2, TimeSpan.FromSeconds(1), "429").ToolCallId).IsEmpty();
-        _ = await Assert.That(LLMEvent.Completed("stop", 1, 2).Text).IsEmpty();
+        _ = _ = await Assert.That(LLMEvent.Completed("stop", 1, 2, "hi", []).Text).IsEmpty();
         _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
     }
 
