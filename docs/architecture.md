@@ -31,7 +31,7 @@ manages, because in C# the namespace no longer disambiguates it.
 | PROVIDERS ProviderRegistry    ILLMProvider           ICredentialStore     |
 +---------------------------------------------------------------------------+
 | STORAGE   SessionDatabase     EventBroker            EventRepository      |
-|           Configuration       StatePaths                                  |
+|           IEventSink          Configuration          StatePaths           |
 +---------------------------------------------------------------------------+
 ```
 
@@ -182,6 +182,7 @@ ParrotService
  +-- PermissionBroker ............ authorises an operation, not a tool name
  +-- QuestionBroker
  +-- EventBroker ................. serialised publication    [principle 9]
+ |    +-- IEventSink ............. the one narrow publish contract
       +-- EventRepository
            +-- SessionDatabase
 
@@ -412,13 +413,11 @@ else:
 ## ILLMProvider
 
 Stateless, by rule. It holds no conversation, no session, no accumulated
-history — `AgentSession` holds all of it and passes what a call needs. Two
-providers serving the same session concurrently would be a bug in the session,
-not a race in the provider.
+history — `AgentSession` holds all of it and passes what a call needs.
 
-The surface is deliberately shallow: a prompt goes in, messages and tool
-requests come out. Everything upstream models as protocol events, retry
-notices, or stream lifecycle stays inside the implementation.
+The surface is deliberately shallow: a request goes in, the final result comes
+back, and anything worth watching while the call is in flight goes to a sink the
+caller supplies.
 
 ```csharp
 public interface ILLMProvider
@@ -428,21 +427,109 @@ public interface ILLMProvider
     IReadOnlyList<LLMModel> Models { get; }
 
     // Everything the call depends on arrives in the request. Nothing is
-    // remembered between calls.
-    Task<LLMResponse> Prompt(LLMRequest request, CancellationToken cancellationToken);
+    // remembered between calls, and the sink is a parameter rather than a
+    // dependency, so there is nothing to hold either.
+    Task<LLMResult> Call(LLMRequest request, IEventSink events, CancellationToken cancellationToken);
 }
 ```
 
 `LLMRequest` carries the model and variant, the system context baseline, the
-message history, and the tool schemas available this turn. `LLMResponse` carries
-the assistant messages and the tool requests, plus token usage.
+message history, and the tool schemas available this turn. `LLMResult` is the
+final durable state: the assistant messages, the tool requests, and token usage.
 
-Streaming is the open part of this shape: upstream returns a `Stream` the caller
-pumps, and live token deltas are disposable while final message state is durable
-(principle 10). A single `Task<LLMResponse>` cannot express a delta. The likely
-resolution is that `Prompt` returns the final response while deltas are
-published to the event stream as a side effect, which keeps the interface flat
-and matches principle 10 — but it is not decided. See open question 1.
+### Why the sink is a parameter
+
+This is the shape that makes principle 10 fall out for free — live token deltas
+are disposable, final message state is durable. Deltas go to `IEventSink` and
+nobody has to keep them; the durable outcome is the return value, and it exists
+exactly once.
+
+It also settles what "stateless" means here, which was genuinely ambiguous while
+the interface was a flat `Task<LLMResult>`. The provider does not publish to
+anything it holds — it has no broker field, no injected dependency, nothing
+constructed with it. It writes only to the sink it was handed, for the duration
+of one call. So it is stateless in the strict sense and still streams, and
+`AgentSession` does not have to pump a stream to make that true.
+
+The layering consequence is worth naming: **`ILLMProvider` does not depend on
+`EventBroker`.** `AgentSession` implements or adapts `IEventSink` and hands it
+down. A provider cannot reach the event stream except through what its caller
+gave it, which is also what makes a provider trivial to test — pass a sink that
+records into a list.
+
+## IEventSink
+
+One method. One flat event.
+
+```csharp
+public interface IEventSink
+{
+    ValueTask Publish(Event @event, CancellationToken cancellationToken);
+}
+```
+
+`Event` is the generated protobuf type — the same one that goes down the wire
+to the CLIs. Not a parallel internal model that gets mapped at the edge: if the
+provider and `BasicCli` do not agree on the type, there is a translation layer,
+and a translation layer is where a gap in the event model gets quietly filled
+in.
+
+### Why one method and not several
+
+`Publish(Event)` rather than `OnTextDelta`, `OnToolCall`, `OnRetry`. A typed
+method per event kind means every new kind changes the interface and every
+implementation, which is Open–Closed failing — the one SOLID principle
+`AGENTS.md` weights as *yes*. Interface Segregation would argue the other way
+and is weighted *eh*, which is exactly the trade being made.
+
+It is an interface rather than a .NET `event` or an `Action<Event>` because
+`PARROT0001` and `PARROT0002` forbid both, and for the reason those rules exist:
+a multicast delegate has no delivery ordering across subscribers and no
+backpressure, and principle 9 needs both.
+
+It is push rather than `IAsyncEnumerable<Event>` because the provider is
+producing while it is also working. A pull model would force the provider to be
+an iterator and would make "stream deltas *and* return a final result" awkward
+in a way the sink makes trivial.
+
+`ValueTask` because the common implementation writes to a `Channel<Event>` and
+completes synchronously. Backpressure, when it matters, is the channel's bound.
+
+### The event
+
+```proto
+message Event {
+  string    id             = 1;
+  string    session_id     = 2;
+  string    task_id        = 3;   // every event names its task
+  string    parent_task_id = 4;   // set on task.start only
+  EventKind kind           = 5;
+  string    text           = 6;   // one rendered line, on every event
+  oneof payload { ... }           // typed detail, for EnhancedCli
+}
+```
+
+`text` is the load-bearing field and the one most likely to be dropped as
+redundant. **Every event carries one human-readable line.** That is what makes
+`BasicCli` a `switch` over `kind` and a `WriteLine` of `text`, with no model of
+the conversation at all — and it is what turns "if `BasicCli` needs a helper,
+fix the event" from a slogan into something a reviewer can check. An event whose
+`text` cannot be written is an event whose meaning is not yet decided.
+
+`EnhancedCli` ignores `text` and reads the payload. Both stay honest because
+neither can compensate for the other.
+
+### Durability
+
+The sink handed to `ILLMProvider` carries live deltas, which principle 10 makes
+disposable — so cancelling a `Publish` mid-flight loses nothing that matters.
+The durable write happens when `AgentSession` commits the `LLMResult`, through
+`EventRepository`, atomically with its projection (principle 9).
+
+Same interface, different instances, different guarantees. That is a property of
+the implementation and deliberately not of the contract: a caller that had to
+know which kind of sink it held would be a caller branching on identity, which
+is the antipattern `AGENTS.md` names.
 
 ## AgentRegistry
 
@@ -511,29 +598,22 @@ the state becomes persistable long before either owner can be built.
 
 Resolve these before filling in `components.md`; each one moves a boundary.
 
-1. **How `ILLMProvider` streams.** A flat `Task<LLMResponse>` cannot express a
-   token delta, and principle 10 wants deltas disposable but final message state
-   durable. Publishing deltas to the event stream as a side effect keeps the
-   interface shallow, which is the point of the shape, but it makes the provider
-   write somewhere — and the rule says it is stateless. Whether "stateless"
-   means "holds no conversation state" (it can publish) or "has no outbound
-   dependency at all" (`AgentSession` pumps and publishes) is the decision.
-2. **Does `AgentSession` sub-divide?** It owns ten groups of state, plus the
+1. **Does `AgentSession` sub-divide?** It owns ten groups of state, plus the
    drain and the turn loop. That is a lot for one type even when the type is
    correctly rich. Todos and goals are the obvious candidates for owned
    sub-objects — `AgentSession.Todos` rather than a `TodoService` — but that is
    a decomposition question for level 2, not a reason to hand them back to a
    service.
-3. **`EventBroker` and `EventRepository` are drawn apart but commit together.**
+2. **`EventBroker` and `EventRepository` are drawn apart but commit together.**
    Principle 9 requires the durable event and its projection to commit
    atomically. If that forces one transaction, they are one block, not two.
-4. **`ToolRegistry` snapshot immutability.** Principle 4 wants an immutable
+3. **`ToolRegistry` snapshot immutability.** Principle 4 wants an immutable
    registry snapshot per turn. Whether that is a type or a discipline decides
    if `ToolRegistry` is a block at all.
-5. **`ICredentialStore` versus provider auth.** ChatGPT OAuth refresh is a
+4. **`ICredentialStore` versus provider auth.** ChatGPT OAuth refresh is a
    provider concern that writes to the credential store. Which side owns the
    refresh decides whether the dependency arrow reverses.
-6. **`EnhancedCli` is 3.5k lines of `enhancedchat` plus 4.6k of `terminal`.**
+5. **`EnhancedCli` is 3.5k lines of `enhancedchat` plus 4.6k of `terminal`.**
    Almost certainly several trees. Ranked last so the shape can be decided once
    everything it renders exists. `BasicCli` has the opposite problem: it is
    ranked early precisely so the event contract gets tested before the TUI can

@@ -40,12 +40,13 @@ M7  enhanced CLI               the terminal experience
 
 **Goal.** `docs/components.md` filled in, one entry per block.
 
-**Exit.** Every block in `architecture.md` has a complete entry, the six open
-questions are answered, and the document has been reviewed. No `<Namespace>`
+**Exit.** Every block in `architecture.md` has a complete entry, the remaining
+open questions are answered, and the document has been reviewed. No `<Namespace>`
 placeholders left.
 
-**Forces.** All six open questions. Question 1 — how `ILLMProvider` streams —
-is the one that blocks M1, so answer it first even if the rest lag.
+**Forces.** The remaining five open questions. The one that blocked M1 — how
+`ILLMProvider` streams — is answered: `Call` takes an `IEventSink` and returns
+`Task<LLMResult>`.
 
 **No code.** This is the gate, and it is the cheapest place in the project to
 change your mind about a boundary.
@@ -74,9 +75,9 @@ parrot chat --model <model>     # type a prompt, see the reply stream back
   they are not. `BasicCli` renders them with a `switch` and a `WriteLine`, or
   the event model is wrong. This is why `BasicCli` is in the first milestone
   rather than the last.
-- **Does streaming survive the shallow `ILLMProvider`?** Token deltas are
-  disposable and final messages durable (principle 10). If a flat
-  `Task<LLMResponse>` cannot express that, it is far cheaper to learn here.
+- **Does the sink shape hold?** Deltas go to `IEventSink`, the durable result
+  is the return value. Cheap to correct here, expensive once five call sites
+  depend on it.
 
 **Explicitly not in scope.** Persistence beyond whatever a single process
 needs, tools, permissions, subagents, `EnhancedCli`, the socket.
