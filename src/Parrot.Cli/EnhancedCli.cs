@@ -531,7 +531,10 @@ internal sealed class EnhancedCli(
         Func<Task> stopSpinner,
         CancellationToken cancellationToken)
     {
-        var activity = new RawActivityView(renderer, prompt, context);
+        var activity = new RawActivityView(
+            renderer,
+            prompt,
+            () => new ModelineValue(context.Mode, "working", context.Model));
         var spinning = true;
 
         async Task BeforeRender(Event published, CancellationToken token)
@@ -621,12 +624,13 @@ internal sealed class EnhancedCli(
         return await command.Run(context, arguments, cancellationToken).ConfigureAwait(false);
     }
 
-    private sealed class RawActivityView(
+    internal sealed class RawActivityView(
         TerminalFrameRenderer renderer,
         Func<PromptValue> prompt,
-        SlashContext context)
+        Func<ModelineValue> modeline)
     {
         private readonly StringBuilder _reasoning = new();
+        private readonly Dictionary<string, (string Name, StringBuilder Arguments)> _toolCalls = [];
         private IReadOnlyList<string> _rows = [];
         private bool _started;
 
@@ -648,28 +652,70 @@ internal sealed class EnhancedCli(
                 return;
             }
 
-            var activity = published.PayloadCase == Event.PayloadOneofCase.ReasoningChunk
-                ? Reasoning(published.ReasoningChunk.Fragment)
-                : Activity(published, _started);
-            _rows = activity.Length == 0 ? [] : [activity];
+            var activity = published.PayloadCase switch
+            {
+                Event.PayloadOneofCase.ReasoningChunk => Reasoning(published.ReasoningChunk.Fragment),
+                Event.PayloadOneofCase.ToolCallChunk => ToolCall(published.ToolCallChunk),
+                _ => Activity(published, _started),
+            };
+            _rows = Rows(published, activity);
             await renderer.Draw(
                 new TerminalFrame(
                     _rows,
                     null,
-                    new ModelineValue(context.Mode, "working", context.Model),
+                    modeline(),
                     prompt()),
                 cancellationToken).ConfigureAwait(false);
 
             if (published.PayloadCase == Event.PayloadOneofCase.ToolFinished)
             {
                 await Flush(cancellationToken).ConfigureAwait(false);
+                _ = _toolCalls.Remove(published.ToolFinished.ToolCallId);
+            }
+            else if (published.PayloadCase == Event.PayloadOneofCase.ToolCancelled)
+            {
+                _ = _toolCalls.Remove(published.ToolCancelled.ToolCallId);
+            }
+            else if (published.PayloadCase == Event.PayloadOneofCase.ToolError)
+            {
+                _ = _toolCalls.Remove(published.ToolError.ToolCallId);
             }
         }
+
+        private static string FormatToolCall((string Name, StringBuilder Arguments) toolCall) =>
+            $"tool call {TerminalText.Sanitize(toolCall.Name)}: {TerminalText.Sanitize(toolCall.Arguments.ToString())}";
 
         private string Reasoning(string fragment)
         {
             _ = _reasoning.Append(TerminalText.Sanitize(fragment));
             return _reasoning.ToString();
+        }
+
+        private IReadOnlyList<string> Rows(Event published, string activity)
+        {
+            if (published.PayloadCase == Event.PayloadOneofCase.ToolFinished
+                && _toolCalls.TryGetValue(published.ToolFinished.ToolCallId, out var toolCall))
+            {
+                return [FormatToolCall(toolCall), activity];
+            }
+
+            return activity.Length == 0 ? [] : [activity];
+        }
+
+        private string ToolCall(ToolCallChunk chunk)
+        {
+            if (!_toolCalls.TryGetValue(chunk.ToolCallId, out var toolCall))
+            {
+                toolCall = (chunk.ToolName, new StringBuilder());
+            }
+            else if (chunk.ToolName.Length > 0)
+            {
+                toolCall.Name = chunk.ToolName;
+            }
+
+            _ = toolCall.Arguments.Append(chunk.ArgumentsFragment);
+            _toolCalls[chunk.ToolCallId] = toolCall;
+            return FormatToolCall(toolCall);
         }
 
         private async Task Flush(CancellationToken cancellationToken)
