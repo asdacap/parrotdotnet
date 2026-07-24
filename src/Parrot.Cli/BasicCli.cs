@@ -74,6 +74,7 @@ internal sealed class BasicCli(
             configuration,
             ProviderRegistryBuilder.BuildableProviderIds(configuration),
             session.Id,
+            session.Model,
             input,
             output,
             error);

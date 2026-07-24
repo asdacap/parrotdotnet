@@ -13,6 +13,7 @@ internal sealed class SlashContext(
     Configuration configuration,
     IReadOnlyList<string> providerIds,
     string userSessionId,
+    string model,
     TextReader input,
     TextWriter output,
     TextWriter error)
@@ -28,6 +29,8 @@ internal sealed class SlashContext(
     public IReadOnlyList<string> ProviderIds { get; } = providerIds;
 
     public string UserSessionId { get; set; } = userSessionId;
+
+    public string Model { get; set; } = model;
 
     public TextReader Input { get; } = input;
 

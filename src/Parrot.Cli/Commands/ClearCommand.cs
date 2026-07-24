@@ -15,12 +15,17 @@ internal sealed class ClearCommand(string defaultModel) : ISlashCommand
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var model = arguments.Length > 0 ? arguments : defaultModel;
+        var model = arguments.Length > 0
+            ? arguments
+            : context.Model.Length > 0
+                ? context.Model
+                : defaultModel;
 
         var created = await context.Client.CreateSessionAsync(
             new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
 
         context.UserSessionId = created.Id;
+        context.Model = created.Model;
 
         await context.Output.WriteLineAsync($"  new session {created.Id}".AsMemory(), cancellationToken)
             .ConfigureAwait(false);

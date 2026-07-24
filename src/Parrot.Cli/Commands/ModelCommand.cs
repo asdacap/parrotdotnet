@@ -28,6 +28,7 @@ internal sealed class ModelCommand : ISlashCommand
 
         // Persist it as the default for the next launch. This is the one place
         // a model choice is written to config -- the --model flag does not.
+        context.Model = updated.Model;
         context.Configuration.SetModel(updated.Model);
 
         await context.Output.WriteLineAsync($"  model is now {updated.Model} (saved)".AsMemory(), cancellationToken)

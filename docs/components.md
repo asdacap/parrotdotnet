@@ -694,9 +694,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   is shared with `BasicCli` or moved into the domain.
 - **Note** complete physical assistant rows become immutable scrollback while
   only the unfinished final row remains redrawable. No alternate screen is
-  used. The current line-buffered input path remains silent while a turn is
-  active; raw mode, a visible editor, picker, markdown, modal prompts, and
-  general activity-frame rendering remain deferred M7 work.
+  used. On a supported terminal the raw-mode editor provides rune-aware cursor
+  movement, multiline input, bracketed paste, editing controls, and a modeline;
+  line-buffered input remains the fallback when raw mode is unavailable or
+  `TERM=dumb`. Picker, markdown, modal prompts, and richer activity frames
+  remain deferred M7 work.
 
 ## Assemblies
 

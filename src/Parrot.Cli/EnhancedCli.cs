@@ -14,7 +14,9 @@ internal sealed class EnhancedCli(
     GeneratedParrot.ParrotClient client,
     SlashCommandRegistry commands,
     Interrupts interrupts,
-    Func<int> columns) : IInterruptListener
+    Func<int> columns,
+    Func<IRawTerminal?> rawTerminal,
+    Func<bool> color) : IInterruptListener
 {
     private const string Prompt = "> ";
 
@@ -28,7 +30,16 @@ internal sealed class EnhancedCli(
         GeneratedParrot.ParrotClient client,
         SlashCommandRegistry commands,
         Interrupts interrupts)
-        : this(client, commands, interrupts, static () => Console.WindowWidth)
+        : this(
+            client,
+            commands,
+            interrupts,
+            static () => Console.WindowWidth,
+            static () => string.Equals(
+                Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
+                ? null
+                : UnixRawTerminal.Open(),
+            static () => Environment.GetEnvironmentVariable("NO_COLOR") is null)
     {
     }
 
@@ -81,6 +92,7 @@ internal sealed class EnhancedCli(
             configuration,
             ProviderRegistryBuilder.BuildableProviderIds(configuration),
             session.Id,
+            session.Model,
             input,
             output,
             error);
@@ -156,6 +168,15 @@ internal sealed class EnhancedCli(
             Delivery = Delivery.Steer,
         };
 
+    private static Task DrawEditor(
+        TerminalFrameRenderer renderer,
+        IncrementalEditor editor,
+        SlashContext context,
+        CancellationToken cancellationToken) =>
+        renderer.Draw(
+            new TerminalFrame([], new ModelineValue("chat", "ready", context.Model), editor.Prompt),
+            cancellationToken);
+
     private async Task<int> Once(
         SlashContext context, string prompt, TextWriter output, CancellationToken cancellationToken)
     {
@@ -180,6 +201,18 @@ internal sealed class EnhancedCli(
             $"parrot {BuildInfo.Version} — /help for commands, /exit to leave".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
+        using var terminal = rawTerminal();
+        if (terminal is not null)
+        {
+            return await RawLoop(context, output, terminal, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await LineLoop(context, input, output, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<int> LineLoop(
+        SlashContext context, TextReader input, TextWriter output, CancellationToken cancellationToken)
+    {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
         var listeningTo = context.UserSessionId;
@@ -257,6 +290,149 @@ internal sealed class EnhancedCli(
         }
 
         return CommandDispatcher.ExitSuccess;
+    }
+
+    private async Task<int> RawLoop(
+        SlashContext context,
+        TextWriter output,
+        IRawTerminal terminal,
+        CancellationToken cancellationToken)
+    {
+        using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+        var listeningTo = context.UserSessionId;
+        var call = client.Listen(
+            new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
+        var rendering = Task.CompletedTask;
+        var interrupting = Interrupting(context, listening.Token);
+        var decoder = new TerminalKeyDecoder();
+        var editor = new IncrementalEditor(Prompt, 64 * 1024);
+        var renderer = new TerminalFrameRenderer(output, columns, new TerminalPalette(color()));
+        var buffer = new byte[4096];
+        var exiting = false;
+
+        interrupts.Install(this);
+
+        try
+        {
+            await DrawEditor(renderer, editor, context, cancellationToken).ConfigureAwait(false);
+            while (!cancellationToken.IsCancellationRequested && !exiting)
+            {
+                var count = await terminal.Read(buffer, cancellationToken).ConfigureAwait(false);
+                var keys = count == 0 ? decoder.Flush() : decoder.Feed(buffer.AsSpan(0, count));
+                foreach (var key in keys)
+                {
+                    if (key.Kind == TerminalKeyKind.Interrupt)
+                    {
+                        if (!editor.IsEmpty)
+                        {
+                            editor.Clear();
+                        }
+                        else
+                        {
+                            _ = Interrupted();
+                        }
+                    }
+                    else if (key.Kind == TerminalKeyKind.EndOfFile && editor.IsEmpty)
+                    {
+                        exiting = true;
+                        break;
+                    }
+                    else
+                    {
+                        var entered = editor.Apply(key);
+                        if (entered is not null)
+                        {
+                            if (entered.Length == 0)
+                            {
+                                continue;
+                            }
+
+                            await renderer.Clear(cancellationToken).ConfigureAwait(false);
+                            if (entered.StartsWith('/'))
+                            {
+                                if (await Dispatch(context, entered, cancellationToken).ConfigureAwait(false)
+                                    == SlashOutcome.Exit)
+                                {
+                                    exiting = true;
+                                    break;
+                                }
+
+                                if (!string.Equals(context.UserSessionId, listeningTo, StringComparison.Ordinal))
+                                {
+                                    await streaming.CancelAsync().ConfigureAwait(false);
+                                    await rendering.ConfigureAwait(false);
+                                    streaming.Dispose();
+                                    call.Dispose();
+                                    streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+                                    listeningTo = context.UserSessionId;
+                                    call = client.Listen(
+                                        new ListenRequest { UserSessionId = listeningTo },
+                                        cancellationToken: streaming.Token);
+                                    _busy = false;
+                                }
+                            }
+                            else
+                            {
+                                _busy = true;
+                                await output.WriteLineAsync(
+                                    $"› {TerminalText.Sanitize(entered)}".AsMemory(), cancellationToken)
+                                    .ConfigureAwait(false);
+                                _ = await client.SendMessageAsync(
+                                    Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
+                                if (rendering.IsCompleted)
+                                {
+                                    rendering = RenderRaw(
+                                        call.ResponseStream,
+                                        output,
+                                        context.Error,
+                                        renderer,
+                                        editor,
+                                        context,
+                                        streaming.Token);
+                                }
+                            }
+                        }
+                    }
+
+                    if (!_busy && !exiting)
+                    {
+                        await DrawEditor(renderer, editor, context, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            interrupts.Remove();
+            _ = _interrupts.Writer.TryComplete();
+            await renderer.Clear(CancellationToken.None).ConfigureAwait(false);
+            await listening.CancelAsync().ConfigureAwait(false);
+            await rendering.ConfigureAwait(false);
+            await interrupting.ConfigureAwait(false);
+            streaming.Dispose();
+            call.Dispose();
+        }
+
+        return CommandDispatcher.ExitSuccess;
+    }
+
+    private async Task RenderRaw(
+        IAsyncStreamReader<Event> stream,
+        TextWriter output,
+        TextWriter error,
+        TerminalFrameRenderer renderer,
+        IncrementalEditor editor,
+        SlashContext context,
+        CancellationToken cancellationToken)
+    {
+        _ = await RenderTurn(stream, output, error, columns, cancellationToken).ConfigureAwait(false);
+        _busy = false;
+        _interruptRequested = false;
+        if (!cancellationToken.IsCancellationRequested)
+        {
+            await DrawEditor(renderer, editor, context, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task Render(
