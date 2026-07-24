@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -42,6 +44,8 @@ internal sealed class AgentSession(
     private const string InterruptedResult = "Error: tool execution interrupted";
 
     private const string InterruptedFinish = "interrupted";
+    private const int MaxAgentMessageBytes = 1024 * 1024;
+    private const int MaxAgentResultBytes = 1024 * 1024;
 
     // What the conversation records where the answer would have been. Without
     // it the history ends on the prompt that was stopped, and the next drain
@@ -55,6 +59,7 @@ internal sealed class AgentSession(
         ? []
         : [.. eventRepository.ModelHistory(identity.SessionId)];
 
+    private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
     private readonly Lock _selectionGate = new();
 
@@ -63,6 +68,8 @@ internal sealed class AgentSession(
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
     private bool _wake;
+    private bool _started;
+    private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
 
     // Set while an interrupt is unwinding a drain. It says who disposes the
     // drain's cancellation: normally the drain does when it settles, but an
@@ -203,6 +210,89 @@ internal sealed class AgentSession(
         string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
         AdmitAndWake(text, messageId, delivery, cancellationToken);
 
+    internal async Task<AgentSendResult> Send(string message, CancellationToken cancellationToken)
+    {
+        if (lifetime.IsCancellationRequested)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            throw new AgentRegistryException("no message given");
+        }
+
+        if (Encoding.UTF8.GetByteCount(message) > MaxAgentMessageBytes)
+        {
+            throw new AgentRegistryException("agent message exceeds 1048576 bytes");
+        }
+
+        var messageId = Identifier.MessageId();
+        Task<AgentExecution>? started = null;
+        var followUp = false;
+
+        lock (_executionGate)
+        {
+            if (!_started || _execution.IsCompleted)
+            {
+                followUp = _started;
+                _started = true;
+                started = Execute(message, messageId, followUp ? cancellationToken : CancellationToken.None);
+                _execution = started;
+            }
+        }
+
+        if (started is null)
+        {
+            _ = await Send(message, messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new AgentSendResult(SessionId, Name, messageId, followUp);
+    }
+
+    internal async Task<AgentTaskResult> Wait(
+        int yieldAfterMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        Task<AgentExecution> execution;
+
+        lock (_executionGate)
+        {
+            if (!_started)
+            {
+                throw new AgentRegistryException("agent has not started");
+            }
+
+            execution = _execution;
+        }
+
+        var started = Stopwatch.GetTimestamp();
+
+        if (yieldAfterMilliseconds == 0)
+        {
+            return Terminal(
+                await execution.WaitAsync(cancellationToken).ConfigureAwait(false),
+                Elapsed(started));
+        }
+
+        using var yielded = new CancellationTokenSource(TimeSpan.FromMilliseconds(yieldAfterMilliseconds));
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, yielded.Token);
+
+        try
+        {
+            return Terminal(await execution.WaitAsync(wait.Token).ConfigureAwait(false), Elapsed(started));
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return TaskResult(
+                AgentTaskStatus.Running,
+                yielded: true,
+                Elapsed(started),
+                string.Empty,
+                string.Empty);
+        }
+    }
+
     internal async Task<AgentExecution> ResultSettled()
     {
         Task<AgentExecution> draining;
@@ -249,6 +339,128 @@ internal sealed class AgentSession(
         }
 
         return published;
+    }
+
+    private static long Elapsed(long started) =>
+        (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+    private static AgentExecution BoundResult(AgentExecution execution) =>
+        execution with
+        {
+            Output = BoundResult(execution.Output),
+            Error = BoundResult(execution.Error),
+        };
+
+    private static string BoundResult(string value)
+    {
+        if (Encoding.UTF8.GetByteCount(value) <= MaxAgentResultBytes)
+        {
+            return value;
+        }
+
+        var characters = 0;
+        var bytes = 0;
+
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (bytes + rune.Utf8SequenceLength > MaxAgentResultBytes)
+            {
+                break;
+            }
+
+            bytes += rune.Utf8SequenceLength;
+            characters += rune.Utf16SequenceLength;
+        }
+
+        return value[..characters];
+    }
+
+    private AgentTaskResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
+        completed.Status switch
+        {
+            AgentExecutionStatus.Succeeded => TaskResult(
+                AgentTaskStatus.Succeeded,
+                yielded: false,
+                elapsedMilliseconds,
+                completed.Output,
+                completed.Error),
+            AgentExecutionStatus.Failed => TaskResult(
+                AgentTaskStatus.Failed,
+                yielded: false,
+                elapsedMilliseconds,
+                completed.Output,
+                completed.Error),
+            _ => TaskResult(
+                AgentTaskStatus.Canceled,
+                yielded: false,
+                elapsedMilliseconds,
+                completed.Output,
+                completed.Error),
+        };
+
+    private AgentTaskResult TaskResult(
+        AgentTaskStatus status,
+        bool yielded,
+        long elapsedMilliseconds,
+        string output,
+        string error) =>
+        new(SessionId, Name, Depth, status, yielded, elapsedMilliseconds, output, error);
+
+    private async Task<AgentExecution> Execute(
+        string prompt,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+
+        AgentExecution completed;
+        var started = NewEvent();
+        started.AgentStarted = new AgentStarted
+        {
+            ParentAgentSessionId = identity.ParentSessionId,
+            Name = Name,
+        };
+
+        try
+        {
+            await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
+            _ = await Send(prompt, messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
+            completed = BoundResult(await ResultSettled().ConfigureAwait(false));
+        }
+        catch (Exception failure)
+        {
+            completed = AgentExecution.Failed(BoundResult(failure.Message));
+        }
+
+        var terminal = NewEvent();
+        if (completed.Status == AgentExecutionStatus.Succeeded)
+        {
+            terminal.AgentFinished = new AgentFinished
+            {
+                ParentAgentSessionId = identity.ParentSessionId,
+                Name = Name,
+            };
+        }
+        else
+        {
+            terminal.AgentFailed = new AgentFailed
+            {
+                ParentAgentSessionId = identity.ParentSessionId,
+                Name = Name,
+                Message = completed.Error,
+            };
+        }
+
+        try
+        {
+            await EmitEvent(terminal, null, null, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            completed = AgentExecution.Failed(BoundResult(failure.Message));
+        }
+
+        return completed;
     }
 
     private async Task<(Admission Admission, bool FollowUp)> AdmitAndWake(

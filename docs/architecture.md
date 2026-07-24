@@ -165,8 +165,8 @@ ParrotService
  |    |    +-- EventRepository
  |    |    +-- SystemContextBuilder .. sampled only at a safe turn boundary
  |    |    +-- Compactor
- |    |    +-- AgentRegistry .... agent profiles; also spawns and owns
- |    |    |    |                 child sessions
+ |    |    +-- AgentRegistry .... agent profiles; creates, retrieves, and owns
+ |    |    |    |                 child sessions; does not operate their drains
  |    |    |    +-- AgentSession  (recurses: a child session, same database)
  |    |    |
  |    |    +-- IToolFactory ..... one per tool, per user session
@@ -666,8 +666,10 @@ subagent manager was already asking the registry its questions —
 `agentIdentity` and `agentRecursionLimit` are its own methods. Folding removes
 that reach-across.
 
-What it owns beyond profiles: the child task table, per-parent concurrency
-limits, recursion limits, and the lifetime of every spawned child session.
+What it owns beyond profiles: the child session table, recursion limits, and the
+lifetime of every spawned child session. It only creates and retrieves child
+sessions. Prompt admission, follow-up turns, and waiting belong to
+`AgentSession`, so drain concurrency has one owner.
 
 Two consequences, neither cosmetic:
 

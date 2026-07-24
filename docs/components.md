@@ -514,22 +514,23 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 ### `AgentRegistry` — rank 9, M5
 
 - **Absorbs** `agent` (registry, provider resolution), `subagent`.
-- **Owns** agent profiles, the child task table, per-parent concurrency limits,
-  recursion limits, and **the lifetime of every spawned child session**.
-- **Inbound** resolve an agent profile; spawn, await, observe, interrupt a
-  child session.
+- **Owns** agent profiles, the child session table, recursion limits, and
+  **the lifetime of every spawned child session**.
+- **Inbound** resolve an agent profile; create and retrieve a child session.
 - **Outbound** `Configuration`, `AgentSession`.
 - **Boundary** no.
-- **Note** mutually dependent with `AgentSession`; both rank 9. The implemented
-  registry owns background child sessions, compact retained terminal results,
-  friendly names, and recursion/per-parent limits. `agent_spawn` returns
-  immediately and `wait_agent` waits or yields without canceling the child.
-  Each child publishes a durable `AgentStarted` event followed by exactly one
-  `AgentFinished` or `AgentFailed` event; cancellation is a failure carrying the
-  retained interruption message. User-session shutdown cancels and joins every
-  child. Profiles, reusable `agent_send`, generic task APIs, and the remaining
-  `TaskManager` work stay deferred rather than stubbed. M8 adds only foreground
-  profiles and typed observation of the existing child lifecycle.
+- **Note** mutually dependent with `AgentSession`; both rank 9. The registry
+  creates, names, retains, observes, and owns the lifetime of background child
+  sessions. It does not admit input or wait for turns: those operations belong
+  to the retrieved `AgentSession`, keeping one owner for drain concurrency and
+  terminal results. `agent_spawn` returns immediately and `wait_agent` waits or
+  yields without canceling the child. Each child publishes a durable
+  `AgentStarted` event followed by exactly one `AgentFinished` or `AgentFailed`
+  event; cancellation is a failure carrying the retained interruption message.
+  User-session shutdown cancels and joins every child. Profiles, generic task
+  APIs, and the remaining `TaskManager` work stay deferred rather than stubbed.
+  M8 adds only foreground profiles and typed observation of the existing child
+  lifecycle.
 
 ### `UserSession` — rank 10, M2
 

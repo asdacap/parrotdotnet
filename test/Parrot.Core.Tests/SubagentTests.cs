@@ -34,7 +34,7 @@ internal sealed class SubagentTests : IDisposable
             sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
         var spawn = new AgentSpawnTool(registry, parent);
-        var wait = new WaitAgentTool(registry, parent);
+        var wait = new WaitAgentTool(registry);
 
         var startedJson = await spawn.Execute(
             """{"prompt":"do the subtask","name":"  Child Helper!  "}""", cancellationToken);
@@ -96,7 +96,8 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
-        var spawned = registry.Spawn(parent, "initial", "worker");
+        var spawned = registry.Spawn(parent, "worker");
+        _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry);
 
         await provider.Arrived(cancellationToken);
@@ -113,7 +114,7 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(provider.Requests[1].Messages.Select(message => message.Content))
             .Contains("steer now");
         provider.Release();
-        var steeredResult = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        var steeredResult = await spawned.Wait(0, cancellationToken);
         _ = await Assert.That(steeredResult.Output).IsEqualTo("steered");
 
         var followedUpJson = await send.Execute(
@@ -132,7 +133,7 @@ internal sealed class SubagentTests : IDisposable
             && conversation.Contains("steered", StringComparison.Ordinal)
             && conversation.Contains("follow up", StringComparison.Ordinal)).IsTrue();
         provider.Release();
-        var followedUpResult = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        var followedUpResult = await spawned.Wait(0, cancellationToken);
         _ = await Assert.That(followedUpResult.Output).IsEqualTo("followed up");
     }
 
@@ -146,7 +147,8 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
-        var spawned = registry.Spawn(parent, "initial", "worker");
+        var spawned = registry.Spawn(parent, "worker");
+        _ = await spawned.Send("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
         var sending = new AgentSendTool(registry).Execute(
@@ -158,7 +160,7 @@ internal sealed class SubagentTests : IDisposable
         var secondRequest = string.Join('\n', provider.Requests[1].Messages.Select(message => message.Content));
         _ = await Assert.That(secondRequest.Split("boundary", StringSplitOptions.None).Length - 1).IsEqualTo(1);
         provider.Release();
-        var completed = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        var completed = await spawned.Wait(0, cancellationToken);
         _ = await Assert.That(completed.Output).IsEqualTo("second");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
     }
@@ -172,7 +174,8 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken, "parent");
         var stranger = Session(provider, depth: 0, cancellationToken, "stranger");
-        var spawned = registry.Spawn(parent, "initial", "worker");
+        var spawned = registry.Spawn(parent, "worker");
+        _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry);
 
         var malformed = await send.Execute("{}", cancellationToken);
@@ -208,10 +211,11 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken, "parent");
         var spawn = new AgentSpawnTool(registry, parent);
-        var idle = registry.Spawn(parent, "become idle", "idle");
+        var idle = registry.Spawn(parent, "idle");
+        _ = await idle.Send("become idle", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
-        _ = await registry.Wait(parent, idle.SessionId, 0, cancellationToken);
+        _ = await idle.Wait(0, cancellationToken);
 
         var tooDeep = await new AgentSpawnTool(
             registry, Session(provider, depth: 4, cancellationToken, "deep-parent")).Execute(
@@ -233,17 +237,18 @@ internal sealed class SubagentTests : IDisposable
             _repository,
             cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
-        var spawned = registry.Spawn(parent, "first", "worker");
+        var spawned = registry.Spawn(parent, "worker");
+        _ = await spawned.Send("first", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
-        _ = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        _ = await spawned.Wait(0, cancellationToken);
         var send = new AgentSendTool(registry);
         _ = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"wait forever"}""", cancellationToken);
         await provider.Arrived(cancellationToken);
 
         await registry.DisposeAsync();
-        var terminal = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        var terminal = await spawned.Wait(0, cancellationToken);
 
         _ = await Assert.That(terminal.Status).IsEqualTo(AgentTaskStatus.Canceled);
         _ = await Assert.That(terminal.Error).IsEqualTo("interrupted");
@@ -253,7 +258,7 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.ParentAgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(failed.AgentFailed.Name).IsEqualTo("worker");
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
-        _ = await Assert.That(() => registry.Spawn(parent, "again", "worker"))
+        _ = await Assert.That(() => registry.Spawn(parent, "worker"))
             .Throws<AgentRegistryException>();
         var rejected = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}""", cancellationToken);

@@ -15,7 +15,7 @@ internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session)
         {"type":"object","properties":{"prompt":{"type":"string","minLength":1,"description":"The subtask for the child agent"},"name":{"type":"string","description":"Optional friendly name. It is lowercased and sanitized to letters, digits, and hyphens; omitted or empty names are generated."}},"required":["prompt"],"additionalProperties":false}
         """;
 
-    public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         string prompt;
         string requestedName;
@@ -28,16 +28,27 @@ internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session)
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return Task.FromResult($"error: {failure.Message}");
+            return $"error: {failure.Message}";
         }
 
         try
         {
-            return Task.FromResult(agents.Spawn(session, prompt, requestedName).FormatSpawn());
+            var agent = agents.Spawn(session, requestedName);
+            _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
+            var result = new AgentTaskResult(
+                agent.SessionId,
+                agent.Name,
+                agent.Depth,
+                AgentTaskStatus.Running,
+                Yielded: false,
+                ElapsedMilliseconds: 0,
+                string.Empty,
+                string.Empty);
+            return result.FormatSpawn();
         }
         catch (AgentRegistryException failure)
         {
-            return Task.FromResult($"error: {failure.Message}");
+            return $"error: {failure.Message}";
         }
     }
 }

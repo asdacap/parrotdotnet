@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using Parrot.Agent;
 
@@ -34,17 +33,7 @@ internal sealed class AgentSendTool(AgentRegistry agents) : ITool
 
         try
         {
-            if (string.IsNullOrWhiteSpace(message))
-            {
-                return "error: no message given";
-            }
-
-            if (Encoding.UTF8.GetByteCount(message) > 1024 * 1024)
-            {
-                return "error: agent message exceeds 1048576 bytes";
-            }
-
-            return (await agents.Send(sessionId, message, cancellationToken).ConfigureAwait(false)).Format();
+            return (await agents.Get(sessionId).Send(message, cancellationToken).ConfigureAwait(false)).Format();
         }
         catch (AgentRegistryException failure)
         {
