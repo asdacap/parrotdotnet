@@ -638,7 +638,7 @@ internal sealed class EnhancedCli(
             Event.PayloadOneofCase.TextChunk or
             Event.PayloadOneofCase.TurnEnded or
             Event.PayloadOneofCase.TurnFailed
-                ? Flush(cancellationToken)
+                ? Flush(false, cancellationToken)
                 : Task.CompletedTask;
 
         public async Task Render(Event published, CancellationToken cancellationToken)
@@ -669,7 +669,7 @@ internal sealed class EnhancedCli(
 
             if (published.PayloadCase == Event.PayloadOneofCase.ToolFinished)
             {
-                await Flush(cancellationToken).ConfigureAwait(false);
+                await Flush(true, cancellationToken).ConfigureAwait(false);
                 _ = _toolCalls.Remove(published.ToolFinished.ToolCallId);
             }
             else if (published.PayloadCase == Event.PayloadOneofCase.ToolCancelled)
@@ -718,10 +718,24 @@ internal sealed class EnhancedCli(
             return FormatToolCall(toolCall);
         }
 
-        private async Task Flush(CancellationToken cancellationToken)
+        private async Task Flush(bool redraw, CancellationToken cancellationToken)
         {
-            await renderer.FlushActivities(_rows, cancellationToken).ConfigureAwait(false);
+            var activities = _rows;
             _rows = [];
+            if (redraw)
+            {
+                await renderer.FlushActivitiesAndDraw(
+                    activities,
+                    new TerminalFrame(
+                        _rows,
+                        null,
+                        modeline(),
+                        prompt()),
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await renderer.FlushActivities(activities, cancellationToken).ConfigureAwait(false);
         }
     }
 
