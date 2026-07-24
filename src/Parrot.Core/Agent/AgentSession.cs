@@ -456,6 +456,7 @@ internal sealed class AgentSession(
             else
             {
                 stopped = true;
+                await EmitToolCancelled(call).ConfigureAwait(false);
             }
 
             _history.Add(LLMMessage.ToolResult(call.Id, result));
@@ -518,15 +519,50 @@ internal sealed class AgentSession(
     private async Task<string> Invoke(
         ToolSnapshot snapshot, LLMToolCall call, CancellationToken cancellationToken)
     {
-        var running = Compose();
-        running.ToolCallChunk = new ToolCallChunk { ToolCallId = call.Id, ToolName = call.Name };
-        await EmitEvent(running, null, null, cancellationToken).ConfigureAwait(false);
+        var started = Compose();
+        started.ToolStarted = new ToolStarted { ToolCallId = call.Id, ToolName = call.Name };
+        await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
 
         var tool = snapshot.Find(call.Name);
+        if (tool is null)
+        {
+            var message = $"unknown tool {call.Name}";
+            await EmitToolError(call, message).ConfigureAwait(false);
+            return $"error: {message}";
+        }
 
-        return tool is null
-            ? $"error: unknown tool {call.Name}"
-            : await tool.Execute(call.ArgumentsJson, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var result = await tool.Execute(call.ArgumentsJson, cancellationToken).ConfigureAwait(false);
+            var finished = Compose();
+            finished.ToolFinished = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name };
+            await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            await EmitToolCancelled(call).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception failure)
+        {
+            await EmitToolError(call, failure.Message).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task EmitToolCancelled(LLMToolCall call)
+    {
+        var cancelled = Compose();
+        cancelled.ToolCancelled = new ToolCancelled { ToolCallId = call.Id, ToolName = call.Name };
+        await EmitEvent(cancelled, null, null, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private async Task EmitToolError(LLMToolCall call, string message)
+    {
+        var failed = Compose();
+        failed.ToolError = new ToolError { ToolCallId = call.Id, ToolName = call.Name, Message = message };
+        await EmitEvent(failed, null, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task Fail(string message, CancellationToken cancellationToken)

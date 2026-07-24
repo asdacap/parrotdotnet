@@ -5,6 +5,42 @@ namespace Parrot.Cli.Tests;
 internal sealed class BasicCliTests
 {
     [Test]
+    public async Task Tool_lifecycle_events_render_as_plain_lines(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event { TextChunk = new TextChunk { Fragment = "checking" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { ToolStarted = new ToolStarted { ToolCallId = "call-1", ToolName = "read" } },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event { ToolFinished = new ToolFinished { ToolCallId = "call-1", ToolName = "read" } },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event { ToolCancelled = new ToolCancelled { ToolCallId = "call-2", ToolName = "write" } },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event
+            {
+                ToolError = new ToolError { ToolCallId = "call-3", ToolName = "shell", Message = "denied" },
+            },
+            cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        _ = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        _ = await Assert.That(output.ToString()).IsEqualTo(
+            $"checking{Environment.NewLine}" +
+            $"  tool started: read{Environment.NewLine}" +
+            $"  tool finished: read{Environment.NewLine}" +
+            $"  tool cancelled: write{Environment.NewLine}" +
+            $"  tool error: shell: denied{Environment.NewLine}");
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task A_line_typed_during_a_turn_is_sent_rather_than_held_until_it_ends(

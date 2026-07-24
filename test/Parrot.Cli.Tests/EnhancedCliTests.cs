@@ -32,8 +32,33 @@ internal sealed class EnhancedCliTests
                 new Event { Id = "text-2", TextChunk = new TextChunk { Fragment = "ij" } },
                 new Event
                 {
-                    Id = "tool",
-                    ToolCallChunk = new ToolCallChunk { ToolName = "shell\u001b[31m" },
+                    Id = "tool-chunk",
+                    ToolCallChunk = new ToolCallChunk { ToolName = "unrendered" },
+                },
+                new Event
+                {
+                    Id = "tool-started",
+                    ToolStarted = new ToolStarted { ToolCallId = "call-1", ToolName = "shell\u001b[31m" },
+                },
+                new Event
+                {
+                    Id = "tool-finished",
+                    ToolFinished = new ToolFinished { ToolCallId = "call-1", ToolName = "shell\u001b[31m" },
+                },
+                new Event
+                {
+                    Id = "tool-cancelled",
+                    ToolCancelled = new ToolCancelled { ToolCallId = "call-2", ToolName = "read\u001b[2J" },
+                },
+                new Event
+                {
+                    Id = "tool-error",
+                    ToolError = new ToolError
+                    {
+                        ToolCallId = "call-3",
+                        ToolName = "write\u001b[31m",
+                        Message = "denied\u001b[2J",
+                    },
                 },
                 new Event { Id = "text-3", TextChunk = new TextChunk { Fragment = "tail" } },
                 new Event
@@ -51,7 +76,11 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(output).Contains("think]0;title\n");
         _ = await Assert.That(output).Contains("abcdefgh\n");
         _ = await Assert.That(output).Contains("ij\n");
-        _ = await Assert.That(output).Contains("  * shell[31m");
+        _ = await Assert.That(output).DoesNotContain("unrendered");
+        _ = await Assert.That(output).Contains("  * shell[31m started");
+        _ = await Assert.That(output).Contains("  + shell[31m finished");
+        _ = await Assert.That(output).Contains("  - read[2J cancelled");
+        _ = await Assert.That(output).Contains("  ! write[31m: denied[2J");
         _ = await Assert.That(output).Contains("tail\n");
         _ = await Assert.That(output).Contains("  stop[2J - 3 in / 4 out");
         _ = await Assert.That(Count(output, "abcdefgh\n")).IsEqualTo(1);

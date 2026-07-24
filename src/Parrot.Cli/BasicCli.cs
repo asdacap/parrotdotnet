@@ -119,10 +119,21 @@ internal sealed class BasicCli(
         // screen; after it, an admission is one they typed over the top of a
         // turn, and saying so is the only sign it was taken.
         var started = false;
+        var textEndsLine = true;
 
         while (await MoveNext(stream, cancellationToken).ConfigureAwait(false))
         {
             var published = stream.Current;
+
+            if (!textEndsLine && published.PayloadCase is
+                Event.PayloadOneofCase.ToolStarted or
+                Event.PayloadOneofCase.ToolFinished or
+                Event.PayloadOneofCase.ToolCancelled or
+                Event.PayloadOneofCase.ToolError)
+            {
+                await output.WriteLineAsync().ConfigureAwait(false);
+                textEndsLine = true;
+            }
 
             switch (published.PayloadCase)
             {
@@ -140,6 +151,31 @@ internal sealed class BasicCli(
                 case Event.PayloadOneofCase.TextChunk:
                     await output.WriteAsync(published.TextChunk.Fragment.AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
+                    textEndsLine = published.TextChunk.Fragment.EndsWith('\n');
+                    break;
+
+                case Event.PayloadOneofCase.ToolStarted:
+                    await output.WriteLineAsync(
+                        $"  tool started: {published.ToolStarted.ToolName}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ToolFinished:
+                    await output.WriteLineAsync(
+                        $"  tool finished: {published.ToolFinished.ToolName}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ToolCancelled:
+                    await output.WriteLineAsync(
+                        $"  tool cancelled: {published.ToolCancelled.ToolName}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ToolError:
+                    await output.WriteLineAsync(
+                        $"  tool error: {published.ToolError.ToolName}: {published.ToolError.Message}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.TurnEnded:

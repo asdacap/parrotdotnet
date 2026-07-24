@@ -78,6 +78,23 @@ task lifecycle events. Upstream tests asserting task parentage are rewritten
 against session parentage rather than deleted — the behaviour still exists, it
 is attributed differently.
 
+### Tool execution has typed lifecycle events
+
+**Upstream.** Tool execution state is rendered from task lifecycle events.
+
+**Here.** Provider `ToolCallChunk` events describe only streamed tool-call
+arguments. Actual execution emits `ToolStarted`, followed by exactly one of
+`ToolFinished`, `ToolCancelled`, or `ToolError`. Every payload carries the tool
+call id and name; errors also carry their message. Calls skipped after an
+interrupt emit `ToolCancelled` without `ToolStarted` because they never ran.
+Both CLIs render these events directly rather than inferring execution state
+from argument chunks or tool-result text.
+
+**Why.** Separating provider streaming from execution gives clients an
+unambiguous, durable lifecycle and prevents duplicate tool announcements.
+
+**Affects.** The `Event` message, `AgentSession`, `BasicCli`, and `EnhancedCli`.
+
 ### Static musl cannot do TLS — **unresolved, needs review**
 
 **Intended.** The shipped binary is statically linked against musl:

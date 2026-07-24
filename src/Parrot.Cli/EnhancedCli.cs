@@ -369,9 +369,28 @@ internal sealed class EnhancedCli(
                         cancellationToken).ConfigureAwait(false);
                     break;
 
-                case Event.PayloadOneofCase.ToolCallChunk when published.ToolCallChunk.ToolName.Length > 0:
+                case Event.PayloadOneofCase.ToolStarted:
                     await output.WriteLineAsync(
-                        $"{Cyan}  * {TerminalText.Sanitize(published.ToolCallChunk.ToolName)}{Reset}".AsMemory(),
+                        $"{Cyan}  * {TerminalText.Sanitize(published.ToolStarted.ToolName)} started{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ToolFinished:
+                    await output.WriteLineAsync(
+                        $"{Green}  + {TerminalText.Sanitize(published.ToolFinished.ToolName)} finished{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ToolCancelled:
+                    await output.WriteLineAsync(
+                        $"{Dim}  - {TerminalText.Sanitize(published.ToolCancelled.ToolName)} cancelled{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ToolError:
+                    await output.WriteLineAsync(
+                        ($"{Red}  ! {TerminalText.Sanitize(published.ToolError.ToolName)}: " +
+                         $"{TerminalText.Sanitize(published.ToolError.Message)}{Reset}").AsMemory(),
                         cancellationToken).ConfigureAwait(false);
                     break;
 

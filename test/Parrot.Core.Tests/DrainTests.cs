@@ -101,6 +101,28 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Conversation(repository))
             .IsEqualTo("user: first prompt | user: steer | assistant: done");
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | steer");
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:call-1:settled | finished:call-1:settled");
+    }
+
+    [Test]
+    public async Task An_unknown_tool_emits_an_error_before_the_turn_continues(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "missing", "{}")), Answer("done"));
+        var repository = new EventRepository(_database);
+        var session = Session(provider, repository, [], cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:call-1:missing | error:call-1:missing:unknown tool missing");
     }
 
     [Test]
@@ -134,6 +156,8 @@ internal sealed class DrainTests : IDisposable
             .Select(message => message.ToolCallId));
 
         _ = await Assert.That(answered).IsEqualTo("call-1 | call-2");
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "cancelled:call-1:held | cancelled:call-2:held");
     }
 
     [Test]
@@ -185,6 +209,22 @@ internal sealed class DrainTests : IDisposable
 
     private static int Payloads(EventRepository repository, Event.PayloadOneofCase payload) =>
         repository.Replay().Count(published => published.PayloadCase == payload);
+
+    private static string ToolLifecycle(EventRepository repository) =>
+        string.Join(
+            " | ",
+            repository.Replay().Select(published => published.PayloadCase switch
+            {
+                Event.PayloadOneofCase.ToolStarted =>
+                    $"started:{published.ToolStarted.ToolCallId}:{published.ToolStarted.ToolName}",
+                Event.PayloadOneofCase.ToolFinished =>
+                    $"finished:{published.ToolFinished.ToolCallId}:{published.ToolFinished.ToolName}",
+                Event.PayloadOneofCase.ToolCancelled =>
+                    $"cancelled:{published.ToolCancelled.ToolCallId}:{published.ToolCancelled.ToolName}",
+                Event.PayloadOneofCase.ToolError =>
+                    $"error:{published.ToolError.ToolCallId}:{published.ToolError.ToolName}:{published.ToolError.Message}",
+                _ => null,
+            }).Where(value => value is not null));
 
     private AgentSession Session(
         ILLMProvider provider,
