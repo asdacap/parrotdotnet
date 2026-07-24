@@ -24,10 +24,14 @@ internal static class CommandDispatcher
           help                        Print this message
           version                     Print the build version
           auth login --api-key-stdin  Store the opencode-go key read from stdin
+          models                      List the models the provider serves
           chat [--model <id>] <text>  Send one prompt and stream the reply
 
         M1 walking skeleton: one turn, no tools, no persistence.
         """;
+
+    // One handler for the process, which is what HttpClient wants anyway.
+    private static readonly HttpClient Http = new();
 
     // The single top-level Run. Every other Run is a descendant of this call.
     public static async Task<int> Run(
@@ -55,6 +59,9 @@ internal static class CommandDispatcher
 
             case "auth":
                 return await Login(arguments, output, error, cancellationToken).ConfigureAwait(false);
+
+            case "models":
+                return await Models(output, error, cancellationToken).ConfigureAwait(false);
 
             case "chat":
                 return await Chat(arguments, output, error, cancellationToken).ConfigureAwait(false);
@@ -95,6 +102,52 @@ internal static class CommandDispatcher
         await output.WriteLineAsync($"stored a credential for {ProviderId}".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
         return ExitSuccess;
+    }
+
+    private static async Task<int> Models(
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
+        var client = await Connect(error, cancellationToken).ConfigureAwait(false);
+
+        if (client is null)
+        {
+            return ExitFailure;
+        }
+
+        var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
+
+        foreach (var model in listed.Models)
+        {
+            await output.WriteLineAsync($"{model.ProviderId}/{model.Id}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return ExitSuccess;
+    }
+
+    private static async Task<Parrot.Protocol.Parrot.ParrotClient?> Connect(
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
+        using var store = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+        var key = await store.Get(ProviderId, cancellationToken).ConfigureAwait(false);
+
+        if (key is null)
+        {
+            await error.WriteLineAsync(
+                "parrot: no credential. Run: parrot auth login --api-key-stdin".AsMemory(),
+                cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
+        var provider = new OpenAICompatibleProvider(
+            ProviderId, new Uri("https://opencode.ai/zen/go/v1/"), key, Http);
+
+        // Local mode opens no socket: the generated client reaches the service
+        // through the in-process invoker.
+        return new Parrot.Protocol.Parrot.ParrotClient(new InProcessCallInvoker(new ParrotService(provider)));
     }
 
     private static async Task<int> Chat(
@@ -147,7 +200,7 @@ internal static class CommandDispatcher
         var prompt = string.Join(' ', words);
 
         return await BasicCli
-            .Render(client, Identifier.New(), model, prompt, output, error, cancellationToken)
+            .Render(client, model, prompt, output, error, cancellationToken)
             .ConfigureAwait(false);
     }
 }

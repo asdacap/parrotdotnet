@@ -396,10 +396,15 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 
 - **Absorbs** `api/v1`, `httpapi` (backend half), re-specified as a `.proto`.
 - **Owns** nothing. It translates the contract into domain calls.
-- **Inbound** two calls, deliberately separate. `SendMessage(session_id, model,
-  text)` admits a prompt and returns its ids; `Listen(session_id)` streams that
-  session's flat `Event`s. Upholds principle 11 — local and remote use one
-  contract.
+- **Inbound** five calls. `ListModels`; `CreateSession(model)` and
+  `UpdateSession(id, model)`; `SendMessage(session_id, text)`; and
+  `Listen(session_id)` streaming that session's flat `Event`s. Upholds
+  principle 11 — local and remote use one contract.
+- **The model is session state, not a message property.** Selection belongs to
+  `AgentSession`, so changing it is an explicit `UpdateSession` rather than a
+  different value on the next prompt. A session is created explicitly too:
+  get-or-create on first message cannot express a parent session, and hides the
+  difference between resuming a session and starting one.
 - **Why they are separate** a prompt is durable before execution is requested
   (principle 1), so admitting one must not depend on anyone listening; a client
   that drops must be able to resume the stream without re-sending the prompt;

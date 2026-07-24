@@ -15,9 +15,14 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
     {
         var context = new InProcessServerCallContext(options.CancellationToken);
 
-        var response = request is SendMessageRequest send
-            ? Cast<TResponse>(service.SendMessage(send, context))
-            : throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}");
+        var response = request switch
+        {
+            ListModelsRequest list => Cast<TResponse, ListModelsResponse>(service.ListModels(list, context)),
+            CreateSessionRequest create => Cast<TResponse, Session>(service.CreateSession(create, context)),
+            UpdateSessionRequest update => Cast<TResponse, Session>(service.UpdateSession(update, context)),
+            SendMessageRequest send => Cast<TResponse, SendMessageResponse>(service.SendMessage(send, context)),
+            _ => throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}"),
+        };
 
         return new AsyncUnaryCall<TResponse>(
             response,
@@ -63,10 +68,11 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
         Method<TRequest, TResponse> method, string? host, CallOptions options) =>
         throw new NotImplementedException("the contract has no duplex call");
 
-    private static async Task<TResponse> Cast<TResponse>(Task<SendMessageResponse> response)
-        where TResponse : class =>
+    private static async Task<TResponse> Cast<TResponse, TActual>(Task<TActual> response)
+        where TResponse : class
+        where TActual : class =>
         await response.ConfigureAwait(false) as TResponse
-            ?? throw new InvalidOperationException($"SendMessage cannot answer a {typeof(TResponse).Name}");
+            ?? throw new InvalidOperationException($"a {typeof(TActual).Name} cannot answer a {typeof(TResponse).Name}");
 
     private static async void Drain<TResponse>(Task call, ChannelStreamWriter<TResponse> writer)
         where TResponse : class

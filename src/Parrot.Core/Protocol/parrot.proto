@@ -11,14 +11,46 @@ package parrot.v1;
 // depend on anyone listening, and a client that reconnects must be able to
 // resume the stream without re-sending the prompt.
 service Parrot {
+  rpc ListModels (ListModelsRequest) returns (ListModelsResponse);
+  rpc CreateSession (CreateSessionRequest) returns (Session);
+  rpc UpdateSession (UpdateSessionRequest) returns (Session);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
   rpc Listen (ListenRequest) returns (stream Event);
 }
 
+// The model is session state, not a property of a message: selection belongs
+// to the session (see AgentSession in components.md), so changing it is an
+// explicit UpdateSession rather than a different value on the next prompt.
+message Session {
+  string id                = 1;
+  string model             = 2;
+  string parent_session_id = 3;
+}
+
+message CreateSessionRequest {
+  string model             = 1;
+  string parent_session_id = 2;
+}
+
+message UpdateSessionRequest {
+  string id    = 1;
+  string model = 2;
+}
+
+message ListModelsRequest {}
+
+message ListModelsResponse {
+  repeated Model models = 1;
+}
+
+message Model {
+  string id          = 1;
+  string provider_id = 2;
+}
+
 message SendMessageRequest {
   string session_id = 1;
-  string model      = 2;
-  string text       = 3;
+  string text       = 2;
 }
 
 message SendMessageResponse {
@@ -48,6 +80,53 @@ message Event {
   string    session_id = 2;
   string    task_id    = 3;
   EventKind kind       = 4;
-  // One rendered line, on every event. BasicCli needs nothing else.
+  // One rendered line, on every event. BasicCli needs nothing else, and an
+  // event whose text cannot be written is one whose meaning is not decided.
   string    text       = 5;
+
+  // Typed detail for EnhancedCli, which ignores text and reads this. Both
+  // clients stay honest because neither can compensate for the other.
+  oneof payload {
+    TurnStarted     turn_started     = 6;
+    TextChunk       text_chunk       = 7;
+    ReasoningChunk  reasoning_chunk  = 8;
+    ToolCallChunk   tool_call_chunk  = 9;
+    RetryNotice     retry_notice     = 10;
+    TurnEnded       turn_ended       = 11;
+    TurnFailed      turn_failed      = 12;
+  }
+}
+
+message TurnStarted {
+  string model = 1;
+}
+
+message TextChunk {
+  string fragment = 1;
+}
+
+message ReasoningChunk {
+  string fragment = 1;
+}
+
+message ToolCallChunk {
+  string tool_call_id       = 1;
+  string tool_name          = 2;
+  string arguments_fragment = 3;
+}
+
+message RetryNotice {
+  int32  attempt        = 1;
+  int32  retry_after_ms = 2;
+  string reason         = 3;
+}
+
+message TurnEnded {
+  string finish_reason = 1;
+  int32  input_tokens  = 2;
+  int32  output_tokens = 3;
+}
+
+message TurnFailed {
+  string message = 1;
 }

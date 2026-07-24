@@ -13,19 +13,23 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
 
     public string SessionId { get; } = sessionId;
 
-    public async Task Run(string taskId, string model, string prompt, CancellationToken cancellationToken)
+    // Selection is session state: an UpdateSession changes it, a prompt does not.
+    public string Model { get; set; } = string.Empty;
+
+    public async Task Run(string taskId, string prompt, CancellationToken cancellationToken)
     {
         _taskId = taskId;
 
-        await events.Publish(Compose(EventKind.TurnStart, $"turn started ({model})"), cancellationToken)
-            .ConfigureAwait(false);
+        var started = Compose(EventKind.TurnStart, $"turn started ({Model})");
+        started.TurnStarted = new TurnStarted { Model = Model };
+        await events.Publish(started, cancellationToken).ConfigureAwait(false);
 
         try
         {
             var result = await provider.Call(
                 new LLMRequest
                 {
-                    Model = model,
+                    Model = Model,
                     MaxTokens = 4096,
                     Messages = [new LLMMessage(LLMRole.User, prompt)],
                 },
@@ -36,13 +40,22 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
                 ? "turn ended: the token budget was spent on reasoning before any content"
                 : $"turn ended ({result.FinishReason}, {result.Usage.InputTokens} in / {result.Usage.OutputTokens} out)";
 
-            await events.Publish(Compose(EventKind.TurnEnd, summary), cancellationToken).ConfigureAwait(false);
+            var ended = Compose(EventKind.TurnEnd, summary);
+            ended.TurnEnded = new TurnEnded
+            {
+                FinishReason = result.FinishReason,
+                InputTokens = result.Usage.InputTokens,
+                OutputTokens = result.Usage.OutputTokens,
+            };
+            await events.Publish(ended, cancellationToken).ConfigureAwait(false);
         }
         catch (LLMProviderException failure)
         {
             // A provider boundary is a deliberate containment point: the turn
             // reports and ends rather than taking the process down.
-            await events.Publish(Compose(EventKind.Error, failure.Message), cancellationToken).ConfigureAwait(false);
+            var failed = Compose(EventKind.Error, failure.Message);
+            failed.TurnFailed = new TurnFailed { Message = failure.Message };
+            await events.Publish(failed, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -62,7 +75,38 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
             _ => EventKind.Retry,
         };
 
-        return events.Publish(Compose(kind, llmEvent.Text), cancellationToken);
+        var published = Compose(kind, llmEvent.Text);
+
+        switch (llmEvent.Kind)
+        {
+            case LLMEventKind.TextDelta:
+                published.TextChunk = new TextChunk { Fragment = llmEvent.Text };
+                break;
+
+            case LLMEventKind.ReasoningDelta:
+                published.ReasoningChunk = new ReasoningChunk { Fragment = llmEvent.Text };
+                break;
+
+            case LLMEventKind.ToolCallDelta:
+                published.ToolCallChunk = new ToolCallChunk
+                {
+                    ToolCallId = llmEvent.ToolCallId,
+                    ToolName = llmEvent.ToolName,
+                    ArgumentsFragment = llmEvent.Text,
+                };
+                break;
+
+            default:
+                published.RetryNotice = new RetryNotice
+                {
+                    Attempt = llmEvent.Attempt,
+                    RetryAfterMs = (int)llmEvent.RetryAfter.TotalMilliseconds,
+                    Reason = llmEvent.Text,
+                };
+                break;
+        }
+
+        return events.Publish(published, cancellationToken);
     }
 
     private Event Compose(EventKind kind, string text) =>

@@ -9,7 +9,6 @@ internal static class BasicCli
 {
     public static async Task<int> Render(
         Parrot.Protocol.Parrot.ParrotClient client,
-        string sessionId,
         string model,
         string prompt,
         TextWriter output,
@@ -18,13 +17,16 @@ internal static class BasicCli
     {
         ArgumentNullException.ThrowIfNull(client);
 
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
+
         // Listen before sending: a stream opened after the turn starts would
         // miss its opening events.
         using var call = client.Listen(
-            new ListenRequest { SessionId = sessionId }, cancellationToken: cancellationToken);
+            new ListenRequest { SessionId = session.Id }, cancellationToken: cancellationToken);
 
         _ = await client.SendMessageAsync(
-            new SendMessageRequest { SessionId = sessionId, Model = model, Text = prompt },
+            new SendMessageRequest { SessionId = session.Id, Text = prompt },
             cancellationToken: cancellationToken);
         var failed = false;
 

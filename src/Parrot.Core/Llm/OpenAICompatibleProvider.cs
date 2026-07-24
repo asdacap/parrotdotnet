@@ -11,6 +11,29 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
 {
     public string Id { get; } = id;
 
+    public async Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Get, new Uri(baseAddress, "models"));
+        message.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+
+        using var response = await client.SendAsync(message, cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new LLMProviderException($"{Id} model list returned {(int)response.StatusCode}");
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var listed = JsonSerializer.Deserialize(body, LlmJsonContext.Default.WireModelList);
+
+        return
+        [
+            .. (listed?.Data ?? [])
+                .Where(model => !string.IsNullOrEmpty(model.Id))
+                .Select(model => new LLMModel(model.Id ?? string.Empty, Id)),
+        ];
+    }
+
     public async Task<LLMResult> Call(
         LLMRequest request,
         ILLMEventSink events,

@@ -12,4 +12,6 @@ internal sealed class SessionHost(AgentSession session, EventBroker events)
     public EventBroker Events { get; } = events;
 
     public Task Turn { get; set; } = Task.CompletedTask;
+
+    public string ParentSessionId { get; set; } = string.Empty;
 }
