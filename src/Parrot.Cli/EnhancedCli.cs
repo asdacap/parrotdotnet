@@ -19,6 +19,8 @@ internal sealed class EnhancedCli(
     Func<IRawTerminal?> rawTerminal,
     Func<bool> color) : IInterruptListener
 {
+    private const string DisableBracketedPaste = "\u001b[?2004l";
+    private const string EnableBracketedPaste = "\u001b[?2004h";
     private const string Prompt = "> ";
 
     private readonly Channel<bool> _interrupts =
@@ -175,6 +177,14 @@ internal sealed class EnhancedCli(
             await view.Cancel(CancellationToken.None).ConfigureAwait(false);
             return false;
         }
+    }
+
+    internal static async Task SetBracketedPaste(
+        TextWriter output, bool enabled, CancellationToken cancellationToken)
+    {
+        var sequence = enabled ? EnableBracketedPaste : DisableBracketedPaste;
+        await output.WriteAsync(sequence.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static SendMessageRequest Message(string userSessionId, string text) =>
@@ -384,6 +394,7 @@ internal sealed class EnhancedCli(
 
         try
         {
+            await SetBracketedPaste(output, true, cancellationToken).ConfigureAwait(false);
             streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
             call = client.Listen(
                 new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
@@ -515,6 +526,7 @@ internal sealed class EnhancedCli(
             {
                 streaming?.Dispose();
                 call?.Dispose();
+                await SetBracketedPaste(output, false, CancellationToken.None).ConfigureAwait(false);
             }
         }
 

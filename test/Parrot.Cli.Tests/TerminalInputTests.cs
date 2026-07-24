@@ -5,6 +5,17 @@ namespace Parrot.Cli.Tests;
 internal sealed class TerminalInputTests
 {
     [Test]
+    public async Task Enhanced_terminal_enables_and_disables_bracketed_paste(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+
+        await EnhancedCli.SetBracketedPaste(output, true, cancellationToken);
+        await EnhancedCli.SetBracketedPaste(output, false, cancellationToken);
+
+        _ = await Assert.That(output.ToString()).IsEqualTo("\u001b[?2004h\u001b[?2004l");
+    }
+
+    [Test]
     public async Task Decoder_preserves_incremental_sequences_and_sanitizes_paste()
     {
         var decoder = new TerminalKeyDecoder();
@@ -34,14 +45,29 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
-    [Arguments(0x0a)]
-    [Arguments(0x0d)]
-    public async Task Decoder_treats_lf_and_cr_as_submit(int value)
+    [Arguments(0x0a, TerminalKeyKind.Newline)]
+    [Arguments(0x0d, TerminalKeyKind.Submit)]
+    public async Task Decoder_distinguishes_ctrl_j_from_enter(int value, TerminalKeyKind expected)
     {
         var decoded = new TerminalKeyDecoder().Feed([(byte)value]);
 
         _ = await Assert.That(decoded.Count).IsEqualTo(1);
-        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.Submit));
+        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(expected));
+    }
+
+    [Test]
+    public async Task Bracketed_multiline_paste_remains_in_the_editor_until_enter()
+    {
+        var decoder = new TerminalKeyDecoder();
+        var editor = new IncrementalEditor("> ", 64 * 1024);
+        var decoded = decoder.Feed(Encoding.UTF8.GetBytes("\u001b[200~first\r\nsecond\u001b[201~\r"));
+
+        var beforeSubmit = editor.Apply(decoded[0]);
+        var submitted = editor.Apply(decoded[1]);
+
+        _ = await Assert.That(decoded.Count).IsEqualTo(2);
+        _ = await Assert.That(beforeSubmit).IsNull();
+        _ = await Assert.That(submitted).IsEqualTo("first\nsecond");
     }
 
     [Test]
