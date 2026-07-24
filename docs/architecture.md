@@ -72,50 +72,57 @@ which is principle 11 — the local CLI and a remote client use one contract.
 
 ### What gRPC costs
 
-Measured, not estimated. All five published Native AOT, static musl, stripped —
-the configuration this project actually ships:
+Measured, not estimated. All published Native AOT, static musl, stripped — the
+configuration this project actually ships. Each row adds one thing to the row
+above it:
 
 ```text
                                         size     delta
-console app, nothing in it              1.2 MB     --      the floor
-protobuf + unix socket framing          3.0 MB   +1.8 MB
-ASP.NET Core (Kestrel), no gRPC         9.0 MB   +7.8 MB
-  + gRPC                               10.6 MB   +1.6 MB
-  + gRPC on CreateEmptyBuilder         10.0 MB   +1.4 MB
+console app, nothing in it              1.2 MB     --     the floor
++ ASP.NET Core hosting, DI, routing     6.3 MB   +5.1 MB  <-- the real cost
++ gRPC                                  8.1 MB   +1.8 MB
++ Kestrel                              10.0 MB   +1.9 MB
+
+protobuf + unix socket framing          3.0 MB   +1.8 MB  no ASP.NET Core
 ```
 
-Two things fall out of this, and both are the opposite of the obvious guess.
+Three things fall out, and each one kills an option that looks promising.
 
-**gRPC is not what costs.** The service model, the codec, and the generated
-code together are about 1.6 MB. The HTTP/2 host is 7.8 MB, and it is not
-slimmable: dropping from `CreateSlimBuilder` to `CreateEmptyBuilder` with only
-`UseKestrelCore` and `AddRoutingCore` saves 0.6 MB.
+**gRPC is not what costs.** The service model, the codec, and the generated code
+come to about 1.8 MB — roughly what a bare protobuf codec costs anyway.
 
-This is by design, not a configuration miss. [grpc-dotnet](https://github.com/grpc/grpc-dotnet)
-ships three packages — `Grpc.AspNetCore`, `Grpc.Net.Client`,
-`Grpc.Net.ClientFactory` — and describes the first as "an ASP.NET Core framework
-for hosting gRPC services". There is no server that does not host on ASP.NET
-Core. The client half is cheap; it is `HttpClient` over HTTP/2.
+**Neither is Kestrel, quite.** ASP.NET Core's `IServer` really is pluggable, and
+gRPC links and publishes with Kestrel swapped for a stub server. It saves
+1.9 MB. But replacing it for real means implementing HTTP/2 — framing, HPACK,
+flow control — because that is what gRPC requires on the wire. That is strictly
+more work than the framing option below, for a fraction of the saving. Swapping
+the server is the worst of both: most of the size, all of the work.
 
-The only other implementation, `Grpc.Core`, is the C-core binding: in
-maintenance mode since May 2021 and slated for deprecation in favour of
-grpc-dotnet, and a native shared library, so it could not be statically linked
-here regardless.
+**The cost is the hosting stack**: +5.1 MB for DI, the middleware pipeline, and
+routing, before any server or any gRPC exists. It cannot be removed while using
+grpc-dotnet's server, because that server *is* an ASP.NET Core framework —
+[grpc-dotnet](https://github.com/grpc/grpc-dotnet) describes `Grpc.AspNetCore`
+as "an ASP.NET Core framework for hosting gRPC services", and ships no server
+that hosts any other way. Its client half is cheap; it is `HttpClient` over
+HTTP/2, so neither CLI is what costs. The only other implementation,
+`Grpc.Core`, is the C-core binding: in maintenance mode since May 2021 and
+slated for deprecation, and a native shared library, so it could not be
+statically linked here regardless.
 
-**A thinner option exists, but it is not gRPC.** Length-delimited protobuf over
-a unix socket lands at 3.0 MB, keeps the `.proto` as the schema and `Grpc.Tools`
-for message codegen, and loses only the parts that come from HTTP/2: standard
-clients working out of the box, `grpcurl`, and streaming semantics that already
-handle half-close, flow control, and deadlines. Those last ones are where the
-bugs live, and hand-rolling them is how a 100-line framing layer becomes 800.
+So there is no middle option to go looking for. The choice is 10 MB for a
+standards-compliant HTTP/2 server, or 3 MB for length-delimited protobuf over a
+unix socket — which keeps the `.proto` as the schema and `Grpc.Tools` for
+message codegen, and loses the parts that come from HTTP/2: standard clients
+working out of the box, `grpcurl`, and streaming semantics that already handle
+half-close, flow control, and deadlines. Those last ones are where the bugs
+live, and hand-rolling them is how a 100-line framing layer becomes 800.
 
-It suits this design unusually well, though. Local mode uses `InProcessChannel`
-and opens no socket at all, so the HTTP/2 server exists only for the remote
-case. And `BasicCli` would need no gRPC dependency whatsoever — just the
-generated message types and a read loop — which is exactly the constraint the
-two-CLI rule is trying to hold.
+The framing option suits this design unusually well, though. Local mode uses
+`InProcessChannel` and opens no socket at all, so the HTTP/2 server exists only
+for the remote case. And `BasicCli` would need no gRPC dependency whatsoever —
+just the generated message types and a read loop — which is exactly the
+constraint the two-CLI rule is trying to hold.
 
-The trade, then, is 7 MB and a dependency against hand-written stream lifecycle.
 Not decided; see open question 6.
 
 ## The dependency tree
@@ -507,13 +514,14 @@ Resolve these before filling in `components.md`; each one moves a boundary.
 5. **`ICredentialStore` versus provider auth.** ChatGPT OAuth refresh is a
    provider concern that writes to the credential store. Which side owns the
    refresh decides whether the dependency arrow reverses.
-6. **Is the HTTP/2 host worth 7 MB?** Measured above, and the question is
-   sharper than it was: gRPC costs 1.6 MB, Kestrel costs 7.8 MB, and Kestrel
-   cannot be slimmed. Length-delimited protobuf over a unix socket does the
-   same job at 3.0 MB and keeps the `.proto`. What it does not keep is
-   streaming semantics someone else has already debugged. Decide it before
-   `ParrotService` is written, because the answer changes what the `.proto`
-   declares — services and streams, or messages only.
+6. **Is ASP.NET Core worth 5 MB?** Measured above, and narrower than it first
+   looked: gRPC is 1.8 MB, Kestrel is 1.9 MB and swappable, but the hosting
+   stack underneath is 5.1 MB and is not removable while using grpc-dotnet's
+   server. Length-delimited protobuf over a unix socket does the same job at
+   3.0 MB and keeps the `.proto`. What it does not keep is streaming semantics
+   someone else has already debugged. Decide it before `ParrotService` is
+   written, because the answer changes what the `.proto` declares — services
+   and streams, or messages only.
 7. **`EnhancedCli` is 3.5k lines of `enhancedchat` plus 4.6k of `terminal`.**
    Almost certainly several trees. Ranked last so the shape can be decided once
    everything it renders exists. `BasicCli` has the opposite problem: it is
