@@ -90,8 +90,13 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public AgentSession Get(string sessionIdOrName)
+    public async Task<AgentSendResult> Send(
+        string sessionIdOrName,
+        string message,
+        CancellationToken cancellationToken)
     {
+        AgentEntry entry;
+
         lock (_gate)
         {
             if (!_accepting)
@@ -99,8 +104,22 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("the user session is shutting down");
             }
 
-            return Resolve(sessionIdOrName).Child;
+            entry = Resolve(sessionIdOrName);
         }
+
+        var messageId = Identifier.MessageId();
+        var (_, followUp) = await entry.Child.Send(message, messageId, Delivery.Steer, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (followUp)
+        {
+            lock (_gate)
+            {
+                entry.Start(Execute(entry, entry.Child, prompt: null));
+            }
+        }
+
+        return new AgentSendResult(entry.SessionId, entry.Name, messageId, followUp);
     }
 
     public async Task<AgentTaskResult> Wait(
@@ -117,7 +136,7 @@ internal sealed class AgentRegistry(
         lock (_gate)
         {
             entry = Resolve(sessionIdOrName);
-            completion = entry.Child.ResultSettled();
+            completion = entry.Completion;
         }
 
         var started = Stopwatch.GetTimestamp();
@@ -274,7 +293,7 @@ internal sealed class AgentRegistry(
         _lifetime.Dispose();
     }
 
-    private async Task Execute(AgentEntry entry, AgentSession child, string prompt)
+    private async Task Execute(AgentEntry entry, AgentSession child, string? prompt)
     {
         await Task.Yield();
 
@@ -288,8 +307,12 @@ internal sealed class AgentRegistry(
                 new AgentStarted { ParentAgentSessionId = entry.ParentSessionId, Name = entry.Name })
                 .ConfigureAwait(false);
             started = true;
-            _ = await child.Send(prompt, Identifier.MessageId(), Delivery.Steer, _lifetime.Token)
-                .ConfigureAwait(false);
+            if (prompt is not null)
+            {
+                _ = await child.Send(prompt, Identifier.MessageId(), Delivery.Steer, _lifetime.Token)
+                    .ConfigureAwait(false);
+            }
+
             completed = Bounded(await child.ResultSettled().ConfigureAwait(false));
         }
         catch (Exception failure)

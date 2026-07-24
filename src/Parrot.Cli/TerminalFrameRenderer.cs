@@ -43,7 +43,7 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
                     .ConfigureAwait(false);
                 if (row < rows.Count - 1)
                 {
-                    await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
+                    await output.WriteAsync("\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
                 }
             }
 

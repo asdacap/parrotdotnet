@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using Parrot.Agent;
-using Parrot.Protocol;
 
 namespace Parrot.Tools;
 
@@ -45,11 +44,7 @@ internal sealed class AgentSendTool(AgentRegistry agents) : ITool
                 return "error: agent message exceeds 1048576 bytes";
             }
 
-            var child = agents.Get(sessionId);
-            var messageId = Identifier.MessageId();
-            var (_, followUp) = await child.Send(message, messageId, Delivery.Steer, cancellationToken)
-                .ConfigureAwait(false);
-            return new AgentSendResult(child.SessionId, child.Name, messageId, followUp).Format();
+            return (await agents.Send(sessionId, message, cancellationToken).ConfigureAwait(false)).Format();
         }
         catch (AgentRegistryException failure)
         {
