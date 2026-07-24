@@ -45,14 +45,14 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
-    [Arguments(0x0a, TerminalKeyKind.Newline)]
-    [Arguments(0x0d, TerminalKeyKind.Submit)]
-    public async Task Decoder_distinguishes_ctrl_j_from_enter(int value, TerminalKeyKind expected)
+    [Arguments(0x0a)]
+    [Arguments(0x0d)]
+    public async Task Decoder_accepts_both_terminal_enter_encodings(int value)
     {
         var decoded = new TerminalKeyDecoder().Feed([(byte)value]);
 
         _ = await Assert.That(decoded.Count).IsEqualTo(1);
-        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(expected));
+        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.Submit));
     }
 
     [Test]
