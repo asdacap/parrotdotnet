@@ -16,19 +16,23 @@ namespace Parrot.Protocol;
 // `ParrotClient` for clients. The alias exists because `Parrot` is also this
 // repository's root namespace, and `Parrot.ParrotBase` reads as though it were
 // a namespace lookup.
-internal sealed class ParrotService(ILLMProvider provider, SessionStore store)
+internal sealed class ParrotService(ProviderRegistry registry, SessionStore store)
     : GeneratedParrot.ParrotBase, IDisposable
 {
     private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
+
+    // Which provider each session is bound to, so a /model that crosses
+    // providers is refused rather than silently answered by the wrong one.
+    private readonly ConcurrentDictionary<string, string> _sessionProviders = new(StringComparer.Ordinal);
 
     public override async Task<ListModelsResponse> ListModels(ListModelsRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var listed = await provider.ListModels(context.CancellationToken).ConfigureAwait(false);
+        await registry.RefreshAll(context.CancellationToken).ConfigureAwait(false);
         var response = new ListModelsResponse();
 
-        foreach (var model in listed)
+        foreach (var model in registry.AllModels())
         {
             response.Models.Add(new Model { Id = model.Id, ProviderId = model.ProviderId });
         }
@@ -40,8 +44,24 @@ internal sealed class ParrotService(ILLMProvider provider, SessionStore store)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var created = store.Open(request.Model);
+        var (providerId, modelId) = SplitModel(request.Model);
+        ILLMProvider resolved;
+        LLMModel model;
+
+        try
+        {
+            (resolved, model) = registry.Resolve(providerId, modelId);
+        }
+        catch (LLMProviderException failure)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+
+        // The session carries the bare model id; the composition already holds
+        // the provider that this selection resolved to.
+        var created = store.Open(model.Id);
         _ = _userSessions.TryAdd(created.Id, created);
+        _ = _sessionProviders.TryAdd(created.Id, resolved.Id);
 
         return Task.FromResult(Describe(created));
     }
@@ -54,7 +74,17 @@ internal sealed class ParrotService(ILLMProvider provider, SessionStore store)
 
         if (request.Model.Length > 0)
         {
-            found.Model = request.Model;
+            var (providerId, modelId) = SplitModel(request.Model);
+            var bound = _sessionProviders.GetValueOrDefault(request.UserSessionId, string.Empty);
+
+            if (providerId.Length > 0 && bound.Length > 0 && providerId != bound)
+            {
+                throw new RpcException(new Status(
+                    StatusCode.InvalidArgument,
+                    $"this session is bound to {bound}; use /clear to start one on {providerId}"));
+            }
+
+            found.Model = modelId;
         }
 
         return Task.FromResult(Describe(found));
@@ -103,6 +133,14 @@ internal sealed class ParrotService(ILLMProvider provider, SessionStore store)
         }
 
         _userSessions.Clear();
+    }
+
+    // Selection is "provider/model"; the model portion keeps any vendor prefix,
+    // so the split is on the first slash only.
+    private static (string ProviderId, string ModelId) SplitModel(string selection)
+    {
+        var slash = selection.IndexOf('/', StringComparison.Ordinal);
+        return slash < 0 ? (string.Empty, selection) : (selection[..slash], selection[(slash + 1)..]);
     }
 
     private static UserSession Describe(Agent.UserSession session) =>

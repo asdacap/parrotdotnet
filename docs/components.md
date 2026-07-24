@@ -267,9 +267,86 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Owns** the configured and built-in providers, and the merged model
   catalogue.
 - **Inbound** resolve `provider/model` to an `ILLMProvider` and a model; list
-  models.
+  models. The model portion keeps any vendor prefix (split on the first slash),
+  so `openrouter/openai/gpt-4o` resolves to provider `openrouter`, model
+  `openai/gpt-4o`.
 - **Outbound** `Configuration`, `ICredentialStore`.
 - **Boundary** no.
+- **Note** the catalogue lives on the registry rather than on `ILLMProvider`,
+  so a provider stays stateless: it can list models, but remembering them is the
+  registry's job. The registry is seeded with preset and declared metadata so a
+  model is selectable offline, and `RefreshAll` overlays what each endpoint
+  serves — best effort, since a provider without a credential simply keeps its
+  seed.
+
+### `ILLMProvider` sub-decomposition (ported 2026-07-24)
+
+The full provider ecosystem was ported from Go. Each type is in `Parrot.Llm`;
+the two wire dialects and the shared HTTP/SSE machinery are in `Parrot.Llm.Wire`.
+
+- **Wire adapters.** `SseDecoder`; `ChatCompletionsAdapter` and
+  `ResponsesAdapter` (each `Encode` + `Parse`, static-testable), absorbing
+  `protocol/{sse,chatcompletions,responses}`. `HttpStreaming` absorbs
+  `provider/http.go` — endpoint/header validation, header timeout, bounded
+  stream, structured `ProviderHttpException`. Both adapters speak the existing
+  tool vocabulary: they encode `LLMToolDefinition` and prior
+  `LLMMessage.ToolCalls`/`ToolCallId`, and their terminal `Completed` carries the
+  assembled `AssistantText` and `LLMToolCall`s, exactly as the chat-completions
+  provider already did.
+- **Providers.** `OpenAICompatibleProvider` (protocol-selectable, now built on
+  the adapters); `OpenCodeGoProvider` and `KimiProvider` **compose** it (no
+  inheritance, per `AGENTS.md`) and add usage; `ChatGptProvider` (OAuth,
+  responses dialect, fixed endpoints). `openrouter` and `kimi-code` are the base
+  provider plus a decoder, matching upstream having no dedicated type.
+- **Model catalogue.** `IModelListDecoder` + `Standard`/`OpenRouter`/`Kimi`
+  decoders (ChatGPT decodes inline); `ModelCatalogue.Merge`; `LLMModel` grew
+  metadata (context window, prices, `ModelCapabilities` with reasoning variants).
+- **Usage.** `IUsageReporter` (optional capability) with `SubscriptionUsage`,
+  implemented by ChatGPT, OpenCodeGo, Kimi. Implemented but not yet surfaced in
+  the CLI (upstream shows it in status).
+- **Retry + classification.** `ProviderErrors` (`IsUsageLimit`/
+  `IsEngineOverloaded`) and `RetryingProvider`, a decorator the registry wraps
+  around every provider, folding upstream's header-retry and stream-retry layers.
+- **Presets + build.** `ProviderPresets` absorbs `app/presets.go`;
+  `ProviderRegistryBuilder` absorbs `app.BuildProviders` (env-var → credential
+  key resolution, preset merge, retry wrapping). `ProviderRegistry` absorbs
+  `agent/provider.go`.
+
+### `ICredentialStore` — schema change (2026-07-24)
+
+The store now holds a versioned `Credential` **tagged union** (api-key or OAuth),
+keyed by name, on disk as `{version, credentials:{name: Credential}}` with
+0600/0700 permissions, atomic write, strict JSON, and validate-on-read. This is
+a deliberate schema change from the previous `{providerId: "secret"}` map; no
+migration is required (§1: no compatibility with prior state). OAuth adds
+`OAuthTokenSource` (5-minute-early refresh, single-flight, rotated tokens
+persisted), `OpenAiOAuthClient` (PKCE browser flow on a loopback listener plus a
+device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
+
+### Divergences recorded
+
+- **`redactingStream` is deliberately omitted.** Secrets are not scrubbed from
+  event or error text; error messages are still control-char sanitised and
+  length-bounded.
+- **A structured error inside a 200 stream is raised, not emitted.** Upstream
+  yields an `EventProviderError`; here the adapters throw
+  `ProviderResponseException`, which the retry layer classifies exactly as it
+  classifies an HTTP failure. This keeps `LLMEvent` unchanged.
+- **Router metadata is not surfaced.** The `provider` object OpenRouter returns
+  is parsed but dropped, since no consumer exists.
+- **A session is bound to one provider.** `ParrotService` resolves
+  `provider/model` at `CreateSession` and stores the bare model id; a `/model`
+  that names a different provider is refused with a message pointing at
+  `/clear`. Upstream re-resolves per turn.
+- **`config.yaml` gains a `providers:` map** (`ProviderConfig`/`ModelConfig`)
+  for custom compatible providers and per-model overrides.
+- **CLI strings changed:** `auth login <provider> [--api-key-stdin]` and
+  `auth login chatgpt [--device]`; `/auth login <provider>` in the REPL.
+- **No same-origin redirect following** (upstream refuses cross-origin only):
+  the provider `HttpClient` disables auto-redirect and any 3xx is an error.
+- **Adding an API-key credential mid-REPL** does not live-reload the registry
+  (upstream's `ReloadProviders` is not ported); a restart picks it up. ChatGPT is
+  always present, so its OAuth login takes effect immediately.
 
 ---
 

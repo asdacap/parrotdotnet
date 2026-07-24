@@ -1,7 +1,9 @@
+using Grpc.Core;
 using Grpc.Net.Client;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
+using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
@@ -16,8 +18,7 @@ internal static class CommandDispatcher
     public const int ExitUsage = 2;
     public const int ExitFailure = 1;
 
-    private const string ProviderId = "opencode-go";
-    private const string DefaultModel = "glm-5.2";
+    private const string DefaultModel = "opencode-go/glm-5.2";
 
     private const string UsageText = """
         parrot - a coding agent that is not too much
@@ -41,6 +42,13 @@ internal static class CommandDispatcher
         Bare `parrot` is `parrot chat`. In a terminal that opens a REPL; with a
         prompt or piped stdin it answers once. /help lists the slash commands.
         """;
+
+    // Used before the composition exists: the registry is assembled and OAuth
+    // runs while reading credentials, which the graph's own client cannot serve.
+    private static readonly HttpClient Http =
+        new(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+
+    private static readonly IBrowserOpener Browser = new SystemBrowserOpener();
 
     // The single top-level Run. Every other Run is a descendant of this call.
     public static async Task<int> Run(
@@ -98,25 +106,45 @@ internal static class CommandDispatcher
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        if (arguments.Count < 2 || arguments[1] != "login")
+        if (arguments.Count < 3 || arguments[1] != "login")
         {
-            await error.WriteLineAsync("usage: parrot auth login --api-key-stdin".AsMemory(), cancellationToken)
+            await error.WriteLineAsync(
+                "usage: parrot auth login <provider> [--api-key-stdin] [--device]".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return ExitUsage;
         }
 
-        var key = (await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+        var provider = arguments[2];
+        using var store = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
 
-        if (key.Length == 0)
+        if (arguments.Contains("--api-key-stdin"))
         {
-            await error.WriteLineAsync("parrot: no key on stdin".AsMemory(), cancellationToken).ConfigureAwait(false);
+            var key = (await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+
+            if (key.Length == 0)
+            {
+                await error.WriteLineAsync("parrot: no key on stdin".AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                return ExitUsage;
+            }
+
+            await AuthFlows.StoreApiKey(store, provider, key, cancellationToken).ConfigureAwait(false);
+        }
+        else if (provider == ChatGptProvider.ProviderId)
+        {
+            await AuthFlows
+                .OAuthLogin(OAuthClient(), store, arguments.Contains("--device"), output, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await error.WriteLineAsync(
+                $"parrot: {provider} needs a key: parrot auth login {provider} --api-key-stdin".AsMemory(),
+                cancellationToken).ConfigureAwait(false);
             return ExitUsage;
         }
 
-        using var store = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await store.Set(ProviderId, key, cancellationToken).ConfigureAwait(false);
-
-        await output.WriteLineAsync($"stored a credential for {ProviderId}".AsMemory(), cancellationToken)
+        await output.WriteLineAsync($"stored a credential for {provider}".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
         return ExitSuccess;
     }
@@ -146,7 +174,9 @@ internal static class CommandDispatcher
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        using var composition = await Compose(error, cancellationToken).ConfigureAwait(false);
+        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+        using var composition = await Compose(credentials, Selection(), error, cancellationToken)
+            .ConfigureAwait(false);
 
         if (composition is null)
         {
@@ -165,25 +195,66 @@ internal static class CommandDispatcher
         return ExitSuccess;
     }
 
-    // Reads the credential, then builds the composition around it. Null when
-    // there is no credential: the graph has no provider to build. The caller
-    // owns the composition, so its singletons are disposed at the call site.
+    // Assembles every provider a credential makes available, then builds the
+    // composition around the selected one. Null when the selection cannot be
+    // resolved. The credential store must outlive the composition, because the
+    // OAuth providers refresh through it, so the caller owns both.
     private static async Task<Composition?> Compose(
+        ICredentialStore credentials,
+        string selection,
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        var key = await credentials.Get(ProviderId, cancellationToken).ConfigureAwait(false);
-
-        if (key is null)
+        try
         {
-            await error.WriteLineAsync(
-                "parrot: no credential. Run: parrot auth login --api-key-stdin".AsMemory(),
-                cancellationToken).ConfigureAwait(false);
+            var registry = await new ProviderRegistryBuilder(
+                Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile), credentials, Http, Browser)
+                .Build(cancellationToken).ConfigureAwait(false);
+
+            return new Composition(
+                registry, Bind(registry, selection), Directory.GetCurrentDirectory(), Environment.MachineName);
+        }
+        catch (LLMProviderException failure)
+        {
+            await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
             return null;
         }
+    }
 
-        return new Composition(key, Directory.GetCurrentDirectory(), Environment.MachineName);
+    // The graph needs one provider up front. A selection that does not resolve
+    // -- no credential for it yet -- falls back to whatever is available, so
+    // `models` still lists. A turn re-resolves the real selection at
+    // CreateSession, which is where a bad --model is reported precisely.
+    private static ILLMProvider Bind(ProviderRegistry registry, string selection)
+    {
+        var slash = selection.IndexOf('/', StringComparison.Ordinal);
+
+        try
+        {
+            return slash < 0
+                ? registry.Resolve(string.Empty, selection).Provider
+                : registry.Resolve(selection[..slash], selection[(slash + 1)..]).Provider;
+        }
+        catch (LLMProviderException)
+        {
+            return registry.Resolve(string.Empty, string.Empty).Provider;
+        }
+    }
+
+    private static OpenAiOAuthClient OAuthClient() => new(Http, Browser, new OpenAiOAuthOptions());
+
+    // The selection a command without its own --model runs under.
+    private static string Selection()
+    {
+        var configured = Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile).Model;
+        return configured.Length > 0 ? configured : DefaultModel;
+    }
+
+    private static string ProviderOf(string model)
+    {
+        var slash = model.IndexOf('/', StringComparison.Ordinal);
+        return slash < 0 ? string.Empty : model[..slash];
     }
 
     private static async Task<int> Serve(
@@ -205,7 +276,9 @@ internal static class CommandDispatcher
             }
         }
 
-        using var composition = await Compose(error, cancellationToken).ConfigureAwait(false);
+        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+        using var composition = await Compose(credentials, Selection(), error, cancellationToken)
+            .ConfigureAwait(false);
 
         if (composition is null)
         {
@@ -332,7 +405,9 @@ internal static class CommandDispatcher
                 .ConfigureAwait(false);
         }
 
-        using var composition = await Compose(error, cancellationToken).ConfigureAwait(false);
+        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+        using var composition = await Compose(credentials, Selection(), error, cancellationToken)
+            .ConfigureAwait(false);
 
         if (composition is null)
         {
@@ -384,11 +459,23 @@ internal static class CommandDispatcher
 
         using var credentials = new FileCredentialStore(paths.CredentialsFile);
 
-        var session = await client.CreateSessionAsync(
-            new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
+        UserSession session;
+
+        try
+        {
+            session = await client.CreateSessionAsync(
+                new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
+        }
+        catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
+        {
+            // A selection the registry cannot resolve is a usage error, not a crash.
+            await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return ExitFailure;
+        }
 
         var context = new SlashContext(
-            client, credentials, configuration, ProviderId, session.Id, output, error);
+            client, credentials, OAuthClient(), configuration, ProviderOf(model), session.Id, output, error);
 
         var driver = new CliDriver(client, renderer, BuildRegistry(model));
 

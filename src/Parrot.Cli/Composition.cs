@@ -29,9 +29,6 @@ namespace Parrot.Cli;
 // is a channel, not a composed object: the server owns that side.
 internal partial class Composition
 {
-    private const string ProviderId = "opencode-go";
-    private const string ProviderBaseUrl = "https://opencode.ai/zen/go/v1/";
-
     // Well under the smallest model window, with margin for the system context
     // and tool results the estimate does not see precisely.
     private const int CompactionTokenBudget = 120_000;
@@ -42,13 +39,14 @@ internal partial class Composition
         DI.Setup(nameof(Composition))
             .Hint(Hint.Resolve, "Off")
 
-            // Supplied when the composition is built: the credential is read
-            // asynchronously before this point, and roots are synchronous.
-            .Arg<string>("apiKey", "apiKey")
+            // Supplied when the composition is built: credentials are read and
+            // the registry assembled asynchronously before this point, and
+            // roots are synchronous.
+            .Arg<ProviderRegistry>("registry")
+            .Arg<ILLMProvider>("provider")
             .Arg<string>("workingDirectory", "workingDirectory")
             .Arg<string>("hostKey", "hostKey")
 
-            .Bind().As(Lifetime.Singleton).To(_ => new HttpClient())
             .Bind().As(Lifetime.Singleton).To(_ => StatePaths.ResolveFromEnvironment())
             .Bind().As(Lifetime.Singleton).To(_ => ProcessRunner.Locate())
 
@@ -56,13 +54,6 @@ internal partial class Composition
             {
                 ctx.Inject<StatePaths>(out var paths);
                 return Configuration.Load(paths.ConfigFile);
-            })
-
-            .Bind().As(Lifetime.Singleton).To<ILLMProvider>(ctx =>
-            {
-                ctx.Inject<HttpClient>(out var http);
-                ctx.Inject<string>("apiKey", out var apiKey);
-                return new OpenAICompatibleProvider(ProviderId, new Uri(ProviderBaseUrl), apiKey, http);
             })
 
             .Bind().As(Lifetime.Singleton).To(_ => new ToolRegistry(
@@ -126,9 +117,9 @@ internal partial class Composition
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
-                ctx.Inject<ILLMProvider>(out var provider);
+                ctx.Inject<ProviderRegistry>(out var registry);
                 ctx.Inject<SessionStore>(out var store);
-                return new ParrotService(provider, store);
+                return new ParrotService(registry, store);
             })
 
             .Root<StatePaths>("Paths")

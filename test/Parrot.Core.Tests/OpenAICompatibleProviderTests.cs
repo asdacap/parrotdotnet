@@ -1,5 +1,6 @@
 using System.Text;
 using Parrot.Llm;
+using Parrot.Llm.Wire;
 
 namespace Parrot.Core.Tests;
 
@@ -74,7 +75,7 @@ internal sealed class OpenAICompatibleProviderTests
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(ToolCallStream));
         var events = new List<LLMEvent>();
 
-        await foreach (var published in OpenAICompatibleProvider.Consume(stream, cancellationToken))
+        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, cancellationToken))
         {
             events.Add(published);
         }
@@ -103,7 +104,7 @@ internal sealed class OpenAICompatibleProviderTests
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(LiveShapedStream));
         var events = new List<LLMEvent>();
 
-        await foreach (var published in OpenAICompatibleProvider.Consume(stream, cancellationToken))
+        await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, cancellationToken))
         {
             events.Add(published);
         }

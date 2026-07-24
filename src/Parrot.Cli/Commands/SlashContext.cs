@@ -9,6 +9,7 @@ namespace Parrot.Cli.Commands;
 internal sealed class SlashContext(
     GeneratedParrot.ParrotClient client,
     ICredentialStore credentials,
+    OpenAiOAuthClient oauth,
     Configuration configuration,
     string providerId,
     string userSessionId,
@@ -18,6 +19,8 @@ internal sealed class SlashContext(
     public GeneratedParrot.ParrotClient Client { get; } = client;
 
     public ICredentialStore Credentials { get; } = credentials;
+
+    public OpenAiOAuthClient OAuth { get; } = oauth;
 
     public Configuration Configuration { get; } = configuration;
 
