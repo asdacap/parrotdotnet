@@ -38,7 +38,9 @@ internal sealed class ResponsesAdapterTests
         const string stream = """
             data: {"type":"response.output_item.added","item":{"id":"i1","type":"function_call","call_id":"c1","name":"exec_command"}}
 
-            data: {"type":"response.function_call_arguments.delta","item_id":"i1","call_id":"c1","delta":"{\"command\": \"echo hi\"}"}
+            data: {"type":"response.function_call_arguments.delta","item_id":"i1","call_id":"c1","delta":"{\"command\": "}
+
+            data: {"type":"response.function_call_arguments.delta","item_id":"i1","call_id":"c1","delta":"\"echo hi\"}"}
 
             data: {"type":"response.output_item.done","item":{"id":"i1","type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"command\": \"echo hi\"}"}}
 
@@ -49,7 +51,8 @@ internal sealed class ResponsesAdapterTests
         var events = await Drain(stream, cancellationToken);
         var completed = events[^1];
 
-        _ = await Assert.That(events.Count(e => e.Kind == LLMEventKind.ToolCallDelta)).IsEqualTo(1);
+        var toolCall = events.Single(e => e.Kind == LLMEventKind.ToolCallDelta);
+        _ = await Assert.That(toolCall.Text).IsEqualTo("""{"command": "echo hi"}""");
         _ = await Assert.That(completed.FinishReason).IsEqualTo("tool_calls");
         _ = await Assert.That(completed.ToolCalls).HasSingleItem();
         _ = await Assert.That(completed.ToolCalls[0].Id).IsEqualTo("c1");

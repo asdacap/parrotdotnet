@@ -5,7 +5,7 @@ internal sealed record LLMEvent
     public required LLMEventKind Kind { get; init; }
 
     // TextDelta and ReasoningDelta: the fragment.
-    // ToolCallDelta: the arguments fragment. Retry: why.
+    // ToolCallDelta: the fully accumulated arguments. Retry: why.
     public string Text { get; init; } = string.Empty;
 
     // ToolCallDelta only.
@@ -39,13 +39,13 @@ internal sealed record LLMEvent
     public static LLMEvent ReasoningDelta(string fragment) =>
         new() { Kind = LLMEventKind.ReasoningDelta, Text = fragment };
 
-    public static LLMEvent ToolCallDelta(string toolCallId, string toolName, string argumentsFragment) =>
+    public static LLMEvent ToolCallDelta(string toolCallId, string toolName, string arguments) =>
         new()
         {
             Kind = LLMEventKind.ToolCallDelta,
             ToolCallId = toolCallId,
             ToolName = toolName,
-            Text = argumentsFragment,
+            Text = arguments,
         };
 
     public static LLMEvent Retry(int attempt, TimeSpan retryAfter, string reason) =>
