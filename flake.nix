@@ -34,6 +34,10 @@
           # not just the base one.
           dotnet-runtime = pkgs.dotnetCorePackages.aspnetcore_10_0;
 
+          postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+            wrapProgram $out/bin/parrot --prefix PATH : ${pkgs.lib.makeBinPath [pkgs.bubblewrap]}
+          '';
+
           # The sandbox has no network, so a restore comes from the locked
           # deps. Refresh them with:
           #   nix build .#default.fetch-deps && ./result nix/deps.json
