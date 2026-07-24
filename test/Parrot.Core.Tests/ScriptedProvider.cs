@@ -6,7 +6,11 @@ namespace Parrot.Core.Tests;
 // of the session and the compactor that do not depend on a real model.
 internal sealed class ScriptedProvider(string reply) : ILLMProvider
 {
+    private readonly List<LLMRequest> _requests = [];
+
     public string Id => "scripted";
+
+    public IReadOnlyList<LLMRequest> Requests => _requests;
 
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<LLMModel>>([]);
@@ -15,6 +19,7 @@ internal sealed class ScriptedProvider(string reply) : ILLMProvider
         LLMRequest request,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        _requests.Add(request);
         await Task.Yield();
         yield return LLMEvent.TextDelta(reply);
         yield return LLMEvent.Completed("stop", 1, 1, reply, []);

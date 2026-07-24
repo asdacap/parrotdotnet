@@ -1,5 +1,8 @@
+using Parrot.Agent;
 using Parrot.Context;
+using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
@@ -28,6 +31,32 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(built).Contains("2026-07-24");
         _ = await Assert.That(built).Contains(_workspace);
         _ = await Assert.That(built).Contains("PROJECT RULE: be terse.");
+    }
+
+    [Test]
+    public async Task Agent_session_compaction_preserves_the_current_history(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new ScriptedProvider("reply");
+        var session = new AgentSession(
+            "agent",
+            provider,
+            broker,
+            new EventRepository(database),
+            [],
+            new SystemContextBuilder(_workspace, "2026-07-24"),
+            new Compactor(provider, tokenBudget: 0),
+            depth: 0)
+        {
+            Model = "model",
+        };
+
+        _ = await session.Run("keep this prompt", cancellationToken);
+
+        var inferenceRequest = provider.Requests.Single();
+        _ = await Assert.That(inferenceRequest.Messages)
+            .Contains(message => message.Role == LLMRole.User && message.Content == "keep this prompt");
     }
 
     [Test]
