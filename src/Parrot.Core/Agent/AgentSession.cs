@@ -1,7 +1,6 @@
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
-using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Store;
 using Parrot.Tools;
@@ -16,19 +15,17 @@ internal sealed class AgentSession(
     ILLMProvider provider,
     EventBroker eventBroker,
     EventRepository eventRepository,
-    ToolRegistry tools,
-    string workingDirectory,
-    ProcessRunner processes,
+    IReadOnlyList<IToolFactory> toolFactories,
     SystemContextBuilder systemContext,
     Compactor compactor,
-    int depth) : ISubagentHost
+    int depth)
 {
     // A turn that keeps calling tools without ever finishing is a runaway, not
     // work. This bounds one prompt's tool round-trips.
     private const int MaxToolRounds = 24;
 
-    // Recursion terminates: a subagent runs one level deeper, and a spawn beyond
-    // this refuses rather than descends.
+    // Recursion terminates: a subagent runs one level deeper, and a child
+    // beyond this is refused rather than descended into.
     private const int MaxDepth = 4;
 
     // The conversation, carried across turns so the agent remembers. The system
@@ -41,9 +38,15 @@ internal sealed class AgentSession(
     // Selection is session state: an UpdateSession changes it, a prompt does not.
     public string Model { get; set; } = string.Empty;
 
-    // Built with this session as the subagent host, so a spawned child shares
-    // the broker and repository but runs under its own id.
-    private IToolContext ToolContextValue => new ToolContext(workingDirectory, processes, this, depth);
+    // How deep this session sits below the root. A subagent runs at Depth + 1,
+    // and Child refuses beyond a limit so recursion terminates.
+    public int Depth { get; } = depth;
+
+    // One instance per tool per session, built on first use rather than in a
+    // field initializer: a tool is constructed with the session it belongs to,
+    // and `this` is not available there.
+    private IReadOnlyList<ITool> Tools =>
+        field ??= [.. toolFactories.Select(factory => factory.Create(this))];
 
     // The turn is started, not awaited: admitting a prompt does not wait for it,
     // and the event stream stays open afterwards. Run lets nothing escape, so
@@ -52,32 +55,26 @@ internal sealed class AgentSession(
         _ = Run(prompt, cancellationToken);
 
     // A subagent: a fresh child session sharing this one's broker and store, so
-    // its events surface on the same stream, run to completion, its final text
-    // returned as the spawning tool's result.
-    public async Task<string> Spawn(string prompt, int childDepth, CancellationToken cancellationToken)
-    {
-        if (childDepth > MaxDepth)
-        {
-            return "error: subagent depth limit reached";
-        }
-
-        var child = new AgentSession(
-            Identifier.AgentSession(),
-            provider,
-            eventBroker,
-            eventRepository,
-            tools,
-            workingDirectory,
-            processes,
-            systemContext,
-            compactor,
-            childDepth)
-        {
-            Model = Model,
-        };
-
-        return await child.Run(prompt, cancellationToken).ConfigureAwait(false);
-    }
+    // its events surface on the same stream. Built but not run, because the
+    // spawning tool registers it on the user session first -- a subagent should
+    // be visible while it runs, not only once it finishes.
+    //
+    // Null is the depth refusal, so recursion terminates.
+    internal AgentSession? Child(int childDepth) =>
+        childDepth > MaxDepth
+            ? null
+            : new AgentSession(
+                Identifier.AgentSession(),
+                provider,
+                eventBroker,
+                eventRepository,
+                toolFactories,
+                systemContext,
+                compactor,
+                childDepth)
+            {
+                Model = Model,
+            };
 
     internal Event Translate(LLMEvent llmEvent)
     {
@@ -115,7 +112,9 @@ internal sealed class AgentSession(
         return published;
     }
 
-    private async Task<string> Run(string prompt, CancellationToken cancellationToken)
+    // Internal rather than private because a spawned child is run by the tool
+    // that spawned it, once that tool has registered it on the user session.
+    internal async Task<string> Run(string prompt, CancellationToken cancellationToken)
     {
         var started = Compose();
         started.TurnStarted = new TurnStarted { Model = Model };
@@ -131,7 +130,7 @@ internal sealed class AgentSession(
 
         _history.Add(LLMMessage.User(prompt));
 
-        var snapshot = tools.Snapshot();
+        var snapshot = new ToolSnapshot(Tools);
 
         try
         {
@@ -230,7 +229,7 @@ internal sealed class AgentSession(
 
         return tool is null
             ? $"error: unknown tool {call.Name}"
-            : await tool.Execute(call.ArgumentsJson, ToolContextValue, cancellationToken).ConfigureAwait(false);
+            : await tool.Execute(call.ArgumentsJson, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task Fail(string message, CancellationToken cancellationToken)

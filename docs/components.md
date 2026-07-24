@@ -408,7 +408,7 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   (all tools settle before the next turn).
 - **Outbound** everything in the turn sequence: `SessionDatabase`,
   `EventBroker`, `SystemContextBuilder`, `Compactor`, `AgentRegistry`,
-  `ToolRegistry`, `ProviderRegistry`, `TaskManager`.
+  `IToolFactory`, `ProviderRegistry`, `TaskManager`.
 - **Boundary** no. Concrete, and rich — never a record plus a service.
 - **Note** it is also the `ILLMEventSink` implementer, attaching `session_id`
   and `task_id` to make a wire `Event` from an `LLMEvent`.
@@ -453,14 +453,21 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   filesystem.
 - **Boundary** **yes** — tools.
 
-### `ToolRegistry` — rank 7, M3
+### `IToolFactory` — rank 7, M3
 
 - **Absorbs** the registry half of `tool`.
-- **Owns** the mutable set of registered tools, and produces `ToolSnapshot` —
-  an immutable, mutator-free materialisation taken once per turn (principle 4).
-- **Inbound** register; snapshot.
-- **Outbound** `Configuration`.
-- **Boundary** no.
+- **Owns** how one tool is built: a factory per tool, living for one
+  `UserSession` and so able to take it by constructor, yielding one `ITool`
+  instance per `AgentSession`.
+- **Inbound** create.
+- **Outbound** `Configuration`, and the sessions a tool is constructed with —
+  the one place rank 7 names rank 9 and 10, granted deliberately in
+  `architecture.md`.
+- **Boundary** no — `ITool` is the boundary, and a new tool brings a factory
+  with it.
+- **Note** a session's tool set is fixed once built, so there is no mutable side
+  and no registry. `ToolSnapshot` still materialises it once per turn, which is
+  what principle 4 asks for.
 
 ### `ProcessRunner` — rank 6, M3
 

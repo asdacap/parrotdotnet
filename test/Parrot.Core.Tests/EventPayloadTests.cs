@@ -2,10 +2,8 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
-using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Store;
-using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
 
@@ -31,9 +29,7 @@ internal sealed class EventPayloadTests
             new UnusedProvider(),
             events,
             new EventRepository(database),
-            new ToolRegistry([]),
-            ".",
-            new ProcessRunner(string.Empty),
+            [],
             new SystemContextBuilder(".", "2026-07-24"),
             new Compactor(new UnusedProvider(), 120_000),
             depth: 0);

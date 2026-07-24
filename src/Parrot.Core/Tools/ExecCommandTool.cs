@@ -6,7 +6,7 @@ namespace Parrot.Tools;
 // The one tool that reaches outside the process. It runs under the sandbox, so
 // a failure to sandbox is reported to the model rather than run unconfined --
 // the fail-closed property, surfaced as a tool error the model can react to.
-internal sealed class ExecCommandTool : ITool
+internal sealed class ExecCommandTool(string workingDirectory, ProcessRunner processes) : ITool
 {
     public string Name => "exec_command";
 
@@ -18,11 +18,8 @@ internal sealed class ExecCommandTool : ITool
         {"type":"object","properties":{"command":{"type":"string","description":"The shell command to run"}},"required":["command"]}
         """;
 
-    public async Task<string> Execute(
-        string argumentsJson, IToolContext context, CancellationToken cancellationToken)
+    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(context);
-
         var command = ReadString(argumentsJson, "command");
 
         if (command.Length == 0)
@@ -32,8 +29,8 @@ internal sealed class ExecCommandTool : ITool
 
         try
         {
-            var result = await context.Processes
-                .Run(command, context.WorkingDirectory, cancellationToken)
+            var result = await processes
+                .Run(command, workingDirectory, cancellationToken)
                 .ConfigureAwait(false);
 
             return Format(result);

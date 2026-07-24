@@ -7,14 +7,24 @@ using Parrot.Tools;
 
 namespace Parrot.Agent;
 
+// Per user session, which is what lets it hold that session's tool factories:
+// a factory is constructed with the owner it belongs to, and yields one tool
+// instance per agent session from there.
 internal sealed class AgentSessionFactory(
+    UserSession owner,
     ILLMProvider provider,
-    ToolRegistry tools,
     string workingDirectory,
     ProcessRunner processes,
     SystemContextBuilder systemContext,
     Compactor compactor) : IAgentSessionFactory
 {
+    private readonly IReadOnlyList<IToolFactory> _toolFactories =
+    [
+        new ExecCommandToolFactory(workingDirectory, processes),
+        new ReadFileToolFactory(workingDirectory),
+        new AgentSpawnToolFactory(owner),
+    ];
+
     public AgentSession Create(
         string sessionId,
         int depth,
@@ -25,9 +35,7 @@ internal sealed class AgentSessionFactory(
             provider,
             eventBroker,
             eventRepository,
-            tools,
-            workingDirectory,
-            processes,
+            _toolFactories,
             systemContext,
             compactor,
             depth);

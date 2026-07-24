@@ -25,7 +25,7 @@ manages, because in C# the namespace no longer disambiguates it.
 | DOMAIN    UserSession         AgentSession           AgentRegistry        |
 |           TaskManager         Compactor              SystemContextBuilder |
 +---------------------------------------------------------------------------+
-| TOOLS     ToolRegistry        ITool                  PermissionBroker     |
+| TOOLS     IToolFactory        ITool                  PermissionBroker     |
 |           QuestionBroker      ProcessRunner          WebFetcher           |
 +---------------------------------------------------------------------------+
 | PROVIDERS ProviderRegistry    ILLMProvider           ICredentialStore     |
@@ -167,8 +167,8 @@ ParrotService
  |    |    |    |                 child sessions
  |    |    |    +-- AgentSession  (recurses: a child session, same database)
  |    |    |
- |    |    +-- ToolRegistry ..... immutable snapshot per turn
- |    |    |    +-- ITool  <<extension boundary>>
+ |    |    +-- IToolFactory ..... one per tool, per user session
+ |    |    |    +-- ITool  <<extension boundary>>   one per agent session
  |    |    |         +-- ProcessRunner .. sandboxed exec, fails closed
  |    |    |         +-- WebFetcher
  |    |    |
@@ -700,7 +700,7 @@ Rank is migration order. A block may not be built before anything it depends on.
 | 5 | `PermissionBroker`, `QuestionBroker` | `permission`, `question` |
 | 6 | `ProcessRunner` | `process` |
 | 6 | `WebFetcher` | `webfetch` |
-| 7 | `ITool`, `ToolRegistry` | `tool`, `change` (patch model and parsing only) |
+| 7 | `ITool`, `IToolFactory` | `tool`, `change` (patch model and parsing only) |
 | 7 | `SystemContextBuilder` | `systemcontext`, `skill`, `command` |
 | 8 | `Compactor` | `compaction` |
 | 9 | `AgentSession` | `session` (conversation half), `agent` (runner and coordinator) |
@@ -717,9 +717,19 @@ Rank is migration order. A block may not be built before anything it depends on.
 Two blocks rank far later than their state alone would suggest, both for the
 same reason: they own a lifetime, and a lifetime depends on everything it runs.
 `AgentSession` is rank 9 because it owns the drain and the turn, and a turn
-needs the tool registry and the providers. `UserSession` is rank 10 because it
-owns the agent sessions inside it. This is why `SessionDatabase` is ranked 2 —
-the state becomes persistable long before either owner can be built.
+needs the tools and the providers. `UserSession` is rank 10 because it owns the
+agent sessions inside it. This is why `SessionDatabase` is ranked 2 — the state
+becomes persistable long before either owner can be built.
+
+**One deliberate inversion, granted rather than implicit.** A tool instance
+belongs to one `AgentSession` and is constructed with it, and its `IToolFactory`
+belongs to one `UserSession` and may be constructed with that. So rank 7 names
+rank 9 and rank 10, against the direction of every other row here. What that
+buys is a tool that can hold state and see its session, which no context object
+passed per call can give it; what it costs is that `ITool` is no longer
+placeable without the session types. `ISubagentHost` existed to avoid exactly
+this and is gone — `AgentSpawnTool` now holds both sessions directly, which is
+also what lets it register a spawned child on the user session while it runs.
 
 ## Decisions
 
@@ -755,13 +765,18 @@ Merging them would put a fan-out loop inside a transaction, which is worse.
 ### 3. The tool snapshot is a type
 
 `ToolSnapshot`, immutable, materialised once per turn at step 5 of the turn
-sequence. `ToolRegistry` stays a block: it is the mutable side, aware of
-configuration and enabled agents, and its job is to produce a snapshot.
+sequence.
 
 Discipline was the alternative and it is not enforceable — "do not mutate the
 registry mid-turn" is a comment, whereas a snapshot that has no mutators is a
 compiler error. Principle 4 wants an immutable registry within a turn, and this
 is the cheapest way to actually get it.
+
+`ToolRegistry` was the mutable side that produced the snapshot. It is gone: once
+a tool instance belongs to one `AgentSession`, the session's tool set is built
+once from its `IToolFactory` list and never changes, so there is no mutable side
+left for a registry to be. The snapshot is materialised from that fixed set,
+and principle 4 holds for the same reason it did before.
 
 ### 4. The provider owns credential refresh
 

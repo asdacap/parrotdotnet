@@ -10,55 +10,81 @@ namespace Parrot.Agent;
 // AgentSession: a subagent runs in a background child session, and its events
 // are republished on this one stream so a client needs a single subscription
 // however deep the recursion goes.
-//
-// M1 holds no database and no working-directory claim yet; that is M2.
 internal sealed class UserSession : IDisposable
 {
     private readonly ConcurrentDictionary<string, AgentSession> _agents = new(StringComparer.Ordinal);
     private readonly EventBroker _eventBroker = new();
-    private readonly AgentSession _main;
-
     private readonly EventRepository _eventRepository;
+    private readonly IAgentSessionFactory _agentSessions;
 
-    // The agent factory carries the static half of a session; this only
-    // supplies what is genuinely per-session, so it no longer relays five
-    // parameters it never uses.
+    // The main agent session is not built here. Its tools are constructed with
+    // the session they belong to, and their factories with this user session,
+    // so building it in the constructor would need a `this` that does not
+    // finish existing until the constructor returns. It is built on the first
+    // prompt instead; its id is settled now so History has something to ask
+    // about before then.
+    private readonly string _mainSessionId = Identifier.AgentSession();
+    private readonly Lock _mainGate = new();
+    private AgentSession? _main;
+
     public UserSession(
         string id,
         string model,
         EventRepository eventRepository,
-        IAgentSessionFactory agentSessions)
+        IAgentSessionFactorySource agentSessionFactories)
     {
-        ArgumentNullException.ThrowIfNull(agentSessions);
+        ArgumentNullException.ThrowIfNull(agentSessionFactories);
 
         Id = id;
+        Model = model;
         _eventRepository = eventRepository;
-        _main = agentSessions.Create(Identifier.AgentSession(), 0, _eventBroker, eventRepository);
-        _main.Model = model;
-        _ = _agents.TryAdd(_main.SessionId, _main);
+        _agentSessions = agentSessionFactories.Create(this);
     }
 
     public string Id { get; }
 
+    // Session state, and owned here rather than on the main agent session:
+    // CreateSession reports it and UpdateSession changes it, both of which can
+    // happen before the first prompt builds an agent session at all.
+    // Under the same lock as Main: an UpdateSession racing the first prompt
+    // would otherwise be free to see a null _main, skip, and lose the selection
+    // the turn is about to run with.
     public string Model
     {
-        get => _main.Model;
-        set => _main.Model = value;
+        get;
+        set
+        {
+            lock (_mainGate)
+            {
+                field = value;
+                _ = _main?.Model = value;
+            }
+        }
     }
 
     // Indefinite by design. It ends when the caller stops listening, not when
-    // a turn finishes.
+    // a turn finishes -- and it does not wait for an agent session to exist, so
+    // a client can subscribe before sending anything.
     public IAsyncEnumerable<Event> Listen(CancellationToken cancellationToken) =>
         _eventBroker.Subscribe(cancellationToken);
 
     // The user talks to the user session; the main agent session is what
-    // actually runs the turn. Subagents join _agents later, from the agent side.
+    // actually runs the turn.
     public void Send(string prompt, CancellationToken cancellationToken) =>
-        _main.Start(prompt, cancellationToken);
+        Main().Start(prompt, cancellationToken);
+
+    // A subagent joining this session, registered by the tool that spawned it
+    // so it is visible while it runs rather than only once it finishes.
+    public void Admit(AgentSession agent)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+
+        _ = _agents.TryAdd(agent.SessionId, agent);
+    }
 
     // What a resumed session already said. Read from the projection, never by
     // replaying the raw event log.
-    public IReadOnlyList<string> History() => _eventRepository.Messages(_main.SessionId);
+    public IReadOnlyList<string> History() => _eventRepository.Messages(_mainSessionId);
 
     // Ends every subscription on this session's stream. A listener blocked on
     // MoveNext returns false rather than waiting forever.
@@ -66,5 +92,23 @@ internal sealed class UserSession : IDisposable
     {
         _eventBroker.Dispose();
         _agents.Clear();
+    }
+
+    // Built once, on the first prompt. Under a lock because SendMessage arrives
+    // on gRPC handler threads and two concurrent first prompts would otherwise
+    // each build a main session.
+    private AgentSession Main()
+    {
+        lock (_mainGate)
+        {
+            if (_main is null)
+            {
+                _main = _agentSessions.Create(_mainSessionId, 0, _eventBroker, _eventRepository);
+                _main.Model = Model;
+                Admit(_main);
+            }
+
+            return _main;
+        }
     }
 }

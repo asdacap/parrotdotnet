@@ -6,7 +6,6 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
-using Parrot.Tools;
 using Pure.DI;
 
 namespace Parrot.Cli;
@@ -55,9 +54,6 @@ internal partial class Composition
                 return Configuration.Load(paths.ConfigFile);
             })
 
-            .Bind().As(Lifetime.Singleton).To(_ => new ToolRegistry(
-                [new ExecCommandTool(), new ReadFileTool(), new AgentSpawnTool()]))
-
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
@@ -73,28 +69,28 @@ internal partial class Composition
                 return new Compactor(provider, CompactionTokenBudget);
             })
 
-            // The static half of an agent session is bound into the factory
-            // here; the per-instance half -- id, depth, and the session's own
-            // broker and repository -- arrives per call. This is what lets
-            // SessionStore and UserSession stop relaying five parameters they
-            // never use.
-            .Bind().As(Lifetime.Singleton).To<IAgentSessionFactory>(ctx =>
+            // The static half of an agent session is bound into the source
+            // here. The source mints one factory per user session, that factory
+            // holds the user session's tool factories, and each of those yields
+            // one tool instance per agent session -- so the only thing left to
+            // pass per call is id, depth, and the session's own broker and
+            // repository.
+            .Bind().As(Lifetime.Singleton).To<IAgentSessionFactorySource>(ctx =>
             {
                 ctx.Inject<ILLMProvider>(out var provider);
-                ctx.Inject<ToolRegistry>(out var tools);
                 ctx.Inject<ProcessRunner>(out var processes);
                 ctx.Inject<SystemContextBuilder>(out var systemContext);
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
 
-                return new AgentSessionFactory(
-                    provider, tools, workingDirectory, processes, systemContext, compactor);
+                return new AgentSessionFactorySource(
+                    provider, workingDirectory, processes, systemContext, compactor);
             })
 
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>
             {
-                ctx.Inject<IAgentSessionFactory>(out var agentSessions);
-                return new UserSessionFactory(agentSessions);
+                ctx.Inject<IAgentSessionFactorySource>(out var agentSessionFactories);
+                return new UserSessionFactory(agentSessionFactories);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
