@@ -33,7 +33,7 @@ internal sealed class AgentSendTool(AgentRegistry agents) : ITool
 
         try
         {
-            return (await agents.Get(sessionId).SendChild(message, cancellationToken).ConfigureAwait(false)).Format();
+            return (await agents.Get(sessionId).Send(message, cancellationToken).ConfigureAwait(false)).Format();
         }
         catch (AgentRegistryException failure)
         {
