@@ -3,10 +3,30 @@ using Grpc.Core;
 namespace Parrot.Protocol;
 
 // Local mode binds no socket (principle 12): the generated client reaches the
-// service through this invoker instead of Kestrel. Only the server-streaming
-// shape the contract uses is implemented; the rest throw rather than pretend.
+// service through this invoker instead of Kestrel. Only the two call shapes the
+// contract uses are implemented; the rest throw rather than pretend.
 internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
 {
+    public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
+        Method<TRequest, TResponse> method,
+        string? host,
+        CallOptions options,
+        TRequest request)
+    {
+        var context = new InProcessServerCallContext(options.CancellationToken);
+
+        var response = request is SendMessageRequest send
+            ? Cast<TResponse>(service.SendMessage(send, context))
+            : throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}");
+
+        return new AsyncUnaryCall<TResponse>(
+            response,
+            Task.FromResult(new Metadata()),
+            static () => Status.DefaultSuccess,
+            static () => [],
+            static () => { });
+    }
+
     public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
         Method<TRequest, TResponse> method,
         string? host,
@@ -16,12 +36,17 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
         var writer = new ChannelStreamWriter<TResponse>();
         var context = new InProcessServerCallContext(options.CancellationToken);
 
-        var call = Dispatch(request, writer, context);
+        if (request is not ListenRequest listen || writer is not ChannelStreamWriter<Event> events)
+        {
+            throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}");
+        }
+
+        Drain(service.Listen(listen, events, context), writer);
 
         return new AsyncServerStreamingCall<TResponse>(
             writer.Reader,
             Task.FromResult(new Metadata()),
-            () => call.IsFaulted ? Status.DefaultCancelled : Status.DefaultSuccess,
+            static () => Status.DefaultSuccess,
             static () => [],
             writer.Complete);
     }
@@ -29,10 +54,6 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
     public override TResponse BlockingUnaryCall<TRequest, TResponse>(
         Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
         throw new NotImplementedException("the contract has no blocking unary call");
-
-    public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
-        Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
-        throw new NotImplementedException("the contract has no unary call");
 
     public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
         Method<TRequest, TResponse> method, string? host, CallOptions options) =>
@@ -42,7 +63,12 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
         Method<TRequest, TResponse> method, string? host, CallOptions options) =>
         throw new NotImplementedException("the contract has no duplex call");
 
-    private static async Task Complete<TResponse>(Task call, ChannelStreamWriter<TResponse> writer)
+    private static async Task<TResponse> Cast<TResponse>(Task<SendMessageResponse> response)
+        where TResponse : class =>
+        await response.ConfigureAwait(false) as TResponse
+            ?? throw new InvalidOperationException($"SendMessage cannot answer a {typeof(TResponse).Name}");
+
+    private static async void Drain<TResponse>(Task call, ChannelStreamWriter<TResponse> writer)
         where TResponse : class
     {
         try
@@ -56,20 +82,5 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
             // faulted stream rather than as an unobserved task exception.
             writer.Fault(failure);
         }
-    }
-
-    private Task Dispatch<TRequest, TResponse>(
-        TRequest request,
-        ChannelStreamWriter<TResponse> writer,
-        InProcessServerCallContext context)
-        where TRequest : class
-        where TResponse : class
-    {
-        if (request is ChatRequest chat && writer is ChannelStreamWriter<Event> events)
-        {
-            return Complete(service.Chat(chat, events, context), events);
-        }
-
-        throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}");
     }
 }

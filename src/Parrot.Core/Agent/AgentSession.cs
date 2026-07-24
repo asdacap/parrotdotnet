@@ -13,9 +13,9 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
 
     public string SessionId { get; } = sessionId;
 
-    public async Task Run(string model, string prompt, CancellationToken cancellationToken)
+    public async Task Run(string taskId, string model, string prompt, CancellationToken cancellationToken)
     {
-        _taskId = Identifier.New();
+        _taskId = taskId;
 
         await events.Publish(Compose(EventKind.TurnStart, $"turn started ({model})"), cancellationToken)
             .ConfigureAwait(false);

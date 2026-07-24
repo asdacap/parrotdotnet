@@ -8,15 +8,24 @@ namespace Parrot.Cli;
 internal static class BasicCli
 {
     public static async Task<int> Render(
-        Parrot.Protocol.ParrotAgent.ParrotAgentClient client,
-        ChatRequest request,
+        Parrot.Protocol.Parrot.ParrotClient client,
+        string sessionId,
+        string model,
+        string prompt,
         TextWriter output,
         TextWriter error,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(client);
 
-        using var call = client.Chat(request, cancellationToken: cancellationToken);
+        // Listen before sending: a stream opened after the turn starts would
+        // miss its opening events.
+        using var call = client.Listen(
+            new ListenRequest { SessionId = sessionId }, cancellationToken: cancellationToken);
+
+        _ = await client.SendMessageAsync(
+            new SendMessageRequest { SessionId = sessionId, Model = model, Text = prompt },
+            cancellationToken: cancellationToken);
         var failed = false;
 
         while (await call.ResponseStream.MoveNext(cancellationToken).ConfigureAwait(false))

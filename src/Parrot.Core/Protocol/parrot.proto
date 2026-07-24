@@ -5,14 +5,29 @@ option csharp_namespace = "Parrot.Protocol";
 package parrot.v1;
 
 // The whole product is this service. Both CLIs are clients of it.
-service ParrotAgent {
-  // One prompt in, a flat event stream out.
-  rpc Chat (ChatRequest) returns (stream Event);
+//
+// Sending and listening are separate calls on purpose: a prompt is durable
+// before execution is requested (principle 1), so admitting one must not
+// depend on anyone listening, and a client that reconnects must be able to
+// resume the stream without re-sending the prompt.
+service Parrot {
+  rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
+  rpc Listen (ListenRequest) returns (stream Event);
 }
 
-message ChatRequest {
-  string model  = 1;
-  string prompt = 2;
+message SendMessageRequest {
+  string session_id = 1;
+  string model      = 2;
+  string text       = 3;
+}
+
+message SendMessageResponse {
+  string message_id = 1;
+  string task_id    = 2;
+}
+
+message ListenRequest {
+  string session_id = 1;
 }
 
 enum EventKind {

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Events;
@@ -5,12 +6,28 @@ using Parrot.Llm;
 
 namespace Parrot.Protocol;
 
-// The gRPC contract. Commands in, one flat event stream out. It owns nothing
-// and constructs no long-lived dependency.
-internal sealed class ParrotService(ILLMProvider provider) : ParrotAgent.ParrotAgentBase
+// The gRPC contract. Commands in, one flat event stream out.
+internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase
 {
-    public override async Task Chat(
-        ChatRequest request,
+    private readonly ConcurrentDictionary<string, SessionHost> _sessions = new(StringComparer.Ordinal);
+
+    public override Task<SendMessageResponse> SendMessage(SendMessageRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var host = Host(request.SessionId);
+        var taskId = Identifier.New();
+
+        // Admitting the prompt does not wait for the turn, and does not require
+        // anyone to be listening.
+        host.Turn = host.Session.Run(taskId, request.Model, request.Text, context.CancellationToken);
+
+        return Task.FromResult(new SendMessageResponse { MessageId = Identifier.New(), TaskId = taskId });
+    }
+
+    public override async Task Listen(
+        ListenRequest request,
         IServerStreamWriter<Event> responseStream,
         ServerCallContext context)
     {
@@ -18,19 +35,22 @@ internal sealed class ParrotService(ILLMProvider provider) : ParrotAgent.ParrotA
         ArgumentNullException.ThrowIfNull(responseStream);
         ArgumentNullException.ThrowIfNull(context);
 
-        var cancellationToken = context.CancellationToken;
-        var events = new EventBroker();
-        var session = new AgentSession(Identifier.New(), provider, events);
+        var host = Host(request.SessionId);
 
-        var turn = session.Run(request.Model, request.Prompt, cancellationToken);
-
-        await foreach (var published in events.Subscribe(cancellationToken).ConfigureAwait(false))
+        await foreach (var published in host.Events.Subscribe(context.CancellationToken).ConfigureAwait(false))
         {
-            await responseStream.WriteAsync(published, cancellationToken).ConfigureAwait(false);
+            await responseStream.WriteAsync(published, context.CancellationToken).ConfigureAwait(false);
         }
 
-        // The drain completes the channel, so awaiting after the loop cannot
-        // deadlock and still surfaces anything the turn threw.
-        await turn.ConfigureAwait(false);
+        await host.Turn.ConfigureAwait(false);
     }
+
+    private SessionHost Host(string sessionId) =>
+        _sessions.GetOrAdd(
+            sessionId,
+            id =>
+            {
+                var events = new EventBroker();
+                return new SessionHost(new AgentSession(id, provider, events), events);
+            });
 }

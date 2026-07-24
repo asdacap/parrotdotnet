@@ -142,10 +142,12 @@ internal static class CommandDispatcher
 
         // Local mode opens no socket: the generated client reaches the service
         // through the in-process invoker.
-        var client = new Parrot.Protocol.ParrotAgent.ParrotAgentClient(new InProcessCallInvoker(new ParrotService(provider)));
+        var client = new Parrot.Protocol.Parrot.ParrotClient(new InProcessCallInvoker(new ParrotService(provider)));
 
-        var request = new ChatRequest { Model = model, Prompt = string.Join(' ', words) };
+        var prompt = string.Join(' ', words);
 
-        return await BasicCli.Render(client, request, output, error, cancellationToken).ConfigureAwait(false);
+        return await BasicCli
+            .Render(client, Identifier.New(), model, prompt, output, error, cancellationToken)
+            .ConfigureAwait(false);
     }
 }
