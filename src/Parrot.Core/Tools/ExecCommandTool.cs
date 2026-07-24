@@ -20,7 +20,17 @@ internal sealed class ExecCommandTool(string workingDirectory, ProcessRunner pro
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
-        var command = ReadString(argumentsJson, "command");
+        string command;
+
+        try
+        {
+            using var arguments = new ToolArguments(argumentsJson);
+            command = arguments.RequiredString("command");
+        }
+        catch (Exception failure) when (failure is JsonException or FormatException)
+        {
+            return $"error: {failure.Message}";
+        }
 
         if (command.Length == 0)
         {
@@ -46,35 +56,25 @@ internal sealed class ExecCommandTool(string workingDirectory, ProcessRunner pro
     private static string Format(ProcessResult result)
     {
         var text = new System.Text.StringBuilder();
-        _ = text.Append("exit ").Append(result.ExitCode).Append('\n');
-
-        if (result.Stdout.Length > 0)
-        {
-            _ = text.Append(result.Stdout);
-        }
-
-        if (result.Stderr.Length > 0)
-        {
-            _ = text.Append("\n[stderr]\n").Append(result.Stderr);
-        }
-
+        _ = text.Append("Process exited with code ").Append(result.ExitCode);
+        AppendOutput(text, "stdout", result.Stdout, result.StdoutTruncated);
+        AppendOutput(text, "stderr", result.Stderr, result.StderrTruncated);
         return text.ToString();
     }
 
-    private static string ReadString(string json, string property)
+    private static void AppendOutput(
+        System.Text.StringBuilder text, string name, string output, bool truncated)
     {
-        try
+        if (output.Length == 0 && !truncated)
         {
-            using var document = JsonDocument.Parse(json);
-
-            return document.RootElement.TryGetProperty(property, out var value)
-                && value.ValueKind == JsonValueKind.String
-                ? value.GetString() ?? string.Empty
-                : string.Empty;
+            return;
         }
-        catch (JsonException)
+
+        _ = text.Append('\n').Append('[').Append(name).Append("]\n").Append(output);
+
+        if (truncated)
         {
-            return string.Empty;
+            _ = text.Append('\n').Append('[').Append(name).Append(" truncated]");
         }
     }
 }

@@ -24,6 +24,8 @@ internal sealed class Configuration(string path)
     public IReadOnlyDictionary<string, ProviderConfig> Providers { get; private set; } =
         new Dictionary<string, ProviderConfig>(StringComparer.Ordinal);
 
+    public WebFetchConfig WebFetch { get; private set; } = new();
+
     public static Configuration Load(string path)
     {
         var root = LoadRoot(path);
@@ -32,6 +34,7 @@ internal sealed class Configuration(string path)
         {
             Model = Scalar(root, ModelKey),
             Providers = ReadProviders(root),
+            WebFetch = ReadWebFetch(root),
         };
     }
 
@@ -74,6 +77,11 @@ internal sealed class Configuration(string path)
 
         return text + "\n";
     }
+
+    private static WebFetchConfig ReadWebFetch(YamlMappingNode root) =>
+        Child(root, "web_fetch", out var node) && node is YamlMappingNode webFetch
+            ? new() { AllowPrivate = Scalar(webFetch, "allow_private") == "true" }
+            : new();
 
     private static Dictionary<string, ProviderConfig> ReadProviders(YamlMappingNode root)
     {

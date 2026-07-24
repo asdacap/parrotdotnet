@@ -193,14 +193,19 @@ criterion in the plan that is a security property rather than a feature.
 **Retires.** Sandbox escape, and permission semantics that authorise a tool name
 rather than an operation (principle 7).
 
-**Done (tools + sandbox; permission prompt deferred).** The agentic loop runs:
-`AgentSession` calls the provider, executes the tool calls it returns under the
-sandbox, feeds results back, and repeats until the model stops. Verified live:
-"create made.txt containing 'hello from the agent'" produced the file in the
-workspace via a sandboxed `exec_command`. Fail-closed is asserted in tests. Not
-yet built: `PermissionBroker`/`QuestionBroker` -- `exec_command` runs sandboxed
-without a prompt (the sandbox is the boundary), so the interactive permission
-flow waits for a tool that needs `disable_sandbox`. Recorded as an M3 remainder.
+**Done (full built-in tool set; permission prompt deferred).** The agentic loop
+runs: `AgentSession` calls the provider, executes the tool calls it returns under
+the sandbox, feeds results back, and repeats until the model stops. The complete
+built-in inventory is registered: `exec_command`, `read`, `glob`, `grep`,
+`apply_patch`, `git_diff`, `web_fetch`, and `agent_spawn`. `exec_command` runs
+under bubblewrap with fail-closed asserted in tests. `apply_patch` applies aider
+and unified patches directly (no transactional rollback -- a failed apply reports
+what it wrote). `WebFetcher` pins DNS-resolved addresses through an
+`IWebAddressPolicy` (public-only by default, private opt-in via
+`web_fetch.allow_private`). Not yet built: `PermissionBroker`/`QuestionBroker` --
+`exec_command` runs sandboxed without a prompt (the sandbox is the boundary), so
+the interactive permission flow waits for a tool that needs `disable_sandbox`.
+Recorded as an M3 remainder.
 
 **Divergence found:** `deepseek-v4-pro` on opencode-go 400s on tool-continuation
 (other models -- glm, kimi, qwen, minimax -- work), so the built-in default

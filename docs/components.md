@@ -458,6 +458,13 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 - **Outbound** `PermissionBroker`, `ProcessRunner`, `WebFetcher`, the
   filesystem.
 - **Boundary** **yes** — tools.
+- **Divergence** `grep` uses .NET's `RegexOptions.NonBacktracking` engine
+  rather than Go's RE2. The two reject the same pathological inputs (both
+  guarantee linear time), but the accepted syntax differs: .NET non-backtracking
+  does not support backreferences, lookaheads, or lookbehinds, while RE2 does
+  not support backreferences either but has a different unicode class syntax.
+  The tool description says ".NET non-backtracking regular expressions" rather
+  than claiming RE2 compatibility.
 
 ### `IToolFactory` — rank 7, M3
 

@@ -6,6 +6,7 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
+using Parrot.Web;
 using Pure.DI;
 
 namespace Parrot.Cli;
@@ -56,6 +57,15 @@ internal partial class Composition
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
+                ctx.Inject<Configuration>(out var configuration);
+                IWebAddressPolicy policy = configuration.WebFetch.AllowPrivate
+                    ? new PrivateWebAddressPolicy()
+                    : new PublicWebAddressPolicy();
+                return WebFetcher.Create(policy);
+            })
+
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 return new SystemContextBuilder(
                     workingDirectory,
@@ -76,10 +86,11 @@ internal partial class Composition
                 ctx.Inject<ProcessRunner>(out var processes);
                 ctx.Inject<SystemContextBuilder>(out var systemContext);
                 ctx.Inject<Compactor>(out var compactor);
+                ctx.Inject<WebFetcher>(out var webFetcher);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
 
                 return new AgentSessionFactorySource(
-                    workingDirectory, processes, systemContext, compactor);
+                    workingDirectory, processes, systemContext, compactor, webFetcher);
             })
 
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>

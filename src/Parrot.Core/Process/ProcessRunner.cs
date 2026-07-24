@@ -8,6 +8,8 @@ namespace Parrot.Process;
 // property M3 exists to establish.
 internal sealed class ProcessRunner(string bubblewrapPath)
 {
+    private const int MaxOutputCharacters = 64 << 10;
+
     // An empty path means bubblewrap was not found. Kept as a value rather than
     // a null so the fail-closed check is explicit.
     public bool SandboxAvailable => bubblewrapPath.Length > 0;
@@ -30,15 +32,64 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
         _ = process.Start();
 
-        var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+        var stdout = ReadBounded(process.StandardOutput);
+        var stderr = ReadBounded(process.StandardError);
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Kill(process);
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            _ = await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
+            throw;
+        }
 
+        var output = await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
         return new ProcessResult(
             process.ExitCode,
-            await stdout.ConfigureAwait(false),
-            await stderr.ConfigureAwait(false));
+            output[0].Text,
+            output[1].Text,
+            output[0].Truncated,
+            output[1].Truncated);
+    }
+
+    private static void Kill(System.Diagnostics.Process process)
+    {
+        if (!process.HasExited)
+        {
+            process.Kill(entireProcessTree: true);
+        }
+    }
+
+    private static async Task<BoundedOutput> ReadBounded(StreamReader reader)
+    {
+        var output = new System.Text.StringBuilder(MaxOutputCharacters);
+        var buffer = new char[4096];
+        var truncated = false;
+
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer).ConfigureAwait(false);
+
+            if (read == 0)
+            {
+                break;
+            }
+
+            var remaining = MaxOutputCharacters - output.Length;
+
+            if (remaining > 0)
+            {
+                _ = output.Append(buffer, 0, Math.Min(read, remaining));
+            }
+
+            truncated |= read > remaining;
+        }
+
+        return new BoundedOutput(output.ToString(), truncated);
     }
 
     // Read-only host root first, then the writable working directory over it, so
@@ -94,4 +145,6 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
         return start;
     }
+
+    private sealed record BoundedOutput(string Text, bool Truncated);
 }

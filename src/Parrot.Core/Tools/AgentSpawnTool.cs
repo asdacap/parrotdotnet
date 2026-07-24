@@ -20,7 +20,17 @@ internal sealed class AgentSpawnTool(UserSession owner, AgentSession session) : 
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
-        var prompt = ReadString(argumentsJson, "prompt");
+        string prompt;
+
+        try
+        {
+            using var arguments = new ToolArguments(argumentsJson);
+            prompt = arguments.RequiredString("prompt");
+        }
+        catch (Exception failure) when (failure is JsonException or FormatException)
+        {
+            return $"error: {failure.Message}";
+        }
 
         if (prompt.Length == 0)
         {
@@ -40,22 +50,5 @@ internal sealed class AgentSpawnTool(UserSession owner, AgentSession session) : 
         owner.Admit(child);
 
         return await child.Run(prompt, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static string ReadString(string json, string property)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-
-            return document.RootElement.TryGetProperty(property, out var value)
-                && value.ValueKind == JsonValueKind.String
-                ? value.GetString() ?? string.Empty
-                : string.Empty;
-        }
-        catch (JsonException)
-        {
-            return string.Empty;
-        }
     }
 }

@@ -32,6 +32,16 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Web_fetch_private_access_is_opt_in()
+    {
+        var missing = Configuration.Load(Path.Combine(_directory, "missing.yaml"));
+        var configured = Configuration.Load(Write("web_fetch:\n  allow_private: true\n"));
+
+        _ = await Assert.That(missing.WebFetch.AllowPrivate).IsFalse();
+        _ = await Assert.That(configured.WebFetch.AllowPrivate).IsTrue();
+    }
+
+    [Test]
     public async Task Set_model_persists_and_survives_a_reload()
     {
         var path = Path.Combine(_directory, "config.yaml");

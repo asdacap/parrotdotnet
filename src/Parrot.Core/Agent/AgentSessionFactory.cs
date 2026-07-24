@@ -4,6 +4,7 @@ using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Store;
 using Parrot.Tools;
+using Parrot.Web;
 
 namespace Parrot.Agent;
 
@@ -15,14 +16,23 @@ internal sealed class AgentSessionFactory(
     string workingDirectory,
     ProcessRunner processes,
     SystemContextBuilder systemContext,
-    Compactor compactor) : IAgentSessionFactory
+    Compactor compactor,
+    WebFetcher webFetcher) : IAgentSessionFactory
 {
-    private readonly IReadOnlyList<IToolFactory> _toolFactories =
-    [
-        new ExecCommandToolFactory(workingDirectory, processes),
-        new ReadFileToolFactory(workingDirectory),
-        new AgentSpawnToolFactory(owner),
-    ];
+    private readonly ToolWorkspace _workspace = new(workingDirectory);
+
+    private IReadOnlyList<IToolFactory> ToolFactories =>
+        field ??=
+        [
+            new ExecCommandToolFactory(workingDirectory, processes),
+            new ReadToolFactory(_workspace),
+            new GlobToolFactory(_workspace),
+            new GrepToolFactory(_workspace),
+            new ApplyPatchToolFactory(workingDirectory),
+            new GitDiffToolFactory(workingDirectory),
+            new WebFetchToolFactory(webFetcher),
+            new AgentSpawnToolFactory(owner),
+        ];
 
     public AgentSession Create(
         string sessionId,
@@ -36,7 +46,7 @@ internal sealed class AgentSessionFactory(
             provider,
             eventBroker,
             eventRepository,
-            _toolFactories,
+            ToolFactories,
             systemContext,
             compactor,
             depth)
