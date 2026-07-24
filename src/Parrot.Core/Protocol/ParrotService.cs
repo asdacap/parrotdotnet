@@ -25,10 +25,10 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        await registry.RefreshAll(context.CancellationToken).ConfigureAwait(false);
+        var listed = await registry.AvailableModels(context.CancellationToken).ConfigureAwait(false);
         var response = new ListModelsResponse();
 
-        foreach (var model in registry.AllModels())
+        foreach (var model in listed)
         {
             response.Models.Add(new Model { Id = model.Model.Id, ProviderId = model.Model.ProviderId });
         }

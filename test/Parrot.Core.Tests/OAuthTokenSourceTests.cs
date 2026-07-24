@@ -21,6 +21,21 @@ internal sealed class OAuthTokenSourceTests
     }
 
     [Test]
+    public async Task Availability_accepts_expired_structurally_valid_oauth_without_refreshing(
+        CancellationToken cancellationToken)
+    {
+        var store = new InMemoryCredentialStore();
+        await store.Set("openai", Oauth(Now.AddMinutes(-1), "expired"), cancellationToken);
+        var client = new FakeOAuthClient(Now);
+        using var source = new OAuthTokenSource(store, client, "openai");
+
+        var available = await source.HasCredential(cancellationToken);
+
+        _ = await Assert.That(available).IsTrue();
+        _ = await Assert.That(client.Refreshes).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task Concurrent_callers_near_expiry_trigger_one_refresh_that_is_persisted(CancellationToken cancellationToken)
     {
         var store = new InMemoryCredentialStore();

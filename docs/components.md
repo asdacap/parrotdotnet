@@ -278,9 +278,9 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Note** the catalogue lives on the registry rather than on `ILLMProvider`,
   so a provider stays stateless: it can list models, but remembering them is the
   registry's job. The registry is seeded with preset and declared metadata so a
-  model is selectable offline, and `RefreshAll` overlays what each endpoint
-  serves — best effort, since a provider without a credential simply keeps its
-  seed.
+  model is selectable offline. User-facing listing checks credentials each time,
+  skips uncredentialed providers without contacting them, and overlays what each
+  available endpoint serves on a best-effort basis.
 
 ### `ILLMProvider` sub-decomposition (ported 2026-07-24)
 
@@ -344,15 +344,17 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 - **`config.yaml` gains a `providers:` map** (`ProviderConfig`/`ModelConfig`)
   for custom compatible providers and per-model overrides.
 - **CLI strings changed:** `auth login <provider> [--api-key-stdin]` and
-  `auth login chatgpt [--device]`; `/auth login <provider>` in the REPL.
+  `auth login chatgpt [--device]`; `/auth login [provider]` in the REPL, where
+  omitting the provider presents the buildable provider choices.
 - **No same-origin redirect following** (upstream refuses cross-origin only):
   the provider `HttpClient` disables auto-redirect and any 3xx is an error.
 - **API keys are resolved per request, not at startup.** Every provider holds an
   `IApiKeySource` that reads the environment variable or credential store on each
   call, so `auth login` takes effect immediately without a restart. The registry
   is built once with all configured providers regardless of whether a credential
-  exists yet; a missing key surfaces as a non-retryable `LLMProviderException` at
-  call time.
+  exists yet; user-facing model listing dynamically filters those providers by
+  credential availability, while a missing key on a direct call surfaces as a
+  non-retryable `LLMProviderException`.
 
 ---
 

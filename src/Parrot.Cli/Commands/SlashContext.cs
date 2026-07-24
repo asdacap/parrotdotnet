@@ -11,8 +11,9 @@ internal sealed class SlashContext(
     ICredentialStore credentials,
     OpenAiOAuthClient oauth,
     Configuration configuration,
-    string providerId,
+    IReadOnlyList<string> providerIds,
     string userSessionId,
+    TextReader input,
     TextWriter output,
     TextWriter error)
 {
@@ -24,9 +25,11 @@ internal sealed class SlashContext(
 
     public Configuration Configuration { get; } = configuration;
 
-    public string ProviderId { get; } = providerId;
+    public IReadOnlyList<string> ProviderIds { get; } = providerIds;
 
     public string UserSessionId { get; set; } = userSessionId;
+
+    public TextReader Input { get; } = input;
 
     public TextWriter Output { get; } = output;
 

@@ -14,6 +14,28 @@ internal sealed class OAuthTokenSource(ICredentialStore store, IOAuthClient clie
 
     public void Dispose() => _gate.Dispose();
 
+    public async ValueTask<bool> HasCredential(CancellationToken cancellationToken)
+    {
+        var credential = await store.Get(name, cancellationToken).ConfigureAwait(false);
+        if (credential is not
+            {
+                Version: Credential.CurrentVersion,
+                Type: CredentialType.OAuth,
+                ApiKey: null,
+                OAuth:
+                {
+                    AccessToken.Value.Length: > 0,
+                    RefreshToken.Value.Length: > 0,
+                    ExpiresAt: var expiresAt,
+                },
+            })
+        {
+            return false;
+        }
+
+        return expiresAt != default;
+    }
+
     public async Task<OAuthAccess> Token(CancellationToken cancellationToken)
     {
         var current = await ReadOAuth(cancellationToken).ConfigureAwait(false);

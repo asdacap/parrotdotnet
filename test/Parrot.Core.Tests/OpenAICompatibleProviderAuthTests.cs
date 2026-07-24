@@ -72,6 +72,8 @@ internal sealed class OpenAICompatibleProviderAuthTests
     {
         private readonly Queue<string> _keys = new(keys);
 
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
         public ValueTask<string> ApiKey(CancellationToken cancellationToken) =>
             ValueTask.FromResult(_keys.Dequeue());
     }

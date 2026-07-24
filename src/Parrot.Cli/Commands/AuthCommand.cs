@@ -21,18 +21,27 @@ internal sealed class AuthCommand(Func<string> readSecret) : ISlashCommand
 
         if (tokens.Length == 0 || tokens[0] != "login")
         {
-            await context.Output.WriteLineAsync("usage: /auth login <provider> [--device]".AsMemory(), cancellationToken)
+            await context.Output.WriteLineAsync("usage: /auth login [provider] [--device]".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return SlashOutcome.Continue;
         }
 
-        var provider = tokens.Length > 1 && !tokens[1].StartsWith('-') ? tokens[1] : context.ProviderId;
-        var device = arguments.Contains("--device", StringComparison.Ordinal);
+        var provider = tokens.Skip(1).FirstOrDefault(token => !token.StartsWith('-'));
+        var device = tokens.Skip(1).Contains("--device", StringComparer.Ordinal);
 
-        if (provider.Length == 0)
+        if (provider is null)
         {
-            await context.Output.WriteLineAsync("  usage: /auth login <provider>".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
+            provider = await SelectProvider(context, cancellationToken).ConfigureAwait(false);
+
+            if (provider is null)
+            {
+                return SlashOutcome.Continue;
+            }
+        }
+
+        if (!context.ProviderIds.Contains(provider, StringComparer.Ordinal))
+        {
+            await WriteValidProviders(context, cancellationToken).ConfigureAwait(false);
             return SlashOutcome.Continue;
         }
 
@@ -67,4 +76,29 @@ internal sealed class AuthCommand(Func<string> readSecret) : ISlashCommand
 
         return SlashOutcome.Continue;
     }
+
+    private static async Task<string?> SelectProvider(SlashContext context, CancellationToken cancellationToken)
+    {
+        await context.Output.WriteLineAsync("  providers:".AsMemory(), cancellationToken).ConfigureAwait(false);
+
+        foreach (var providerId in context.ProviderIds)
+        {
+            await context.Output.WriteLineAsync($"    {providerId}".AsMemory(), cancellationToken).ConfigureAwait(false);
+        }
+
+        await context.Output.WriteAsync("  provider: ".AsMemory(), cancellationToken).ConfigureAwait(false);
+        var selected = await context.Input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+
+        if (selected is not null && context.ProviderIds.Contains(selected.Trim(), StringComparer.Ordinal))
+        {
+            return selected.Trim();
+        }
+
+        await WriteValidProviders(context, cancellationToken).ConfigureAwait(false);
+        return null;
+    }
+
+    private static Task WriteValidProviders(SlashContext context, CancellationToken cancellationToken) =>
+        context.Error.WriteLineAsync(
+            $"  choose one of: {string.Join(", ", context.ProviderIds)}".AsMemory(), cancellationToken);
 }

@@ -19,6 +19,9 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
     public string Id => inner.Id;
 
+    public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
+        inner.HasCredential(cancellationToken);
+
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
         inner.ListModels(cancellationToken);
 

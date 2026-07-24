@@ -58,6 +58,16 @@ internal sealed class RetryingProviderTests
         _ = await Assert.That(scripted.Calls).IsEqualTo(1);
     }
 
+    [Test]
+    public async Task Credential_availability_is_delegated_without_retry(CancellationToken cancellationToken)
+    {
+        var scripted = new ReplayProvider();
+        var available = await new RetryingProvider(scripted).HasCredential(cancellationToken);
+
+        _ = await Assert.That(available).IsTrue();
+        _ = await Assert.That(scripted.CredentialChecks).IsEqualTo(1);
+    }
+
     // A structured error inside a 200 stream classifies exactly as an HTTP one.
     [Test]
     public async Task A_terminal_stream_error_surfaces(CancellationToken cancellationToken)
@@ -122,7 +132,15 @@ internal sealed class RetryingProviderTests
 
         public int Calls { get; private set; }
 
+        public int CredentialChecks { get; private set; }
+
         public string Id => "scripted";
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken)
+        {
+            CredentialChecks++;
+            return ValueTask.FromResult(true);
+        }
 
         public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
