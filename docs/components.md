@@ -177,10 +177,15 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Outbound** `ICredentialStore`, and the sink it is handed per call. It owns
   its own credential refresh, because only it knows its token lifecycle.
 - **Boundary** **yes** — provider protocols.
-- **Note** the wire shape is confirmed against OpenCode Go: SSE `data:` lines
-  carrying `choices[0].delta`, where `content` and `reasoning_content` are
-  **separate fields** — which is why `LLMEvent` has both `TextDelta` and
-  `ReasoningDelta`.
+- **Note** the wire shape is confirmed against a live OpenCode Go call, not
+  read from documentation: SSE `data:` lines carrying `choices[0].delta`, where
+  `content` and `reasoning_content` are **separate fields** — which is why
+  `LLMEvent` has both `TextDelta` and `ReasoningDelta`.
+- **Gotcha** on a reasoning model, `max_tokens` covers reasoning *and* content.
+  A budget of 60 against `glm-5.2` produced 19 reasoning deltas, zero text
+  deltas, an empty `LLMResult.Text`, and `finish_reason: length`. That is a
+  successful call that looks like a broken one, so a too-small budget must be
+  reported as a budget problem rather than surfaced as an empty reply.
 
 ### `ILLMEventSink` — rank 5, M1
 
