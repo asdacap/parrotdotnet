@@ -6,6 +6,7 @@ namespace Parrot.Process;
 internal sealed class ManagedShellProcess
 {
     private readonly AgentSession _agent;
+    private readonly CancellationTokenSource _execution;
     private readonly CancellationToken _lifetime;
     private readonly Lock _gate = new();
     private readonly Task<ProcessResult> _result;
@@ -17,11 +18,13 @@ internal sealed class ManagedShellProcess
         string name,
         AgentSession agent,
         Task<ProcessResult> result,
+        CancellationTokenSource execution,
         CancellationToken lifetime)
     {
         Name = name;
         _agent = agent;
         _result = result;
+        _execution = execution;
         _lifetime = lifetime;
         _delivery = DeliverWhenUnclaimed();
     }
@@ -86,6 +89,28 @@ internal sealed class ManagedShellProcess
         }
     }
 
+    public async Task<ProcessResult?> Interrupt(CancellationToken cancellationToken)
+    {
+        await _execution.CancelAsync().ConfigureAwait(false);
+
+        try
+        {
+            var result = await _result.WaitAsync(cancellationToken).ConfigureAwait(false);
+            MarkWaitDelivered();
+            return result;
+        }
+        catch (OperationCanceledException) when (_execution.IsCancellationRequested)
+        {
+            MarkWaitDelivered();
+            return null;
+        }
+        catch
+        {
+            MarkWaitDelivered();
+            throw;
+        }
+    }
+
     public async Task Settle()
     {
         Task delivery;
@@ -96,6 +121,7 @@ internal sealed class ManagedShellProcess
         }
 
         await delivery.ConfigureAwait(false);
+        _execution.Dispose();
     }
 
     private async Task DeliverWhenUnclaimed()

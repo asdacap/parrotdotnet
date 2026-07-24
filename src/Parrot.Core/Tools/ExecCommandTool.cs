@@ -14,7 +14,7 @@ internal sealed class ExecCommandTool(
 
     public string Description =>
         "Run a sandboxed shell command. Optionally reserve a unique session name and yield without stopping it; "
-        + "omitted names are generated. Completion after a yield is steered back to this agent unless wait_shell claims it.";
+        + "omitted names are generated. Completion after a yield is steered back to this agent unless wait_process claims it.";
 
     public string ParametersJson =>
         """

@@ -210,8 +210,9 @@ Recorded as an M3 remainder.
 
 **Expanded process lifecycle.** `exec_command` may reserve a supplied or
 session-generated name and yield without cancelling the sandboxed run;
-`wait_shell` may later claim it. Names remain reserved for the user-session
-lifetime. Completion not claimed by a successful wait is admitted exactly once
+`wait_process` may later claim it, and `interrupt_process` may cancel its process
+ tree. Names remain reserved for the user-session lifetime. Completion not
+claimed by a successful wait or interrupt is admitted exactly once
 as a durable steer to the invoking main or child agent. User-session disposal
 cancels and joins all remaining process trees while preserving bounded output
 and spill persistence.

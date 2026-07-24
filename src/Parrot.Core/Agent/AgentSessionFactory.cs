@@ -25,7 +25,8 @@ internal sealed class AgentSessionFactory(
         field ??=
         [
             new ExecCommandToolFactory(owner.ShellProcesses),
-            new WaitShellToolFactory(owner.ShellProcesses),
+            new WaitProcessToolFactory(owner.ShellProcesses),
+            new InterruptProcessToolFactory(owner.ShellProcesses),
             new ReadToolFactory(_workspace),
             new GlobToolFactory(_workspace),
             new GrepToolFactory(_workspace),

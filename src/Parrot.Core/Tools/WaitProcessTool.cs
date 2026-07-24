@@ -3,9 +3,9 @@ using Parrot.Process;
 
 namespace Parrot.Tools;
 
-internal sealed class WaitShellTool(ShellProcessOwner processes) : ITool
+internal sealed class WaitProcessTool(ShellProcessOwner processes) : ITool
 {
-    public string Name => "wait_shell";
+    public string Name => "wait_process";
 
     public string Description =>
         "Wait for a named shell process. A timeout returns its name without stopping it, allowing a later wait.";

@@ -33,8 +33,9 @@ internal sealed class ShellProcessOwner(
                 throw new InvalidOperationException($"Shell process name '{name}' is already reserved.");
             }
 
-            var result = runner.Run(command, workingDirectory, blobDirectory, lifetime);
-            var process = new ManagedShellProcess(name, agent, result, lifetime);
+            var execution = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            var result = runner.Run(command, workingDirectory, blobDirectory, execution.Token);
+            var process = new ManagedShellProcess(name, agent, result, execution, lifetime);
             _processes.Add(name, process);
             return process;
         }

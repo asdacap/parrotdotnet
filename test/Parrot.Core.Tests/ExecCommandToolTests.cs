@@ -68,17 +68,24 @@ internal sealed class ExecCommandToolTests : IDisposable
         var yielded = await tool.Execute(
             """{"command":"sleep 0.05; printf later","name":"later","yield_after_ms":0}""",
             cancellationToken);
-        var waited = await new WaitShellTool(processes).Execute(
+        var waited = await new WaitProcessTool(processes).Execute(
             """{"name":"later"}""", cancellationToken);
         var duplicate = await tool.Execute(
             """{"command":"true","name":"later"}""", cancellationToken);
-        var unknown = await new WaitShellTool(processes).Execute(
+        var unknown = await new WaitProcessTool(processes).Execute(
             """{"name":"missing"}""", cancellationToken);
+        var running = await tool.Execute(
+            """{"command":"sleep 30","name":"running","yield_after_ms":0}""",
+            cancellationToken);
+        var interrupted = await new InterruptProcessTool(processes).Execute(
+            """{"name":"running"}""", cancellationToken);
 
         _ = await Assert.That(yielded).IsEqualTo("later");
         _ = await Assert.That(waited).IsEqualTo("Process exited with code 0\n[stdout]\nlater");
         _ = await Assert.That(duplicate).IsEqualTo("error: Shell process name 'later' is already reserved.");
         _ = await Assert.That(unknown).IsEqualTo("error: Unknown shell process 'missing'.");
+        _ = await Assert.That(running).IsEqualTo("running");
+        _ = await Assert.That(interrupted).IsEqualTo("Shell process 'running' interrupted.");
     }
 
     private static string CreateSandboxPassThrough(string workspace)

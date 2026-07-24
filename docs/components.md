@@ -572,10 +572,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Owns** nothing shared; each tool owns its own arguments and plan.
 - **Inbound** describe, plan, execute. **Display differences are methods on the
   tool, never a branch on its id.** `exec_command` accepts optional `name` and
-  `yield_after_ms`; `wait_shell` requires `name` and accepts optional
-  `yield_after_ms`. A yield returns the reserved process name without stopping
-  it, and a later completion is delivered to the invoking agent through its
-  durable steer queue unless a successful wait claims it.
+  `yield_after_ms`; `wait_process` requires `name` and accepts optional
+  `yield_after_ms`; `interrupt_process` requires `name` and cancels the named
+  process tree. A yield returns the reserved process name without stopping it,
+  and a later completion is delivered to the invoking agent through its durable
+  steer queue unless a successful wait or interrupt claims it. `wait_process`
+  replaces the earlier `wait_shell` name so the lifecycle tools use process
+  terminology.
 - **Outbound** `PermissionBroker`, the user session's shell-process owner,
   `ProcessRunner`, `WebFetcher`, the filesystem.
 - **Boundary** **yes** — tools.
