@@ -23,6 +23,9 @@ The migration is top-down. Before any behaviour is written:
    contracts, and its migration order rank.
 3. Get that document reviewed before descending a level.
 
+That is milestone 0 in [docs/plan.md](docs/plan.md), which sequences everything
+after it.
+
 Then descend: for each component, decompose it into sub-components the same
 way, and only then write code. A component's parent must be specified before
 the component is.

@@ -116,3 +116,7 @@ how to add an exception.
 Read [MIGRATION.md](MIGRATION.md) before writing any code. It is normative, not
 advisory. In particular: no component may be ported until the high-level
 component map in `docs/components.md` names it.
+
+- [docs/architecture.md](docs/architecture.md) — the blocks and how they connect
+- [docs/plan.md](docs/plan.md) — milestones, ordered by risk
+- [docs/components.md](docs/components.md) — the gate, not yet written

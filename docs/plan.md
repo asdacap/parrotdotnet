@@ -1,0 +1,204 @@
+# Migration Plan
+
+**Status: proposed.** Milestone 0 is the plan gate from MIGRATION.md §0 and
+nothing after it may start until it closes.
+
+Three rules shape this plan.
+
+**Every milestone ends in a binary you can run and a sentence you can check.**
+"Blocks 1 through 4 ported" is not an exit criterion; `parrot chat` returning a
+reply is. A milestone that cannot be demonstrated is not done.
+
+**Risk first, not dependency order.** The rank table in
+[architecture.md](architecture.md) says what must *exist* before what. It does
+not say what to *build* first. Where the two disagree, take the risk: the
+expensive failures here are a contract that cannot carry what the CLI needs, a
+storage rule discovered wrong after data exists, and a sandbox that fails open.
+Each of those is retired as early as it can be.
+
+**Thin before wide.** A milestone takes a block only as far as the milestone
+needs. `AgentSession` appears in M1 with one turn and no tools, and is finished
+in M5. This is deliberate: a block built to completion before anything uses it
+is a block built against guesses.
+
+## Milestones
+
+```text
+M0  close the plan gate        no code
+M1  walking skeleton           one prompt in, one reply out
+M2  durable and recoverable    survives kill -9 and a second machine
+M3  tools and the sandbox      it can edit code, and cannot escape
+M4  context and compaction     long conversations stop falling over
+M5  agents, tasks, subagents   the full agent loop
+M6  serve                      a second machine can drive it
+M7  enhanced CLI               the terminal experience
+```
+
+---
+
+### M0 — Close the plan gate
+
+**Goal.** `docs/components.md` filled in, one entry per block.
+
+**Exit.** Every block in `architecture.md` has a complete entry, the six open
+questions are answered, and the document has been reviewed. No `<Namespace>`
+placeholders left.
+
+**Forces.** All six open questions. Question 1 — how `ILLMProvider` streams —
+is the one that blocks M1, so answer it first even if the rest lag.
+
+**No code.** This is the gate, and it is the cheapest place in the project to
+change your mind about a boundary.
+
+---
+
+### M1 — Walking skeleton
+
+**Goal.** One prompt in, one reply out, end to end, through the real contract.
+
+**Blocks.** `Configuration`, `StatePaths`, `ICredentialStore`, `ILLMProvider`,
+`ProviderRegistry`, `EventBroker`, `AgentSession` (one turn, no tools, no
+compaction), `ParrotService`, `InProcessChannel`, `CommandDispatcher`,
+`BasicCli`.
+
+**Exit.**
+
+```sh
+parrot auth login <provider> --api-key-stdin
+parrot chat --model <model>     # type a prompt, see the reply stream back
+```
+
+**Retires.** The two risks that would invalidate the most work if found late:
+
+- **Can the `.proto` carry a turn?** Events are flat and self-describing, or
+  they are not. `BasicCli` renders them with a `switch` and a `WriteLine`, or
+  the event model is wrong. This is why `BasicCli` is in the first milestone
+  rather than the last.
+- **Does streaming survive the shallow `ILLMProvider`?** Token deltas are
+  disposable and final messages durable (principle 10). If a flat
+  `Task<LLMResponse>` cannot express that, it is far cheaper to learn here.
+
+**Explicitly not in scope.** Persistence beyond whatever a single process
+needs, tools, permissions, subagents, `EnhancedCli`, the socket.
+
+---
+
+### M2 — Durable and recoverable
+
+**Goal.** Sessions survive process death, and two machines cannot corrupt each
+other.
+
+**Blocks.** `SessionDatabase`, `EventRepository`, `UserSession`, plus the
+durability half of `AgentSession` — admitted input, projected messages, context
+epochs.
+
+**Exit.**
+
+```sh
+parrot chat            # ... mid-turn ...
+kill -9 $(pgrep parrot)
+parrot chat            # the session resumes; the interrupted turn is not lost
+parrot sessions        # lists sessions, reading meta.json only
+```
+
+Plus, verified in tests rather than by eye: no `-shm` or `-wal` file ever
+appears under the state directory; a claim on a live binding creates a second
+user session instead of stealing the first; a claim on an abandoned one
+reclaims it.
+
+**Retires.** The silent-corruption risk. Every rule in the `UserSession`
+section is load-bearing and none of them fail loudly — this is the milestone
+where getting it wrong is still cheap, because no user has data yet.
+
+---
+
+### M3 — Tools and the sandbox
+
+**Goal.** It can change code, and it cannot escape.
+
+**Blocks.** `PermissionBroker`, `QuestionBroker`, `ProcessRunner`,
+`ToolRegistry`, `ITool` and the builtin tools — `exec_command`, `read`, `glob`,
+`grep`, `apply_patch`, `git_diff`, `web_fetch`, `WebFetcher`.
+
+**Exit.** `parrot chat` can be asked to make a change to a file in the working
+directory and does it. `exec_command` runs under bubblewrap with the host
+filesystem read-only and the workspace writable.
+
+Plus a test that the sandbox **fails closed**: with bubblewrap unavailable, a
+shell command does not run. Not a warning, not a fallback. This is the one exit
+criterion in the plan that is a security property rather than a feature.
+
+**Retires.** Sandbox escape, and permission semantics that authorise a tool name
+rather than an operation (principle 7).
+
+---
+
+### M4 — Context and compaction
+
+**Goal.** A long conversation stops falling over.
+
+**Blocks.** `SystemContextBuilder`, `Compactor`, and the epoch half of
+`AgentSession`.
+
+**Exit.** A conversation driven past the model's context window continues
+working: compaction starts a new epoch, and the transcript before the cutoff
+stops being sent. `AGENTS.md` files, skills, and tool guidance appear in the
+system context, sampled only at a safe turn boundary.
+
+---
+
+### M5 — Agents, tasks, subagents
+
+**Goal.** The full agent loop, including agents that start agents.
+
+**Blocks.** `TaskManager`, `AgentRegistry` including subagent spawn, and the
+rest of `AgentSession` — steer and queue input promotion, interrupt.
+
+**Exit.** `agent_spawn` starts a child session; the child's events appear on the
+parent's stream with their own `task_id`, and one subscription still suffices.
+Recursion and per-parent concurrency limits hold. A child outlives the turn that
+spawned it, and `Await` returns its result.
+
+**Retires.** The `AgentSession`/`AgentRegistry` mutual dependency, which is
+inherent but only proven workable once both are real.
+
+---
+
+### M6 — Serve
+
+**Goal.** A second machine can drive it.
+
+**Blocks.** `GrpcServer`, `ParrotApplication` as the full composition root.
+
+**Exit.** `parrot serve` binds; a client on another machine drives a session
+through the same service the local CLI uses. Local mode still opens no socket.
+
+**Retires.** Principle 11 — that the local and remote paths are genuinely one
+contract, and not two that merely resemble each other. Deliberately late: if M1
+got the contract right, this milestone is small, and if it did not, this is
+where that shows.
+
+---
+
+### M7 — Enhanced CLI
+
+**Goal.** The terminal experience.
+
+**Blocks.** `EnhancedCli`, the `terminal` layer — editor, picker, markdown,
+raw mode.
+
+**Exit.** Scrollback-preserving chat, no alternate screen. `BasicCli` still
+works and still shares no code with it.
+
+**Last on purpose.** It is the largest block and the one that renders everything
+else, so its shape is guessable only once everything it renders exists. It is
+also the only milestone that can be cut without cutting the product.
+
+## What this plan does not schedule
+
+Cross-cutting, done continuously rather than at a milestone: porting upstream
+tests alongside each block (MIGRATION.md §6), keeping the publish AOT-clean
+(§2), and recording every divergence in `components.md` (§1).
+
+`PARROT0004`, the analyzer keeping the two CLIs apart, lands with M7 when there
+is finally something to keep apart.

@@ -42,7 +42,10 @@ code, read, in order:
 1. [MIGRATION.md](MIGRATION.md) — normative rules for the port. Not advisory.
 2. [docs/components.md](docs/components.md) — the component map. **A component
    that is not named there may not be ported.**
-3. [docs/style.md](docs/style.md) — what the analyzers enforce and how to add an
+3. [docs/architecture.md](docs/architecture.md) — the level-1 block diagram,
+   the decisions already made, and the six still open.
+4. [docs/plan.md](docs/plan.md) — the milestones, ordered by risk.
+5. [docs/style.md](docs/style.md) — what the analyzers enforce and how to add an
    exception.
 
 The upstream Go tree is at `~/repo/parrot-coder`. It is the specification: its
