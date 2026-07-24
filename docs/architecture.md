@@ -6,7 +6,8 @@ connect. It does not yet decompose any of them, and no component may be ported
 until its entry in [components.md](components.md) is filled in from this.
 
 Derived by reading the Go tree, not invented: the block set below is
-`app.App`'s field list plus what `httpapi.DomainBackend` carries. Where the Go
+`app.App`'s field list plus what `httpapi.DomainBackend` carries, with the
+HTTP/SSE contract re-specified as gRPC. Where the Go
 name is a package-level `Service`/`Registry`/`Manager`, the C# name says what it
 manages, because in C# the namespace no longer disambiguates it.
 
@@ -14,9 +15,10 @@ manages, because in C# the namespace no longer disambiguates it.
 
 ```text
 +---------------------------------------------------------------------------+
-| ENTRY     Program             CommandDispatcher      TerminalChat         |
+| CLIENTS   Program             CommandDispatcher                           |
+|           BasicCli            EnhancedCli                                 |
 +---------------------------------------------------------------------------+
-| TRANSPORT HttpServer          InProcessTransport     ApiBackend           |
+| TRANSPORT GrpcServer          ParrotService          InProcessChannel     |
 +---------------------------------------------------------------------------+
 | ROOT      ParrotApplication                                               |
 +---------------------------------------------------------------------------+
@@ -35,49 +37,68 @@ manages, because in C# the namespace no longer disambiguates it.
 
 ## The request path
 
-Local mode and serve mode meet at `ApiBackend` and are identical below it.
-That is principle 11: the local CLI and remote clients use one contract.
+Everything is a gRPC server; the CLIs sit entirely behind it and are pure
+clients. Both speak the same service and consume the same flat event stream,
+which is principle 11 — the local CLI and a remote client use one contract.
 
 ```text
-                  +-------------------+
-                  |      Program      |   Main; PosixSignalRegistration
-                  +---------+---------+   for SIGINT and SIGTERM
-                            |
-                            | await
-                            v
-                  +-------------------+
-                  | CommandDispatcher |   the single top-level Run
-                  +----+---------+----+
-                       |         |
-            local mode |         | serve mode
-                       v         v
-          +----------------+  +----------------+
-          |  TerminalChat  |  |   HttpServer   |
-          +--------+-------+  +--------+-------+
-                   |                   |
-                   v                   |
-          +----------------+           |   no socket is opened
-          |   InProcess    |           |   in local mode
-          |   Transport    |           |
-          +--------+-------+           |
-                   |                   |
-                   +---------+---------+
-                             |
-                             v
-                    +-----------------+
-                    |   ApiBackend    |   the HTTP and SSE contract
-                    +--------+--------+
-                             |
-                             v
-                     ( the domain, below )
+   +----------------+            +----------------+
+   |    BasicCli    |            |  EnhancedCli   |   two clients, no
+   |  print a line  |            |  full TUI      |   shared code between
+   +--------+-------+            +--------+-------+   them (see below)
+            |                             |
+            +--------------+--------------+
+                           |
+                   generated gRPC stub
+                           |
+              +------------+------------+
+              |                         |
+     +--------v---------+      +--------v--------+
+     | InProcessChannel |      |   GrpcServer    |   unix socket or port
+     |  local mode,     |      |   remote mode   |
+     |  no socket       |      |                 |
+     +--------+---------+      +--------+--------+
+              |                         |
+              +------------+------------+
+                           |
+                           v
+                  +-----------------+
+                  |  ParrotService  |   the gRPC contract: commands in,
+                  +--------+--------+   one flat event stream out
+                           |
+                           v
+                   ( the domain, below )
 ```
+
+### What gRPC costs
+
+Measured on this toolchain, not estimated — a minimal ASP.NET Core + gRPC
+service, published Native AOT for linux-x64:
+
+```text
+                        with symbols   stripped
+current parrot binary        2.7 MB      --
+gRPC + ASP.NET Core           32 MB      11 MB
+```
+
+That is roughly a 4x floor before any Parrot code exists, and it is the one
+place this design fights the premise of a small single binary. It also collides
+with keeping symbols, which the build does deliberately to match the Go build's
+`dontStrip` — 32 MB is a large download to hand someone.
+
+Worth knowing before committing: the cost is Kestrel and the ASP.NET Core
+hosting stack, not the protobuf codec. A hand-rolled framed protocol over a unix
+socket would keep the binary near its current size and would still give the CLIs
+a flat event stream. gRPC buys a schema, generated clients in any language, and
+streaming that already works. That is likely worth 11 MB, but it should be a
+decision rather than a discovery.
 
 ## The dependency tree
 
 Who calls whom. Read the indentation as "depends on".
 
 ```text
-ApiBackend
+ParrotService
  |
  +-- UserSession ................. one per working directory. owns the database
  |    |                           and holds the claim on it for its lifetime
@@ -131,8 +152,9 @@ A block absent here is passive — it is called, it does not run.
 ```text
 CommandDispatcher.Run                       returns => the process exits
  |
- +-- HttpServer.Run ....................... serve mode only
- +-- TerminalChat.Run ..................... local mode only
+ +-- GrpcServer.Run ....................... serve mode only
+ +-- BasicCli.Run ......................... local mode, one of the two
+ +-- EnhancedCli.Run ...................... local mode, the other
  +-- UserSession.Run ...................... the cwd claim is held for exactly
  |    |                                     this Run, and released when it
  |    |                                     returns
@@ -149,6 +171,51 @@ CommandDispatcher.Run                       returns => the process exits
 
 There is no `Stop` anywhere. Shutdown is cancellation of the token `Program`
 holds; `IDisposable` releases handles after `Run` has already returned.
+
+## The two CLIs
+
+There are two clients and they share no code. Not "share little" — none.
+
+`BasicCli` is the fallback and the reference. It reads the flat event stream and
+prints lines. No alternate screen, no cursor addressing, no widgets, no model of
+the conversation beyond what it has already printed. It should be small enough
+that a person could rewrite it from the `.proto` alone in an afternoon.
+
+`EnhancedCli` is the full terminal experience — scrollback-preserving chat,
+editor, picker, markdown rendering.
+
+### Why no shared code
+
+Upstream has `cli/chat` (3056 lines), `cli/enhancedchat` (3572 lines), and
+`cli/chatview` (1937 lines) which both import. That shared view layer is the
+thing being designed out, for two reasons.
+
+The first is that a 3056-line "basic" CLI is not basic. Whatever it is for —
+a dumb terminal, a CI log, a pipe, a bug report where the TUI is the suspect —
+it only serves that purpose if it is obviously correct at a glance.
+
+The second matters more. **`BasicCli` is the test of the event contract.**
+Events are flat and carry their own `task_id` and `session_id` precisely so a
+client needs no tree, no correlation table, and no subscription per subagent.
+If `BasicCli` cannot render an event with a `switch` and a `WriteLine`, the
+event is underspecified — and the shared view layer is exactly what hides that,
+because both clients inherit the same compensating logic and neither one ever
+proves the events were sufficient.
+
+So the rule is a design constraint, not tidiness:
+
+> If `BasicCli` needs a helper, fix the event, not the CLI.
+
+### Enforcing it
+
+Nothing but a machine check keeps two clients apart once one of them grows an
+attractive helper. The intended enforcement is a `PARROT0004` analyzer rule:
+nothing under the basic client's namespace may reference the enhanced one, or
+any third namespace shared only by the two of them. Both may reference the
+generated gRPC stub and the proto message types, since those are generated from
+the contract rather than written.
+
+Not implemented yet — the namespaces do not exist.
 
 ## UserSession
 
@@ -374,11 +441,13 @@ Rank is migration order. A block may not be built before anything it depends on.
 | 9 | `AgentSession` | `session` (conversation half), `agent` (runner and coordinator) |
 | 9 | `AgentRegistry` | `agent` (registry, provider resolution), `subagent` |
 | 10 | `UserSession` | `session` (InteractiveOwner, InteractiveClaim), `store` (owners, claims) |
-| 11 | `ApiBackend` | `api/v1`, `httpapi` (backend half) |
-| 11 | `InProcessTransport` | `transport`, `client` |
-| 12 | `HttpServer` | `httpapi` (server, routes) |
+| 11 | `ParrotService` | `api/v1`, `httpapi` (backend half), re-specified as a `.proto` |
+| 11 | `InProcessChannel` | `transport`, `client` |
+| 12 | `GrpcServer` | `httpapi` (server, routes) |
 | 12 | `ParrotApplication` | `app` |
-| 13 | `CommandDispatcher`, `TerminalChat` | `cli`, `terminal`, `diagnostics` |
+| 13 | `CommandDispatcher` | `cli/cli.go`, `diagnostics` |
+| 13 | `BasicCli` | `cli/chat`, rewritten far smaller. **Not** `cli/chatview` |
+| 14 | `EnhancedCli` | `cli/enhancedchat`, `cli/chatview`, `terminal` |
 
 Two blocks rank far later than their state alone would suggest, both for the
 same reason: they own a lifetime, and a lifetime depends on everything it runs.
@@ -413,6 +482,13 @@ Resolve these before filling in `components.md`; each one moves a boundary.
 5. **`ICredentialStore` versus provider auth.** ChatGPT OAuth refresh is a
    provider concern that writes to the credential store. Which side owns the
    refresh decides whether the dependency arrow reverses.
-6. **`TerminalChat` is 4.6k lines of `terminal` plus 9.3k of `cli`.** Almost
-   certainly several trees. It is ranked last so the shape can be decided once
-   everything it renders exists.
+6. **Is gRPC worth 11 MB?** Measured above: ASP.NET Core hosting, not the
+   codec, is what costs. A framed protocol over a unix socket keeps the binary
+   near its current size and still gives the CLIs a flat event stream. gRPC
+   buys a schema, generated clients, and working streaming. Decide it rather
+   than discover it.
+7. **`EnhancedCli` is 3.5k lines of `enhancedchat` plus 4.6k of `terminal`.**
+   Almost certainly several trees. Ranked last so the shape can be decided once
+   everything it renders exists. `BasicCli` has the opposite problem: it is
+   ranked early precisely so the event contract gets tested before the TUI can
+   paper over a gap in it.

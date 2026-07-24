@@ -9,6 +9,11 @@ event history, OAuth and OpenAI-compatible providers, permission-bound tools,
 session compaction, and bounded web fetching. The Go implementation is the
 specification; this repository is the implementation.
 
+The whole product is a gRPC server. The two CLIs — a deliberately minimal one
+and a full terminal UI — sit entirely behind it as clients, consuming one flat
+event stream. They share no code with each other; see
+[docs/architecture.md](docs/architecture.md).
+
 **MCP and transactional file edits are out of scope.** Upstream's
 `internal/mcp` and the all-or-nothing apply in `internal/change` are not ported;
 see [docs/components.md](docs/components.md).
