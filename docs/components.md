@@ -754,8 +754,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   promotion of stable rows into ordinary terminal scrollback.
 - **Inbound** the same event stream and payloads as `BasicCli`; every event is
   rendered so admission, promotion, turn, retry, provider, tool, agent, and
-  completion activity remains observable. Terminal width is sampled while
-  laying out each enhanced frame.
+  completion activity remains observable. In raw mode event activity replaces
+  the colored live buffer rather than entering scrollback; only explicit
+  transcript commits move upward. Terminal width is sampled while laying out
+  each enhanced frame.
 - **Outbound** the generated gRPC client and a `TextWriter` representing the
   terminal. Provider text crosses this boundary only after control-character
   sanitisation.
@@ -767,8 +769,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   movement, multiline input, bracketed paste, editing controls, and a modeline;
   line-buffered input remains the fallback when raw mode is unavailable or
   `TERM=dumb`. After prompt submission, a raw-mode thinking frame animates until
-  the first streamed event, which is rendered before later events; completion,
-  interruption, EOF, cancellation,
+  the first streamed event. Each later activity event replaces that live frame,
+  whose distinct background separates it from permanent scrollback, while one
+  modeline and editor remain below it. Completion, interruption, EOF, cancellation,
   and failures cancel and join the animation before clearing it. Picker,
   markdown, modal prompts, and richer multi-row activity frames remain deferred
   M7 work.

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Threading.Channels;
 using Grpc.Core;
 using Parrot.Auth;
@@ -134,26 +135,32 @@ internal sealed class EnhancedCli(
         TextWriter error,
         Func<int> columns,
         CancellationToken cancellationToken,
-        Func<Event, CancellationToken, Task>? beforeRender = null)
+        Func<Event, CancellationToken, Task>? beforeRender = null,
+        bool renderActivityEvents = true,
+        Func<Event, CancellationToken, Task>? afterRender = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
-        var view = new TurnView(output, error, columns);
-        var waitingForVisibleEvent = beforeRender is not null;
+        var view = new TurnView(output, error, columns, renderActivityEvents);
 
         try
         {
             while (await stream.MoveNext(cancellationToken).ConfigureAwait(false))
             {
-                if (waitingForVisibleEvent && beforeRender is { } callback)
+                if (beforeRender is { } before)
                 {
-                    waitingForVisibleEvent = false;
-                    await callback(stream.Current, cancellationToken).ConfigureAwait(false);
+                    await before(stream.Current, cancellationToken).ConfigureAwait(false);
                 }
 
+                await view.Prepare(stream.Current, cancellationToken).ConfigureAwait(false);
                 var completed = await view.Render(stream.Current, cancellationToken).ConfigureAwait(false);
+                if (afterRender is { } after)
+                {
+                    await after(stream.Current, cancellationToken).ConfigureAwait(false);
+                }
+
                 if (completed is not null)
                 {
                     return completed.Value;
@@ -186,6 +193,40 @@ internal sealed class EnhancedCli(
         renderer.Draw(
             new TerminalFrame([], null, new ModelineValue("chat", "ready", context.Model), prompt),
             cancellationToken);
+
+    private static string Activity(Event published, bool started) => published.PayloadCase switch
+    {
+        Event.PayloadOneofCase.None => $"event {TerminalText.Sanitize(published.Id)} has no payload",
+        Event.PayloadOneofCase.TurnStarted =>
+            $"turn started: {TerminalText.Sanitize(published.TurnStarted.Model)}",
+        Event.PayloadOneofCase.InputAdmitted =>
+            $"{(started ? "queued" : "input admitted")}: {TerminalText.Sanitize(published.InputAdmitted.Content)}",
+        Event.PayloadOneofCase.InputPromoted =>
+            $"input promoted: {TerminalText.Sanitize(published.InputPromoted.InputId)}",
+        Event.PayloadOneofCase.ToolCallChunk =>
+            $"tool call {TerminalText.Sanitize(published.ToolCallChunk.ToolName)}: " +
+            TerminalText.Sanitize(published.ToolCallChunk.ArgumentsFragment),
+        Event.PayloadOneofCase.RetryNotice =>
+            $"retry {published.RetryNotice.Attempt} in {published.RetryNotice.RetryAfterMs} ms: " +
+            TerminalText.Sanitize(published.RetryNotice.Reason),
+        Event.PayloadOneofCase.ToolStarted =>
+            $"* {TerminalText.Sanitize(published.ToolStarted.ToolName)} started",
+        Event.PayloadOneofCase.ToolFinished =>
+            $"+ {TerminalText.Sanitize(published.ToolFinished.ToolName)} finished",
+        Event.PayloadOneofCase.ToolCancelled =>
+            $"- {TerminalText.Sanitize(published.ToolCancelled.ToolName)} cancelled",
+        Event.PayloadOneofCase.ToolError =>
+            $"! {TerminalText.Sanitize(published.ToolError.ToolName)}: " +
+            TerminalText.Sanitize(published.ToolError.Message),
+        Event.PayloadOneofCase.AgentStarted =>
+            $"* agent {TerminalText.Sanitize(published.AgentStarted.Name)} started",
+        Event.PayloadOneofCase.AgentFinished =>
+            $"+ agent {TerminalText.Sanitize(published.AgentFinished.Name)} finished",
+        Event.PayloadOneofCase.AgentFailed =>
+            $"! agent {TerminalText.Sanitize(published.AgentFailed.Name)}: " +
+            TerminalText.Sanitize(published.AgentFailed.Message),
+        _ => string.Empty,
+    };
 
     private async Task<int> Once(
         SlashContext context, string prompt, TextWriter output, CancellationToken cancellationToken)
@@ -489,13 +530,29 @@ internal sealed class EnhancedCli(
         Func<Task> stopSpinner,
         CancellationToken cancellationToken)
     {
+        var activity = new RawActivityView(renderer, prompt, context);
+        var spinning = true;
+
+        async Task BeforeRender(Event published, CancellationToken token)
+        {
+            if (spinning)
+            {
+                spinning = false;
+                await stopSpinner().ConfigureAwait(false);
+            }
+
+            await activity.Prepare(published, token).ConfigureAwait(false);
+        }
+
         _ = await RenderTurn(
             stream,
             output,
             error,
             columns,
             cancellationToken,
-            (_, _) => stopSpinner()).ConfigureAwait(false);
+            BeforeRender,
+            false,
+            activity.Render).ConfigureAwait(false);
 
         _busy = false;
         _interruptRequested = false;
@@ -563,7 +620,64 @@ internal sealed class EnhancedCli(
         return await command.Run(context, arguments, cancellationToken).ConfigureAwait(false);
     }
 
-    private sealed class TurnView(TextWriter output, TextWriter error, Func<int> columns)
+    private sealed class RawActivityView(
+        TerminalFrameRenderer renderer,
+        Func<PromptValue> prompt,
+        SlashContext context)
+    {
+        private readonly StringBuilder _reasoning = new();
+        private IReadOnlyList<string> _rows = [];
+        private bool _started;
+
+        public Task Prepare(Event published, CancellationToken cancellationToken) => published.PayloadCase is
+            Event.PayloadOneofCase.TextChunk or
+            Event.PayloadOneofCase.TurnEnded or
+            Event.PayloadOneofCase.TurnFailed
+                ? Flush(cancellationToken)
+                : Task.CompletedTask;
+
+        public Task Render(Event published, CancellationToken cancellationToken)
+        {
+            _started |= published.PayloadCase == Event.PayloadOneofCase.TurnStarted;
+            if (published.PayloadCase is
+                Event.PayloadOneofCase.TextChunk or
+                Event.PayloadOneofCase.TurnEnded or
+                Event.PayloadOneofCase.TurnFailed)
+            {
+                return Task.CompletedTask;
+            }
+
+            var activity = published.PayloadCase == Event.PayloadOneofCase.ReasoningChunk
+                ? Reasoning(published.ReasoningChunk.Fragment)
+                : Activity(published, _started);
+            _rows = activity.Length == 0 ? [] : [activity];
+            return renderer.Draw(
+                new TerminalFrame(
+                    _rows,
+                    null,
+                    new ModelineValue("chat", "working", context.Model),
+                    prompt()),
+                cancellationToken);
+        }
+
+        private string Reasoning(string fragment)
+        {
+            _ = _reasoning.Append(TerminalText.Sanitize(fragment));
+            return _reasoning.ToString();
+        }
+
+        private async Task Flush(CancellationToken cancellationToken)
+        {
+            await renderer.FlushActivities(_rows, cancellationToken).ConfigureAwait(false);
+            _rows = [];
+        }
+    }
+
+    private sealed class TurnView(
+        TextWriter output,
+        TextWriter error,
+        Func<int> columns,
+        bool renderActivityEvents)
     {
         private const string Dim = "\u001b[2m";
         private const string Cyan = "\u001b[36m";
@@ -580,7 +694,7 @@ internal sealed class EnhancedCli(
 
         private string TextId => $"assistant-{_textSegment}";
 
-        public async Task<bool?> Render(Event published, CancellationToken cancellationToken)
+        public async Task Prepare(Event published, CancellationToken cancellationToken)
         {
             if (_textActive && published.PayloadCase != Event.PayloadOneofCase.TextChunk)
             {
@@ -591,33 +705,38 @@ internal sealed class EnhancedCli(
             {
                 await EndReasoning(cancellationToken).ConfigureAwait(false);
             }
+        }
 
+        public async Task<bool?> Render(Event published, CancellationToken cancellationToken)
+        {
             switch (published.PayloadCase)
             {
-                case Event.PayloadOneofCase.None:
-                    await output.WriteLineAsync(
-                        $"{Dim}  event {TerminalText.Sanitize(published.Id)} has no payload{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
                 case Event.PayloadOneofCase.TurnStarted:
                     _started = true;
-                    await output.WriteLineAsync(
-                        $"{Dim}  turn started: {TerminalText.Sanitize(published.TurnStarted.Model)}{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
+                    if (renderActivityEvents)
+                    {
+                        await RenderActivity(published, cancellationToken).ConfigureAwait(false);
+                    }
+
                     break;
 
+                case Event.PayloadOneofCase.None:
                 case Event.PayloadOneofCase.InputAdmitted:
-                    var admission = _started ? "queued" : "input admitted";
-                    await output.WriteLineAsync(
-                        $"{Dim}  {admission}: {TerminalText.Sanitize(published.InputAdmitted.Content)}{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
                 case Event.PayloadOneofCase.InputPromoted:
-                    await output.WriteLineAsync(
-                        $"{Dim}  input promoted: {TerminalText.Sanitize(published.InputPromoted.InputId)}{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
+                case Event.PayloadOneofCase.ToolCallChunk:
+                case Event.PayloadOneofCase.RetryNotice:
+                case Event.PayloadOneofCase.ToolStarted:
+                case Event.PayloadOneofCase.ToolFinished:
+                case Event.PayloadOneofCase.ToolCancelled:
+                case Event.PayloadOneofCase.ToolError:
+                case Event.PayloadOneofCase.AgentStarted:
+                case Event.PayloadOneofCase.AgentFinished:
+                case Event.PayloadOneofCase.AgentFailed:
+                    if (renderActivityEvents)
+                    {
+                        await RenderActivity(published, cancellationToken).ConfigureAwait(false);
+                    }
+
                     break;
 
                 case Event.PayloadOneofCase.StatusInjected:
@@ -627,72 +746,18 @@ internal sealed class EnhancedCli(
                     break;
 
                 case Event.PayloadOneofCase.ReasoningChunk:
-                    await RenderReasoning(published.ReasoningChunk.Fragment, cancellationToken).ConfigureAwait(false);
+                    if (renderActivityEvents)
+                    {
+                        await RenderReasoning(published.ReasoningChunk.Fragment, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
                     break;
 
                 case Event.PayloadOneofCase.TextChunk:
                     _textActive = true;
                     await _live.Append(
                         new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ToolCallChunk:
-                    await output.WriteLineAsync(
-                        ($"{Dim}  tool call {TerminalText.Sanitize(published.ToolCallChunk.ToolName)}: " +
-                         $"{TerminalText.Sanitize(published.ToolCallChunk.ArgumentsFragment)}{Reset}").AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.RetryNotice:
-                    await output.WriteLineAsync(
-                        ($"{Dim}  retry {published.RetryNotice.Attempt} in " +
-                         $"{published.RetryNotice.RetryAfterMs} ms: " +
-                         $"{TerminalText.Sanitize(published.RetryNotice.Reason)}{Reset}").AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ToolStarted:
-                    await output.WriteLineAsync(
-                        $"{Cyan}  * {TerminalText.Sanitize(published.ToolStarted.ToolName)} started{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ToolFinished:
-                    await output.WriteLineAsync(
-                        $"{Green}  + {TerminalText.Sanitize(published.ToolFinished.ToolName)} finished{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ToolCancelled:
-                    await output.WriteLineAsync(
-                        $"{Dim}  - {TerminalText.Sanitize(published.ToolCancelled.ToolName)} cancelled{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ToolError:
-                    await output.WriteLineAsync(
-                        ($"{Red}  ! {TerminalText.Sanitize(published.ToolError.ToolName)}: " +
-                         $"{TerminalText.Sanitize(published.ToolError.Message)}{Reset}").AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.AgentStarted:
-                    await output.WriteLineAsync(
-                        $"{Cyan}  * agent {TerminalText.Sanitize(published.AgentStarted.Name)} started{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.AgentFinished:
-                    await output.WriteLineAsync(
-                        $"{Green}  + agent {TerminalText.Sanitize(published.AgentFinished.Name)} finished{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.AgentFailed:
-                    await output.WriteLineAsync(
-                        ($"{Red}  ! agent {TerminalText.Sanitize(published.AgentFailed.Name)}: " +
-                         $"{TerminalText.Sanitize(published.AgentFailed.Message)}{Reset}").AsMemory(),
                         cancellationToken).ConfigureAwait(false);
                     break;
 
@@ -743,6 +808,23 @@ internal sealed class EnhancedCli(
 
         private static string Summarise(TurnEnded ended) =>
             $"{TerminalText.Sanitize(ended.FinishReason)} - {ended.InputTokens} in / {ended.OutputTokens} out";
+
+        private Task RenderActivity(Event published, CancellationToken cancellationToken)
+        {
+            var style = published.PayloadCase switch
+            {
+                Event.PayloadOneofCase.ToolStarted or
+                Event.PayloadOneofCase.AgentStarted => Cyan,
+                Event.PayloadOneofCase.ToolFinished or
+                Event.PayloadOneofCase.AgentFinished => Green,
+                Event.PayloadOneofCase.ToolError or
+                Event.PayloadOneofCase.AgentFailed => Red,
+                _ => Dim,
+            };
+            return output.WriteLineAsync(
+                $"{style}  {Activity(published, _started)}{Reset}".AsMemory(),
+                cancellationToken);
+        }
 
         private async Task CommitText(CancellationToken cancellationToken)
         {

@@ -17,22 +17,37 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
 
             var width = Math.Max(1, columns());
             var prompt = frame.Prompt.Sanitize();
-            var promptLines = (prompt.Prefix + prompt.Text).Split('\n');
-            var (cursorRow, cursorCells) = Cursor(prompt);
-            var rows = frame.Rows.Select(value => palette.LiveSurface.Apply(TerminalText.Sanitize(value))).ToList();
+            var promptRows = Layout(prompt.Prefix + prompt.Text, width);
+            var (cursorRow, cursorCells) = Cursor(prompt, width);
+            var rows = frame.Rows
+                .SelectMany(value => Layout(TerminalText.Sanitize(value), width))
+                .Select(value => new RenderedRow(value, palette.LiveSurface))
+                .ToList();
             if (frame.Spinner is { } spinner)
             {
-                rows.Add(palette.Marker.Apply(spinner.Render()));
+                rows.Add(new RenderedRow(spinner.Render(), palette.Marker));
             }
 
-            rows.Add(palette.Modeline.Apply(frame.Modeline.Render(width)));
-            rows.AddRange(promptLines.Select(palette.Prompt.Apply));
+            var rowsBeforePrompt = rows.Count + 1;
+            rows.Add(new RenderedRow(frame.Modeline.Render(width), palette.Modeline));
+            rows.AddRange(promptRows.Select(value => new RenderedRow(value, palette.Prompt)));
 
             await output.WriteAsync("\u001b[?25l".AsMemory(), CancellationToken.None).ConfigureAwait(false);
-            await output.WriteAsync(string.Join('\n', rows).AsMemory(), CancellationToken.None).ConfigureAwait(false);
+            for (var row = 0; row < rows.Count; row++)
+            {
+                await output.WriteAsync(
+                    palette.LiveBackground.Apply("\u001b[2K").AsMemory(), CancellationToken.None)
+                    .ConfigureAwait(false);
+                await output.WriteAsync(rows[row].Style.Apply(rows[row].Text).AsMemory(), CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (row < rows.Count - 1)
+                {
+                    await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
+                }
+            }
 
             _height = rows.Count;
-            _caretRow = frame.Rows.Count + (frame.Spinner is null ? 1 : 2) + cursorRow;
+            _caretRow = rowsBeforePrompt + cursorRow;
             var lastRow = rows.Count - 1;
             if (lastRow > _caretRow)
             {
@@ -62,6 +77,31 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         try
         {
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
+            await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            await _drawing.Writer.WriteAsync(true, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    public async Task FlushActivities(IReadOnlyList<string> activities, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(activities);
+
+        _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ClearFrame(CancellationToken.None).ConfigureAwait(false);
+            foreach (var activity in activities)
+            {
+                var clean = TerminalText.Sanitize(activity);
+                await output.WriteAsync(palette.Muted.Apply(clean).AsMemory(), CancellationToken.None)
+                    .ConfigureAwait(false);
+                await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
+            }
+
+            await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {
@@ -80,11 +120,42 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         return gate;
     }
 
-    private static (int Row, int Cells) Cursor(PromptValue prompt)
+    private static List<string> Layout(string value, int width)
+    {
+        var rows = new List<string>();
+        var row = new System.Text.StringBuilder();
+        var cells = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (rune.Value == '\n')
+            {
+                rows.Add(row.ToString());
+                _ = row.Clear();
+                cells = 0;
+                continue;
+            }
+
+            var runeWidth = TerminalText.Width(rune);
+            if (cells > 0 && cells + runeWidth > width)
+            {
+                rows.Add(row.ToString());
+                _ = row.Clear();
+                cells = 0;
+            }
+
+            _ = row.Append(rune);
+            cells += runeWidth;
+        }
+
+        rows.Add(row.ToString());
+        return rows;
+    }
+
+    private static (int Row, int Cells) Cursor(PromptValue prompt, int width)
     {
         var before = prompt.Prefix + string.Concat(prompt.Text.EnumerateRunes().Take(prompt.Cursor));
-        var lines = before.Split('\n');
-        return (lines.Length - 1, TerminalText.Width(lines[^1]));
+        var rows = Layout(before, width);
+        return (rows.Count - 1, TerminalText.Width(rows[^1]));
     }
 
     private async Task ClearFrame(CancellationToken cancellationToken)
@@ -113,7 +184,7 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
             await output.WriteAsync("\u001b[2K".AsMemory(), cancellationToken).ConfigureAwait(false);
             if (row < _height - 1)
             {
-                await output.WriteAsync("\n".AsMemory(), cancellationToken).ConfigureAwait(false);
+                await output.WriteAsync("\r\n".AsMemory(), cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -126,4 +197,6 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         _height = 0;
         _caretRow = 0;
     }
+
+    private readonly record struct RenderedRow(string Text, TerminalStyle Style);
 }

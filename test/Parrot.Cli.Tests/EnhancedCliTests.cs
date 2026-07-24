@@ -110,7 +110,7 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
-    public async Task Before_render_runs_once_before_the_first_event(CancellationToken cancellationToken)
+    public async Task Before_render_runs_before_each_event(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();
         Event[] events =
@@ -150,7 +150,8 @@ internal sealed class EnhancedCliTests
             BeforeRender);
 
         _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(string.Join(',', callbackIds)).IsEqualTo("none");
+        _ = await Assert.That(string.Join(',', callbackIds))
+            .IsEqualTo("none,admitted-before-turn,promoted,retry,started,tool-chunk,first-visible,later-visible,ended");
         _ = await Assert.That(output.ToString()).StartsWith("before:none|");
         _ = await Assert.That(output.ToString()).Contains("event none has no payload");
         _ = await Assert.That(output.ToString()).Contains("input admitted: sent");

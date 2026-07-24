@@ -340,8 +340,9 @@ It restores the original terminal attributes on every exit path, honors
 mode cannot be opened. Raw mode shows a thinking animation after prompt
 submission and deterministically removes it before rendering the first streamed
 turn event or on completion, interruption, EOF, cancellation, and failure. All
-streamed events are rendered so session and provider activity remain visible.
-Renderer access
+streamed events remain visible in a replaceable, distinct-background live frame;
+only explicit transcript commits enter scrollback, and the modeline remains a
+single row. Renderer access
 is serialized so animation and editor frames cannot interleave. Picker,
 markdown, modal prompts, and richer multi-row activity frames remain M7 work.
 

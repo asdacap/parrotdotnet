@@ -21,16 +21,35 @@ internal sealed class TerminalFrameRendererTests
         var rendered = output.ToString();
 
         var expectedDraw =
-            "\u001b[?25llive[2J\n⠋ thinking\nchat   model\n> ab\n界x" +
+            "\u001b[?25l\u001b[2Klive[2J\r\n\u001b[2K⠋ thinking\r\n" +
+            "\u001b[2Kchat   model\r\n\u001b[2K> ab\r\n\u001b[2K界x" +
             "\u001b[1A\r\u001b[3C\u001b[?25h";
         var expectedClear =
             "\u001b[?25l\u001b[1B\r\u001b[4A" +
-            "\u001b[2K\n\u001b[2K\n\u001b[2K\n\u001b[2K\n\u001b[2K" +
+            "\u001b[2K\r\n\u001b[2K\r\n\u001b[2K\r\n\u001b[2K\r\n\u001b[2K" +
             "\u001b[4A\r\u001b[?25h";
 
         _ = await Assert.That(rendered[..boundary]).IsEqualTo(expectedDraw);
         _ = await Assert.That(rendered[boundary..]).IsEqualTo(expectedClear);
         _ = await Assert.That(rendered).DoesNotContain("\u001b[?1049");
+    }
+
+    [Test]
+    public async Task Live_rows_have_a_full_width_distinct_background(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(true));
+
+        await renderer.Draw(
+            new TerminalFrame(
+                ["busy"],
+                null,
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", string.Empty, 0)),
+            cancellationToken);
+
+        _ = await Assert.That(output.ToString()).Contains(
+            "\u001b[48;5;236m\u001b[2K\u001b[0m\u001b[48;5;236m\u001b[38;5;252mbusy\u001b[0m");
     }
 
     [Test]
