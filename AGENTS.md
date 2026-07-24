@@ -8,7 +8,8 @@
 - No subclass unless necessary.
 - No subinterface unless necessary.
 - Interfaces and implementations are fine and in fact preferable.
-- NEVER turn of lint rules repo wide.
+- NEVER turn of lint rules repo wide or project wide. Exception is test project can have lint rules disabled AFTER user
+  explicit permission.
 
 ## Async lifecycle
 

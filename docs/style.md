@@ -112,12 +112,22 @@ readability trade.
 
 ## Test projects
 
-`Directory.Build.targets` relaxes exactly five rules when `IsTestProject` is
-true, each with a comment giving the reason: `CA1515` (a runner needs public
-classes), `CA1707` (underscored test names), `CA1861` (constant arrays as test
-data), `CA2007` (no synchronisation context), and `IDE0058` (fluent assertion
-chains return a value nobody consumes). Nothing else is relaxed. Test code is
-held to the same standard as `src`.
+**Test projects relax no rules.** `Directory.Build.targets` sets only
+`IsAotCompatible` and `GenerateDocumentationFile` to false, and neither is a
+suppression: a test host is not AOT-published, and it has no public API to
+document.
+
+It used to relax five, and removing them is instructive about how such lists
+grow. Four had already stopped being necessary and nobody noticed: `CA1515` and
+`CA1707` only apply to externally visible identifiers, and test classes became
+`internal` when `Parrot.Core` did; `CA2007` is off repository-wide already;
+`CA1861` never fired at all. They were added pre-emptively, against problems
+that either never arrived or were solved elsewhere.
+
+Only `IDE0058` was real — a discarded fluent assertion result — and it took an
+explicit `_ =` on each `await Assert.That(…)` to fix rather than suppress. That
+is the honest spelling: the value genuinely is unused, and saying so is better
+than turning off the rule that noticed.
 
 ## Adding an exception
 

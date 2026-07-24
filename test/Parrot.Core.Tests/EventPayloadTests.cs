@@ -30,8 +30,8 @@ internal sealed class EventPayloadTests
 
         var published = session.Translate(llmEvent);
 
-        await Assert.That(published.PayloadCase).IsEqualTo(expectedPayload);
-        await Assert.That(published.AgentSessionId).IsEqualTo("session");
-        await Assert.That(published.Id).IsNotEmpty();
+        _ = await Assert.That(published.PayloadCase).IsEqualTo(expectedPayload);
+        _ = await Assert.That(published.AgentSessionId).IsEqualTo("session");
+        _ = await Assert.That(published.Id).IsNotEmpty();
     }
 }

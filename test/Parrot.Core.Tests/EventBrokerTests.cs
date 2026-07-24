@@ -26,8 +26,8 @@ internal sealed class EventBrokerTests
             await broker.Publish(new Event { Id = "after" }, cancellationToken);
 
             // Nothing published before this subscription existed is replayed.
-            await Assert.That(await pending).IsTrue();
-            await Assert.That(subscription.Current.Id).IsEqualTo("after");
+            _ = await Assert.That(await pending).IsTrue();
+            _ = await Assert.That(subscription.Current.Id).IsEqualTo("after");
         }
         finally
         {
@@ -61,8 +61,8 @@ internal sealed class EventBrokerTests
             var pendingSecond = second.MoveNextAsync();
             await broker.Publish(new Event { Id = "third" }, cancellationToken);
 
-            await Assert.That(await pendingSecond).IsTrue();
-            await Assert.That(second.Current.Id).IsEqualTo("third");
+            _ = await Assert.That(await pendingSecond).IsTrue();
+            _ = await Assert.That(second.Current.Id).IsEqualTo("third");
         }
         finally
         {
@@ -84,10 +84,10 @@ internal sealed class EventBrokerTests
 
             await broker.Publish(new Event { Id = "fanned" }, cancellationToken);
 
-            await Assert.That(await firstPending).IsTrue();
-            await Assert.That(await secondPending).IsTrue();
-            await Assert.That(first.Current.Id).IsEqualTo("fanned");
-            await Assert.That(second.Current.Id).IsEqualTo("fanned");
+            _ = await Assert.That(await firstPending).IsTrue();
+            _ = await Assert.That(await secondPending).IsTrue();
+            _ = await Assert.That(first.Current.Id).IsEqualTo("fanned");
+            _ = await Assert.That(second.Current.Id).IsEqualTo("fanned");
         }
         finally
         {

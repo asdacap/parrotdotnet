@@ -17,9 +17,9 @@ internal sealed class CommandDispatcherTests
 
         var exitCode = await CommandDispatcher.Run(ArgumentVector(argument), output, error, cancellationToken);
 
-        await Assert.That(exitCode).IsEqualTo(expectedExitCode);
-        await Assert.That(output.ToString()).Contains(expectedFragment);
-        await Assert.That(error.ToString()).IsEmpty();
+        _ = await Assert.That(exitCode).IsEqualTo(expectedExitCode);
+        _ = await Assert.That(output.ToString()).Contains(expectedFragment);
+        _ = await Assert.That(error.ToString()).IsEmpty();
     }
 
     [Test]
@@ -32,9 +32,9 @@ internal sealed class CommandDispatcherTests
 
         var exitCode = await CommandDispatcher.Run(ArgumentVector(argument), output, error, cancellationToken);
 
-        await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
-        await Assert.That(output.ToString()).IsEmpty();
-        await Assert.That(error.ToString()).Contains(argument);
+        _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
+        _ = await Assert.That(output.ToString()).IsEmpty();
+        _ = await Assert.That(error.ToString()).Contains(argument);
     }
 
     private static string[] ArgumentVector(string argument) =>
