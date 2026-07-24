@@ -63,6 +63,10 @@ against an ambient SDK, and Native AOT will not link outside it.
 nix develop
 ```
 
+`nix run . -- <args>` works without the dev shell, but builds the portable
+binary rather than the AOT one. A package reference change requires
+regenerating `nix/deps.json`; see README.
+
 ## Gates
 
 ```sh

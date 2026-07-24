@@ -15,6 +15,40 @@
     ];
     forAllSystems = nixpkgs.lib.genAttrs systems;
   in {
+    packages = forAllSystems (
+      system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+        sdk = pkgs.dotnetCorePackages.sdk_10_0;
+      in {
+        default = pkgs.buildDotnetModule {
+          pname = "parrot";
+          version = "0.0.0-dev";
+          src = ./.;
+
+          projectFile = "src/Parrot.Cli/Parrot.Cli.csproj";
+          nugetDeps = ./nix/deps.json;
+          executables = ["parrot"];
+
+          dotnet-sdk = sdk;
+          dotnet-runtime = pkgs.dotnetCorePackages.runtime_10_0;
+
+          # The sandbox has no network, so a restore comes from the locked
+          # deps. Refresh them with:
+          #   nix build .#default.fetch-deps && ./result nix/deps.json
+          dotnetFlags = ["-p:ContinuousIntegrationBuild=true"];
+
+          # buildDotnetModule publishes framework-dependent, which is
+          # incompatible with PublishAot -- native compilation implies
+          # PublishTrimmed and refuses to have it disabled. So `nix build`
+          # produces the portable build, and the AOT binary comes from
+          # `dotnet publish` in the dev shell. See README.
+          dotnetInstallFlags = ["-p:PublishAot=false"];
+
+          meta.mainProgram = "parrot";
+        };
+      }
+    );
+
     devShells = forAllSystems (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};

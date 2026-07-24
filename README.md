@@ -53,8 +53,16 @@ assembly needs a reason recorded in `MIGRATION.md`.
 
 ## Build And Run
 
-Everything runs inside the flake's dev shell; there is no supported way to build
-this repository against an ambient SDK.
+The quickest way to run it, no dev shell needed:
+
+```sh
+nix run . -- version
+nix run . -- chat "hello"
+```
+
+That builds the portable, framework-dependent binary. Development and the
+Native AOT publish both happen inside the dev shell; there is no supported way
+to build this repository against an ambient SDK.
 
 ```sh
 nix develop
@@ -69,6 +77,30 @@ dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
 The dev shell supplies .NET SDK 10, clang, lld, zlib, and a musl cross
 toolchain. Native AOT shells out to a C toolchain and a linker, which on NixOS
 are not on a fixed path, so publishing outside the shell fails at the link step.
+
+## Two builds
+
+`nix build` and `dotnet publish` do not produce the same artifact, deliberately.
+
+| | Produces | For |
+| --- | --- | --- |
+| `nix build` / `nix run` | framework-dependent, needs the .NET runtime, wrapped by Nix | reproducible builds, `nix run`, CI |
+| `dotnet publish -c Release` | Native AOT, self-contained, ~19 MB | what ships |
+
+They differ because `buildDotnetModule` publishes framework-dependent, and
+native compilation implies `PublishTrimmed` and refuses to have it disabled —
+so the Nix package sets `-p:PublishAot=false`. Making `nix build` produce the
+AOT binary means teaching the derivation about the clang/lld/musl toolchain the
+dev shell already carries, which is not done.
+
+Dependencies are locked in `nix/deps.json`, because the Nix sandbox has no
+network. Refresh it whenever a package reference changes:
+
+```sh
+nix build .#default.fetch-deps && ./result nix/deps.json
+```
+
+This is the same tax the Go original pays with `vendorHash`.
 
 ## Static musl
 
