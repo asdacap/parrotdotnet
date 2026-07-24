@@ -191,7 +191,7 @@ internal sealed class EnhancedCli(
         SlashContext context,
         CancellationToken cancellationToken) =>
         renderer.Draw(
-            new TerminalFrame([], null, new ModelineValue("chat", "ready", context.Model), prompt),
+            new TerminalFrame([], null, new ModelineValue(context.Mode, "ready", context.Model), prompt),
             cancellationToken);
 
     private static string Activity(Event published, bool started) => published.PayloadCase switch
@@ -459,11 +459,12 @@ internal sealed class EnhancedCli(
                                 if (rendering.IsCompleted)
                                 {
                                     var model = context.Model;
+                                    var mode = context.Mode;
                                     rendering = spinner.Run(
                                         index => new TerminalFrame(
                                             [],
                                             new SpinnerValue("thinking", index),
-                                            new ModelineValue("chat", "working", model),
+                                            new ModelineValue(mode, "working", model),
                                             CurrentPrompt()),
                                         (stopSpinner, token) => RenderRaw(
                                             call.ResponseStream,
@@ -655,7 +656,7 @@ internal sealed class EnhancedCli(
                 new TerminalFrame(
                     _rows,
                     null,
-                    new ModelineValue("chat", "working", context.Model),
+                    new ModelineValue(context.Mode, "working", context.Model),
                     prompt()),
                 cancellationToken);
         }
