@@ -2,10 +2,15 @@
 
   <PropertyGroup>
     <RootNamespace>Parrot</RootNamespace>
+    <!-- LibraryImport source generation requires it. The only P/Invoke is
+         link(), which the storage layout depends on: unlike O_EXCL it is atomic
+         on NFS, and unlike rename it reports EEXIST instead of overwriting. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Grpc.Core.Api" />
     <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
   </ItemGroup>

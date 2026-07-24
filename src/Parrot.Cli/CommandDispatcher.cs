@@ -2,6 +2,8 @@ using Parrot.Auth;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.State;
+using Parrot.Store;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
 
@@ -25,6 +27,7 @@ internal static class CommandDispatcher
           version                     Print the build version
           auth login --api-key-stdin  Store the opencode-go key read from stdin
           models                      List the models the provider serves
+          sessions                    List sessions, reading meta.json only
           chat [--model <id>] <text>  Send one prompt and stream the reply
 
         M1 walking skeleton: one turn, no tools, no persistence.
@@ -62,6 +65,9 @@ internal static class CommandDispatcher
 
             case "models":
                 return await Models(output, error, cancellationToken).ConfigureAwait(false);
+
+            case "sessions":
+                return await Sessions(output, cancellationToken).ConfigureAwait(false);
 
             case "chat":
                 return await Chat(arguments, output, error, cancellationToken).ConfigureAwait(false);
@@ -104,6 +110,26 @@ internal static class CommandDispatcher
         return ExitSuccess;
     }
 
+    private static async Task<int> Sessions(TextWriter output, CancellationToken cancellationToken)
+    {
+        var paths = StatePaths.ResolveFromEnvironment();
+        var listed = new SessionIndex(paths.State).List();
+
+        foreach (var meta in listed.OrderBy(session => session.CreatedAt, StringComparer.Ordinal))
+        {
+            await output.WriteLineAsync(
+                $"{meta.Id}  {meta.Model}  {meta.WorkingDirectory}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (listed.Count == 0)
+        {
+            await output.WriteLineAsync("no sessions".AsMemory(), cancellationToken).ConfigureAwait(false);
+        }
+
+        return ExitSuccess;
+    }
+
     private static async Task<int> Models(
         TextWriter output,
         TextWriter error,
@@ -116,7 +142,9 @@ internal static class CommandDispatcher
             return ExitFailure;
         }
 
-        using var service = new ParrotService(provider);
+        var paths = StatePaths.ResolveFromEnvironment();
+        using var store = new SessionStore(paths.State, Directory.GetCurrentDirectory(), Environment.MachineName);
+        using var service = new ParrotService(provider, store);
 
         var listed = await ClientFor(service)
             .ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
@@ -156,7 +184,7 @@ internal static class CommandDispatcher
 
     // Local mode opens no socket: the generated client reaches the service
     // through the in-process invoker.
-    private static Parrot.Protocol.Parrot.ParrotClient ClientFor(ParrotService service) =>
+    private static GeneratedParrot.ParrotClient ClientFor(ParrotService service) =>
         new(new InProcessCallInvoker(service));
 
     private static async Task<int> Chat(
@@ -194,7 +222,9 @@ internal static class CommandDispatcher
             return ExitFailure;
         }
 
-        using var service = new ParrotService(provider);
+        var paths = StatePaths.ResolveFromEnvironment();
+        using var store = new SessionStore(paths.State, Directory.GetCurrentDirectory(), Environment.MachineName);
+        using var service = new ParrotService(provider, store);
         var prompt = string.Join(' ', words);
 
         return await BasicCli

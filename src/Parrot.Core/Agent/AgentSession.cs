@@ -1,13 +1,18 @@
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Store;
 
 namespace Parrot.Agent;
 
 // M1: one turn, no tools, no compaction, no persistence. It is already the
 // thing that attaches identity, which is the part the provider structurally
 // cannot do.
-internal sealed class AgentSession(string sessionId, ILLMProvider provider, EventBroker events)
+internal sealed class AgentSession(
+    string sessionId,
+    ILLMProvider provider,
+    EventBroker eventBroker,
+    EventRepository eventRepository)
 {
     public string SessionId { get; } = sessionId;
 
@@ -67,9 +72,10 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
 
     private async Task Run(string prompt, CancellationToken cancellationToken)
     {
+        // The prompt is durable before execution is requested (principle 1).
         var started = Compose();
         started.TurnStarted = new TurnStarted { Model = Model };
-        await events.Publish(started, cancellationToken).ConfigureAwait(false);
+        await EmitEvent(started, "user", prompt, cancellationToken).ConfigureAwait(false);
 
         var request = new LLMRequest
         {
@@ -80,9 +86,19 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
 
         try
         {
+            var spoken = new System.Text.StringBuilder();
+
             await foreach (var llmEvent in provider.Call(request, cancellationToken).ConfigureAwait(false))
             {
-                await events.Publish(Translate(llmEvent), cancellationToken).ConfigureAwait(false);
+                if (llmEvent.Kind == LLMEventKind.TextDelta)
+                {
+                    _ = spoken.Append(llmEvent.Text);
+                }
+
+                var role = llmEvent.Kind == LLMEventKind.Completed ? "assistant" : null;
+                var content = llmEvent.Kind == LLMEventKind.Completed ? spoken.ToString() : null;
+
+                await EmitEvent(Translate(llmEvent), role, content, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception failure)
@@ -92,10 +108,23 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
             // exception would be unobserved rather than reported.
             var failed = Compose();
             failed.TurnFailed = new TurnFailed { Message = failure.Message };
-            await events.Publish(failed, cancellationToken).ConfigureAwait(false);
+            await EmitEvent(failed, null, null, cancellationToken).ConfigureAwait(false);
         }
     }
 
+    // Commits the event and its projection, then publishes it. In that order:
+    // EventBroker must only ever hand a subscriber an event the repository has
+    // already committed, so nothing observable can be un-happened by a crash.
+    private async ValueTask EmitEvent(
+        Event published,
+        string? role,
+        string? content,
+        CancellationToken cancellationToken)
+    {
+        eventRepository.Append(published, role, content);
+        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+    }
+
     private Event Compose() =>
-        new() { Id = Identifier.New(), AgentSessionId = SessionId };
+        new() { Id = Identifier.EventId(), AgentSessionId = SessionId };
 }

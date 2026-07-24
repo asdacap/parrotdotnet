@@ -209,9 +209,9 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   receiving and stops being tracked. Disposing the broker ends every
   subscription, and disposal chains `ParrotService` → `UserSession` →
   `EventBroker`.
-- **Note** in M1 there is no repository yet, so the broker publishes directly.
-  That is the one place M1 knowingly runs ahead of the invariant, and M2 closes
-  it. Evicting an idle *user session* is likewise deferred: M1 keeps them for
+- **Closed in M2.** `AgentSession.Emit` appends to `EventRepository` before
+  publishing, so the broker only ever hands a subscriber an event that is
+  already committed. The M1 shortcut is gone. Evicting an idle *user session* is likewise deferred: M1 keeps them for
   the process lifetime, which is right for a one-shot CLI and wrong for
   `parrot serve` at M6.
 

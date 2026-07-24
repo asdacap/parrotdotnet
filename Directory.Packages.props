@@ -9,8 +9,16 @@
     <PackageVersion Include="Google.Protobuf" Version="3.29.3" />
     <PackageVersion Include="Grpc.Core.Api" Version="2.71.0" />
     <PackageVersion Include="Grpc.Tools" Version="2.71.0" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.7.23" />
+    <!-- Pinned forward: Microsoft.Data.Sqlite 10.0.10 pulls
+         SQLitePCLRaw 2.1.11, whose native e_sqlite3 has a known high-severity
+         advisory (GHSA-2m69-gcr7-jv3q). NuGet audit fails the build on it. -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.4" />
+    <PackageVersion Include="SQLitePCLRaw.core" Version="3.0.4" />
+    <PackageVersion Include="SQLitePCLRaw.provider.e_sqlite3" Version="3.0.4" />
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
     <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556" />
     <PackageVersion Include="TUnit" Version="1.61.38" />
   </ItemGroup>

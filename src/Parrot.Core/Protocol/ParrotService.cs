@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Grpc.Core;
 using Parrot.Llm;
+using Parrot.Store;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Protocol;
 
@@ -8,7 +10,14 @@ namespace Parrot.Protocol;
 //
 // It deals in user sessions only. Agent sessions live inside one and are not
 // addressable here, because a user never spawns a subagent -- an agent does.
-internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase, IDisposable
+//
+// The base class is generated: `service Parrot` in parrot.proto produces a
+// container class `Parrot.Protocol.Parrot` holding `ParrotBase` for servers and
+// `ParrotClient` for clients. The alias exists because `Parrot` is also this
+// repository's root namespace, and `Parrot.ParrotBase` reads as though it were
+// a namespace lookup.
+internal sealed class ParrotService(ILLMProvider provider, SessionStore store)
+    : GeneratedParrot.ParrotBase, IDisposable
 {
     private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
 
@@ -31,7 +40,7 @@ internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase, 
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var created = new Agent.UserSession(Identifier.New(), request.Model, provider);
+        var created = store.Open(request.Model, provider);
         _ = _userSessions.TryAdd(created.Id, created);
 
         return Task.FromResult(Describe(created));
@@ -60,7 +69,7 @@ internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase, 
         // anyone to be listening.
         Find(request.UserSessionId).Send(request.Text, context.CancellationToken);
 
-        return Task.FromResult(new SendMessageResponse { MessageId = Identifier.New() });
+        return Task.FromResult(new SendMessageResponse { MessageId = Identifier.EventId() });
     }
 
     // Indefinite. It ends when the client stops listening or the call is

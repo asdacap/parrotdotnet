@@ -1,6 +1,6 @@
 # Migration Plan
 
-**Status: M0 closed, M1 in progress.** Milestone 0 was the plan gate from
+**Status: M0, M1 and M2 done.** Milestone 0 was the plan gate from
 MIGRATION.md §0. `docs/components.md` now has an entry for all 29 blocks and
 the level-1 questions are answered in `architecture.md`.
 
@@ -124,6 +124,16 @@ reclaims it.
 **Retires.** The silent-corruption risk. Every rule in the `UserSession`
 section is load-bearing and none of them fail loudly — this is the milestone
 where getting it wrong is still cheap, because no user has data yet.
+
+**Done.** `journal_mode=TRUNCATE` asserted, no `-shm`/`-wal` under the state
+directory, event and projection commit in one transaction, the claim uses a
+real `link()` P/Invoke, a live binding is not stolen, an abandoned one resumes
+the session it named, and `parrot sessions` lists from `meta.json`.
+
+Not done, and deliberately: an interrupted turn is not *replayed* on resume.
+The prompt and the messages are durable and the session is reclaimed, but
+recovery does not re-run a turn that died mid-flight. That is a bigger piece of
+the drain than M2 needs, and it belongs with the input-promotion work in M5.
 
 ---
 

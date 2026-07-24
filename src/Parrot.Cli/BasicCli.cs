@@ -1,5 +1,6 @@
 using Grpc.Core;
 using Parrot.Protocol;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
 
@@ -9,7 +10,7 @@ namespace Parrot.Cli;
 internal static class BasicCli
 {
     public static async Task<int> Render(
-        Parrot.Protocol.Parrot.ParrotClient client,
+        GeneratedParrot.ParrotClient client,
         string model,
         string prompt,
         TextWriter output,
