@@ -65,6 +65,7 @@ StyleCop, the .NET analyzers, and `BannedApiAnalyzers` all govern how an API is
 | `PARROT0001` | Field-like `event` declarations and `event` properties with `add`/`remove` |
 | `PARROT0002` | `delegate` type declarations |
 | `PARROT0003` | The null-forgiving operator, `x!` |
+| `PARROT0004` | A constructor parameter with a default value |
 
 `Func<>` and `Action<>` as parameters are still permitted: the rule targets a
 named delegate *type*, which is a one-method interface that cannot be extended.
@@ -72,6 +73,15 @@ An interface is the extension seam; a local callback is not.
 
 `CA1030` ("consider making this an event") is turned off because it asks for the
 opposite of `PARROT0001`.
+
+`PARROT0004` has no shipped equivalent either. `CA1026` covered defaulted
+parameters in legacy FxCop and was never ported to the .NET analyzers — setting
+its severity to `error` produces no diagnostics at all. The rule exists because
+a defaulted constructor parameter hides a dependency and creates two
+configurations of one type, where tests take the absent path and production
+takes the present one. It caught three on its first run, all introduced during
+M2, and fixing them replaced a `null` repository in a test with a real one over
+an in-memory database.
 
 The project is referenced by every other project through `Directory.Build.props`
 with `OutputItemType="Analyzer"`, so it never reaches the runtime or the AOT

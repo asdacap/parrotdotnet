@@ -280,6 +280,7 @@ dotnet_diagnostic.VSTHRD200.severity = none
 dotnet_diagnostic.PARROT0001.severity = error   # no events
 dotnet_diagnostic.PARROT0002.severity = error   # no delegate types
 dotnet_diagnostic.PARROT0003.severity = error   # no null-forgiving "!"
+dotnet_diagnostic.PARROT0004.severity = error   # no defaulted constructor parameter
 
 # CA1030 asks for the opposite of PARROT0001: it suggests turning a Raise/Fire
 # method into an event. PARROT0001 wins.
