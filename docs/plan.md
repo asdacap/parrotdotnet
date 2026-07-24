@@ -1,7 +1,8 @@
 # Migration Plan
 
-**Status: proposed.** Milestone 0 is the plan gate from MIGRATION.md §0 and
-nothing after it may start until it closes.
+**Status: M0 closed, M1 in progress.** Milestone 0 was the plan gate from
+MIGRATION.md §0. `docs/components.md` now has an entry for all 29 blocks and
+the level-1 questions are answered in `architecture.md`.
 
 Three rules shape this plan.
 
