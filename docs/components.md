@@ -93,9 +93,23 @@ exit 134
 ```
 
 .NET resolves OpenSSL with `dlopen` at first use. A `static-pie` executable has
-no dynamic loader, so there is nothing to `dlopen` with, and .NET has no
-supported way to link OpenSSL statically. This is not a NixOS artifact and not
-a missing package — it is structural.
+no dynamic loader, and musl's static `dlopen` is a stub that always fails, so
+there is nothing to load OpenSSL with. .NET has no supported way to link it
+statically.
+
+Two hypotheses were tested and eliminated, because "it is structural" is the
+kind of claim that is worth being wrong about:
+
+- **Not NixOS.** The glibc AOT binary carries **no** libssl in `NEEDED` — it
+  `dlopen`s OpenSSL at runtime, exactly like the static one tries to — and it
+  completes the live HTTPS turn. `dlopen` resolves correctly on this system.
+- **Not musl.** The failure is the *static* part, not the libc.
+
+A third thing surfaced while testing: `-r linux-musl-x64 -p:StaticExecutable=false`
+produces a **mis-linked** binary — a musl interpreter resolving against glibc
+`libc.so.6`. The `musl-clang` shim in `flake.nix` was written for the static
+case and is wrong for the dynamic one, so option 1 below is not currently a
+working configuration either.
 
 **So the two requirements conflict.** Fully static linking and HTTPS cannot both
 hold today. Everything M1 needs works on the ordinary AOT publish, which is
@@ -104,8 +118,8 @@ system libc and OpenSSL.
 
 **Options, none taken yet.**
 
-1. Drop `StaticExecutable`, keep the musl RID. Still one binary, still musl, but
-   it needs musl and OpenSSL present on the target.
+1. Drop `StaticExecutable`, keep the musl RID — **needs the shim fixed first**;
+   as it stands this produces a musl/glibc hybrid that does not run.
 2. Keep glibc-dynamic AOT, which is what M1's live turn was verified on.
 3. Keep static musl and give up HTTPS, which is not an option for this product.
 4. Revisit if .NET gains static OpenSSL support.
