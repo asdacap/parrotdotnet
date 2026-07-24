@@ -129,22 +129,8 @@ internal sealed class AgentSession(
     // boundary its delivery asks for. Waking is not waiting -- the caller is
     // told the prompt was taken, not what the model said about it.
     public async Task<Admission> Admit(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
-    {
-        var admission = eventRepository.Admit(SessionId, messageId, text, delivery, Announce);
-
-        // Only a real admission has an event; a re-send of one already taken
-        // has nothing new to publish, but still wakes, because the sender
-        // re-sent precisely because they were not sure it had been.
-        if (admission.Published is not null)
-        {
-            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
-        }
-
-        Wake();
-
-        return admission;
-    }
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
+        (await AdmitAndWake(text, messageId, delivery, cancellationToken).ConfigureAwait(false)).Admission;
 
     // Stops the turn in flight and returns once the drain has unwound, so a
     // caller that sends again cannot race the turn it just stopped.
@@ -213,12 +199,9 @@ internal sealed class AgentSession(
     public async Task Settled() =>
         _ = await ResultSettled().ConfigureAwait(false);
 
-    internal async Task<(Admission Admission, bool FollowUp)> Send(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
-    {
-        var admission = await Admit(text, messageId, delivery, cancellationToken).ConfigureAwait(false);
-        return (admission, Wake());
-    }
+    internal Task<(Admission Admission, bool FollowUp)> Send(
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
+        AdmitAndWake(text, messageId, delivery, cancellationToken);
 
     internal async Task<AgentExecution> ResultSettled()
     {
@@ -268,6 +251,22 @@ internal sealed class AgentSession(
         return published;
     }
 
+    private async Task<(Admission Admission, bool FollowUp)> AdmitAndWake(
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
+    {
+        var admission = eventRepository.Admit(SessionId, messageId, text, delivery, Announce);
+
+        // Only a real admission has an event; a re-send of one already taken
+        // has nothing new to publish, but still wakes, because the sender
+        // re-sent precisely because they were not sure it had been.
+        if (admission.Published is not null)
+        {
+            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+        }
+
+        return (admission, Wake());
+    }
+
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
     // principle 2: one owner, however many prompts arrive.
@@ -298,9 +297,15 @@ internal sealed class AgentSession(
         // turn on the admitting thread.
         await Task.Yield();
 
+        var completed = AgentExecution.Succeeded(string.Empty);
+
         while (true)
         {
-            var completed = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
+            var pass = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
+            if (pass.Status != AgentExecutionStatus.Succeeded || pass.Output.Length > 0)
+            {
+                completed = pass;
+            }
 
             lock (_drainGate)
             {

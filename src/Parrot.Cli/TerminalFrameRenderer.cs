@@ -24,7 +24,7 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
             var (cursorRow, cursorCells) = Cursor(prompt, width);
             var rows = frame.Rows
                 .SelectMany(value => Layout(TerminalText.Sanitize(value), width))
-                .Select(value => new RenderedRow(value, palette.LiveSurface))
+                .Select(value => new RenderedRow(Pad(value, width), palette.LiveSurface))
                 .ToList();
             if (frame.Spinner is { } spinner)
             {
@@ -39,9 +39,6 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
                 .ConfigureAwait(false);
             for (var row = 0; row < rows.Count; row++)
             {
-                await output.WriteAsync(
-                    palette.LiveBackground.Apply("\u001b[2K").AsMemory(), CancellationToken.None)
-                    .ConfigureAwait(false);
                 await output.WriteAsync(rows[row].Style.Apply(rows[row].Text).AsMemory(), CancellationToken.None)
                     .ConfigureAwait(false);
                 if (row < rows.Count - 1)
@@ -156,6 +153,9 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         return rows;
     }
 
+    private static string Pad(string value, int width) =>
+        value.PadRight(value.Length + Math.Max(0, width - TerminalText.Width(value)));
+
     private static (int Row, int Cells) Cursor(PromptValue prompt, int width)
     {
         var before = prompt.Prefix + string.Concat(prompt.Text.EnumerateRunes().Take(prompt.Cursor));
@@ -190,7 +190,7 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
             await output.WriteAsync("\u001b[2K".AsMemory(), cancellationToken).ConfigureAwait(false);
             if (row < _height - 1)
             {
-                await output.WriteAsync("\r\n".AsMemory(), cancellationToken).ConfigureAwait(false);
+                await output.WriteAsync("\n".AsMemory(), cancellationToken).ConfigureAwait(false);
             }
         }
 
