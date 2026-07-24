@@ -45,6 +45,7 @@ internal sealed class CliLifecycleDriver : IDisposable
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
             "user-session",
+            "provider/model",
             Input,
             _output,
             _error);

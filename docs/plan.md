@@ -331,9 +331,13 @@ tabs, and strips untrusted terminal controls. It uses no alternate screen.
 selects `BasicCli`. The two are complete, separate session drivers and share
 only the generated client, so BasicCli stays a pure test of the event contract.
 Verified live through a PTY: the same turn renders coloured under the default
-and plain under `--basic`. The full raw-mode editor, picker, markdown layer, and
-multi-row activity frame remain richer M7 work; the line-buffered client does
-not pretend to provide an editable prompt while a response is streaming.
+and plain under `--basic`. The enhanced interactive path now enters raw mode on
+Linux and macOS when stdin is a supported terminal and provides a rune-aware
+multiline editor, bracketed paste, cursor editing, interrupt handling, and a modeline.
+It restores the original terminal attributes on every exit path, honors
+`NO_COLOR`, and falls back to line-buffered input for `TERM=dumb` or when raw
+mode cannot be opened. Picker, markdown, modal prompts, and richer multi-row
+activity frames remain M7 work.
 
 ## What this plan does not schedule
 
