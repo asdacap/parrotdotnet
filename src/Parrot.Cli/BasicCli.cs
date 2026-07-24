@@ -2,7 +2,7 @@ using Parrot.Protocol;
 
 namespace Parrot.Cli;
 
-// A switch over kind and a WriteLine of text. No model of the conversation
+// A switch over the payload and a WriteLine. No model of the conversation
 // beyond what it has printed, and no helper. If this file ever needs one, the
 // event is underspecified -- fix the event, not the CLI.
 internal static class BasicCli
@@ -34,21 +34,24 @@ internal static class BasicCli
         {
             var published = call.ResponseStream.Current;
 
-            switch (published.Kind)
+            switch (published.PayloadCase)
             {
-                case EventKind.Text:
-                    await output.WriteAsync(published.Text.AsMemory(), cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case EventKind.Error:
-                    failed = true;
-                    await error.WriteLineAsync($"parrot: {published.Text}".AsMemory(), cancellationToken)
+                case Event.PayloadOneofCase.TextChunk:
+                    await output.WriteAsync(published.TextChunk.Fragment.AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 
-                case EventKind.TurnEnd:
+                case Event.PayloadOneofCase.TurnEnded:
+                    var ended = published.TurnEnded;
                     await output.WriteLineAsync().ConfigureAwait(false);
-                    await output.WriteLineAsync($"  {published.Text}".AsMemory(), cancellationToken)
+                    await output.WriteLineAsync(
+                        $"  {Summarise(ended)}".AsMemory(), cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.TurnFailed:
+                    failed = true;
+                    await error.WriteLineAsync(
+                        $"parrot: {published.TurnFailed.Message}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 
@@ -59,4 +62,9 @@ internal static class BasicCli
 
         return failed ? CommandDispatcher.ExitFailure : CommandDispatcher.ExitSuccess;
     }
+
+    private static string Summarise(TurnEnded ended) =>
+        ended.FinishReason == "length" && ended.OutputTokens > 0
+            ? "turn ended: the token budget was spent before any content"
+            : $"turn ended ({ended.FinishReason}, {ended.InputTokens} in / {ended.OutputTokens} out)";
 }

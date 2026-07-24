@@ -584,28 +584,42 @@ application and not a library.
 
 ```proto
 message Event {
-  string    id         = 1;
-  string    session_id = 2;
-  string    task_id    = 3;   // the task within that session
-  EventKind kind       = 4;
-  string    text       = 5;   // one rendered line, on every event
-  oneof payload { ... }       // typed detail, for EnhancedCli
+  string id         = 1;
+  string session_id = 2;
+
+  oneof payload {
+    TurnStarted turn_started = 3;
+    TextChunk   text_chunk   = 4;
+    // ... one per thing that can happen
+  }
 }
 ```
 
-A task belongs to the session that started it, and a session may have a parent
-session. There is no `parent_task_id`, and tasks do not nest — see
-[Tasks and sessions](#tasks-and-sessions).
+**The payload is the only discriminator.** An earlier draft of this document
+carried a parallel `EventKind` enum and a rendered `text` line on every event,
+and argued that the line was load-bearing — that it was what made `BasicCli` a
+`switch` and a `WriteLine`, and what turned "fix the event, not the CLI" into
+something checkable. Both were dropped, and the reasoning was wrong in two
+separate ways.
 
-`text` is the load-bearing field and the one most likely to be dropped as
-redundant. **Every event carries one human-readable line.** That is what makes
-`BasicCli` a `switch` over `kind` and a `WriteLine` of `text`, with no model of
-the conversation at all — and it is what turns "if `BasicCli` needs a helper,
-fix the event" from a slogan into something a reviewer can check. An event whose
-`text` cannot be written is an event whose meaning is not yet decided.
+The enum was **a second source of truth**. Protobuf already discriminates a
+`oneof`, every reader already switches on it to reach the fields it wants, and
+nothing prevents a `kind` from disagreeing with the payload beside it. Two
+discriminators is one too many.
 
-`EnhancedCli` ignores `text` and reads the payload. Both stay honest because
-neither can compensate for the other.
+The `text` field was **a second rendering**. It made the server decide how a
+client displays something, which is not the server's business; no client is
+obliged to use it; and it drifts from the payload it summarises the moment
+either changes. A payload that carries what it *means* lets each client render
+what it *wants* — which is the actual guarantee, and a stronger one.
+
+What survives is the real constraint: **`BasicCli` switches on the payload and
+prints, with no conversation model and no helper.** If it ever needs one, the
+payload is underspecified. That test never depended on there being a `text`
+field; it only ever depended on payloads carrying enough.
+
+There is also no `task_id`. Nothing starts a task until M5, so the field would
+carry a fabricated id no client could use and no test could exercise.
 
 ### Why one method and not several
 

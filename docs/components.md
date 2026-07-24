@@ -479,7 +479,7 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 
 - **Absorbs** `cli/chat`, rewritten far smaller. **Not** `cli/chatview`.
 - **Owns** nothing. No model of the conversation beyond what it has printed.
-- **Inbound** a `switch` over `Event.kind` and a `WriteLine` of `Event.text`.
+- **Inbound** a `switch` over `Event.PayloadCase` and a `WriteLine`.
 - **Outbound** the generated gRPC client, and nothing else.
 - **Boundary** no.
 - **Note** it is the test of the event contract. If it needs a helper, fix the
@@ -490,8 +490,7 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Absorbs** `cli/enhancedchat`, `cli/chatview`, `terminal`.
 - **Owns** the terminal: raw mode, editor, picker, markdown rendering,
   scrollback.
-- **Inbound** the same event stream, read through `Event`'s typed payload
-  rather than its `text`.
+- **Inbound** the same event stream and the same payloads, rendered richly.
 - **Outbound** the generated gRPC client, the terminal.
 - **Boundary** no.
 - **Note** **not decomposed yet.** Deferred to M7 planning by decision 5; it is

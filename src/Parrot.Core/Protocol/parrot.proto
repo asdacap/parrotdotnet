@@ -61,41 +61,32 @@ message ListenRequest {
   string session_id = 1;
 }
 
-enum EventKind {
-  EVENT_KIND_UNSPECIFIED = 0;
-  EVENT_KIND_TURN_START  = 1;
-  EVENT_KIND_TEXT        = 2;
-  EVENT_KIND_REASONING   = 3;
-  EVENT_KIND_TOOL_CALL   = 4;
-  EVENT_KIND_RETRY       = 5;
-  EVENT_KIND_TURN_END    = 6;
-  EVENT_KIND_ERROR       = 7;
-}
-
 // Flat, and named by its session.
+//
+// The payload is the discriminator. There is no separate kind enum: it would
+// be a second source of truth that can disagree with the payload, and every
+// reader already switches on the payload to get at the fields it needs.
+//
+// There is likewise no rendered text field. Each payload carries only what it
+// means, and a client renders it. A server-side line would be a second
+// rendering that no client is obliged to use and that drifts from the payload.
 //
 // There is deliberately no task_id. Nothing starts a task yet -- no shell, no
 // subagents -- so the field would carry a fabricated id that no client could
 // use and no test could exercise. It arrives with tasks at M5, where a task
 // belongs to the session that started it and tasks do not nest.
 message Event {
-  string    id         = 1;
-  string    session_id = 2;
-  EventKind kind       = 3;
-  // One rendered line, on every event. BasicCli needs nothing else, and an
-  // event whose text cannot be written is one whose meaning is not decided.
-  string    text       = 4;
+  string id         = 1;
+  string session_id = 2;
 
-  // Typed detail for EnhancedCli, which ignores text and reads this. Both
-  // clients stay honest because neither can compensate for the other.
   oneof payload {
-    TurnStarted     turn_started     = 5;
-    TextChunk       text_chunk       = 6;
-    ReasoningChunk  reasoning_chunk  = 7;
-    ToolCallChunk   tool_call_chunk  = 8;
-    RetryNotice     retry_notice     = 9;
-    TurnEnded       turn_ended       = 10;
-    TurnFailed      turn_failed      = 11;
+    TurnStarted     turn_started     = 3;
+    TextChunk       text_chunk       = 4;
+    ReasoningChunk  reasoning_chunk  = 5;
+    ToolCallChunk   tool_call_chunk  = 6;
+    RetryNotice     retry_notice     = 7;
+    TurnEnded       turn_ended       = 8;
+    TurnFailed      turn_failed      = 9;
   }
 }
 

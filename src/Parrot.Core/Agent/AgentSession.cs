@@ -16,7 +16,7 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
 
     public async Task Run(string prompt, CancellationToken cancellationToken)
     {
-        var started = Compose(EventKind.TurnStart, $"turn started ({Model})");
+        var started = Compose();
         started.TurnStarted = new TurnStarted { Model = Model };
         await events.Publish(started, cancellationToken).ConfigureAwait(false);
 
@@ -32,11 +32,7 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
                 this,
                 cancellationToken).ConfigureAwait(false);
 
-            var summary = result.FinishReason == "length" && result.Text.Length == 0
-                ? "turn ended: the token budget was spent on reasoning before any content"
-                : $"turn ended ({result.FinishReason}, {result.Usage.InputTokens} in / {result.Usage.OutputTokens} out)";
-
-            var ended = Compose(EventKind.TurnEnd, summary);
+            var ended = Compose();
             ended.TurnEnded = new TurnEnded
             {
                 FinishReason = result.FinishReason,
@@ -49,7 +45,7 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
         {
             // A provider boundary is a deliberate containment point: the turn
             // reports and ends rather than taking the process down.
-            var failed = Compose(EventKind.Error, failure.Message);
+            var failed = Compose();
             failed.TurnFailed = new TurnFailed { Message = failure.Message };
             await events.Publish(failed, cancellationToken).ConfigureAwait(false);
         }
@@ -63,15 +59,7 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
     {
         ArgumentNullException.ThrowIfNull(llmEvent);
 
-        var kind = llmEvent.Kind switch
-        {
-            LLMEventKind.TextDelta => EventKind.Text,
-            LLMEventKind.ReasoningDelta => EventKind.Reasoning,
-            LLMEventKind.ToolCallDelta => EventKind.ToolCall,
-            _ => EventKind.Retry,
-        };
-
-        var published = Compose(kind, llmEvent.Text);
+        var published = Compose();
 
         switch (llmEvent.Kind)
         {
@@ -105,12 +93,6 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
         return events.Publish(published, cancellationToken);
     }
 
-    private Event Compose(EventKind kind, string text) =>
-        new()
-        {
-            Id = Identifier.New(),
-            SessionId = SessionId,
-            Kind = kind,
-            Text = text,
-        };
+    private Event Compose() =>
+        new() { Id = Identifier.New(), SessionId = SessionId };
 }

@@ -7,17 +7,15 @@ namespace Parrot.Core.Tests;
 
 internal sealed class EventPayloadTests
 {
-    // Every event carries both: the one rendered line BasicCli prints, and the
-    // typed payload EnhancedCli reads. Neither may compensate for the other.
+    // The payload is the only discriminator, so this is what pins the mapping.
     [Test]
-    [Arguments(LLMEventKind.TextDelta, Event.PayloadOneofCase.TextChunk, EventKind.Text)]
-    [Arguments(LLMEventKind.ReasoningDelta, Event.PayloadOneofCase.ReasoningChunk, EventKind.Reasoning)]
-    [Arguments(LLMEventKind.ToolCallDelta, Event.PayloadOneofCase.ToolCallChunk, EventKind.ToolCall)]
-    [Arguments(LLMEventKind.Retry, Event.PayloadOneofCase.RetryNotice, EventKind.Retry)]
-    public async Task Each_llm_event_maps_to_a_kind_and_a_payload(
+    [Arguments(LLMEventKind.TextDelta, Event.PayloadOneofCase.TextChunk)]
+    [Arguments(LLMEventKind.ReasoningDelta, Event.PayloadOneofCase.ReasoningChunk)]
+    [Arguments(LLMEventKind.ToolCallDelta, Event.PayloadOneofCase.ToolCallChunk)]
+    [Arguments(LLMEventKind.Retry, Event.PayloadOneofCase.RetryNotice)]
+    public async Task Each_llm_event_maps_to_a_payload(
         LLMEventKind source,
         Event.PayloadOneofCase expectedPayload,
-        EventKind expectedKind,
         CancellationToken cancellationToken)
     {
         var events = new EventBroker();
@@ -36,10 +34,9 @@ internal sealed class EventPayloadTests
 
         var published = await FirstOf(events, cancellationToken);
 
-        await Assert.That(published.Kind).IsEqualTo(expectedKind);
         await Assert.That(published.PayloadCase).IsEqualTo(expectedPayload);
-        await Assert.That(published.Text).IsNotEmpty();
         await Assert.That(published.SessionId).IsEqualTo("session");
+        await Assert.That(published.Id).IsNotEmpty();
     }
 
     private static async Task<Event> FirstOf(EventBroker events, CancellationToken cancellationToken)
