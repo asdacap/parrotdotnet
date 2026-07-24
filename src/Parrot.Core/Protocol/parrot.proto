@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+option csharp_namespace = "Parrot.Protocol";
+
+package parrot.v1;
+
+// The whole product is this service. Both CLIs are clients of it.
+service ParrotAgent {
+  // One prompt in, a flat event stream out.
+  rpc Chat (ChatRequest) returns (stream Event);
+}
+
+message ChatRequest {
+  string model  = 1;
+  string prompt = 2;
+}
+
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  EVENT_KIND_TURN_START  = 1;
+  EVENT_KIND_TEXT        = 2;
+  EVENT_KIND_REASONING   = 3;
+  EVENT_KIND_TOOL_CALL   = 4;
+  EVENT_KIND_RETRY       = 5;
+  EVENT_KIND_TURN_END    = 6;
+  EVENT_KIND_ERROR       = 7;
+}
+
+// Flat. A task belongs to the session that started it; there is no
+// parent_task_id and tasks do not nest.
+message Event {
+  string    id         = 1;
+  string    session_id = 2;
+  string    task_id    = 3;
+  EventKind kind       = 4;
+  // One rendered line, on every event. BasicCli needs nothing else.
+  string    text       = 5;
+}

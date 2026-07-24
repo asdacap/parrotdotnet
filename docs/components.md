@@ -78,6 +78,43 @@ task lifecycle events. Upstream tests asserting task parentage are rewritten
 against session parentage rather than deleted — the behaviour still exists, it
 is attributed differently.
 
+### Static musl cannot do TLS — **unresolved, needs review**
+
+**Intended.** The shipped binary is statically linked against musl:
+`-r linux-musl-x64` with `StaticExecutable=true`, no interpreter, no `NEEDED`.
+That part works and is verified.
+
+**What happens.** It cannot make an HTTPS request:
+
+```console
+$ parrot chat "..."
+No usable version of libssl was found
+exit 134
+```
+
+.NET resolves OpenSSL with `dlopen` at first use. A `static-pie` executable has
+no dynamic loader, so there is nothing to `dlopen` with, and .NET has no
+supported way to link OpenSSL statically. This is not a NixOS artifact and not
+a missing package — it is structural.
+
+**So the two requirements conflict.** Fully static linking and HTTPS cannot both
+hold today. Everything M1 needs works on the ordinary AOT publish, which is
+still one self-contained 19 MB binary, just dynamically linked against the
+system libc and OpenSSL.
+
+**Options, none taken yet.**
+
+1. Drop `StaticExecutable`, keep the musl RID. Still one binary, still musl, but
+   it needs musl and OpenSSL present on the target.
+2. Keep glibc-dynamic AOT, which is what M1's live turn was verified on.
+3. Keep static musl and give up HTTPS, which is not an option for this product.
+4. Revisit if .NET gains static OpenSSL support.
+
+The configuration is deliberately left as-is — `StaticExecutable=true` for the
+musl RID — so the decision is visible rather than quietly reversed. Note that
+`dotnet publish -r linux-musl-x64` therefore currently produces a binary that
+builds, links, runs, and fails on first network call.
+
 ## Entries
 
 One per block. Fields are: what upstream it **absorbs**, the state it **owns**

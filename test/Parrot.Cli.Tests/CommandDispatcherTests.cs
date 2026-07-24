@@ -1,6 +1,6 @@
 namespace Parrot.Cli.Tests;
 
-public class CommandDispatcherTests
+internal sealed class CommandDispatcherTests
 {
     [Test]
     [Arguments("", CommandDispatcher.ExitSuccess, "Usage:")]
@@ -23,7 +23,7 @@ public class CommandDispatcherTests
     }
 
     [Test]
-    [Arguments("serve")]
+    [Arguments("nonsense")]
     [Arguments("--nonsense")]
     public async Task Unknown_command_reports_usage_error_on_stderr(string argument, CancellationToken cancellationToken)
     {

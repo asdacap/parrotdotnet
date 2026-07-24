@@ -69,9 +69,19 @@ parrot auth login opencode-go --api-key-stdin
 parrot chat --model opencode-go/deepseek-v4-pro
 ```
 
-`opencode-go` is M1's provider and `deepseek-v4-pro` its default model, both
-verified end to end through the ported provider — 5 text deltas, 48 reasoning
-deltas, `finish_reason: stop`.
+`opencode-go` is M1's provider and `deepseek-v4-pro` its default model. Verified
+end to end through the AOT binary, through the gRPC contract, over
+`InProcessChannel` with no socket bound:
+
+```console
+$ parrot chat "Say exactly: hello from parrot dotnet"
+hello from parrot dotnet
+  turn ended (stop, 91 in / 79 out)
+```
+
+On the **glibc-dynamic** AOT publish. The static musl binary builds and runs but
+cannot make an HTTPS request; see the unresolved divergence in
+`components.md`.
 
 **Retires.** The two risks that would invalidate the most work if found late:
 
