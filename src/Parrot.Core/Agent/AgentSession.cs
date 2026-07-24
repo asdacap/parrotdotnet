@@ -191,7 +191,7 @@ internal sealed class AgentSession(
 
     internal Event Translate(LLMEvent llmEvent)
     {
-        var published = Compose();
+        var published = NewEvent();
 
         switch (llmEvent.Kind)
         {
@@ -229,7 +229,7 @@ internal sealed class AgentSession(
     // drain. The registry owns this call and retains its terminal result.
     internal async Task<AgentExecution> Run(string prompt, CancellationToken cancellationToken)
     {
-        var started = Compose();
+        var started = NewEvent();
         started.TurnStarted = new TurnStarted { Model = Model };
 
         // The prompt is durable before execution is requested (principle 1).
@@ -329,7 +329,7 @@ internal sealed class AgentSession(
                 if (!turnOpen)
                 {
                     turnOpen = true;
-                    var started = Compose();
+                    var started = NewEvent();
                     started.TurnStarted = new TurnStarted { Model = Model };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                 }
@@ -361,7 +361,7 @@ internal sealed class AgentSession(
                 _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
                 answer = completed.AssistantText;
 
-                var ended = Compose();
+                var ended = NewEvent();
                 ended.TurnEnded = new TurnEnded
                 {
                     FinishReason = completed.FinishReason,
@@ -385,7 +385,7 @@ internal sealed class AgentSession(
             {
                 _history.Add(LLMMessage.Assistant(InterruptedNote, []));
 
-                var ended = Compose();
+                var ended = NewEvent();
                 ended.TurnEnded = new TurnEnded { FinishReason = InterruptedFinish };
                 await EmitEvent(ended, "assistant", InterruptedNote, CancellationToken.None)
                     .ConfigureAwait(false);
@@ -456,6 +456,7 @@ internal sealed class AgentSession(
             else
             {
                 stopped = true;
+                await EmitToolCancelled(call).ConfigureAwait(false);
             }
 
             _history.Add(LLMMessage.ToolResult(call.Id, result));
@@ -518,20 +519,52 @@ internal sealed class AgentSession(
     private async Task<string> Invoke(
         ToolSnapshot snapshot, LLMToolCall call, CancellationToken cancellationToken)
     {
-        var running = Compose();
-        running.ToolCallChunk = new ToolCallChunk { ToolCallId = call.Id, ToolName = call.Name };
-        await EmitEvent(running, null, null, cancellationToken).ConfigureAwait(false);
+        var started = NewEvent(new ToolStarted { ToolCallId = call.Id, ToolName = call.Name });
+        await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
 
         var tool = snapshot.Find(call.Name);
+        if (tool is null)
+        {
+            var message = $"unknown tool {call.Name}";
+            await EmitToolError(call, message).ConfigureAwait(false);
+            return $"error: {message}";
+        }
 
-        return tool is null
-            ? $"error: unknown tool {call.Name}"
-            : await tool.Execute(call.ArgumentsJson, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var result = await tool.Execute(call.ArgumentsJson, cancellationToken).ConfigureAwait(false);
+            var finished = NewEvent(new ToolFinished { ToolCallId = call.Id, ToolName = call.Name });
+            await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            await EmitToolCancelled(call).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception failure)
+        {
+            await EmitToolError(call, failure.Message).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task EmitToolCancelled(LLMToolCall call)
+    {
+        var cancelled = NewEvent(new ToolCancelled { ToolCallId = call.Id, ToolName = call.Name });
+        await EmitEvent(cancelled, null, null, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private async Task EmitToolError(LLMToolCall call, string message)
+    {
+        var failed = NewEvent(
+            new ToolError { ToolCallId = call.Id, ToolName = call.Name, Message = message });
+        await EmitEvent(failed, null, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task Fail(string message, CancellationToken cancellationToken)
     {
-        var failed = Compose();
+        var failed = NewEvent();
         failed.TurnFailed = new TurnFailed { Message = message };
         await EmitEvent(failed, null, null, cancellationToken).ConfigureAwait(false);
     }
@@ -554,7 +587,7 @@ internal sealed class AgentSession(
     // session says about itself.
     private Event Announce(AdmittedInput input)
     {
-        var published = Compose();
+        var published = NewEvent();
 
         published.InputAdmitted = new InputAdmitted
         {
@@ -569,13 +602,25 @@ internal sealed class AgentSession(
 
     private Event Promoted(AdmittedInput input)
     {
-        var published = Compose();
+        var published = NewEvent();
 
         published.InputPromoted = new InputPromoted { InputId = input.Id, MessageId = input.MessageId };
 
         return published;
     }
 
-    private Event Compose() =>
+    private Event NewEvent() =>
         new() { Id = Identifier.EventId(), AgentSessionId = SessionId };
+
+    private Event NewEvent(ToolStarted payload) =>
+        new() { Id = Identifier.EventId(), AgentSessionId = SessionId, ToolStarted = payload };
+
+    private Event NewEvent(ToolFinished payload) =>
+        new() { Id = Identifier.EventId(), AgentSessionId = SessionId, ToolFinished = payload };
+
+    private Event NewEvent(ToolCancelled payload) =>
+        new() { Id = Identifier.EventId(), AgentSessionId = SessionId, ToolCancelled = payload };
+
+    private Event NewEvent(ToolError payload) =>
+        new() { Id = Identifier.EventId(), AgentSessionId = SessionId, ToolError = payload };
 }

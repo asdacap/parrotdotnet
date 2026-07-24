@@ -130,6 +130,10 @@ message Event {
     TurnFailed      turn_failed      = 9;
     InputAdmitted   input_admitted   = 10;
     InputPromoted   input_promoted   = 11;
+    ToolStarted     tool_started     = 12;
+    ToolFinished    tool_finished    = 13;
+    ToolCancelled   tool_cancelled   = 14;
+    ToolError       tool_error       = 15;
   }
 }
 
@@ -166,6 +170,27 @@ message ToolCallChunk {
   string tool_call_id       = 1;
   string tool_name          = 2;
   string arguments_fragment = 3;
+}
+
+message ToolStarted {
+  string tool_call_id = 1;
+  string tool_name    = 2;
+}
+
+message ToolFinished {
+  string tool_call_id = 1;
+  string tool_name    = 2;
+}
+
+message ToolCancelled {
+  string tool_call_id = 1;
+  string tool_name    = 2;
+}
+
+message ToolError {
+  string tool_call_id = 1;
+  string tool_name    = 2;
+  string message      = 3;
 }
 
 message RetryNotice {
