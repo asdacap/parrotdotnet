@@ -1,4 +1,5 @@
 using Parrot.Llm;
+using Parrot.Process;
 
 namespace Parrot.Agent;
 
@@ -8,4 +9,6 @@ namespace Parrot.Agent;
 internal interface IAgentSessionFactorySource
 {
     IAgentSessionFactory Create(UserSession owner, ILLMProvider provider);
+
+    ShellProcessOwner CreateShellProcesses(UserSession owner);
 }

@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -13,6 +14,9 @@ namespace Parrot.Core.Tests;
 internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSessionFactory
 {
     public IAgentSessionFactory Create(UserSession owner, ILLMProvider provider) => this;
+
+    public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
+        new(".", ".", new ProcessRunner(string.Empty), owner.Lifetime);
 
     public AgentSession Create(
         string sessionId,

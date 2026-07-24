@@ -7,28 +7,32 @@ namespace Parrot.Tools;
 // a failure to sandbox is reported to the model rather than run unconfined --
 // the fail-closed property, surfaced as a tool error the model can react to.
 internal sealed class ExecCommandTool(
-    string workingDirectory,
-    string blobDirectory,
-    ProcessRunner processes) : ITool
+    ShellProcessOwner processes,
+    Parrot.Agent.AgentSession session) : ITool
 {
     public string Name => "exec_command";
 
     public string Description =>
-        "Run a shell command. The host filesystem is read-only; the working directory is writable.";
+        "Run a sandboxed shell command. Optionally reserve a unique session name and yield without stopping it; "
+        + "omitted names are generated. Completion after a yield is steered back to this agent unless wait_shell claims it.";
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"command":{"type":"string","description":"The shell command to run"}},"required":["command"]}
+        {"type":"object","properties":{"command":{"type":"string","description":"The shell command to run"},"name":{"type":"string","description":"Unique name within this user session; generated when omitted"},"yield_after_ms":{"type":"integer","minimum":0,"description":"Return the process name if still running after this many milliseconds"}},"required":["command"]}
         """;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         string command;
+        string? name;
+        TimeSpan? yieldAfter;
 
         try
         {
             using var arguments = new ToolArguments(argumentsJson);
             command = arguments.RequiredString("command");
+            name = arguments.OptionalStrictString("name");
+            yieldAfter = arguments.OptionalDelay("yield_after_ms");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -40,43 +44,30 @@ internal sealed class ExecCommandTool(
             return "error: no command given";
         }
 
+        if (name is not null)
+        {
+            name = name.Trim();
+
+            if (name.Length == 0)
+            {
+                return "error: process name must not be empty";
+            }
+        }
+
         try
         {
-            var result = await processes
-                .Run(command, workingDirectory, blobDirectory, cancellationToken)
-                .ConfigureAwait(false);
+            var process = processes.Start(name, command, session);
+            var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 
-            return Format(result);
+            return outcome.Yielded
+                ? outcome.Name
+                : ProcessResultFormatter.Format(outcome.Result ?? throw new InvalidOperationException("Missing result."));
         }
-        catch (SandboxUnavailableException failure)
+        catch (Exception failure) when (failure is SandboxUnavailableException or InvalidOperationException)
         {
             // Deliberate containment: fail closed, and tell the model why rather
             // than run the command outside the sandbox.
             return $"error: {failure.Message}";
         }
-    }
-
-    private static string Format(ProcessResult result)
-    {
-        if (result.Spilled)
-        {
-            return result.BlobPath;
-        }
-
-        var text = new System.Text.StringBuilder();
-        _ = text.Append("Process exited with code ").Append(result.ExitCode);
-        AppendOutput(text, "stdout", result.Stdout);
-        AppendOutput(text, "stderr", result.Stderr);
-        return text.ToString();
-    }
-
-    private static void AppendOutput(System.Text.StringBuilder text, string name, string output)
-    {
-        if (output.Length == 0)
-        {
-            return;
-        }
-
-        _ = text.Append('\n').Append('[').Append(name).Append("]\n").Append(output);
     }
 }

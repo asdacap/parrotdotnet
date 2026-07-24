@@ -155,6 +155,8 @@ ParrotService
  |    |                           and holds the claim on it for its lifetime
  |    +-- SessionDatabase ........ one SQLite file, exactly one writing machine
  |    +-- Configuration ........ the shared exception; see below
+ |    +-- shell processes ....... named runs shared by main and child agents;
+ |    |                           cancelled and joined with the user session
  |    |
  |    +-- AgentSession ........... a rich object, not a record plus a service.
  |    |    |                      it owns its state, its drain, and its turns
@@ -216,9 +218,8 @@ CommandDispatcher.Run                       returns => the process exits
  |    |    +-- AgentSession.Run ........... one child session
  |    |
  |    +-- AgentSession.Run ................ one drain per agent session
- |         |                                a turn is a loop iteration here,
- |         |                                not a nested Run
- |         +-- ProcessRunner.Run .......... one child process
+ |                                          a turn is a loop iteration here,
+ |                                          not a nested Run
 ```
 
 There is no `Stop` anywhere. Shutdown is cancellation of the token `Program`

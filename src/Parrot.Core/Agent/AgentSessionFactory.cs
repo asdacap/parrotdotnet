@@ -1,7 +1,6 @@
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
-using Parrot.Process;
 using Parrot.Store;
 using Parrot.Tools;
 using Parrot.Tools.ApplyPatch;
@@ -15,8 +14,6 @@ namespace Parrot.Agent;
 internal sealed class AgentSessionFactory(
     UserSession owner,
     string workingDirectory,
-    string blobDirectory,
-    ProcessRunner processes,
     SystemContextBuilder systemContext,
     Compactor compactor,
     WebFetcher webFetcher) : IAgentSessionFactory
@@ -26,7 +23,8 @@ internal sealed class AgentSessionFactory(
     private IReadOnlyList<IToolFactory> ToolFactories =>
         field ??=
         [
-            new ExecCommandToolFactory(workingDirectory, blobDirectory, processes),
+            new ExecCommandToolFactory(owner.ShellProcesses),
+            new WaitShellToolFactory(owner.ShellProcesses),
             new ReadToolFactory(_workspace),
             new GlobToolFactory(_workspace),
             new GrepToolFactory(_workspace),

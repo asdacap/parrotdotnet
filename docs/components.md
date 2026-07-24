@@ -500,9 +500,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   and parsing only).
 - **Owns** nothing shared; each tool owns its own arguments and plan.
 - **Inbound** describe, plan, execute. **Display differences are methods on the
-  tool, never a branch on its id.**
-- **Outbound** `PermissionBroker`, `ProcessRunner`, `WebFetcher`, the
-  filesystem.
+  tool, never a branch on its id.** `exec_command` accepts optional `name` and
+  `yield_after_ms`; `wait_shell` requires `name` and accepts optional
+  `yield_after_ms`. A yield returns the reserved process name without stopping
+  it, and a later completion is delivered to the invoking agent through its
+  durable steer queue unless a successful wait claims it.
+- **Outbound** `PermissionBroker`, the user session's shell-process owner,
+  `ProcessRunner`, `WebFetcher`, the filesystem.
 - **Boundary** **yes** — tools.
 - **Divergence** `grep` uses .NET's `RegexOptions.NonBacktracking` engine
   rather than Go's RE2. The two reject the same pathological inputs (both
@@ -531,19 +535,25 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 ### `ProcessRunner` — rank 6, M3
 
 - **Absorbs** `process`.
-- **Owns** child processes, their pty, their output store, and the sandbox.
+- **Owns** OS child execution, output capture, output storage, and the sandbox.
+  A per-`UserSession` shell-process owner owns named run state and delivery.
 - **Inbound** run a command. **Fails closed**: no sandbox, no execution. Not a
   warning, not a fallback. Stdout and stderr retain at most 65,536 characters
   each in memory; if either exceeds that bound, the complete result is persisted
   in the owning user session's blob directory and the tool returns only its full
   absolute path. Child agents share their owning user session's directory.
+  Process names are ordinal and unique for the user-session lifetime: supplied
+  duplicates fail before launch, while omitted names are generated and reserved
+  atomically. Runs use the user-session lifetime token, survive tool-call yield
+  and cancellation, and are cancelled and joined when that session is disposed.
 - **Outbound** bubblewrap on Linux, Seatbelt on macOS, and
   `sessions/<id>/blob` for overflow output.
 - **Boundary** no.
 - **Dependency.** Atrox Haikunator.NET (`Haikunator` 3.0.1) generates safe blob
   basenames; a successful Native AOT publish is its compatibility proof.
-- **Scope.** This is bounded process-output capture only: it adds no general blob
-  protocol, quotas, `read_output`, PTY, or background-process subsystem.
+- **Scope.** This is bounded process-output capture plus session-owned named
+  shell processes, yielding, waiting, and asynchronous completion delivery. It
+  adds no general blob protocol, quotas, `read_output`, or PTY.
 
 ### `WebFetcher` — rank 6, M3
 
