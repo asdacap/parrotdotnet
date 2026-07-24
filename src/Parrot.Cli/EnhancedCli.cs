@@ -139,13 +139,14 @@ internal sealed class EnhancedCli(
         CancellationToken cancellationToken,
         Func<Event, CancellationToken, Task>? beforeRender = null,
         bool renderActivityEvents = true,
-        Func<Event, CancellationToken, Task>? afterRender = null)
+        Func<Event, CancellationToken, Task>? afterRender = null,
+        bool color = false)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
-        var view = new TurnView(output, error, columns, renderActivityEvents);
+        var view = new TurnView(output, error, columns, renderActivityEvents, color);
 
         try
         {
@@ -248,7 +249,13 @@ internal sealed class EnhancedCli(
         _ = await client.SendMessageAsync(
             Message(context.UserSessionId, prompt), cancellationToken: cancellationToken);
 
-        var completed = await RenderTurn(call.ResponseStream, output, context.Error, columns, listening.Token)
+        var completed = await RenderTurn(
+            call.ResponseStream,
+            output,
+            context.Error,
+            columns,
+            listening.Token,
+            color: color())
             .ConfigureAwait(false);
 
         await listening.CancelAsync().ConfigureAwait(false);
@@ -576,7 +583,8 @@ internal sealed class EnhancedCli(
                 cancellationToken,
                 BeforeRender,
                 false,
-                activity.Render).ConfigureAwait(false);
+                activity.Render,
+                color()).ConfigureAwait(false);
             if (!completed)
             {
                 return;
@@ -610,7 +618,8 @@ internal sealed class EnhancedCli(
                     }
 
                     return Task.CompletedTask;
-                }).ConfigureAwait(false);
+                },
+                color: color()).ConfigureAwait(false);
             if (!completed)
             {
                 return;
@@ -790,7 +799,8 @@ internal sealed class EnhancedCli(
         TextWriter output,
         TextWriter error,
         Func<int> columns,
-        bool renderActivityEvents)
+        bool renderActivityEvents,
+        bool color)
     {
         private const string Dim = "\u001b[2m";
         private const string Cyan = "\u001b[36m";
@@ -798,7 +808,7 @@ internal sealed class EnhancedCli(
         private const string Red = "\u001b[31m";
         private const string Reset = "\u001b[0m";
 
-        private readonly LiveTerminalRenderer _live = new(output, columns);
+        private readonly MarkdownLiveRenderer _live = new(output, columns, color);
         private bool _reasoning;
         private bool _reasoningEndsLine;
         private bool _started;
