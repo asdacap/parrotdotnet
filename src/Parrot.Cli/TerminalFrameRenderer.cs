@@ -4,6 +4,9 @@ namespace Parrot.Cli;
 
 internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns, TerminalPalette palette)
 {
+    private const string DisableAutowrap = "\u001b[?7l";
+    private const string EnableAutowrap = "\u001b[?7h";
+
     private readonly Channel<bool> _drawing = CreateDrawingGate();
     private int _caretRow;
     private int _height;
@@ -32,7 +35,8 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
             rows.Add(new RenderedRow(frame.Modeline.Render(width), palette.Modeline));
             rows.AddRange(promptRows.Select(value => new RenderedRow(value, palette.Prompt)));
 
-            await output.WriteAsync("\u001b[?25l".AsMemory(), CancellationToken.None).ConfigureAwait(false);
+            await output.WriteAsync($"\u001b[?25l{DisableAutowrap}".AsMemory(), CancellationToken.None)
+                .ConfigureAwait(false);
             for (var row = 0; row < rows.Count; row++)
             {
                 await output.WriteAsync(
@@ -62,7 +66,8 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
                     .ConfigureAwait(false);
             }
 
-            await output.WriteAsync("\u001b[?25h".AsMemory(), CancellationToken.None).ConfigureAwait(false);
+            await output.WriteAsync($"{EnableAutowrap}\u001b[?25h".AsMemory(), CancellationToken.None)
+                .ConfigureAwait(false);
             await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
         finally
@@ -165,7 +170,8 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
             return;
         }
 
-        await output.WriteAsync("\u001b[?25l".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteAsync($"\u001b[?25l{DisableAutowrap}".AsMemory(), cancellationToken)
+            .ConfigureAwait(false);
         var rowsBelowCaret = _height - _caretRow - 1;
         if (rowsBelowCaret > 0)
         {
@@ -193,7 +199,8 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
             await output.WriteAsync($"\u001b[{_height - 1}A".AsMemory(), cancellationToken).ConfigureAwait(false);
         }
 
-        await output.WriteAsync("\r\u001b[?25h".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteAsync($"\r{EnableAutowrap}\u001b[?25h".AsMemory(), cancellationToken)
+            .ConfigureAwait(false);
         _height = 0;
         _caretRow = 0;
     }

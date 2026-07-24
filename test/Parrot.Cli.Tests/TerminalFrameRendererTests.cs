@@ -21,17 +21,38 @@ internal sealed class TerminalFrameRendererTests
         var rendered = output.ToString();
 
         var expectedDraw =
-            "\u001b[?25l\u001b[2Klive[2J\r\n\u001b[2K⠋ thinking\r\n" +
+            "\u001b[?25l\u001b[?7l\u001b[2Klive[2J\r\n\u001b[2K⠋ thinking\r\n" +
             "\u001b[2Kchat   model\r\n\u001b[2K> ab\r\n\u001b[2K界x" +
-            "\u001b[1A\r\u001b[3C\u001b[?25h";
+            "\u001b[1A\r\u001b[3C\u001b[?7h\u001b[?25h";
         var expectedClear =
-            "\u001b[?25l\u001b[1B\r\u001b[4A" +
+            "\u001b[?25l\u001b[?7l\u001b[1B\r\u001b[4A" +
             "\u001b[2K\r\n\u001b[2K\r\n\u001b[2K\r\n\u001b[2K\r\n\u001b[2K" +
-            "\u001b[4A\r\u001b[?25h";
+            "\u001b[4A\r\u001b[?7h\u001b[?25h";
 
         _ = await Assert.That(rendered[..boundary]).IsEqualTo(expectedDraw);
         _ = await Assert.That(rendered[boundary..]).IsEqualTo(expectedClear);
         _ = await Assert.That(rendered).DoesNotContain("\u001b[?1049");
+    }
+
+    [Test]
+    public async Task Full_width_modeline_is_drawn_without_terminal_autowrap(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false));
+
+        await renderer.Draw(
+            new TerminalFrame(
+                [],
+                null,
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", string.Empty, 0)),
+            cancellationToken);
+        await renderer.Clear(cancellationToken);
+
+        var rendered = output.ToString();
+        _ = await Assert.That(rendered).Contains("\u001b[?7l\u001b[2Kmodel\r\n");
+        _ = await Assert.That(Count(rendered, "\u001b[?7l")).IsEqualTo(2);
+        _ = await Assert.That(Count(rendered, "\u001b[?7h")).IsEqualTo(2);
     }
 
     [Test]
@@ -66,6 +87,19 @@ internal sealed class TerminalFrameRendererTests
         await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => renderer.Draw(frame, cancellationToken)));
 
         _ = await Assert.That(output.MaximumConcurrentWrites).IsEqualTo(1);
+    }
+
+    private static int Count(string value, string part)
+    {
+        var count = 0;
+        var start = 0;
+        while ((start = value.IndexOf(part, start, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            start += part.Length;
+        }
+
+        return count;
     }
 
     private static class InterlockedExtensions
