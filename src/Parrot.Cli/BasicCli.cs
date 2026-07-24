@@ -16,12 +16,29 @@ internal sealed class BasicCli : ITurnRenderer
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
+        // Whether the prompt this call is rendering has started. Before it has,
+        // an admission is the prompt the user just typed and is already on
+        // screen; after it, an admission is one they typed over the top of a
+        // turn, and saying so is the only sign it was taken.
+        var started = false;
+
         while (await MoveNext(stream, cancellationToken).ConfigureAwait(false))
         {
             var published = stream.Current;
 
             switch (published.PayloadCase)
             {
+                case Event.PayloadOneofCase.TurnStarted:
+                    started = true;
+                    break;
+
+                case Event.PayloadOneofCase.InputAdmitted when started:
+                    await output.WriteLineAsync().ConfigureAwait(false);
+                    await output.WriteLineAsync(
+                        $"  queued: {published.InputAdmitted.Content}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
                 case Event.PayloadOneofCase.TextChunk:
                     await output.WriteAsync(published.TextChunk.Fragment.AsMemory(), cancellationToken)
                         .ConfigureAwait(false);

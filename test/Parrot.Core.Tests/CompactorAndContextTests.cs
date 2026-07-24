@@ -47,7 +47,8 @@ internal sealed class CompactorAndContextTests : IDisposable
             [],
             new SystemContextBuilder(_workspace, "2026-07-24"),
             new Compactor(tokenBudget: 0),
-            depth: 0)
+            depth: 0,
+            cancellationToken)
         {
             Model = "model",
         };

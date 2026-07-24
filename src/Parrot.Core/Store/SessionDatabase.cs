@@ -63,6 +63,24 @@ internal sealed class SessionDatabase : IDisposable
                 );
 
                 CREATE INDEX IF NOT EXISTS message_by_session ON message (agent_session, sequence);
+
+                CREATE TABLE IF NOT EXISTS input (
+                    sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id            TEXT NOT NULL UNIQUE,
+                    agent_session TEXT NOT NULL,
+                    message_id    TEXT NOT NULL,
+                    content       TEXT NOT NULL,
+                    delivery      TEXT NOT NULL,
+                    status        TEXT NOT NULL,
+                    created_at    TEXT NOT NULL,
+                    promoted_at   TEXT
+                );
+
+                -- The sender's message id is what makes admission idempotent, so
+                -- a re-send after a dropped connection cannot admit twice.
+                CREATE UNIQUE INDEX IF NOT EXISTS input_by_message ON input (agent_session, message_id);
+
+                CREATE INDEX IF NOT EXISTS input_pending ON input (agent_session, status, sequence);
                 """;
             _ = schema.ExecuteNonQuery();
         }

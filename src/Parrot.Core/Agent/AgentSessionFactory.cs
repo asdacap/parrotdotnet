@@ -40,7 +40,8 @@ internal sealed class AgentSessionFactory(
         string model,
         int depth,
         EventBroker eventBroker,
-        EventRepository eventRepository) =>
+        EventRepository eventRepository,
+        CancellationToken lifetime) =>
         new(
             sessionId,
             provider,
@@ -49,7 +50,8 @@ internal sealed class AgentSessionFactory(
             ToolFactories,
             systemContext,
             compactor,
-            depth)
+            depth,
+            lifetime)
         {
             Model = model,
         };

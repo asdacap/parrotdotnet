@@ -53,6 +53,7 @@ internal static class CommandDispatcher
     // The single top-level Run. Every other Run is a descendant of this call.
     public static async Task<int> Run(
         IReadOnlyList<string> arguments,
+        Interrupts interrupts,
         TextWriter output,
         TextWriter error,
         CancellationToken cancellationToken)
@@ -86,7 +87,7 @@ internal static class CommandDispatcher
                 return await Sessions(output, cancellationToken).ConfigureAwait(false);
 
             case "chat":
-                return await Chat(arguments, output, error, cancellationToken).ConfigureAwait(false);
+                return await Chat(arguments, interrupts, output, error, cancellationToken).ConfigureAwait(false);
 
             case "serve":
                 return await Serve(arguments, output, error, cancellationToken).ConfigureAwait(false);
@@ -184,7 +185,7 @@ internal static class CommandDispatcher
         CancellationToken cancellationToken)
     {
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        using var composition = await Compose(credentials, error, cancellationToken)
+        await using var composition = await Compose(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -258,7 +259,7 @@ internal static class CommandDispatcher
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        using var composition = await Compose(credentials, error, cancellationToken)
+        await using var composition = await Compose(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -335,6 +336,7 @@ internal static class CommandDispatcher
 
     private static async Task<int> Chat(
         IReadOnlyList<string> arguments,
+        Interrupts interrupts,
         TextWriter output,
         TextWriter error,
         CancellationToken cancellationToken)
@@ -382,12 +384,21 @@ internal static class CommandDispatcher
             var remote = new GeneratedParrot.ParrotClient(channel);
 
             return await Drive(
-                remote, Renderer(basic), paths, configuration, model, prompt, Console.In, output, error, cancellationToken)
-                .ConfigureAwait(false);
+                remote,
+                Renderer(basic),
+                interrupts,
+                paths,
+                configuration,
+                model,
+                prompt,
+                Console.In,
+                output,
+                error,
+                cancellationToken).ConfigureAwait(false);
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        using var composition = await Compose(credentials, error, cancellationToken)
+        await using var composition = await Compose(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -398,6 +409,7 @@ internal static class CommandDispatcher
         return await Drive(
             ClientFor(composition.Service),
             Renderer(basic),
+            interrupts,
             paths,
             configuration,
             model,
@@ -418,6 +430,7 @@ internal static class CommandDispatcher
     private static async Task<int> Drive(
         GeneratedParrot.ParrotClient client,
         ITurnRenderer renderer,
+        Interrupts interrupts,
         StatePaths paths,
         Configuration configuration,
         string model,
@@ -468,7 +481,7 @@ internal static class CommandDispatcher
             output,
             error);
 
-        var driver = new CliDriver(client, renderer, BuildRegistry(model));
+        var driver = new CliDriver(client, renderer, BuildRegistry(model), interrupts);
 
         return await driver.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
     }

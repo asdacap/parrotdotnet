@@ -18,6 +18,7 @@ internal sealed class UnusedAgentSessions : IAgentSessionFactorySource, IAgentSe
         string model,
         int depth,
         EventBroker eventBroker,
-        EventRepository eventRepository) =>
+        EventRepository eventRepository,
+        CancellationToken lifetime) =>
         throw new NotSupportedException();
 }

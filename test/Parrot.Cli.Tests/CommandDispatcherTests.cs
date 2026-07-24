@@ -16,7 +16,10 @@ internal sealed class CommandDispatcherTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var exitCode = await CommandDispatcher.Run(ArgumentVector(argument), output, error, cancellationToken);
+        using var stopping = new CancellationTokenSource();
+
+        var exitCode = await CommandDispatcher.Run(
+            ArgumentVector(argument), new Interrupts(stopping), output, error, cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(expectedExitCode);
         _ = await Assert.That(output.ToString()).Contains(expectedFragment);
@@ -31,7 +34,10 @@ internal sealed class CommandDispatcherTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var exitCode = await CommandDispatcher.Run(ArgumentVector(argument), output, error, cancellationToken);
+        using var stopping = new CancellationTokenSource();
+
+        var exitCode = await CommandDispatcher.Run(
+            ArgumentVector(argument), new Interrupts(stopping), output, error, cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
         _ = await Assert.That(output.ToString()).IsEmpty();

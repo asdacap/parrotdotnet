@@ -260,8 +260,26 @@ live: the parent spawned a child that replied BANANA and reported it back.
 **Divergence:** the child is spawned-and-awaited within the tool call, not run
 as a background task the parent `Await`s later. That is the simpler subagent
 shape and matches how a delegated-subtask tool usually works; the async
-background-session model, steer/queue input promotion, and interrupt are
-deferred with it. Recorded here rather than pretended complete.
+background-session model is deferred with it. Recorded here rather than
+pretended complete.
+
+**Done (the message queue: admitted input, promotion, interrupt).** A prompt is
+admitted durably against an `input` table and promoted by the drain at the
+boundary its delivery names -- every pending steer at each turn boundary, one
+queued prompt where the turn would otherwise stop. One drain owns a session, so
+a prompt sent during a turn joins it instead of starting a second `Run` on the
+same history, which is what used to happen. `Interrupt` stops the turn, settles
+every tool call the model had asked for so the next prompt is not rejected for
+an unanswered one, and resumes for anything still pending. The CLI reads and
+renders at the same time, so a line can be typed mid-turn, and Ctrl-C stops the
+turn before it stops parrot.
+
+Three defects went with it: the turn ran on the gRPC call's cancellation token,
+`SendMessageResponse.message_id` was a fabricated id, and `/model` rebuilt the
+main agent session and lost its history. Divergences are in components.md.
+
+**Remaining in M5:** `TaskManager`, `AgentRegistry` as a block, per-parent
+concurrency limits, and replaying pending input at startup.
 
 ---
 

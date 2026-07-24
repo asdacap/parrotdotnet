@@ -26,16 +26,17 @@ internal sealed class SubagentTests : IDisposable
         int depth, string expected, CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("child says hi");
-        using var owner = new UserSession(
+        await using var owner = new UserSession(
             "user", new UnusedProvider(), "provider", "model", new EventRepository(_database), new UnusedAgentSessions());
-        var spawn = new AgentSpawnTool(owner, Session(provider, depth));
+        var spawn = new AgentSpawnTool(owner, Session(provider, depth, cancellationToken));
 
         var result = await spawn.Execute("""{"prompt":"do the subtask"}""", cancellationToken);
 
         _ = await Assert.That(result).IsEqualTo(expected);
     }
 
-    private AgentSession Session(Parrot.Llm.ILLMProvider provider, int depth) =>
+    private AgentSession Session(
+        Parrot.Llm.ILLMProvider provider, int depth, CancellationToken cancellationToken) =>
         new(
             "agent",
             provider,
@@ -44,7 +45,8 @@ internal sealed class SubagentTests : IDisposable
             [],
             new SystemContextBuilder(".", "2026-07-24"),
             new Compactor(120_000),
-            depth)
+            depth,
+            cancellationToken)
         {
             Model = "model",
         };

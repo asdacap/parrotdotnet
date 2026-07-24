@@ -1,4 +1,5 @@
 using Google.Protobuf;
+using Microsoft.Data.Sqlite;
 using Parrot.Protocol;
 
 namespace Parrot.Store;
@@ -9,56 +10,136 @@ namespace Parrot.Store;
 //
 // EventBroker publishes only what this has already committed, which is what
 // keeps a subscriber from seeing an event a crash would un-happen.
+//
+// One connection carries all of it, and a SQLite connection holds one
+// transaction at a time -- so the second writer is not slower, it is a
+// corrupted connection. Admitting happens on whichever thread took the request
+// and the drain writes on its own, so every method here takes _gate. That gate
+// is the whole of this component's synchronisation, and this component is the
+// only thing that writes to the session database.
 internal sealed class EventRepository(SessionDatabase database)
 {
+    private readonly Lock _gate = new();
+
     public void Append(Event published, string? messageRole, string? messageContent)
     {
         ArgumentNullException.ThrowIfNull(published);
 
-        using var transaction = database.Begin();
-
-        using (var insert = database.Connection.CreateCommand())
+        lock (_gate)
         {
-            insert.Transaction = transaction;
-            insert.CommandText =
-                "INSERT INTO event (id, agent_session, payload, created_at) VALUES ($id, $session, $payload, $at);";
-            _ = insert.Parameters.AddWithValue("$id", published.Id);
-            _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
-            _ = insert.Parameters.AddWithValue("$payload", published.ToByteArray());
-            _ = insert.Parameters.AddWithValue("$at", Timestamp());
-            _ = insert.ExecuteNonQuery();
-        }
+            using var transaction = database.Begin();
 
-        // The projection, in the same transaction. Not a second write that
-        // might not happen.
-        if (messageRole is not null && messageContent is not null)
+            Record(transaction, published);
+
+            // The projection, in the same transaction. Not a second write that
+            // might not happen.
+            if (messageRole is not null && messageContent is not null)
+            {
+                Project(transaction, published.AgentSessionId, messageRole, messageContent);
+            }
+
+            transaction.Commit();
+        }
+    }
+
+    // Accepts a prompt without promoting it: it becomes durable here, and joins
+    // the conversation only when the drain reaches the boundary its delivery
+    // asks for. That order is principle 1 -- a prompt is durable before
+    // execution is requested -- and it is the whole reason a queued prompt
+    // survives the process that took it.
+    //
+    // Idempotent on the sender's message id, so a re-send after a dropped
+    // connection admits nothing the second time. The same id carrying different
+    // text is refused rather than silently resolved either way.
+    public Admission Admit(
+        string agentSessionId,
+        string messageId,
+        string content,
+        Delivery delivery,
+        Func<AdmittedInput, Event> compose)
+    {
+        ArgumentNullException.ThrowIfNull(compose);
+
+        lock (_gate)
         {
-            using var project = database.Connection.CreateCommand();
-            project.Transaction = transaction;
-            project.CommandText =
-                "INSERT INTO message (agent_session, role, content, created_at) VALUES ($session, $role, $content, $at);";
-            _ = project.Parameters.AddWithValue("$session", published.AgentSessionId);
-            _ = project.Parameters.AddWithValue("$role", messageRole);
-            _ = project.Parameters.AddWithValue("$content", messageContent);
-            _ = project.Parameters.AddWithValue("$at", Timestamp());
-            _ = project.ExecuteNonQuery();
-        }
+            using var transaction = database.Begin();
 
-        transaction.Commit();
+            if (Existing(transaction, agentSessionId, messageId) is { } already)
+            {
+                return already.Content == content && already.Delivery == delivery
+                    ? new Admission(already, null)
+                    : throw new InputConflictException(
+                        $"message {messageId} was already admitted with different content");
+            }
+
+            var admitted = new AdmittedInput(Identifier.InputId(), messageId, content, delivery);
+            var published = compose(admitted);
+
+            using (var insert = database.Connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText =
+                    """
+                    INSERT INTO input (id, agent_session, message_id, content, delivery, status, created_at)
+                    VALUES ($id, $session, $message, $content, $delivery, 'pending', $at);
+                    """;
+                _ = insert.Parameters.AddWithValue("$id", admitted.Id);
+                _ = insert.Parameters.AddWithValue("$session", agentSessionId);
+                _ = insert.Parameters.AddWithValue("$message", messageId);
+                _ = insert.Parameters.AddWithValue("$content", content);
+                _ = insert.Parameters.AddWithValue("$delivery", Text(delivery));
+                _ = insert.Parameters.AddWithValue("$at", Timestamp());
+                _ = insert.ExecuteNonQuery();
+            }
+
+            Record(transaction, published);
+            transaction.Commit();
+
+            return new Admission(admitted, published);
+        }
+    }
+
+    // Every pending steer, oldest first. Upstream bounds this by a sequence
+    // cutoff; here the single transaction is the boundary, so a steer admitted
+    // while this runs simply lands at the next one.
+    public IReadOnlyList<Promotion> PromoteSteers(string agentSessionId, Func<AdmittedInput, Event> compose) =>
+        Promote(agentSessionId, Delivery.Steer, -1, compose);
+
+    // At most one. A queued prompt is a turn of its own, so promoting the whole
+    // queue at once would run them together as if they had been sent together.
+    public IReadOnlyList<Promotion> PromoteNextQueue(string agentSessionId, Func<AdmittedInput, Event> compose) =>
+        Promote(agentSessionId, Delivery.Queue, 1, compose);
+
+    // Whether anything is admitted and still waiting. The interrupt path asks,
+    // so that stopping a turn does not also discard what was queued behind it.
+    public bool HasPendingInputs(string agentSessionId)
+    {
+        lock (_gate)
+        {
+            using var read = database.Connection.CreateCommand();
+            read.CommandText =
+                "SELECT EXISTS (SELECT 1 FROM input WHERE agent_session = $session AND status = 'pending');";
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+
+            return Convert.ToInt64(read.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
+        }
     }
 
     public IReadOnlyList<Event> Replay()
     {
         var events = new List<Event>();
 
-        using var read = database.Connection.CreateCommand();
-        read.CommandText = "SELECT payload FROM event ORDER BY sequence;";
-
-        using var reader = read.ExecuteReader();
-
-        while (reader.Read())
+        lock (_gate)
         {
-            events.Add(Event.Parser.ParseFrom((byte[])reader["payload"]));
+            using var read = database.Connection.CreateCommand();
+            read.CommandText = "SELECT payload FROM event ORDER BY sequence;";
+
+            using var reader = read.ExecuteReader();
+
+            while (reader.Read())
+            {
+                events.Add(Event.Parser.ParseFrom((byte[])reader["payload"]));
+            }
         }
 
         return events;
@@ -68,21 +149,176 @@ internal sealed class EventRepository(SessionDatabase database)
     {
         var messages = new List<string>();
 
-        using var read = database.Connection.CreateCommand();
-        read.CommandText =
-            "SELECT role, content FROM message WHERE agent_session = $session ORDER BY sequence;";
-        _ = read.Parameters.AddWithValue("$session", agentSessionId);
-
-        using var reader = read.ExecuteReader();
-
-        while (reader.Read())
+        lock (_gate)
         {
-            messages.Add($"{reader["role"]}: {reader["content"]}");
+            using var read = database.Connection.CreateCommand();
+            read.CommandText =
+                "SELECT role, content FROM message WHERE agent_session = $session ORDER BY sequence;";
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+
+            using var reader = read.ExecuteReader();
+
+            while (reader.Read())
+            {
+                messages.Add($"{reader["role"]}: {reader["content"]}");
+            }
         }
 
         return messages;
     }
 
+    // Spelt out rather than derived from the enum name: the column outlives any
+    // rename of the generated member.
+    //
+    // Neither of these is a caller's mistake -- the service refuses an
+    // unspecified delivery before it reaches here, and the text read back is
+    // text this wrote -- so neither is an InputConflictException, which the
+    // service maps to "the sender contradicted itself".
+    private static string Text(Delivery delivery) => delivery switch
+    {
+        Delivery.Steer => "steer",
+        Delivery.Queue => "queue",
+        _ => throw new ArgumentOutOfRangeException(nameof(delivery)),
+    };
+
+    private static Delivery Parse(string delivery) => delivery switch
+    {
+        "steer" => Delivery.Steer,
+        "queue" => Delivery.Queue,
+        _ => throw new InvalidOperationException($"the input table holds an unknown delivery {delivery}"),
+    };
+
     private static string Timestamp() =>
         DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+
+    // The three writes a promotion is -- the input settles, the conversation
+    // gains the message, the event becomes durable -- in one transaction, so no
+    // reader can see a promoted input whose message is missing (principle 9).
+    private List<Promotion> Promote(
+        string agentSessionId, Delivery delivery, int limit, Func<AdmittedInput, Event> compose)
+    {
+        ArgumentNullException.ThrowIfNull(compose);
+
+        lock (_gate)
+        {
+            // Read before the transaction: the drain asks at every turn
+            // boundary and almost always finds nothing, and BeginTransaction
+            // takes the file's write lock before running a statement -- so
+            // opening one first would make the empty answer the expensive one.
+            var pending = Pending(agentSessionId, delivery, limit);
+
+            if (pending.Count == 0)
+            {
+                return [];
+            }
+
+            using var transaction = database.Begin();
+
+            // One instant for the whole commit. Three statements landing
+            // atomically should not record three different times.
+            var at = Timestamp();
+            var promoted = new List<Promotion>(pending.Count);
+
+            foreach (var input in pending)
+            {
+                var published = compose(input);
+
+                using (var settle = database.Connection.CreateCommand())
+                {
+                    settle.Transaction = transaction;
+                    settle.CommandText =
+                        "UPDATE input SET status = 'promoted', promoted_at = $at WHERE id = $id AND status = 'pending';";
+                    _ = settle.Parameters.AddWithValue("$at", at);
+                    _ = settle.Parameters.AddWithValue("$id", input.Id);
+
+                    // Nobody else may promote: every promotion runs behind
+                    // _gate, so a row that moved under one is the store
+                    // disagreeing with itself, not a caller's mistake.
+                    if (settle.ExecuteNonQuery() != 1)
+                    {
+                        throw new InvalidOperationException($"input {input.Id} changed during promotion");
+                    }
+                }
+
+                Project(transaction, agentSessionId, "user", input.Content);
+                Record(transaction, published);
+                promoted.Add(new Promotion(input, published));
+            }
+
+            transaction.Commit();
+
+            return promoted;
+        }
+    }
+
+    // A negative limit is SQLite for "no limit", which is what lets one query
+    // serve both promotions rather than two literals that can drift apart.
+    private List<AdmittedInput> Pending(string agentSessionId, Delivery delivery, int limit)
+    {
+        using var read = database.Connection.CreateCommand();
+        read.CommandText =
+            """
+            SELECT id, message_id, content FROM input
+            WHERE agent_session = $session AND delivery = $delivery AND status = 'pending'
+            ORDER BY sequence LIMIT $limit;
+            """;
+        _ = read.Parameters.AddWithValue("$session", agentSessionId);
+        _ = read.Parameters.AddWithValue("$delivery", Text(delivery));
+        _ = read.Parameters.AddWithValue("$limit", limit);
+
+        var pending = new List<AdmittedInput>();
+
+        using var reader = read.ExecuteReader();
+
+        while (reader.Read())
+        {
+            pending.Add(new AdmittedInput(
+                (string)reader["id"], (string)reader["message_id"], (string)reader["content"], delivery));
+        }
+
+        return pending;
+    }
+
+    private AdmittedInput? Existing(SqliteTransaction transaction, string agentSessionId, string messageId)
+    {
+        using var read = database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT id, content, delivery FROM input WHERE agent_session = $session AND message_id = $message;";
+        _ = read.Parameters.AddWithValue("$session", agentSessionId);
+        _ = read.Parameters.AddWithValue("$message", messageId);
+
+        using var reader = read.ExecuteReader();
+
+        return reader.Read()
+            ? new AdmittedInput(
+                (string)reader["id"], messageId, (string)reader["content"], Parse((string)reader["delivery"]))
+            : null;
+    }
+
+    private void Record(SqliteTransaction transaction, Event published)
+    {
+        using var insert = database.Connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText =
+            "INSERT INTO event (id, agent_session, payload, created_at) VALUES ($id, $session, $payload, $at);";
+        _ = insert.Parameters.AddWithValue("$id", published.Id);
+        _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
+        _ = insert.Parameters.AddWithValue("$payload", published.ToByteArray());
+        _ = insert.Parameters.AddWithValue("$at", Timestamp());
+        _ = insert.ExecuteNonQuery();
+    }
+
+    private void Project(SqliteTransaction transaction, string agentSessionId, string role, string content)
+    {
+        using var project = database.Connection.CreateCommand();
+        project.Transaction = transaction;
+        project.CommandText =
+            "INSERT INTO message (agent_session, role, content, created_at) VALUES ($session, $role, $content, $at);";
+        _ = project.Parameters.AddWithValue("$session", agentSessionId);
+        _ = project.Parameters.AddWithValue("$role", role);
+        _ = project.Parameters.AddWithValue("$content", content);
+        _ = project.Parameters.AddWithValue("$at", Timestamp());
+        _ = project.ExecuteNonQuery();
+    }
 }

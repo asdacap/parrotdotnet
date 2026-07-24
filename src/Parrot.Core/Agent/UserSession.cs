@@ -11,13 +11,18 @@ namespace Parrot.Agent;
 // AgentSession: a subagent runs in a background child session, and its events
 // are republished on this one stream so a client needs a single subscription
 // however deep the recursion goes.
-internal sealed class UserSession : IDisposable
+internal sealed class UserSession : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, AgentSession> _agents = new(StringComparer.Ordinal);
     private readonly EventBroker _eventBroker = new();
     private readonly EventRepository _eventRepository;
     private readonly IAgentSessionFactory _agentSessions;
     private readonly Lock _mainGate = new();
+
+    // What every drain inside this session is bounded by. It is owned here
+    // rather than by an agent session because the drain outlives the request
+    // that woke it, and this is the thing whose lifetime it should match.
+    private readonly CancellationTokenSource _lifetime = new();
 
     // The main agent session is not built here. Its tools are constructed with
     // the session they belong to, and their factories with this user session,
@@ -60,6 +65,10 @@ internal sealed class UserSession : IDisposable
     // the turn is about to run with.
     public string Model { get; private set; }
 
+    // Assigned, never rebuilt. The main session holds the conversation, the
+    // input admitted against it and the drain that may be running: replacing it
+    // to change a model would throw all three away, and a turn in flight would
+    // carry on inside a session nothing points at any more.
     public void UpdateSelection(ILLMProvider provider, string providerId, string model)
     {
         ArgumentNullException.ThrowIfNull(provider);
@@ -72,8 +81,8 @@ internal sealed class UserSession : IDisposable
 
             if (_main is not null)
             {
-                _main = _agentSessions.Create(_mainSessionId, _provider, Model, 0, _eventBroker, _eventRepository);
-                _agents[_mainSessionId] = _main;
+                _main.Provider = provider;
+                _main.Model = model;
             }
         }
     }
@@ -85,9 +94,17 @@ internal sealed class UserSession : IDisposable
         _eventBroker.Subscribe(cancellationToken);
 
     // The user talks to the user session; the main agent session is what
-    // actually runs the turn.
-    public void Send(string prompt, CancellationToken cancellationToken) =>
-        Main().Start(prompt, cancellationToken);
+    // actually runs the turn. Admitting is not running it: it returns as soon
+    // as the prompt is durable, whether or not a turn was already in flight.
+    public Task<Admission> Send(
+        string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
+        Main().Admit(prompt, messageId, delivery, cancellationToken);
+
+    // Stops the turn in flight. Only the main session is asked: a subagent runs
+    // inside a parent tool call, so cancelling the parent's drain is what
+    // cancels the child.
+    public Task Interrupt(CancellationToken cancellationToken) =>
+        Main().Interrupt(cancellationToken);
 
     // A subagent joining this session, registered by the tool that spawned it
     // so it is visible while it runs rather than only once it finishes.
@@ -102,10 +119,23 @@ internal sealed class UserSession : IDisposable
     // replaying the raw event log.
     public IReadOnlyList<string> History() => _eventRepository.Messages(_mainSessionId);
 
-    // Ends every subscription on this session's stream. A listener blocked on
-    // MoveNext returns false rather than waiting forever.
-    public void Dispose()
+    // Asynchronous because ending this session means waiting for its drains,
+    // and only then closing what they write to. A synchronous Dispose would
+    // close the database under a drain still unwinding into it, which is a
+    // crash rather than a shutdown -- and a separate Stop the caller has to
+    // remember would be the same crash whenever anyone forgot.
+    public async ValueTask DisposeAsync()
     {
+        await _lifetime.CancelAsync().ConfigureAwait(false);
+
+        foreach (var agent in _agents.Values)
+        {
+            await agent.Settled().ConfigureAwait(false);
+        }
+
+        // Ends every subscription on this session's stream. A listener blocked
+        // on MoveNext returns false rather than waiting forever.
+        _lifetime.Dispose();
         _eventBroker.Dispose();
         _agents.Clear();
     }
@@ -119,7 +149,8 @@ internal sealed class UserSession : IDisposable
         {
             if (_main is null)
             {
-                _main = _agentSessions.Create(_mainSessionId, _provider, Model, 0, _eventBroker, _eventRepository);
+                _main = _agentSessions.Create(
+                    _mainSessionId, _provider, Model, 0, _eventBroker, _eventRepository, _lifetime.Token);
                 Admit(_main);
             }
 

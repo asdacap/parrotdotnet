@@ -59,7 +59,17 @@ internal static class Identifier
     // delta and nobody reads one, so readability buys nothing -- while v7's
     // leading timestamp means successive inserts land next to each other in the
     // index on event.id rather than scattering across it, which a v4 does.
-    public static string EventId() =>
+    public static string EventId() => Opaque();
+
+    // Both share the event id's scheme for the same reason: they are minted per
+    // prompt, indexed, and read by machines. A message id is only ever minted
+    // when the sender did not supply one -- it is the sender's name for their
+    // prompt, which is what makes admitting it twice detectable.
+    public static string MessageId() => $"msg-{Opaque()}";
+
+    public static string InputId() => $"inp-{Opaque()}";
+
+    private static string Opaque() =>
         Guid.CreateVersion7().ToString("n", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string Compose(string kind)

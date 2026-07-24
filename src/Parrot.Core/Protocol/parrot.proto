@@ -15,6 +15,7 @@ service Parrot {
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
+  rpc Interrupt (InterruptRequest) returns (InterruptResponse);
   rpc Listen (ListenRequest) returns (stream Event);
 }
 
@@ -53,14 +54,48 @@ message Model {
   string provider_id = 2;
 }
 
-message SendMessageRequest {
-  string user_session_id = 1;
-  string text            = 2;
+// When an admitted prompt is promoted into the conversation.
+//
+// Unspecified is refused rather than defaulted. A default would decide, on the
+// sender's behalf and silently, whether their message interrupts the work in
+// flight or waits for it -- and those are different requests.
+enum Delivery {
+  DELIVERY_UNSPECIFIED = 0;
+  // At the next turn boundary, so it joins the turn already running.
+  DELIVERY_STEER       = 1;
+  // When the turn would otherwise stop, so it starts a turn of its own.
+  DELIVERY_QUEUE       = 2;
 }
 
+// The message id is the sender's, not the server's: re-sending after a dropped
+// connection must not admit the prompt twice, and only the sender knows that
+// the second send is the same prompt. One is minted when the field is empty.
+message SendMessageRequest {
+  string   user_session_id = 1;
+  string   text            = 2;
+  string   message_id      = 3;
+  Delivery delivery        = 4;
+}
+
+// Created distinguishes an admission from a replay of one. Both are success:
+// the prompt is admitted either way, which is what the sender asked for.
 message SendMessageResponse {
   string message_id = 1;
+  string input_id   = 2;
+  bool   created    = 3;
 }
+
+// Stops the turn in flight. It returns once the drain has unwound and every
+// tool call has settled, so a caller that immediately sends again cannot race
+// the turn it just stopped.
+//
+// Input admitted but not yet promoted survives: the drain resumes for it
+// rather than making the user ask twice.
+message InterruptRequest {
+  string user_session_id = 1;
+}
+
+message InterruptResponse {}
 
 message ListenRequest {
   string user_session_id = 1;
@@ -93,7 +128,26 @@ message Event {
     RetryNotice     retry_notice     = 7;
     TurnEnded       turn_ended       = 8;
     TurnFailed      turn_failed      = 9;
+    InputAdmitted   input_admitted   = 10;
+    InputPromoted   input_promoted   = 11;
   }
+}
+
+// The user's own prompt, accepted but not yet part of the conversation. It is
+// on the stream because more than one client can watch a session, and a client
+// that did not send the prompt has no other way to learn of it.
+message InputAdmitted {
+  string   input_id   = 1;
+  string   message_id = 2;
+  string   content    = 3;
+  Delivery delivery   = 4;
+}
+
+// The same prompt, now in the conversation. The content is not repeated: the
+// admission carried it, and a second copy could disagree with the first.
+message InputPromoted {
+  string input_id   = 1;
+  string message_id = 2;
 }
 
 message TurnStarted {
@@ -120,6 +174,9 @@ message RetryNotice {
   string reason         = 3;
 }
 
+// An interrupted turn ends here too, with finish_reason "interrupted". It is
+// not a separate payload: the turn stopped, and a second way to say so is a
+// second thing every client must learn to read.
 message TurnEnded {
   string finish_reason = 1;
   int32  input_tokens  = 2;

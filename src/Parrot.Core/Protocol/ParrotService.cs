@@ -17,7 +17,7 @@ namespace Parrot.Protocol;
 // repository's root namespace, and `Parrot.ParrotBase` reads as though it were
 // a namespace lookup.
 internal sealed class ParrotService(ProviderRegistry registry, SessionStore store)
-    : GeneratedParrot.ParrotBase, IDisposable
+    : GeneratedParrot.ParrotBase, IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
 
@@ -83,16 +83,55 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
         return Task.FromResult(Describe(found));
     }
 
-    public override Task<SendMessageResponse> SendMessage(SendMessageRequest request, ServerCallContext context)
+    public override async Task<SendMessageResponse> SendMessage(
+        SendMessageRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
-        // Admitting the prompt does not wait for the turn, and does not require
-        // anyone to be listening.
-        Find(request.UserSessionId).Send(request.Text, context.CancellationToken);
+        // Refused rather than defaulted: a default would decide silently
+        // whether this prompt interrupts the work in flight or waits for it.
+        if (request.Delivery is not (Delivery.Steer or Delivery.Queue))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "a prompt needs a delivery"));
+        }
 
-        return Task.FromResult(new SendMessageResponse { MessageId = Identifier.EventId() });
+        var found = Find(request.UserSessionId);
+
+        // The sender's id when they supplied one, so a re-send after a dropped
+        // connection is recognisable as the same prompt rather than a second.
+        var messageId = request.MessageId.Length > 0 ? request.MessageId : Identifier.MessageId();
+
+        Admission admitted;
+
+        try
+        {
+            admitted = await found.Send(request.Text, messageId, request.Delivery, context.CancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (InputConflictException conflict)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, conflict.Message));
+        }
+
+        return new SendMessageResponse
+        {
+            MessageId = admitted.Input.MessageId,
+            InputId = admitted.Input.Id,
+            Created = admitted.Created,
+        };
+    }
+
+    // Returns once the turn has stopped and every tool call has settled, so a
+    // client that sends again cannot race the turn it just stopped.
+    public override async Task<InterruptResponse> Interrupt(InterruptRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        await Find(request.UserSessionId).Interrupt(context.CancellationToken).ConfigureAwait(false);
+
+        return new InterruptResponse();
     }
 
     // Indefinite. It ends when the client stops listening or the call is
@@ -118,12 +157,14 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
     // M1 keeps every user session for the process lifetime, which is right for
     // a one-shot CLI. Evicting an idle session is an M6 concern, when a server
     // outlives the sessions it hosts.
-    public void Dispose()
+    //
+    // All at once, not one after another: each session cancels its own drains
+    // first thing, so starting them together makes shutdown as long as the
+    // slowest session rather than as long as all of them added up.
+    public async ValueTask DisposeAsync()
     {
-        foreach (var session in _userSessions.Values)
-        {
-            session.Dispose();
-        }
+        await Task.WhenAll(_userSessions.Values.Select(session => session.DisposeAsync().AsTask()))
+            .ConfigureAwait(false);
 
         _userSessions.Clear();
     }

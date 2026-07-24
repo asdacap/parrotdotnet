@@ -25,6 +25,12 @@ internal sealed class EnhancedCli : ITurnRenderer
 
         var reasoning = false;
 
+        // Whether the prompt this call is rendering has started. Before it has,
+        // an admission is the prompt the user just typed and is already on
+        // screen; after it, an admission is one they typed over the top of a
+        // turn, and saying so is the only sign it was taken.
+        var started = false;
+
         while (await MoveNext(stream, cancellationToken).ConfigureAwait(false))
         {
             var published = stream.Current;
@@ -38,6 +44,17 @@ internal sealed class EnhancedCli : ITurnRenderer
 
             switch (published.PayloadCase)
             {
+                case Event.PayloadOneofCase.TurnStarted:
+                    started = true;
+                    break;
+
+                case Event.PayloadOneofCase.InputAdmitted when started:
+                    await output.WriteLineAsync().ConfigureAwait(false);
+                    await output.WriteLineAsync(
+                        $"{Dim}  queued: {published.InputAdmitted.Content}{Reset}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
                 case Event.PayloadOneofCase.ReasoningChunk:
                     if (!reasoning)
                     {

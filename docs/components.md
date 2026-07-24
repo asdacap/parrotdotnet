@@ -339,8 +339,10 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   is parsed but dropped, since no consumer exists.
 - **A session re-resolves its provider on selection change.** `ParrotService`
   resolves `provider/model` at `CreateSession` and again at `UpdateSession`;
-  the user session holds the resolved provider and model, and a `/model` that
-  crosses providers rebuilds the main agent session with the new provider.
+  the user session holds the resolved provider and model, and assigns both to
+  the main agent session. It no longer rebuilds that session: with a drain, the
+  session holds the conversation, the input admitted against it and possibly a
+  turn in flight, and replacing it to change a model threw all three away.
 - **`config.yaml` gains a `providers:` map** (`ProviderConfig`/`ModelConfig`)
   for custom compatible providers and per-model overrides.
 - **CLI strings changed:** `auth login <provider> [--api-key-stdin]` and
@@ -420,6 +422,47 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 - **Boundary** no. Concrete, and rich — never a record plus a service.
 - **Note** it is also the `ILLMEventSink` implementer, attaching `session_id`
   and `task_id` to make a wire `Event` from an `LLMEvent`.
+
+### `AgentSession` — admitted input and the drain (ported 2026-07-24)
+
+`Admit` records a prompt durably and wakes the drain; `Interrupt` stops the turn
+and waits for it to have stopped. One drain owns a session (principle 2), and a
+prompt arriving during a turn coalesces into it rather than starting a second.
+The turn sequence is the one `docs/architecture.md` fixes, and its two promotion
+points are the whole difference between the deliveries: every pending steer is
+promoted at each turn boundary, and one queued prompt is promoted only where the
+turn would otherwise stop.
+
+Divergences from upstream `session.Service` / `agent.agentSession`:
+
+- **No steer cutoff.** Upstream promotes steers admitted at or before a sequence
+  cutoff, comparing an input's `admitted_sequence` against the latest message
+  sequence in one shared event-sequence space. Here `event`, `message` and
+  `input` have separate autoincrements, so the cutoff has nothing to mean. The
+  single transaction is the boundary instead: a steer admitted while the
+  promotion runs lands at the next one.
+- **An interrupted turn ends as `TurnEnded { finish_reason = "interrupted" }`,**
+  not as a payload of its own, and records `(interrupted)` where the answer
+  would have been. Without that message the history ends on the prompt that was
+  stopped, and the next drain reads it as still owed an answer — so
+  interrupting a turn would start it again.
+- **`queue` is reachable by any client, and neither CLI sends it,** exactly as
+  upstream's two CLIs send only `steer`.
+- **Pending input is not replayed at startup.** The `input` table makes a queued
+  prompt survive the process, but nothing promotes it on the next run yet.
+  Recovery belongs to `UserSession`'s reclaim path.
+- **The drain task is a field, not an awaited descendant of a `Run`.** MIGRATION
+  §3 wants no abandoned task; this replaces the fire-and-forget `Run` per prompt
+  with one joinable drain per session. `Interrupt` awaits it, and
+  `UserSession`/`ParrotService` are `IAsyncDisposable` so that ending a session
+  means waiting for its drains and only then closing what they write to —
+  `await using var composition` in `CommandDispatcher`, with Pure.DI disposing
+  the service before the store it depends on. A separate `Settle()` the caller
+  had to remember was the same crash on any path that forgot it or threw.
+- **`EventRepository` serialises every call.** One `SqliteConnection` holds one
+  transaction at a time, and admitting now happens on the request's thread while
+  the drain writes on its own, so a second writer is a corrupted connection
+  rather than a slow one.
 
 ### `AgentRegistry` — rank 9, M5
 

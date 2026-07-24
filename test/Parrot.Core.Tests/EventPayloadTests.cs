@@ -32,7 +32,8 @@ internal sealed class EventPayloadTests
             [],
             new SystemContextBuilder(".", "2026-07-24"),
             new Compactor(120_000),
-            depth: 0);
+            depth: 0,
+            CancellationToken.None);
 
         var llmEvent = source switch
         {
