@@ -201,7 +201,7 @@ internal sealed class AgentSession(
 
         if (eventRepository.HasPendingInputs(SessionId))
         {
-            Wake();
+            _ = Wake();
         }
     }
 
@@ -212,12 +212,11 @@ internal sealed class AgentSession(
     public async Task Settled() =>
         _ = await ResultSettled().ConfigureAwait(false);
 
-    internal async Task<Admission> Send(
+    internal async Task<(Admission Admission, bool FollowUp)> Send(
         string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
     {
         var admission = await Admit(text, messageId, delivery, cancellationToken).ConfigureAwait(false);
-        Wake();
-        return admission;
+        return (admission, Wake());
     }
 
     internal async Task<AgentExecution> ResultSettled()
@@ -316,19 +315,19 @@ internal sealed class AgentSession(
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
     // principle 2: one owner, however many prompts arrive.
-    private void Wake()
+    private bool Wake()
     {
         lock (_drainGate)
         {
             if (_directRunning)
             {
-                return;
+                return false;
             }
 
             if (_drainCancellation is not null)
             {
                 _wake = true;
-                return;
+                return false;
             }
 
             // Linked to the session's lifetime, never to the request that woke
@@ -337,6 +336,7 @@ internal sealed class AgentSession(
             _drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             State = DrainState.Running;
             _drain = Drain(_drainCancellation.Token);
+            return true;
         }
     }
 

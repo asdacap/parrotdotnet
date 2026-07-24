@@ -97,7 +97,7 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
         var spawned = registry.Spawn(parent, "initial", "worker");
-        var send = new AgentSendTool(registry, parent);
+        var send = new AgentSendTool(registry);
 
         await provider.Arrived(cancellationToken);
         var steeredJson = await send.Execute(
@@ -149,7 +149,7 @@ internal sealed class SubagentTests : IDisposable
         var spawned = registry.Spawn(parent, "initial", "worker");
 
         await provider.Arrived(cancellationToken);
-        var sending = new AgentSendTool(registry, parent).Execute(
+        var sending = new AgentSendTool(registry).Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}""", cancellationToken);
         provider.Release();
         _ = await sending;
@@ -164,7 +164,7 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
-    public async Task Send_validates_arguments_size_and_descendant_visibility(
+    public async Task Send_validates_arguments_size_and_allows_any_agent(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "done", []));
@@ -173,14 +173,14 @@ internal sealed class SubagentTests : IDisposable
         var parent = Session(provider, depth: 0, cancellationToken, "parent");
         var stranger = Session(provider, depth: 0, cancellationToken, "stranger");
         var spawned = registry.Spawn(parent, "initial", "worker");
-        var send = new AgentSendTool(registry, parent);
+        var send = new AgentSendTool(registry);
 
         var malformed = await send.Execute("{}", cancellationToken);
         var blank = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":" "}""", cancellationToken);
         var missing = await send.Execute(
             """{"session_id":"missing","message":"hello"}""", cancellationToken);
-        var invisible = await new AgentSendTool(registry, stranger).Execute(
+        var invisible = await new AgentSendTool(registry).Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}""", cancellationToken);
         var oversized = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (1024 * 1024) + 1)}}"}""",
@@ -189,13 +189,13 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(malformed).StartsWith("error:");
         _ = await Assert.That(blank).IsEqualTo("error: no message given");
         _ = await Assert.That(missing).IsEqualTo("error: child agent not found: missing");
-        _ = await Assert.That(invisible).IsEqualTo($"error: child agent not found: {spawned.SessionId}");
+        _ = await Assert.That(invisible).Contains($"\"session_id\":\"{spawned.SessionId}\"");
         _ = await Assert.That(oversized).IsEqualTo("error: agent message exceeds 1048576 bytes");
         provider.Release();
     }
 
     [Test]
-    public async Task Registry_enforces_depth_and_per_parent_concurrency_limits(
+    public async Task Registry_enforces_depth_limit(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
@@ -213,30 +213,11 @@ internal sealed class SubagentTests : IDisposable
         provider.Release();
         _ = await registry.Wait(parent, idle.SessionId, 0, cancellationToken);
 
-        for (var index = 0; index < 4; index++)
-        {
-            var result = await spawn.Execute($$"""{"prompt":"child {{index}}"}""", cancellationToken);
-            _ = await Assert.That(result).Contains("\"status\":\"running\"");
-            await provider.Arrived(cancellationToken);
-        }
-
-        var tooManyForParent = await spawn.Execute("""{"prompt":"fifth"}""", cancellationToken);
-        var followUpAtLimit = await new AgentSendTool(registry, parent).Execute(
-            """{"session_id":"idle","message":"restart"}""", cancellationToken);
         var tooDeep = await new AgentSpawnTool(
             registry, Session(provider, depth: 4, cancellationToken, "deep-parent")).Execute(
             """{"prompt":"too deep"}""", cancellationToken);
 
-        _ = await Assert.That(tooManyForParent)
-            .IsEqualTo("error: subagent concurrency limit reached for this parent");
-        _ = await Assert.That(followUpAtLimit)
-            .IsEqualTo("error: subagent concurrency limit reached for this parent");
         _ = await Assert.That(tooDeep).IsEqualTo("error: subagent depth limit reached");
-
-        for (var index = 0; index < 4; index++)
-        {
-            provider.Release();
-        }
     }
 
     [Test]
@@ -256,7 +237,7 @@ internal sealed class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
-        var send = new AgentSendTool(registry, parent);
+        var send = new AgentSendTool(registry);
         _ = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"wait forever"}""", cancellationToken);
         await provider.Arrived(cancellationToken);

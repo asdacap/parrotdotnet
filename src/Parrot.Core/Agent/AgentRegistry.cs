@@ -17,14 +17,12 @@ internal sealed class AgentRegistry(
     CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource
 {
     private const int MaxDepth = 4;
-    private const int MaxConcurrentPerParent = 4;
     private const int MaxRetained = 1024;
     private const int MaxPromptBytes = 1024 * 1024;
     private const int MaxResultBytes = 1024 * 1024;
 
     private readonly Dictionary<string, AgentEntry> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int> _activeByParent = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Lock _gate = new();
 
@@ -64,13 +62,6 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent depth limit reached");
             }
 
-            _ = _activeByParent.TryGetValue(parent.SessionId, out var parentActive);
-
-            if (parentActive >= MaxConcurrentPerParent)
-            {
-                throw new AgentRegistryException("subagent concurrency limit reached for this parent");
-            }
-
             var sessionId = Identifier.AgentSession();
             var name = UniqueName(requestedName, sessionId);
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
@@ -88,7 +79,6 @@ internal sealed class AgentRegistry(
 
             _entries.Add(sessionId, entry);
             _names.Add(name, sessionId);
-            _activeByParent[parent.SessionId] = parentActive + 1;
             entry.Start(Execute(entry, child, prompt, followUp: false));
 
             return entry.Result(
@@ -100,35 +90,8 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public async Task<AgentHandle> Get(
-        AgentSession requester, string sessionIdOrName, CancellationToken cancellationToken)
+    public AgentSession Get(string sessionIdOrName)
     {
-        ArgumentNullException.ThrowIfNull(requester);
-        AgentEntry entry;
-
-        lock (_gate)
-        {
-            entry = Resolve(requester, sessionIdOrName);
-        }
-
-        await entry.Operation.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-        lock (_gate)
-        {
-            if (!_accepting)
-            {
-                _ = entry.Operation.Release();
-                throw new AgentRegistryException("the user session is shutting down");
-            }
-
-            return new AgentHandle(entry.Child, entry.Running, entry.Operation);
-        }
-    }
-
-    public void FollowUp(AgentHandle child)
-    {
-        ArgumentNullException.ThrowIfNull(child);
-
         lock (_gate)
         {
             if (!_accepting)
@@ -136,21 +99,7 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("the user session is shutting down");
             }
 
-            if (!_entries.TryGetValue(child.Session.SessionId, out var entry)
-                || !ReferenceEquals(entry.Child, child.Session))
-            {
-                throw new AgentRegistryException($"child agent not found: {child.Session.SessionId}");
-            }
-
-            _ = _activeByParent.TryGetValue(entry.ParentSessionId, out var parentActive);
-
-            if (parentActive >= MaxConcurrentPerParent)
-            {
-                throw new AgentRegistryException("subagent concurrency limit reached for this parent");
-            }
-
-            _activeByParent[entry.ParentSessionId] = parentActive + 1;
-            entry.Start(Execute(entry, entry.Child, string.Empty, followUp: true));
+            return Resolve(sessionIdOrName).Child;
         }
     }
 
@@ -167,7 +116,7 @@ internal sealed class AgentRegistry(
 
         lock (_gate)
         {
-            entry = Resolve(requester, sessionIdOrName);
+            entry = Resolve(sessionIdOrName);
             completion = entry.Completion;
         }
 
@@ -374,17 +323,6 @@ internal sealed class AgentRegistry(
 
         lock (_gate)
         {
-            var remaining = _activeByParent[entry.ParentSessionId] - 1;
-
-            if (remaining == 0)
-            {
-                _ = _activeByParent.Remove(entry.ParentSessionId);
-            }
-            else
-            {
-                _activeByParent[entry.ParentSessionId] = remaining;
-            }
-
             entry.Complete(completed);
         }
 
@@ -459,38 +397,18 @@ internal sealed class AgentRegistry(
         await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
     }
 
-    private AgentEntry Resolve(AgentSession requester, string sessionIdOrName)
+    private AgentEntry Resolve(string sessionIdOrName)
     {
         var sessionId = _entries.ContainsKey(sessionIdOrName)
             ? sessionIdOrName
             : _names.GetValueOrDefault(sessionIdOrName);
 
-        if (sessionId is null
-            || !_entries.TryGetValue(sessionId, out var entry)
-            || !IsVisibleTo(requester.SessionId, entry))
+        if (sessionId is null || !_entries.TryGetValue(sessionId, out var entry))
         {
             throw new AgentRegistryException($"child agent not found: {sessionIdOrName}");
         }
 
         return entry;
-    }
-
-    private bool IsVisibleTo(string requesterSessionId, AgentEntry entry)
-    {
-        var current = entry;
-
-        while (true)
-        {
-            if (string.Equals(current.ParentSessionId, requesterSessionId, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (!_entries.TryGetValue(current.ParentSessionId, out current))
-            {
-                return false;
-            }
-        }
     }
 
     private string UniqueName(string requestedName, string sessionId)
@@ -512,15 +430,6 @@ internal sealed class AgentRegistry(
         }
 
         return candidate;
-    }
-
-    internal sealed class AgentHandle(AgentSession session, bool running, SemaphoreSlim operation) : IDisposable
-    {
-        public AgentSession Session { get; } = session;
-
-        public bool Running { get; } = running;
-
-        public void Dispose() => operation.Release();
     }
 
     private sealed class AgentEntry(AgentSession child, string parentSessionId, string name)
