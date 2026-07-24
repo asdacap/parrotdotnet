@@ -236,18 +236,9 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   `LLMEvent` has both `TextDelta` and `ReasoningDelta`.
 - **Gotcha** on a reasoning model, `max_tokens` covers reasoning *and* content.
   A budget of 60 against `glm-5.2` produced 19 reasoning deltas, zero text
-  deltas, an empty `LLMResult.Text`, and `finish_reason: length`. That is a
+  deltas, no text at all, and `finish_reason: length`. That is a
   successful call that looks like a broken one, so a too-small budget must be
   reported as a budget problem rather than surfaced as an empty reply.
-
-### `ILLMEventSink` — rank 5, M1
-
-- **Absorbs** nothing; it has no upstream equivalent.
-- **Owns** nothing. It is a contract.
-- **Inbound** `Publish(LLMEvent, CancellationToken)`.
-- **Outbound** whatever the implementer chooses.
-- **Boundary** no, but it is the seam that keeps `ILLMProvider` from depending
-  on `EventBroker`.
 
 ### `ProviderRegistry` — rank 5, M1
 

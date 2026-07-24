@@ -28,8 +28,7 @@ manages, because in C# the namespace no longer disambiguates it.
 | TOOLS     ToolRegistry        ITool                  PermissionBroker     |
 |           QuestionBroker      ProcessRunner          WebFetcher           |
 +---------------------------------------------------------------------------+
-| PROVIDERS ProviderRegistry    ILLMProvider           ILLMEventSink        |
-|           ICredentialStore                                                |
+| PROVIDERS ProviderRegistry    ILLMProvider           ICredentialStore     |
 +---------------------------------------------------------------------------+
 | STORAGE   SessionDatabase     EventBroker            EventRepository      |
 |           Configuration       StatePaths                                  |
