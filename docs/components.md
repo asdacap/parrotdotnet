@@ -152,6 +152,9 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Note** `link()` returning `EEXIST` rather than overwriting is the whole
   reason claims work. A helper that falls back to `rename` silently destroys
   the guarantee, so that fallback must not exist.
+- **Divergence.** Config, state, and data use the `parrotdotnet` XDG application
+  directory rather than upstream's `parrot`, preventing the two projects from
+  sharing files. Old `parrot` directories are neither migrated nor consulted.
 
 ### `Configuration` — rank 1, M1
 

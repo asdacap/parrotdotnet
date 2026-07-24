@@ -19,9 +19,9 @@ internal sealed class StatePaths(string state, string config, string data)
         var home = Lookup(environment, "HOME");
 
         return new StatePaths(
-            Path.Combine(Fallback(Lookup(environment, "XDG_STATE_HOME"), home, ".local", "state"), "parrot"),
-            Path.Combine(Fallback(Lookup(environment, "XDG_CONFIG_HOME"), home, ".config"), "parrot"),
-            Path.Combine(Fallback(Lookup(environment, "XDG_DATA_HOME"), home, ".local", "share"), "parrot"));
+            Path.Combine(Fallback(Lookup(environment, "XDG_STATE_HOME"), home, ".local", "state"), "parrotdotnet"),
+            Path.Combine(Fallback(Lookup(environment, "XDG_CONFIG_HOME"), home, ".config"), "parrotdotnet"),
+            Path.Combine(Fallback(Lookup(environment, "XDG_DATA_HOME"), home, ".local", "share"), "parrotdotnet"));
     }
 
     public static StatePaths ResolveFromEnvironment()
