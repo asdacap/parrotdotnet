@@ -48,7 +48,7 @@ internal static class CommandDispatcher
     private static readonly HttpClient Http =
         new(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
 
-    private static readonly IBrowserOpener Browser = new SystemBrowserOpener();
+    private static readonly IBrowserOpener Browser = new SystemBrowserOpener(System.Diagnostics.Process.Start);
 
     // The single top-level Run. Every other Run is a descendant of this call.
     public static async Task<int> Run(
@@ -132,9 +132,18 @@ internal static class CommandDispatcher
         }
         else if (provider == ChatGptProvider.ProviderId)
         {
-            await AuthFlows
-                .OAuthLogin(OAuthClient(), store, arguments.Contains("--device"), output, cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await AuthFlows
+                    .OAuthLogin(OAuthClient(), store, arguments.Contains("--device"), output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (AuthException failure)
+            {
+                await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                return ExitFailure;
+            }
         }
         else
         {

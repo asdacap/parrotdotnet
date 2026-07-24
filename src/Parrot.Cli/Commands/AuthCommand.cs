@@ -1,3 +1,4 @@
+using Parrot.Auth;
 using Parrot.Llm;
 
 namespace Parrot.Cli.Commands;
@@ -47,8 +48,18 @@ internal sealed class AuthCommand(Func<string> readSecret) : ISlashCommand
 
         if (provider == ChatGptProvider.ProviderId)
         {
-            await AuthFlows.OAuthLogin(context.OAuth, context.Credentials, device, context.Output, cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await AuthFlows.OAuthLogin(context.OAuth, context.Credentials, device, context.Output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (AuthException failure)
+            {
+                await context.Error.WriteLineAsync($"  {failure.Message}".AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                return SlashOutcome.Continue;
+            }
+
             await context.Output.WriteLineAsync($"  stored a credential for {provider}".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return SlashOutcome.Continue;
