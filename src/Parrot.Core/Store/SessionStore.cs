@@ -12,7 +12,7 @@ internal sealed class SessionStore(
     string stateDirectory,
     string workingDirectory,
     string hostKey,
-    Func<string, string, EventRepository, UserSession> newUserSession) : IDisposable
+    IUserSessionFactory userSessions) : IDisposable
 {
     private readonly List<SessionDatabase> _open = [];
 
@@ -40,7 +40,7 @@ internal sealed class SessionStore(
             CreatedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         });
 
-        return newUserSession(id, model, new EventRepository(database));
+        return userSessions.Create(id, model, new EventRepository(database));
     }
 
     public void Dispose()

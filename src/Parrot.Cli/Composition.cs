@@ -1,7 +1,6 @@
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
-using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
@@ -18,8 +17,8 @@ namespace Parrot.Cli;
 // AGENTS.md says "not IoC container"; this is a bounded exception, and the
 // bounds are here. Hint.Resolve is Off, so no runtime Resolve<T>() exists and a
 // missing binding is a build error rather than a startup one. Pure.DI is
-// referenced only by Parrot.Cli -- Parrot.Core takes plain Func<> factories, so
-// the domain gains no codegen dependency.
+// referenced only by Parrot.Cli -- Parrot.Core takes factory interfaces it owns
+// and declares, so the domain gains no codegen dependency.
 //
 // Three things stay hand-written on purpose. SlashCommandRegistry is a cycle
 // (HelpCommand needs the registry holding it), clearer as four explicit lines
@@ -74,11 +73,12 @@ internal partial class Composition
                 return new Compactor(provider, CompactionTokenBudget);
             })
 
-            // The static half of an agent session is injected here; the
-            // per-instance half -- id, depth, and the session's own broker and
-            // repository -- arrives per call. This is what lets SessionStore
-            // and UserSession stop relaying five parameters they never use.
-            .Bind().To<Func<string, int, EventBroker, EventRepository, AgentSession>>(ctx =>
+            // The static half of an agent session is bound into the factory
+            // here; the per-instance half -- id, depth, and the session's own
+            // broker and repository -- arrives per call. This is what lets
+            // SessionStore and UserSession stop relaying five parameters they
+            // never use.
+            .Bind().As(Lifetime.Singleton).To<IAgentSessionFactory>(ctx =>
             {
                 ctx.Inject<ILLMProvider>(out var provider);
                 ctx.Inject<ToolRegistry>(out var tools);
@@ -87,32 +87,23 @@ internal partial class Composition
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
 
-                return (sessionId, depth, broker, repository) => new AgentSession(
-                    sessionId,
-                    provider,
-                    broker,
-                    repository,
-                    tools,
-                    workingDirectory,
-                    processes,
-                    systemContext,
-                    compactor,
-                    depth);
+                return new AgentSessionFactory(
+                    provider, tools, workingDirectory, processes, systemContext, compactor);
             })
 
-            .Bind().To<Func<string, string, EventRepository, Parrot.Agent.UserSession>>(ctx =>
+            .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>
             {
-                ctx.Inject<Func<string, int, EventBroker, EventRepository, AgentSession>>(out var newAgent);
-                return (id, model, repository) => new Parrot.Agent.UserSession(id, model, repository, newAgent);
+                ctx.Inject<IAgentSessionFactory>(out var agentSessions);
+                return new UserSessionFactory(agentSessions);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<StatePaths>(out var paths);
-                ctx.Inject<Func<string, string, EventRepository, Parrot.Agent.UserSession>>(out var newUserSession);
+                ctx.Inject<IUserSessionFactory>(out var userSessions);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<string>("hostKey", out var hostKey);
-                return new SessionStore(paths.State, workingDirectory, hostKey, newUserSession);
+                return new SessionStore(paths.State, workingDirectory, hostKey, userSessions);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

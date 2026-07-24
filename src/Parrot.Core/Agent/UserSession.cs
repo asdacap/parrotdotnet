@@ -27,13 +27,13 @@ internal sealed class UserSession : IDisposable
         string id,
         string model,
         EventRepository eventRepository,
-        Func<string, int, EventBroker, EventRepository, AgentSession> newAgent)
+        IAgentSessionFactory agentSessions)
     {
-        ArgumentNullException.ThrowIfNull(newAgent);
+        ArgumentNullException.ThrowIfNull(agentSessions);
 
         Id = id;
         _eventRepository = eventRepository;
-        _main = newAgent(Identifier.AgentSession(), 0, _eventBroker, eventRepository);
+        _main = agentSessions.Create(Identifier.AgentSession(), 0, _eventBroker, eventRepository);
         _main.Model = model;
         _ = _agents.TryAdd(_main.SessionId, _main);
     }
