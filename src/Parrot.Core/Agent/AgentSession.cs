@@ -9,17 +9,13 @@ namespace Parrot.Agent;
 // cannot do.
 internal sealed class AgentSession(string sessionId, ILLMProvider provider, EventBroker events) : ILLMEventSink
 {
-    private string _taskId = string.Empty;
-
     public string SessionId { get; } = sessionId;
 
     // Selection is session state: an UpdateSession changes it, a prompt does not.
     public string Model { get; set; } = string.Empty;
 
-    public async Task Run(string taskId, string prompt, CancellationToken cancellationToken)
+    public async Task Run(string prompt, CancellationToken cancellationToken)
     {
-        _taskId = taskId;
-
         var started = Compose(EventKind.TurnStart, $"turn started ({Model})");
         started.TurnStarted = new TurnStarted { Model = Model };
         await events.Publish(started, cancellationToken).ConfigureAwait(false);
@@ -114,7 +110,6 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
         {
             Id = Identifier.New(),
             SessionId = SessionId,
-            TaskId = _taskId,
             Kind = kind,
             Text = text,
         };

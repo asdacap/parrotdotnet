@@ -396,6 +396,10 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 
 - **Absorbs** `api/v1`, `httpapi` (backend half), re-specified as a `.proto`.
 - **Owns** nothing. It translates the contract into domain calls.
+- **No `task_id` yet.** Nothing starts a task until M5 — no shell, no
+  subagents — so `Event` does not carry one. A field holding a fabricated id
+  that no client can use and no test can exercise is the "stub that returns a
+  plausible value" MIGRATION.md §7 forbids. It arrives with `TaskManager`.
 - **Inbound** five calls. `ListModels`; `CreateSession(model)` and
   `UpdateSession(id, model)`; `SendMessage(session_id, text)`; and
   `Listen(session_id)` streaming that session's flat `Event`s. Upholds

@@ -64,13 +64,11 @@ internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase
             throw new RpcException(new Status(StatusCode.NotFound, $"no session {request.SessionId}"));
         }
 
-        var taskId = Identifier.New();
-
         // Admitting the prompt does not wait for the turn, and does not require
         // anyone to be listening.
-        host.Turn = host.Session.Run(taskId, request.Text, context.CancellationToken);
+        host.Turn = host.Session.Run(request.Text, context.CancellationToken);
 
-        return Task.FromResult(new SendMessageResponse { MessageId = Identifier.New(), TaskId = taskId });
+        return Task.FromResult(new SendMessageResponse { MessageId = Identifier.New() });
     }
 
     public override async Task Listen(
