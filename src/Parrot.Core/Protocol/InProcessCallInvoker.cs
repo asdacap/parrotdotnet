@@ -15,17 +15,8 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
     {
         var context = new InProcessServerCallContext(options.CancellationToken);
 
-        var response = request switch
-        {
-            ListModelsRequest list => Cast<TResponse, ListModelsResponse>(service.ListModels(list, context)),
-            CreateSessionRequest create => Cast<TResponse, UserSession>(service.CreateSession(create, context)),
-            UpdateSessionRequest update => Cast<TResponse, UserSession>(service.UpdateSession(update, context)),
-            SendMessageRequest send => Cast<TResponse, SendMessageResponse>(service.SendMessage(send, context)),
-            _ => throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}"),
-        };
-
         return new AsyncUnaryCall<TResponse>(
-            response,
+            Unary<TResponse>(request, context),
             Task.FromResult(new Metadata()),
             static () => Status.DefaultSuccess,
             static () => [],
@@ -46,7 +37,7 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
             throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}");
         }
 
-        Drain(service.Listen(listen, events, context), writer);
+        _ = Drain(listen, events, context);
 
         return new AsyncServerStreamingCall<TResponse>(
             writer.Reader,
@@ -68,18 +59,35 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
         Method<TRequest, TResponse> method, string? host, CallOptions options) =>
         throw new NotImplementedException("the contract has no duplex call");
 
-    private static async Task<TResponse> Cast<TResponse, TActual>(Task<TActual> response)
+    // The service call is started here rather than handed in, so the task
+    // being awaited is one this method owns.
+    private async Task<TResponse> Unary<TResponse>(object request, InProcessServerCallContext context)
         where TResponse : class
-        where TActual : class =>
-        await response.ConfigureAwait(false) as TResponse
-            ?? throw new InvalidOperationException($"a {typeof(TActual).Name} cannot answer a {typeof(TResponse).Name}");
+    {
+        object answered = request switch
+        {
+            ListModelsRequest list => await service.ListModels(list, context).ConfigureAwait(false),
+            CreateSessionRequest create => await service.CreateSession(create, context).ConfigureAwait(false),
+            UpdateSessionRequest update => await service.UpdateSession(update, context).ConfigureAwait(false),
+            SendMessageRequest send => await service.SendMessage(send, context).ConfigureAwait(false),
+            _ => throw new NotImplementedException($"no in-process route for {request.GetType().Name}"),
+        };
 
-    private static async void Drain<TResponse>(Task call, ChannelStreamWriter<TResponse> writer)
-        where TResponse : class
+        return answered as TResponse
+            ?? throw new InvalidOperationException($"a {answered.GetType().Name} cannot answer a {typeof(TResponse).Name}");
+    }
+
+    // Task, not void: an async void that throws takes the process down. It
+    // catches everything, so discarding the task at the call site loses
+    // nothing.
+    private async Task Drain(
+        ListenRequest request,
+        ChannelStreamWriter<Event> writer,
+        InProcessServerCallContext context)
     {
         try
         {
-            await call.ConfigureAwait(false);
+            await service.Listen(request, writer, context).ConfigureAwait(false);
             writer.Complete();
         }
         catch (Exception failure)

@@ -259,6 +259,21 @@ dotnet_diagnostic.SA1400.severity = error
 dotnet_diagnostic.SA1516.severity = error
 
 # ---------------------------------------------------------------------------
+# Threading analyzers (Microsoft.VisualStudio.Threading.Analyzers).
+#
+# VSTHRD200 wants every async method suffixed "Async". It is a naming
+# convention rather than a correctness rule, and it contradicts a decision
+# already recorded in AGENTS.md, whose async lifecycle section specifies
+# `await cls.Run(cancellation)`. Renaming to satisfy it would make that
+# document wrong. Turned off by explicit decision, 2026-07-24 -- the only
+# entry here that overrides "never turn a rule off", and it needed one.
+#
+# Everything else in the package stays on. VSTHRD100 and VSTHRD003 caught a
+# real `async void` in InProcessCallInvoker on the first run.
+# ---------------------------------------------------------------------------
+dotnet_diagnostic.VSTHRD200.severity = none
+
+# ---------------------------------------------------------------------------
 # Parrot's own analyzer (tools/Parrot.Analyzers). Rules no shipped analyzer
 # expresses.
 # ---------------------------------------------------------------------------

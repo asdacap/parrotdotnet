@@ -12,7 +12,8 @@ every project, so there is no state in which a violation is merely reported.
 | IDE code style | `EnforceCodeStyleInBuild` + `.editorconfig` | `IDE` rules — formatting, `var` usage, expression bodies, unused code |
 | StyleCop | `StyleCop.Analyzers` package | `SA` rules — member ordering, spacing, documentation phrasing |
 | Trim / AOT | `EnableTrimAnalyzer`, `EnableAotAnalyzer` | `IL2xxx` and `IL3xxx`, as errors, in every project |
-| Parrot's own | `tools/Parrot.Analyzers` | `PARROT0001` no events, `PARROT0002` no delegate types |
+| Threading | `Microsoft.VisualStudio.Threading.Analyzers` | `VSTHRD####` — `async void`, foreign task awaits, blocking waits |
+| Parrot's own | `tools/Parrot.Analyzers` | `PARROT0001` no events, `PARROT0002` no delegate types, `PARROT0003` no `!` |
 
 `IsAotCompatible` is set on every source project, not only on `Parrot.Cli`, so
 an AOT violation surfaces in the assembly that introduced it rather than at the
@@ -81,6 +82,25 @@ fixing its own lint failures.
 To add a rule: add a descriptor and a `RegisterSyntaxNodeAction`, list the rule
 in `AnalyzerReleases.Unshipped.md` (`RS2008` fails the build otherwise), and set
 its severity in `.editorconfig`.
+
+## Threading analyzers
+
+`Microsoft.VisualStudio.Threading.Analyzers` turns several things MIGRATION.md
+§3 asserts in prose into compiler errors: no `async void` (`VSTHRD100`), no
+blocking waits (`VSTHRD002`), no awaiting a task the method did not start
+(`VSTHRD003`).
+
+It earned its place on the first run by finding a genuine `async void` in
+`InProcessCallInvoker`, where an unhandled exception would have taken the
+process down rather than surfacing as a faulted stream.
+
+**`VSTHRD200` is the one rule turned off**, and it is the only entry in
+`.editorconfig` that overrides "never turn a rule off". It requires an `Async`
+suffix on every async method, which is a naming convention rather than a
+correctness rule, and it contradicts `AGENTS.md` — whose async lifecycle
+section specifies `await cls.Run(cancellation)`. Satisfying the analyzer would
+have meant 56 renames and making that document wrong. Decided explicitly rather
+than assumed.
 
 ## Wrapping
 
