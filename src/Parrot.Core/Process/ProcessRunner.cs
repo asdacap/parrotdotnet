@@ -198,24 +198,116 @@ internal sealed class ProcessRunner(string bubblewrapPath)
     private static string TemporaryPath(string blobDirectory) =>
         Path.Combine(blobDirectory, $".process-{Guid.NewGuid():n}.tmp");
 
-    // Read-only host root first, then the writable working directory over it, so
-    // the workspace is the one writable place. --unshare-* and --cap-drop are
-    // the containment; --die-with-parent stops an orphan outliving the turn.
-    private static IEnumerable<string> SandboxArguments(string command, string workingDirectory) =>
-    [
-        "--die-with-parent",
-        "--new-session",
-        "--unshare-user",
-        "--unshare-pid",
-        "--cap-drop", "ALL",
-        "--ro-bind", "/", "/",
-        "--dev", "/dev",
-        "--proc", "/proc",
-        "--tmpfs", "/tmp",
-        "--bind", workingDirectory, workingDirectory,
-        "--chdir", workingDirectory,
-        "--", "/bin/sh", "-c", command,
-    ];
+    // Read-only host root first, then the writable Git repository and working
+    // directory over it. --unshare-* and --cap-drop are the containment;
+    // --die-with-parent stops an orphan outliving the turn.
+    private static List<string> SandboxArguments(string command, string workingDirectory)
+    {
+        var arguments = new List<string>
+        {
+            "--die-with-parent",
+            "--new-session",
+            "--unshare-user",
+            "--unshare-pid",
+            "--cap-drop", "ALL",
+            "--ro-bind", "/", "/",
+            "--dev", "/dev",
+            "--proc", "/proc",
+            "--tmpfs", "/tmp",
+        };
+        var repositoryRoot = FindGitRepositoryRoot(workingDirectory);
+
+        if (repositoryRoot is not null
+            && !string.Equals(repositoryRoot, workingDirectory, StringComparison.Ordinal))
+        {
+            arguments.AddRange(["--bind", repositoryRoot, repositoryRoot]);
+        }
+
+        arguments.AddRange(
+        [
+            "--bind", workingDirectory, workingDirectory,
+            "--chdir", workingDirectory,
+            "--", "/bin/sh", "-c", command,
+        ]);
+        return arguments;
+    }
+
+    private static string? FindGitRepositoryRoot(string workingDirectory)
+    {
+        try
+        {
+            for (var directory = new DirectoryInfo(Path.GetFullPath(workingDirectory));
+                 directory is not null;
+                 directory = directory.Parent)
+            {
+                var gitPath = Path.Combine(directory.FullName, ".git");
+
+                if (Directory.Exists(gitPath))
+                {
+                    return directory.FullName;
+                }
+
+                if (File.Exists(gitPath))
+                {
+                    return FindLinkedRepositoryRoot(gitPath);
+                }
+            }
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        return null;
+    }
+
+    private static string? FindLinkedRepositoryRoot(string gitPath)
+    {
+        var gitFile = File.ReadAllText(gitPath).Trim();
+
+        if (!gitFile.StartsWith("gitdir: ", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var worktreeRoot = Path.GetDirectoryName(gitPath);
+
+        if (worktreeRoot is null)
+        {
+            return null;
+        }
+
+        var gitDirectory = ResolvePath(worktreeRoot, gitFile[8..]);
+        var commonDirectoryPath = Path.Combine(gitDirectory, "commondir");
+        var backlinkPath = Path.Combine(gitDirectory, "gitdir");
+
+        if (!File.Exists(commonDirectoryPath) || !File.Exists(backlinkPath))
+        {
+            return null;
+        }
+
+        var backlink = ResolvePath(gitDirectory, File.ReadAllText(backlinkPath).Trim());
+
+        if (!string.Equals(backlink, Path.GetFullPath(gitPath), StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var commonDirectory = Path.TrimEndingDirectorySeparator(
+            ResolvePath(gitDirectory, File.ReadAllText(commonDirectoryPath).Trim()));
+        var worktreesDirectory = Path.Combine(commonDirectory, "worktrees");
+
+        if (!Directory.Exists(commonDirectory)
+            || !string.Equals(Path.GetFileName(commonDirectory), ".git", StringComparison.Ordinal)
+            || !string.Equals(Path.GetDirectoryName(gitDirectory), worktreesDirectory, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return Path.GetDirectoryName(commonDirectory);
+    }
+
+    private static string ResolvePath(string baseDirectory, string path) =>
+        Path.GetFullPath(Path.IsPathFullyQualified(path) ? path : Path.Combine(baseDirectory, path));
 
     private static string FindOnPath(string name)
     {

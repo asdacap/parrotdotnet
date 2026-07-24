@@ -129,6 +129,42 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Linked_worktree_makes_repository_root_writable(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var repository = Path.Combine(_workspace, "repository");
+        var worktree = Path.Combine(_workspace, "worktree");
+        var gitDirectory = Path.Combine(repository, ".git", "worktrees", "linked");
+        _ = Directory.CreateDirectory(gitDirectory);
+        _ = Directory.CreateDirectory(worktree);
+        await File.WriteAllTextAsync(
+            Path.Combine(worktree, ".git"),
+            $"gitdir: {gitDirectory}\n",
+            cancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(gitDirectory, "commondir"), "../..\n", cancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(gitDirectory, "gitdir"),
+            Path.Combine(worktree, ".git") + "\n",
+            cancellationToken);
+        var argumentsPath = Path.Combine(worktree, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(worktree, argumentsPath));
+
+        _ = await runner.Run("true", worktree, Path.Combine(worktree, "blob"), cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        var repositoryBind = Array.FindIndex(
+            arguments,
+            argument => string.Equals(argument, repository, StringComparison.Ordinal));
+        _ = await Assert.That(repositoryBind).IsGreaterThan(0);
+        _ = await Assert.That(arguments[repositoryBind - 1]).IsEqualTo("--bind");
+        _ = await Assert.That(arguments[repositoryBind + 1]).IsEqualTo(repository);
+    }
+
+    [Test]
     public async Task The_workspace_is_writable_and_the_host_is_read_only(CancellationToken cancellationToken)
     {
         var runner = ProcessRunner.Locate();
@@ -149,6 +185,18 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(File.Exists(Path.Combine(_workspace, "inside.txt"))).IsTrue();
         _ = await Assert.That(result.Stdout).Contains("blocked");
         _ = await Assert.That(File.Exists("/host-write")).IsFalse();
+    }
+
+    private static string CreateArgumentCapturingSandbox(string workspace, string argumentsPath)
+    {
+        var path = Path.Combine(workspace, "capturing-sandbox");
+        var script = $"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{argumentsPath}'\n"
+            + "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n";
+        File.WriteAllText(path, script);
+        File.SetUnixFileMode(
+            path,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
     }
 
     private static string CreateSandboxPassThrough(string workspace)
