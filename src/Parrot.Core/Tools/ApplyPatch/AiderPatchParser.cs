@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Parrot.Tools;
+namespace Parrot.Tools.ApplyPatch;
 
 internal static class AiderPatchParser
 {

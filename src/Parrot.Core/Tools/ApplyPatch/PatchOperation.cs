@@ -1,4 +1,4 @@
-namespace Parrot.Tools;
+namespace Parrot.Tools.ApplyPatch;
 
 internal sealed class PatchOperation(
     PatchOperationKind kind,

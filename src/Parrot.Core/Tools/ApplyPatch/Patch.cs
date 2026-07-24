@@ -1,4 +1,4 @@
-namespace Parrot.Tools;
+namespace Parrot.Tools.ApplyPatch;
 
 internal sealed class Patch(IReadOnlyList<PatchOperation> operations)
 {

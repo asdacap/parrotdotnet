@@ -1,4 +1,4 @@
-namespace Parrot.Tools;
+namespace Parrot.Tools.ApplyPatch;
 
 public sealed class PatchException : Exception
 {

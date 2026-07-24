@@ -1,6 +1,6 @@
 using Parrot.Agent;
 
-namespace Parrot.Tools;
+namespace Parrot.Tools.ApplyPatch;
 
 internal sealed class ApplyPatchToolFactory(string workingDirectory) : IToolFactory
 {

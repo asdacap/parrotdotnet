@@ -4,6 +4,7 @@ using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Store;
 using Parrot.Tools;
+using Parrot.Tools.ApplyPatch;
 using Parrot.Web;
 
 namespace Parrot.Agent;

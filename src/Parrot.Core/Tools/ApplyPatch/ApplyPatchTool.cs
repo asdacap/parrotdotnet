@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace Parrot.Tools;
+namespace Parrot.Tools.ApplyPatch;
 
 internal sealed class ApplyPatchTool(string workingDirectory) : ITool
 {
