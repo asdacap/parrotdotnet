@@ -48,6 +48,7 @@ deleted rather than skipped, and no block in `architecture.md` absorbs it.
 | Dropped | Upstream | Reason |
 | --- | --- | --- |
 | MCP | `internal/mcp` (2045 lines), `internal/tool/mcp.go`, MCP transport config | Dropped entirely by decision, 2026-07-24. Removes one of upstream's five extension boundaries, leaving four: provider protocols, secret storage, tools, formatters. |
+| Transactional file edits | `internal/change` (1172 lines): the all-or-nothing apply, rollback, and `FileStore`/`FileState` machinery | Dropped entirely by decision, 2026-07-24. Tools write files directly. Patch *parsing* survives, folded into the tool that needs it, because `apply_patch` cannot function without it. |
 | Windows support | Windows paths, credential storage, process trees, terminal behaviour | Upstream targets macOS and Linux; so does this. |
 
 ## Entry template
@@ -83,4 +84,4 @@ reason recorded here.
 | --- | --- |
 | `Parrot.Core` | Everything that is not the process entry point. |
 | `Parrot.Cli` | The AOT-published executable. Separated so that `Parrot.Core` can be referenced by a test host without dragging in the entry point. |
-| `Parrot.Analyzers` | Build tooling, not product code. Repository-specific lint rules that no shipped analyzer expresses (`PARROT0001`, `PARROT0002`). Must be a separate `netstandard2.0` project because it runs inside the compiler; referenced as an analyzer, so it never reaches the runtime or the AOT link. |
+| `Parrot.Analyzers` | Build tooling, not product code. Repository-specific lint rules that no shipped analyzer expresses (`PARROT0001`–`PARROT0003`). Must be a separate `netstandard2.0` project because it runs inside the compiler; referenced as an analyzer, so it never reaches the runtime or the AOT link. |

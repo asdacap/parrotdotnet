@@ -6,12 +6,12 @@ local-first coding agent — from Go to C# on .NET Native AOT.
 The goal is the same product: one self-contained binary with no runtime
 dependency, scrollback-preserving terminal chat, durable SQLite sessions and
 event history, OAuth and OpenAI-compatible providers, permission-bound tools,
-transactional file changes, session compaction, and bounded web fetching.
-The Go implementation is the specification; this repository is the
-implementation.
+session compaction, and bounded web fetching. The Go implementation is the
+specification; this repository is the implementation.
 
-**MCP is out of scope.** Upstream's `internal/mcp` and its tool bridge are not
-ported; see [docs/components.md](docs/components.md).
+**MCP and transactional file edits are out of scope.** Upstream's
+`internal/mcp` and the all-or-nothing apply in `internal/change` are not ported;
+see [docs/components.md](docs/components.md).
 
 **Status: scaffold.** The build, the linter, the test harness, and the AOT
 publish path work end to end. No upstream component has been migrated yet.

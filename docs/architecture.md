@@ -21,11 +21,10 @@ manages, because in C# the namespace no longer disambiguates it.
 | ROOT      ParrotApplication                                               |
 +---------------------------------------------------------------------------+
 | DOMAIN    AgentSession        AgentRegistry          TaskManager          |
-|           SubagentManager     Compactor              SystemContextBuilder |
+|           Compactor           SystemContextBuilder                        |
 +---------------------------------------------------------------------------+
 | TOOLS     ToolRegistry        ITool                  PermissionBroker     |
-|           QuestionBroker      ChangeSet              ProcessRunner        |
-|           WebFetcher                                                      |
+|           QuestionBroker      ProcessRunner          WebFetcher           |
 +---------------------------------------------------------------------------+
 | PROVIDERS ProviderRegistry    ILLMProvider           ICredentialStore     |
 +---------------------------------------------------------------------------+
@@ -87,11 +86,12 @@ ApiBackend
  |    +-- EventRepository
  |    +-- SystemContextBuilder ... sampled only at a safe turn boundary
  |    +-- Compactor
- |    +-- AgentRegistry
+ |    +-- AgentRegistry ......... agent profiles; also spawns and owns
+ |    |                           child sessions
+ |    |    +-- AgentSession ..... (recurses: a child session)
  |    |
  |    +-- ToolRegistry .......... immutable snapshot per turn
  |    |    +-- ITool  <<extension boundary>>
- |    |         +-- ChangeSet ...... transactional file edits
  |    |         +-- ProcessRunner .. sandboxed exec, fails closed
  |    |         +-- WebFetcher
  |    |
@@ -100,8 +100,6 @@ ApiBackend
  |    |         +-- ICredentialStore  <<extension boundary>>
  |    |
  |    +-- TaskManager ........... the task tree
- |         +-- SubagentManager
- |              +-- AgentSession   (recurses: a child session)
  |
  +-- TaskManager
  +-- PermissionBroker ............ authorises an operation, not a tool name
@@ -130,13 +128,15 @@ CommandDispatcher.Run                       returns => the process exits
  |
  +-- HttpServer.Run ....................... serve mode only
  +-- TerminalChat.Run ..................... local mode only
+ +-- AgentRegistry.Run .................... hosts spawned child sessions
+ |    |                                     a child outlives the turn that
+ |    |                                     spawned it, so it is not nested
+ |    +-- AgentSession.Run ................ one child session
+ |
  +-- AgentSession.Run ..................... one drain per session
       |                                     a turn is a loop iteration here,
       |                                     not a nested Run
       +-- ProcessRunner.Run ............... one child process
-      +-- SubagentManager.Run ............. one child session
-           |
-           +-- AgentSession.Run            (recurses)
 ```
 
 There is no `Stop` anywhere. Shutdown is cancellation of the token `Program`
@@ -252,6 +252,31 @@ resolution is that `Prompt` returns the final response while deltas are
 published to the event stream as a side effect, which keeps the interface flat
 and matches principle 10 — but it is not decided. See open question 1.
 
+## AgentRegistry
+
+It resolves agent profiles and it spawns child sessions, because upstream's
+subagent manager was already asking the registry its questions —
+`agentIdentity` and `agentRecursionLimit` are its own methods. Folding removes
+that reach-across.
+
+What it owns beyond profiles: the child task table, per-parent concurrency
+limits, recursion limits, and the lifetime of every spawned child session.
+
+Two consequences, neither cosmetic:
+
+- **It is no longer passive**, so it appears in the Run tree. A spawned child
+  outlives the turn that spawned it — upstream `Spawn` returns an id and the
+  caller `Await`s later — so a child session is *not* nested under the parent's
+  `Run`. The previous draft nested it, which was wrong.
+- **It and `AgentSession` now depend on each other.** `AgentSession` asks it to
+  resolve an agent; it constructs and runs `AgentSession`. Both rank 9. That is
+  inherent to subagent recursion rather than a modelling error, but it means
+  neither can be built without at least a stub of the other.
+
+The name is now doing less work than it should: a type that owns lifetimes is
+not a registry. `AgentRuntime` or `Agents` would be more honest. Not renamed,
+because the fold was the instruction and the name was not.
+
 ## Blocks to Go packages
 
 Rank is migration order. A block may not be built before anything it depends on.
@@ -268,14 +293,12 @@ Rank is migration order. A block may not be built before anything it depends on.
 | 5 | `ILLMProvider`, `ProviderRegistry` | `provider`, `protocol` |
 | 5 | `PermissionBroker`, `QuestionBroker` | `permission`, `question` |
 | 6 | `ProcessRunner` | `process` |
-| 6 | `ChangeSet` | `change` |
 | 6 | `WebFetcher` | `webfetch` |
-| 7 | `ITool`, `ToolRegistry` | `tool` |
+| 7 | `ITool`, `ToolRegistry` | `tool`, `change` (patch parsing only) |
 | 7 | `SystemContextBuilder` | `systemcontext`, `skill`, `command` |
 | 8 | `Compactor` | `compaction` |
-| 8 | `AgentRegistry` | `agent` (registry, provider resolution) |
 | 9 | `AgentSession` | `session` (all of it), `agent` (runner and coordinator) |
-| 9 | `SubagentManager` | `subagent` |
+| 9 | `AgentRegistry` | `agent` (registry, provider resolution), `subagent` |
 | 10 | `ApiBackend` | `api/v1`, `httpapi` (backend half) |
 | 10 | `InProcessTransport` | `transport`, `client` |
 | 11 | `HttpServer` | `httpapi` (server, routes) |
