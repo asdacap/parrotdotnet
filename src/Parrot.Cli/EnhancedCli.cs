@@ -131,18 +131,30 @@ internal sealed class EnhancedCli(
         TextWriter output,
         TextWriter error,
         Func<int> columns,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Event, CancellationToken, Task>? beforeRender = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
         var view = new TurnView(output, error, columns);
+        var waitingForVisibleEvent = beforeRender is not null;
+        var turnStarted = false;
 
         try
         {
             while (await stream.MoveNext(cancellationToken).ConfigureAwait(false))
             {
+                turnStarted |= stream.Current.PayloadCase == Event.PayloadOneofCase.TurnStarted;
+                if (waitingForVisibleEvent &&
+                    beforeRender is { } callback &&
+                    IsVisible(stream.Current, turnStarted))
+                {
+                    waitingForVisibleEvent = false;
+                    await callback(stream.Current, cancellationToken).ConfigureAwait(false);
+                }
+
                 var completed = await view.Render(stream.Current, cancellationToken).ConfigureAwait(false);
                 if (completed is not null)
                 {
@@ -160,6 +172,17 @@ internal sealed class EnhancedCli(
         }
     }
 
+    private static bool IsVisible(Event published, bool turnStarted) => published.PayloadCase switch
+    {
+        Event.PayloadOneofCase.InputAdmitted => turnStarted,
+        Event.PayloadOneofCase.None or
+        Event.PayloadOneofCase.TurnStarted or
+        Event.PayloadOneofCase.ToolCallChunk or
+        Event.PayloadOneofCase.InputPromoted or
+        Event.PayloadOneofCase.RetryNotice => false,
+        _ => true,
+    };
+
     private static SendMessageRequest Message(string userSessionId, string text) =>
         new()
         {
@@ -170,11 +193,11 @@ internal sealed class EnhancedCli(
 
     private static Task DrawEditor(
         TerminalFrameRenderer renderer,
-        IncrementalEditor editor,
+        PromptValue prompt,
         SlashContext context,
         CancellationToken cancellationToken) =>
         renderer.Draw(
-            new TerminalFrame([], new ModelineValue("chat", "ready", context.Model), editor.Prompt),
+            new TerminalFrame([], null, new ModelineValue("chat", "ready", context.Model), prompt),
             cancellationToken);
 
     private async Task<int> Once(
@@ -299,23 +322,44 @@ internal sealed class EnhancedCli(
         CancellationToken cancellationToken)
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
         var listeningTo = context.UserSessionId;
-        var call = client.Listen(
-            new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
         var rendering = Task.CompletedTask;
         var interrupting = Interrupting(context, listening.Token);
         var decoder = new TerminalKeyDecoder();
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
+        var promptSync = new object();
+        var currentPrompt = editor.Prompt;
         var renderer = new TerminalFrameRenderer(output, columns, new TerminalPalette(color()));
+        var spinner = new TerminalSpinner(renderer);
         var buffer = new byte[4096];
         var exiting = false;
+        var streaming = (CancellationTokenSource?)null;
+        var call = (AsyncServerStreamingCall<Event>?)null;
+
+        PromptValue CurrentPrompt()
+        {
+            lock (promptSync)
+            {
+                return currentPrompt;
+            }
+        }
+
+        void UpdatePrompt()
+        {
+            lock (promptSync)
+            {
+                currentPrompt = editor.Prompt;
+            }
+        }
 
         interrupts.Install(this);
 
         try
         {
-            await DrawEditor(renderer, editor, context, cancellationToken).ConfigureAwait(false);
+            streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+            call = client.Listen(
+                new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
+            await DrawEditor(renderer, CurrentPrompt(), context, cancellationToken).ConfigureAwait(false);
             while (!cancellationToken.IsCancellationRequested && !exiting)
             {
                 var count = await terminal.Read(buffer, cancellationToken).ConfigureAwait(false);
@@ -327,6 +371,7 @@ internal sealed class EnhancedCli(
                         if (!editor.IsEmpty)
                         {
                             editor.Clear();
+                            UpdatePrompt();
                         }
                         else
                         {
@@ -341,6 +386,7 @@ internal sealed class EnhancedCli(
                     else
                     {
                         var entered = editor.Apply(key);
+                        UpdatePrompt();
                         if (entered is not null)
                         {
                             if (entered.Length == 0)
@@ -363,7 +409,9 @@ internal sealed class EnhancedCli(
                                     await streaming.CancelAsync().ConfigureAwait(false);
                                     await rendering.ConfigureAwait(false);
                                     streaming.Dispose();
+                                    streaming = null;
                                     call.Dispose();
+                                    call = null;
                                     streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
                                     listeningTo = context.UserSessionId;
                                     call = client.Listen(
@@ -382,13 +430,22 @@ internal sealed class EnhancedCli(
                                     Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
                                 if (rendering.IsCompleted)
                                 {
-                                    rendering = RenderRaw(
-                                        call.ResponseStream,
-                                        output,
-                                        context.Error,
-                                        renderer,
-                                        editor,
-                                        context,
+                                    var model = context.Model;
+                                    rendering = spinner.Run(
+                                        index => new TerminalFrame(
+                                            [],
+                                            new SpinnerValue("thinking", index),
+                                            new ModelineValue("chat", "working", model),
+                                            CurrentPrompt()),
+                                        (stopSpinner, token) => RenderRaw(
+                                            call.ResponseStream,
+                                            output,
+                                            context.Error,
+                                            renderer,
+                                            CurrentPrompt,
+                                            context,
+                                            stopSpinner,
+                                            token),
                                         streaming.Token);
                                 }
                             }
@@ -397,21 +454,39 @@ internal sealed class EnhancedCli(
 
                     if (!_busy && !exiting)
                     {
-                        await DrawEditor(renderer, editor, context, cancellationToken).ConfigureAwait(false);
+                        await DrawEditor(renderer, CurrentPrompt(), context, cancellationToken).ConfigureAwait(false);
                     }
                 }
             }
         }
         finally
         {
-            interrupts.Remove();
-            _ = _interrupts.Writer.TryComplete();
-            await renderer.Clear(CancellationToken.None).ConfigureAwait(false);
-            await listening.CancelAsync().ConfigureAwait(false);
-            await rendering.ConfigureAwait(false);
-            await interrupting.ConfigureAwait(false);
-            streaming.Dispose();
-            call.Dispose();
+            try
+            {
+                interrupts.Remove();
+                _ = _interrupts.Writer.TryComplete();
+                await listening.CancelAsync().ConfigureAwait(false);
+                try
+                {
+                    await rendering.ConfigureAwait(false);
+                }
+                finally
+                {
+                    try
+                    {
+                        await renderer.Clear(CancellationToken.None).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        await interrupting.ConfigureAwait(false);
+                    }
+                }
+            }
+            finally
+            {
+                streaming?.Dispose();
+                call?.Dispose();
+            }
         }
 
         return CommandDispatcher.ExitSuccess;
@@ -422,16 +497,24 @@ internal sealed class EnhancedCli(
         TextWriter output,
         TextWriter error,
         TerminalFrameRenderer renderer,
-        IncrementalEditor editor,
+        Func<PromptValue> prompt,
         SlashContext context,
+        Func<Task> stopSpinner,
         CancellationToken cancellationToken)
     {
-        _ = await RenderTurn(stream, output, error, columns, cancellationToken).ConfigureAwait(false);
+        _ = await RenderTurn(
+            stream,
+            output,
+            error,
+            columns,
+            cancellationToken,
+            (_, _) => stopSpinner()).ConfigureAwait(false);
+
         _busy = false;
         _interruptRequested = false;
         if (!cancellationToken.IsCancellationRequested)
         {
-            await DrawEditor(renderer, editor, context, cancellationToken).ConfigureAwait(false);
+            await DrawEditor(renderer, prompt(), context, cancellationToken).ConfigureAwait(false);
         }
     }
 

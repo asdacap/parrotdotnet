@@ -336,8 +336,11 @@ Linux and macOS when stdin is a supported terminal and provides a rune-aware
 multiline editor, bracketed paste, cursor editing, interrupt handling, and a modeline.
 It restores the original terminal attributes on every exit path, honors
 `NO_COLOR`, and falls back to line-buffered input for `TERM=dumb` or when raw
-mode cannot be opened. Picker, markdown, modal prompts, and richer multi-row
-activity frames remain M7 work.
+mode cannot be opened. Raw mode shows a thinking animation after prompt
+submission and deterministically removes it before the first visible turn event
+or on completion, interruption, EOF, cancellation, and failure. Renderer access
+is serialized so animation and editor frames cannot interleave. Picker,
+markdown, modal prompts, and richer multi-row activity frames remain M7 work.
 
 ## What this plan does not schedule
 

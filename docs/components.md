@@ -701,9 +701,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   the live-row part of `terminal`.
 - **Owns** two sub-components. The **turn view** interprets typed gRPC events and
   accumulates the foreground assistant text for one turn. The **live terminal
-  renderer** owns display-width layout, sanitisation, the bounded mutable row,
-  ANSI cursor operations, and promotion of stable rows into ordinary terminal
-  scrollback.
+  renderer** owns display-width layout, sanitisation, bounded mutable rows,
+  serialized ANSI cursor operations, the raw-mode thinking animation, and
+  promotion of stable rows into ordinary terminal scrollback.
 - **Inbound** the same event stream and payloads as `BasicCli`; terminal width is
   sampled while laying out each enhanced frame.
 - **Outbound** the generated gRPC client and a `TextWriter` representing the
@@ -716,8 +716,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   used. On a supported terminal the raw-mode editor provides rune-aware cursor
   movement, multiline input, bracketed paste, editing controls, and a modeline;
   line-buffered input remains the fallback when raw mode is unavailable or
-  `TERM=dumb`. Picker, markdown, modal prompts, and richer activity frames
-  remain deferred M7 work.
+  `TERM=dumb`. After prompt submission, a raw-mode thinking frame animates until
+  the first visible turn event; completion, interruption, EOF, cancellation,
+  and failures cancel and join the animation before clearing it. Picker,
+  markdown, modal prompts, and richer multi-row activity frames remain deferred
+  M7 work.
 
 ## Assemblies
 
