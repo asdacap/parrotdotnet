@@ -1,13 +1,43 @@
 [
   {
     "pname": "Google.Protobuf",
-    "version": "3.29.3",
-    "hash": "sha256-poYxFgLvV3FqIvnRBPdmQNLHtYaqSqe88NSjcnFBwyA="
+    "version": "3.30.2",
+    "hash": "sha256-GbyaRLeBNyvJrx4+SkgewClk1nCTtdE7sNqnSjk8VBM="
+  },
+  {
+    "pname": "Grpc.AspNetCore",
+    "version": "2.71.0",
+    "hash": "sha256-Bn2rCbwz7iYwvZg64zTrVBU2EzJM4AqHVIzGUPYh1Pg="
+  },
+  {
+    "pname": "Grpc.AspNetCore.Server",
+    "version": "2.71.0",
+    "hash": "sha256-Fkkcq1yRyaoEMK7DA5UFm1jNpSu+8nMH1uUY/qC/a7g="
+  },
+  {
+    "pname": "Grpc.AspNetCore.Server.ClientFactory",
+    "version": "2.71.0",
+    "hash": "sha256-m/OfowHcvnQXSVsAK5sqo5/cgD1JONP6Zcz/QgTmBb0="
   },
   {
     "pname": "Grpc.Core.Api",
     "version": "2.71.0",
     "hash": "sha256-OEA0FHDwIlegydD1+Ml5erYx4qTQnkL6NCpxq3r2InM="
+  },
+  {
+    "pname": "Grpc.Net.Client",
+    "version": "2.71.0",
+    "hash": "sha256-qswuDuRoMSkXlVOIex9KTfTagRhzfoIBCV5GO7RddoA="
+  },
+  {
+    "pname": "Grpc.Net.ClientFactory",
+    "version": "2.71.0",
+    "hash": "sha256-GarmKc1ILrLK++0z4kfy9u5A4ymYowOQBQ9R1689agQ="
+  },
+  {
+    "pname": "Grpc.Net.Common",
+    "version": "2.71.0",
+    "hash": "sha256-TEPDYKHR6b9iJtmEULjWtJZLBPIw2RO6/6HSNV1SMNI="
   },
   {
     "pname": "Grpc.Tools",
@@ -138,5 +168,10 @@
     "pname": "System.Threading.Tasks.Extensions",
     "version": "4.5.4",
     "hash": "sha256-owSpY8wHlsUXn5xrfYAiu847L6fAKethlvYx97Ri1ng="
+  },
+  {
+    "pname": "YamlDotNet",
+    "version": "18.1.0",
+    "hash": "sha256-Wf/mWt5nrZ2IYmf4d7Y0pFA2PLgblOGducpMNkYUFvY="
   }
 ]

@@ -30,7 +30,9 @@
           executables = ["parrot"];
 
           dotnet-sdk = sdk;
-          dotnet-runtime = pkgs.dotnetCorePackages.runtime_10_0;
+          # The binary now hosts ASP.NET Core (serve), so it needs that runtime,
+          # not just the base one.
+          dotnet-runtime = pkgs.dotnetCorePackages.aspnetcore_10_0;
 
           # The sandbox has no network, so a restore comes from the locked
           # deps. Refresh them with:
