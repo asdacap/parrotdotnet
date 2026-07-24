@@ -120,10 +120,29 @@ live, and hand-rolling them is how a 100-line framing layer becomes 800.
 The framing option suits this design unusually well, though. Local mode uses
 `InProcessChannel` and opens no socket at all, so the HTTP/2 server exists only
 for the remote case. And `BasicCli` would need no gRPC dependency whatsoever —
-just the generated message types and a read loop — which is exactly the
-constraint the two-CLI rule is trying to hold.
+just the generated message types and a read loop.
 
-Not decided; see open question 6.
+### Decided: keep gRPC
+
+Roughly 10 MB, accepted. The 7 MB buys streaming that already handles
+half-close, flow control, deadlines, and cancellation — the part that is easy to
+start and hard to finish — plus a schema that generates clients in any language
+and works with existing tooling. Hand-written framing would put that lifecycle
+in the critical path of every session, which is the last place to want novel
+code.
+
+Two consequences follow, and both are now settled rather than open:
+
+- **The `.proto` declares services and streams**, not messages only.
+- **`BasicCli` depends on the generated gRPC client.** That is the one thing it
+  shares with `EnhancedCli`, and it stays allowed under the two-CLI rule for the
+  reason the rule already gives: generated code is derived from the contract
+  rather than written, so it cannot hide a gap in the event model the way a
+  hand-written view layer would.
+
+The size floor is worth revisiting only if the binary becomes a real complaint.
+The measurements above are the starting point if so; nothing else in the stack
+is left to try.
 
 ## The dependency tree
 
@@ -514,15 +533,7 @@ Resolve these before filling in `components.md`; each one moves a boundary.
 5. **`ICredentialStore` versus provider auth.** ChatGPT OAuth refresh is a
    provider concern that writes to the credential store. Which side owns the
    refresh decides whether the dependency arrow reverses.
-6. **Is ASP.NET Core worth 5 MB?** Measured above, and narrower than it first
-   looked: gRPC is 1.8 MB, Kestrel is 1.9 MB and swappable, but the hosting
-   stack underneath is 5.1 MB and is not removable while using grpc-dotnet's
-   server. Length-delimited protobuf over a unix socket does the same job at
-   3.0 MB and keeps the `.proto`. What it does not keep is streaming semantics
-   someone else has already debugged. Decide it before `ParrotService` is
-   written, because the answer changes what the `.proto` declares — services
-   and streams, or messages only.
-7. **`EnhancedCli` is 3.5k lines of `enhancedchat` plus 4.6k of `terminal`.**
+6. **`EnhancedCli` is 3.5k lines of `enhancedchat` plus 4.6k of `terminal`.**
    Almost certainly several trees. Ranked last so the shape can be decided once
    everything it renders exists. `BasicCli` has the opposite problem: it is
    ranked early precisely so the event contract gets tested before the TUI can
