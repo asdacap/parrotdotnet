@@ -33,6 +33,8 @@ internal sealed class AgentSessionFactory(
             new WebFetchToolFactory(webFetcher),
             new AgentSpawnToolFactory(owner.Registry),
             new WaitAgentToolFactory(owner.Registry),
+            new TodoReadToolFactory(),
+            new TodoWriteToolFactory(),
         ];
 
     public AgentSession Create(

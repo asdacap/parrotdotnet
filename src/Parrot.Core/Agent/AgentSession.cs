@@ -68,6 +68,8 @@ internal sealed class AgentSession(
 
     public string SessionId => identity.SessionId;
 
+    public TodoCollection Todos { get; } = new(identity.SessionId, eventRepository, eventBroker);
+
     // Selection is session state: an UpdateSession changes it, a prompt does
     // not. Settable rather than fixed at construction because a running drain
     // holds this session's history and its pending input, so replacing the
