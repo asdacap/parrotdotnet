@@ -111,7 +111,11 @@ internal sealed class BasicCli(
     }
 
     internal static async Task<bool> RenderTurn(
-        IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+        IAsyncStreamReader<Event> stream,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken,
+        Func<Event, CancellationToken, Task>? beforeRender = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(output);
@@ -127,6 +131,10 @@ internal sealed class BasicCli(
         while (await MoveNext(stream, cancellationToken).ConfigureAwait(false))
         {
             var published = stream.Current;
+            if (beforeRender is { } before)
+            {
+                await before(published, cancellationToken).ConfigureAwait(false);
+            }
 
             if (!textEndsLine && published.PayloadCase is
                 Event.PayloadOneofCase.ToolStarted or
@@ -358,10 +366,31 @@ internal sealed class BasicCli(
     private async Task Render(
         IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
     {
-        _ = await RenderTurn(stream, output, error, cancellationToken).ConfigureAwait(false);
-        _busy = false;
-        _interruptRequested = false;
-        await Ready(output, cancellationToken).ConfigureAwait(false);
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var completed = await RenderTurn(
+                stream,
+                output,
+                error,
+                cancellationToken,
+                (published, _) =>
+                {
+                    if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
+                    {
+                        _busy = true;
+                    }
+
+                    return Task.CompletedTask;
+                }).ConfigureAwait(false);
+            if (!completed)
+            {
+                return;
+            }
+
+            _busy = false;
+            _interruptRequested = false;
+            await Ready(output, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task Interrupting(SlashContext context, CancellationToken cancellationToken)

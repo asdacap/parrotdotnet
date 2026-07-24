@@ -26,6 +26,14 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public Interrupts Interrupts { get; }
 
+    public async Task OutputContains(string text, CancellationToken cancellationToken)
+    {
+        while (!_output.ToString().Contains(text, StringComparison.Ordinal))
+        {
+            await Task.Delay(5, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async Task Sent(int count, CancellationToken cancellationToken)
     {
         while (Invoker.Sent.Count < count)

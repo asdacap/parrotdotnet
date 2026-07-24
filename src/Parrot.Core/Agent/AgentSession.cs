@@ -310,9 +310,10 @@ internal sealed class AgentSession(
             lock (_drainGate)
             {
                 // Admitted after the last promotion looked and before the drain
-                // settled. Passing again is what stops that prompt from waiting
-                // for a later one to carry it.
-                if (_wake && !cancellationToken.IsCancellationRequested)
+                // settled. Check durable input as well as the in-memory wake so
+                // recovered or otherwise pre-existing input cannot be stranded.
+                if (!cancellationToken.IsCancellationRequested
+                    && (_wake || eventRepository.HasPendingInputs(SessionId)))
                 {
                     _wake = false;
                     continue;
