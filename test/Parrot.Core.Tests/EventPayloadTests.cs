@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
@@ -31,7 +32,9 @@ internal sealed class EventPayloadTests
             events,
             new EventRepository(database),
             new ToolRegistry([]),
-            new ToolContext(".", new ProcessRunner(string.Empty)));
+            new ToolContext(".", new ProcessRunner(string.Empty)),
+            new SystemContextBuilder(".", "2026-07-24"),
+            new Compactor(new UnusedProvider(), 120_000));
 
         var llmEvent = source switch
         {

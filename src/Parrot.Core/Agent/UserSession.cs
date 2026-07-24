@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -28,12 +29,24 @@ internal sealed class UserSession : IDisposable
         ILLMProvider provider,
         EventRepository eventRepository,
         ToolRegistry tools,
-        IToolContext toolContext)
+        IToolContext toolContext,
+        SystemContextBuilder systemContext,
+        Compactor compactor)
     {
         Id = id;
         _eventRepository = eventRepository;
         _main = new AgentSession(
-            Identifier.AgentSession(), provider, _eventBroker, eventRepository, tools, toolContext) { Model = model };
+            Identifier.AgentSession(),
+            provider,
+            _eventBroker,
+            eventRepository,
+            tools,
+            toolContext,
+            systemContext,
+            compactor)
+        {
+            Model = model,
+        };
         _ = _agents.TryAdd(_main.SessionId, _main);
     }
 

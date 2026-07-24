@@ -1,3 +1,4 @@
+using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -15,11 +16,18 @@ internal sealed class AgentSession(
     EventBroker eventBroker,
     EventRepository eventRepository,
     ToolRegistry tools,
-    IToolContext toolContext)
+    IToolContext toolContext,
+    SystemContextBuilder systemContext,
+    Compactor compactor)
 {
     // A turn that keeps calling tools without ever finishing is a runaway, not
     // work. This bounds one prompt's tool round-trips.
     private const int MaxToolRounds = 24;
+
+    // The conversation, carried across turns so the agent remembers. The system
+    // context is sampled once per epoch and prefixed at each turn.
+    private readonly List<LLMMessage> _history = [];
+    private string _epochContext = string.Empty;
 
     public string SessionId { get; } = sessionId;
 
@@ -76,17 +84,39 @@ internal sealed class AgentSession(
         // The prompt is durable before execution is requested (principle 1).
         await EmitEvent(started, "user", prompt, cancellationToken).ConfigureAwait(false);
 
+        // Sample the context at the start of an epoch, not every turn.
+        if (_epochContext.Length == 0)
+        {
+            _epochContext = systemContext.Build();
+        }
+
+        _history.Add(LLMMessage.User(prompt));
+
         var snapshot = tools.Snapshot();
-        var messages = new List<LLMMessage> { LLMMessage.User(prompt) };
 
         try
         {
+            // Compact before invoking, so a turn never starts already over the
+            // window. Compaction starts a fresh epoch.
+            if (compactor.ShouldCompact(_history))
+            {
+                _history.Clear();
+                _history.AddRange(
+                    await compactor.Compact(Model, _history, cancellationToken).ConfigureAwait(false));
+                _epochContext = systemContext.Build();
+            }
+
             for (var round = 0; round < MaxToolRounds; round++)
             {
+                var messages = new List<LLMMessage>(_history.Count + 1) { LLMMessage.System(_epochContext) };
+                messages.AddRange(_history);
+
                 var completed = await Provider(snapshot, messages, cancellationToken).ConfigureAwait(false);
 
                 if (completed.ToolCalls.Count == 0)
                 {
+                    _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+
                     var ended = Compose();
                     ended.TurnEnded = new TurnEnded
                     {
@@ -99,12 +129,12 @@ internal sealed class AgentSession(
                     return;
                 }
 
-                messages.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
+                _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
 
                 foreach (var call in completed.ToolCalls)
                 {
                     var result = await Invoke(snapshot, call, cancellationToken).ConfigureAwait(false);
-                    messages.Add(LLMMessage.ToolResult(call.Id, result));
+                    _history.Add(LLMMessage.ToolResult(call.Id, result));
                 }
             }
 

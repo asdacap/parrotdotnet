@@ -1,0 +1,56 @@
+using System.Runtime.InteropServices;
+
+namespace Parrot.Context;
+
+// Builds the system prompt from typed sources. Sampled once per context epoch,
+// not per turn, so the baseline is immutable within an epoch (principle 4).
+//
+// M4 sources: a base prompt, the date, the platform, the working directory, and
+// the AGENTS.md files found from the working directory upward. Skills and richer
+// project metadata arrive with the milestones that own them.
+internal sealed class SystemContextBuilder(string workingDirectory, string date)
+{
+    private const string BasePrompt =
+        "You are parrot, a coding agent. You work in the user's project directory. "
+        + "Use exec_command to run shell commands; the host filesystem is read-only and the "
+        + "working directory is writable. Prefer small, verifiable steps.";
+
+    public string Build()
+    {
+        var text = new System.Text.StringBuilder();
+        _ = text.Append(BasePrompt).Append("\n\n");
+        _ = text.Append("Date: ").Append(date).Append('\n');
+        _ = text.Append("Platform: ").Append(RuntimeInformation.RuntimeIdentifier).Append('\n');
+        _ = text.Append("Working directory: ").Append(workingDirectory).Append('\n');
+
+        foreach (var (path, content) in AgentsFiles())
+        {
+            _ = text.Append("\n--- ").Append(path).Append(" ---\n").Append(content);
+        }
+
+        return text.ToString();
+    }
+
+    // From the working directory upward to the filesystem root, nearest last so
+    // the most specific instructions win by appearing closest to the prompt.
+    private List<(string Path, string Content)> AgentsFiles()
+    {
+        var found = new List<(string, string)>();
+        var directory = new DirectoryInfo(Path.GetFullPath(workingDirectory));
+
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "AGENTS.md");
+
+            if (File.Exists(candidate))
+            {
+                found.Add((candidate, File.ReadAllText(candidate)));
+            }
+
+            directory = directory.Parent;
+        }
+
+        found.Reverse();
+        return found;
+    }
+}

@@ -219,6 +219,14 @@ working: compaction starts a new epoch, and the transcript before the cutoff
 stops being sent. `AGENTS.md` files, skills, and tool guidance appear in the
 system context, sampled only at a safe turn boundary.
 
+**Done.** `SystemContextBuilder` samples base prompt, date, platform, working
+directory, and AGENTS.md files from the cwd upward, once per epoch. AgentSession
+now carries a running history across turns -- verified live: it recalled a
+number stated in an earlier turn. `Compactor` summarises the older history
+through the provider when a token budget is exceeded, keeping the recent tail
+verbatim, and starts a fresh epoch. Skills and durable epoch records are
+deferred to the milestones that own them.
+
 ---
 
 ### M5 — Agents, tasks, subagents
