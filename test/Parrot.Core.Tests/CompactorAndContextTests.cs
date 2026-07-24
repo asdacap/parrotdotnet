@@ -40,15 +40,13 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var broker = new EventBroker();
         var provider = new ScriptedProvider("reply");
         var session = new AgentSession(
-            "agent",
+            AgentIdentity.Main("agent"),
             provider,
             broker,
             new EventRepository(database),
             [],
             new SystemContextBuilder(_workspace, "2026-07-24"),
             new Compactor(tokenBudget: 0),
-            depth: 0,
-            identity: null,
             cancellationToken)
         {
             Model = "model",

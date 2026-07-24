@@ -19,24 +19,20 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         new(".", ".", new ProcessRunner(string.Empty), owner.Lifetime);
 
     public AgentSession Create(
-        string sessionId,
+        AgentIdentity identity,
         ILLMProvider provider,
         string model,
-        int depth,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        AgentIdentity? identity,
         CancellationToken lifetime) =>
         new(
-            sessionId,
+            identity,
             provider,
             eventBroker,
             eventRepository,
             [],
             new SystemContextBuilder(".", "2026-07-24"),
             new Compactor(120_000),
-            depth,
-            identity,
             lifetime)
         {
             Model = model,

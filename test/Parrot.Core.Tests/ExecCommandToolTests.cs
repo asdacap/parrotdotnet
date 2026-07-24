@@ -33,14 +33,13 @@ internal sealed class ExecCommandToolTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var session = new AgentSession(
-            "session",
+            AgentIdentity.Main("session"),
             new UnusedProvider(),
             events,
             new EventRepository(database),
             [],
             new SystemContextBuilder(_workspace, "2026-07-24"),
             new Compactor(120_000),
-            depth: 0,
             CancellationToken.None);
         var processes = new ShellProcessOwner(
             _workspace,

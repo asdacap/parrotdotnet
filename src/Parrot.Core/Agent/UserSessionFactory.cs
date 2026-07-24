@@ -5,7 +5,7 @@ namespace Parrot.Agent;
 
 internal sealed class UserSessionFactory(
     IAgentSessionFactorySource agentSessionFactories,
-    AgentRegistryAdmission agentAdmission) : IUserSessionFactory
+    ProcessAgentConcurrency agentConcurrency) : IUserSessionFactory
 {
     public UserSession Create(
         string id,
@@ -20,5 +20,5 @@ internal sealed class UserSessionFactory(
             model,
             eventRepository,
             agentSessionFactories,
-            agentAdmission);
+            agentConcurrency);
 }

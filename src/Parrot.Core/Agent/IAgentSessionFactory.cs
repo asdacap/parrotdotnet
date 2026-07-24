@@ -11,12 +11,10 @@ namespace Parrot.Agent;
 internal interface IAgentSessionFactory
 {
     AgentSession Create(
-        string sessionId,
+        AgentIdentity identity,
         ILLMProvider provider,
         string model,
-        int depth,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        AgentIdentity? identity,
         CancellationToken lifetime);
 }

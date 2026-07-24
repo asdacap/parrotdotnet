@@ -20,15 +20,13 @@ namespace Parrot.Agent;
 // state itself -- is shared with whatever thread admits or interrupts, and
 // _drainGate is the whole of its synchronisation.
 internal sealed class AgentSession(
-    string sessionId,
+    AgentIdentity identity,
     ILLMProvider provider,
     EventBroker eventBroker,
     EventRepository eventRepository,
     IReadOnlyList<IToolFactory> toolFactories,
     SystemContextBuilder systemContext,
     Compactor compactor,
-    int depth,
-    AgentIdentity? identity,
     CancellationToken lifetime)
 {
     // A turn that keeps calling tools without ever finishing is a runaway, not
@@ -68,7 +66,7 @@ internal sealed class AgentSession(
     // two overlap.
     private bool _stopping;
 
-    public string SessionId { get; } = sessionId;
+    public string SessionId => identity.SessionId;
 
     // Selection is session state: an UpdateSession changes it, a prompt does
     // not. Settable rather than fixed at construction because a running drain
@@ -80,7 +78,7 @@ internal sealed class AgentSession(
 
     // How deep this session sits below the root. The registry refuses a child
     // beyond its recursion limit.
-    public int Depth { get; } = depth;
+    public int Depth => identity.Depth;
 
     // Read without the gate on purpose: a caller asking what a session is doing
     // gets an answer that was true when it asked, which is all any answer to
@@ -470,7 +468,7 @@ internal sealed class AgentSession(
     {
         if (_epochContext.Length == 0)
         {
-            _epochContext = systemContext.Build(identity?.Context ?? string.Empty);
+            _epochContext = systemContext.Build(identity.Context);
         }
 
         if (!compactor.ShouldCompact(_history))
@@ -485,7 +483,7 @@ internal sealed class AgentSession(
 
         _history.Clear();
         _history.AddRange(compacted);
-        _epochContext = systemContext.Build(identity?.Context ?? string.Empty);
+        _epochContext = systemContext.Build(identity.Context);
     }
 
     // Streams one provider call: deltas go out as events, and the terminal

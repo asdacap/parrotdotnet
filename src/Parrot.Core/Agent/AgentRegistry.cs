@@ -10,7 +10,7 @@ namespace Parrot.Agent;
 // concurrency limits. _gate protects admission, names, and active counts.
 internal sealed class AgentRegistry(
     IAgentSessionFactory agentSessions,
-    AgentRegistryAdmission admission,
+    ProcessAgentConcurrency concurrency,
     EventBroker eventBroker,
     EventRepository eventRepository,
     CancellationToken lifetime) : IAsyncDisposable
@@ -70,7 +70,7 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent concurrency limit reached for this parent");
             }
 
-            if (!admission.TryAcquire())
+            if (!concurrency.TryAcquire())
             {
                 throw new AgentRegistryException("subagent concurrency limit reached");
             }
@@ -79,15 +79,13 @@ internal sealed class AgentRegistry(
             {
                 var sessionId = Identifier.AgentSession();
                 var name = UniqueName(requestedName, sessionId);
-                var identity = new AgentIdentity(sessionId, parent.SessionId, name, depth);
+                var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
                 var child = agentSessions.Create(
-                    sessionId,
+                    identity,
                     parent.Provider,
                     parent.Model,
-                    depth,
                     eventBroker,
                     eventRepository,
-                    identity,
                     _lifetime.Token);
                 var entry = new AgentEntry(child, parent.SessionId, name);
 
@@ -105,7 +103,7 @@ internal sealed class AgentRegistry(
             }
             catch
             {
-                admission.Release();
+                concurrency.Release();
                 throw;
             }
         }
@@ -298,7 +296,7 @@ internal sealed class AgentRegistry(
                 _activeByParent[entry.ParentSessionId] = remaining;
             }
 
-            admission.Release();
+            concurrency.Release();
             entry.Complete(completed);
         }
     }
@@ -311,7 +309,7 @@ internal sealed class AgentRegistry(
 
         if (sessionId is null
             || !_entries.TryGetValue(sessionId, out var entry)
-            || !Visible(requester.SessionId, entry))
+            || !IsVisibleTo(requester.SessionId, entry))
         {
             throw new AgentRegistryException($"child agent not found: {sessionIdOrName}");
         }
@@ -319,7 +317,7 @@ internal sealed class AgentRegistry(
         return entry;
     }
 
-    private bool Visible(string requesterSessionId, AgentEntry entry)
+    private bool IsVisibleTo(string requesterSessionId, AgentEntry entry)
     {
         var current = entry;
 

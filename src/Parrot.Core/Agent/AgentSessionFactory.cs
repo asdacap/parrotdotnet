@@ -36,24 +36,20 @@ internal sealed class AgentSessionFactory(
         ];
 
     public AgentSession Create(
-        string sessionId,
+        AgentIdentity identity,
         ILLMProvider provider,
         string model,
-        int depth,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        AgentIdentity? identity,
         CancellationToken lifetime) =>
         new(
-            sessionId,
+            identity,
             provider,
             eventBroker,
             eventRepository,
             ToolFactories,
             systemContext,
             compactor,
-            depth,
-            identity,
             lifetime)
         {
             Model = model,

@@ -29,7 +29,7 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "child says hi", []));
         var sessions = new TestAgentSessions();
         await using var registry = new AgentRegistry(
-            sessions, new AgentRegistryAdmission(), _broker, _repository, cancellationToken);
+            sessions, new ProcessAgentConcurrency(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
         var spawn = new AgentSpawnTool(registry, parent);
         var wait = new WaitAgentTool(registry, parent);
@@ -78,11 +78,11 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 1, "six", []),
             LLMEvent.Completed("stop", 1, 1, "seven", []),
             LLMEvent.Completed("stop", 1, 1, "eight", []));
-        var admission = new AgentRegistryAdmission();
+        var concurrency = new ProcessAgentConcurrency();
         await using var firstRegistry = new AgentRegistry(
-            new TestAgentSessions(), admission, _broker, _repository, cancellationToken);
+            new TestAgentSessions(), concurrency, _broker, _repository, cancellationToken);
         await using var secondRegistry = new AgentRegistry(
-            new TestAgentSessions(), admission, _broker, _repository, cancellationToken);
+            new TestAgentSessions(), concurrency, _broker, _repository, cancellationToken);
         var firstParent = Session(provider, depth: 0, cancellationToken, "first-parent");
         var secondParent = Session(provider, depth: 0, cancellationToken, "second-parent");
         var firstSpawn = new AgentSpawnTool(firstRegistry, firstParent);
@@ -129,7 +129,7 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "unreachable", []));
         var registry = new AgentRegistry(
             new TestAgentSessions(),
-            new AgentRegistryAdmission(),
+            new ProcessAgentConcurrency(),
             _broker,
             _repository,
             cancellationToken);
@@ -152,15 +152,15 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken,
         string sessionId = "agent") =>
         new(
-            sessionId,
+            depth == 0
+                ? AgentIdentity.Main(sessionId)
+                : AgentIdentity.Child(sessionId, "ancestor", "parent", depth),
             provider,
             _broker,
             _repository,
             [],
             new SystemContextBuilder(".", "2026-07-24"),
             new Compactor(120_000),
-            depth,
-            identity: null,
             cancellationToken)
         {
             Model = "model",
@@ -168,32 +168,28 @@ internal sealed class SubagentTests : IDisposable
 
     private sealed class TestAgentSessions : IAgentSessionFactory
     {
-        private readonly List<AgentIdentity?> _identities = [];
+        private readonly List<AgentIdentity> _identities = [];
 
-        public IReadOnlyList<AgentIdentity?> Identities => _identities;
+        public IReadOnlyList<AgentIdentity> Identities => _identities;
 
         public AgentSession Create(
-            string sessionId,
+            AgentIdentity identity,
             ILLMProvider provider,
             string model,
-            int depth,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            AgentIdentity? identity,
             CancellationToken lifetime)
         {
             _identities.Add(identity);
 
             return new AgentSession(
-                sessionId,
+                identity,
                 provider,
                 eventBroker,
                 eventRepository,
                 [],
                 new SystemContextBuilder(".", "2026-07-24"),
                 new Compactor(120_000),
-                depth,
-                identity,
                 lifetime)
             {
                 Model = model,

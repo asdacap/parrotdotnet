@@ -25,15 +25,13 @@ internal sealed class EventPayloadTests
         // under test should take the same path production does.
         using var database = SessionDatabase.Open(":memory:");
         var session = new AgentSession(
-            "session",
+            AgentIdentity.Main("session"),
             new UnusedProvider(),
             events,
             new EventRepository(database),
             [],
             new SystemContextBuilder(".", "2026-07-24"),
             new Compactor(120_000),
-            depth: 0,
-            identity: null,
             CancellationToken.None);
 
         var llmEvent = source switch

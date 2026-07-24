@@ -1,6 +1,6 @@
 namespace Parrot.Agent;
 
-internal sealed class AgentRegistryAdmission
+internal sealed class ProcessAgentConcurrency
 {
     private const int MaxConcurrent = 8;
 
