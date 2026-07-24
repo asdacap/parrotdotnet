@@ -4,4 +4,8 @@
     <RootNamespace>Parrot</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Parrot.Core.Tests" />
+  </ItemGroup>
+
 </Project>

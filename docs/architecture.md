@@ -573,11 +573,12 @@ attaches `session_id` and `task_id`, and renders the one-line `text` the wire
 event requires.
 
 This listing was compiled against the repository's analyzers before being
-written down, and three things changed because of it: the sink parameter is
-`llmEvent` rather than `@event`, since CA1716 rejects a reserved keyword on an
-interface member even when escaped; empty defaults are `string.Empty`, not `""`
-(SA1122); and the properties carry blank lines between them (SA1516). Worth
-doing for a shape other code will be written against.
+written down. Empty defaults are `string.Empty`, not `""` (SA1122), and the
+properties carry blank lines between them (SA1516). The sink parameter is
+`llmEvent` rather than `@event` because escaping a keyword in your own parameter
+name is a smell, not because a rule demands it — CA1716, which flags keyword
+clashes for cross-language implementers, is off repo-wide since Parrot is an
+application and not a library.
 
 ### The session event
 

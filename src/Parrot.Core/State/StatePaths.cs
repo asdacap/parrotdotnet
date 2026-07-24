@@ -1,0 +1,47 @@
+namespace Parrot.State;
+
+public sealed class StatePaths(string state, string config, string data)
+{
+    public string State { get; } = state;
+
+    public string Config { get; } = config;
+
+    public string Data { get; } = data;
+
+    public string ConfigFile => Path.Combine(Config, "config.yaml");
+
+    public string CredentialsFile => Path.Combine(Data, "credentials.json");
+
+    public static StatePaths Resolve(IReadOnlyDictionary<string, string> environment)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+
+        var home = Lookup(environment, "HOME");
+
+        return new StatePaths(
+            Path.Combine(Fallback(Lookup(environment, "XDG_STATE_HOME"), home, ".local", "state"), "parrot"),
+            Path.Combine(Fallback(Lookup(environment, "XDG_CONFIG_HOME"), home, ".config"), "parrot"),
+            Path.Combine(Fallback(Lookup(environment, "XDG_DATA_HOME"), home, ".local", "share"), "parrot"));
+    }
+
+    public static StatePaths ResolveFromEnvironment()
+    {
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string key && entry.Value is string value)
+            {
+                environment[key] = value;
+            }
+        }
+
+        return Resolve(environment);
+    }
+
+    private static string Lookup(IReadOnlyDictionary<string, string> environment, string name) =>
+        environment.TryGetValue(name, out var value) ? value : string.Empty;
+
+    private static string Fallback(string preferred, string home, params string[] relative) =>
+        preferred.Length > 0 ? preferred : Path.Combine([home, .. relative]);
+}

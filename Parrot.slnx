@@ -8,5 +8,6 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Parrot.Cli.Tests/Parrot.Cli.Tests.csproj" />
+    <Project Path="test/Parrot.Core.Tests/Parrot.Core.Tests.csproj" />
   </Folder>
 </Solution>
