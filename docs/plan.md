@@ -65,9 +65,13 @@ compaction), `ParrotService`, `InProcessChannel`, `CommandDispatcher`,
 **Exit.**
 
 ```sh
-parrot auth login <provider> --api-key-stdin
-parrot chat --model <model>     # type a prompt, see the reply stream back
+parrot auth login opencode-go --api-key-stdin
+parrot chat --model opencode-go/deepseek-v4-pro
 ```
+
+`opencode-go` is M1's provider and `deepseek-v4-pro` its default model, both
+verified end to end through the ported provider — 5 text deltas, 48 reasoning
+deltas, `finish_reason: stop`.
 
 **Retires.** The two risks that would invalidate the most work if found late:
 
