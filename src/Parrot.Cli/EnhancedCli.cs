@@ -531,48 +531,83 @@ internal sealed class EnhancedCli(
         Func<Task> stopSpinner,
         CancellationToken cancellationToken)
     {
-        var activity = new RawActivityView(
-            renderer,
-            prompt,
-            () => new ModelineValue(context.Mode, "working", context.Model));
         var spinning = true;
 
-        async Task BeforeRender(Event published, CancellationToken token)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            if (spinning)
+            var activity = new RawActivityView(
+                renderer,
+                prompt,
+                () => new ModelineValue(context.Mode, "working", context.Model));
+
+            async Task BeforeRender(Event published, CancellationToken token)
             {
-                spinning = false;
-                await stopSpinner().ConfigureAwait(false);
+                if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
+                {
+                    _busy = true;
+                }
+
+                if (spinning)
+                {
+                    spinning = false;
+                    await stopSpinner().ConfigureAwait(false);
+                }
+
+                await activity.Prepare(published, token).ConfigureAwait(false);
             }
 
-            await activity.Prepare(published, token).ConfigureAwait(false);
-        }
+            var completed = await RenderTurn(
+                stream,
+                output,
+                error,
+                columns,
+                cancellationToken,
+                BeforeRender,
+                false,
+                activity.Render).ConfigureAwait(false);
+            if (!completed)
+            {
+                return;
+            }
 
-        _ = await RenderTurn(
-            stream,
-            output,
-            error,
-            columns,
-            cancellationToken,
-            BeforeRender,
-            false,
-            activity.Render).ConfigureAwait(false);
-
-        _busy = false;
-        _interruptRequested = false;
-        if (!cancellationToken.IsCancellationRequested)
-        {
-            await DrawEditor(renderer, prompt(), context, cancellationToken).ConfigureAwait(false);
+            _busy = false;
+            _interruptRequested = false;
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await DrawEditor(renderer, prompt(), context, cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
     private async Task Render(
         IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
     {
-        _ = await RenderTurn(stream, output, error, columns, cancellationToken).ConfigureAwait(false);
-        _busy = false;
-        _interruptRequested = false;
-        await Ready(output, cancellationToken).ConfigureAwait(false);
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var completed = await RenderTurn(
+                stream,
+                output,
+                error,
+                columns,
+                cancellationToken,
+                (published, _) =>
+                {
+                    if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
+                    {
+                        _busy = true;
+                    }
+
+                    return Task.CompletedTask;
+                }).ConfigureAwait(false);
+            if (!completed)
+            {
+                return;
+            }
+
+            _busy = false;
+            _interruptRequested = false;
+            await Ready(output, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task Interrupting(SlashContext context, CancellationToken cancellationToken)

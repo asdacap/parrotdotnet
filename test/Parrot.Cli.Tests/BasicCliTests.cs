@@ -100,6 +100,35 @@ internal sealed class BasicCliTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
+    public async Task A_queued_turn_is_rendered_without_another_message(
+        bool enhanced,
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced);
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("first prompt");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event { Id = "start-1", TurnStarted = new TurnStarted { Model = "model" } });
+
+        driver.Input.Type("queued prompt");
+        await driver.Sent(2, cancellationToken);
+        await driver.Invoker.Publish(new Event { Id = "text-1", TextChunk = new TextChunk { Fragment = "first answer" } });
+        await driver.Invoker.Publish(new Event { Id = "end-1", TurnEnded = new TurnEnded { FinishReason = "stop" } });
+        await driver.Invoker.Publish(new Event { Id = "start-2", TurnStarted = new TurnStarted { Model = "model" } });
+        await driver.Invoker.Publish(new Event { Id = "text-2", TextChunk = new TextChunk { Fragment = "queued answer" } });
+        await driver.Invoker.Publish(new Event { Id = "end-2", TurnEnded = new TurnEnded { FinishReason = "stop" } });
+
+        await driver.OutputContains("queued answer", cancellationToken);
+        driver.Input.End();
+        _ = await driving;
+
+        _ = await Assert.That(driver.Invoker.Sent.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Ctrl_c_stops_the_turn_once_and_then_stops_parrot(
         bool enhanced,
         CancellationToken cancellationToken)

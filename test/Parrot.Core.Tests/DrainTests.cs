@@ -76,6 +76,34 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task A_drain_continues_until_every_queued_prompt_is_answered(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer("first answer"), Answer("second answer"), Answer("third answer"));
+        var repository = new EventRepository(_database);
+        var session = Session(provider, repository, [], cancellationToken);
+
+        _ = await session.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await session.Admit("second prompt", "msg-2", Delivery.Queue, cancellationToken);
+        _ = await session.Admit("third prompt", "msg-3", Delivery.Queue, cancellationToken);
+
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(provider.Requests.Count).IsEqualTo(3);
+        _ = await Assert.That(repository.HasPendingInputs("agent")).IsFalse();
+        _ = await Assert.That(Conversation(repository)).IsEqualTo(
+            "user: first prompt | assistant: first answer | user: second prompt | assistant: second answer | "
+            + "user: third prompt | assistant: third answer");
+    }
+
+    [Test]
     public async Task A_steer_admitted_during_a_tool_round_joins_the_turn_already_running(
         CancellationToken cancellationToken)
     {
