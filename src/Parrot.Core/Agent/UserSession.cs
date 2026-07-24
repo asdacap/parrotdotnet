@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Store;
 
@@ -50,6 +51,7 @@ internal sealed class UserSession : IAsyncDisposable
         Model = model;
         _eventRepository = eventRepository;
         _provider = provider;
+        ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this, provider);
     }
 
@@ -64,6 +66,10 @@ internal sealed class UserSession : IAsyncDisposable
     // would otherwise be free to see a null _main, skip, and lose the selection
     // the turn is about to run with.
     public string Model { get; private set; }
+
+    internal CancellationToken Lifetime => _lifetime.Token;
+
+    internal ShellProcessOwner ShellProcesses { get; }
 
     // Assigned, never rebuilt. The main session holds the conversation, the
     // input admitted against it and the drain that may be running: replacing it
@@ -127,6 +133,7 @@ internal sealed class UserSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _lifetime.CancelAsync().ConfigureAwait(false);
+        await ShellProcesses.Settle().ConfigureAwait(false);
 
         foreach (var agent in _agents.Values)
         {

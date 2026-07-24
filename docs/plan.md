@@ -207,6 +207,14 @@ what it wrote). `WebFetcher` pins DNS-resolved addresses through an
 the interactive permission flow waits for a tool that needs `disable_sandbox`.
 Recorded as an M3 remainder.
 
+**Expanded process lifecycle.** `exec_command` may reserve a supplied or
+session-generated name and yield without cancelling the sandboxed run;
+`wait_shell` may later claim it. Names remain reserved for the user-session
+lifetime. Completion not claimed by a successful wait is admitted exactly once
+as a durable steer to the invoking main or child agent. User-session disposal
+cancels and joins all remaining process trees while preserving bounded output
+and spill persistence.
+
 **Divergence found:** `deepseek-v4-pro` on opencode-go 400s on tool-continuation
 (other models -- glm, kimi, qwen, minimax -- work), so the built-in default
 moved to `glm-5.2`. Recorded in components.md.

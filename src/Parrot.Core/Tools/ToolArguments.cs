@@ -31,6 +31,45 @@ internal sealed class ToolArguments(string json) : IDisposable
             : string.Empty;
     }
 
+    public string? OptionalStrictString(string name)
+    {
+        var root = _document.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.String)
+        {
+            throw new FormatException($"Tool argument '{name}' must be a string.");
+        }
+
+        return value.GetString() ?? string.Empty;
+    }
+
+    public TimeSpan? OptionalDelay(string name)
+    {
+        const long maxDelayMilliseconds = uint.MaxValue - 1L;
+        var root = _document.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.Number
+            || !value.TryGetInt64(out var milliseconds)
+            || milliseconds < 0
+            || milliseconds > maxDelayMilliseconds)
+        {
+            throw new FormatException(
+                $"Tool argument '{name}' must be a non-negative integer no greater than {maxDelayMilliseconds}.");
+        }
+
+        return TimeSpan.FromMilliseconds(milliseconds);
+    }
+
     public int? OptionalInt(string name)
     {
         var root = _document.RootElement;
