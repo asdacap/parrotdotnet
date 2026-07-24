@@ -1,7 +1,11 @@
 using System.Threading.Channels;
 using Grpc.Core;
+using Parrot.Auth;
 using Parrot.Cli.Commands;
+using Parrot.Config;
+using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.State;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
@@ -26,6 +30,63 @@ internal sealed class EnhancedCli(
         Interrupts interrupts)
         : this(client, commands, interrupts, static () => Console.WindowWidth)
     {
+    }
+
+    public static async Task<int> Drive(
+        GeneratedParrot.ParrotClient client,
+        SlashCommandRegistry commands,
+        Interrupts interrupts,
+        StatePaths paths,
+        Configuration configuration,
+        OpenAiOAuthClient oauthClient,
+        string model,
+        string prompt,
+        TextReader input,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
+        var text = prompt;
+
+        if (text.Length == 0 && Console.IsInputRedirected)
+        {
+            text = (await input.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+
+            if (text.Length == 0)
+            {
+                return CommandDispatcher.ExitUsage;
+            }
+        }
+
+        using var credentials = new FileCredentialStore(paths.CredentialsFile);
+
+        UserSession session;
+
+        try
+        {
+            session = await client.CreateSessionAsync(
+                new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
+        }
+        catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
+        {
+            await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return CommandDispatcher.ExitFailure;
+        }
+
+        var context = new SlashContext(
+            client,
+            credentials,
+            oauthClient,
+            configuration,
+            ProviderRegistryBuilder.BuildableProviderIds(configuration),
+            session.Id,
+            input,
+            output,
+            error);
+
+        var cli = new EnhancedCli(client, commands, interrupts);
+        return await cli.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<int> Run(
