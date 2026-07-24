@@ -202,7 +202,7 @@ internal sealed class EnhancedCliTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false));
-        var view = new EnhancedCli.RawActivityView(
+        using var view = new EnhancedCli.RawActivityView(
             renderer,
             static () => new PromptValue("> ", string.Empty, 0),
             static () => new ModelineValue("build", "working", "provider/model"));
@@ -227,8 +227,8 @@ internal sealed class EnhancedCliTests
 
         var rendered = output.ToString();
         var command = "tool call exec_command: {\"command\":\"dotnet test\"}";
-        _ = await Assert.That(rendered).Contains(command + "\r\n+ exec_command finished\r\n");
-        _ = await Assert.That(Count(rendered, command + "\r\n")).IsEqualTo(1);
+        _ = await Assert.That(Count(rendered, "+ " + command + "\r\n")).IsEqualTo(1);
+        _ = await Assert.That(rendered).DoesNotContain("exec_command finished");
     }
 
     [Test]
