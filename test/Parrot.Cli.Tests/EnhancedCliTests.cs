@@ -87,13 +87,14 @@ internal sealed class EnhancedCliTests
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error).IsEmpty();
-        _ = await Assert.That(output).DoesNotContain("already visible");
+        _ = await Assert.That(output).Contains("  input admitted: already visible");
+        _ = await Assert.That(output).Contains("  turn started: model");
         _ = await Assert.That(output).Contains("Status prompt injected");
         _ = await Assert.That(output).Contains("  queued: next[2J    line");
         _ = await Assert.That(output).Contains("think]0;title\n");
         _ = await Assert.That(output).Contains("abcdefgh\n");
         _ = await Assert.That(output).Contains("ij\n");
-        _ = await Assert.That(output).DoesNotContain("unrendered");
+        _ = await Assert.That(output).Contains("  tool call unrendered:");
         _ = await Assert.That(output).Contains("  * shell[31m started");
         _ = await Assert.That(output).Contains("  + shell[31m finished");
         _ = await Assert.That(output).Contains("  - read[2J cancelled");
@@ -109,7 +110,7 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
-    public async Task Before_render_runs_once_for_the_first_visible_event(CancellationToken cancellationToken)
+    public async Task Before_render_runs_once_before_the_first_event(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();
         Event[] events =
@@ -149,8 +150,14 @@ internal sealed class EnhancedCliTests
             BeforeRender);
 
         _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(string.Join(',', callbackIds)).IsEqualTo("first-visible");
-        _ = await Assert.That(output.ToString()).StartsWith("before:first-visible|");
+        _ = await Assert.That(string.Join(',', callbackIds)).IsEqualTo("none");
+        _ = await Assert.That(output.ToString()).StartsWith("before:none|");
+        _ = await Assert.That(output.ToString()).Contains("event none has no payload");
+        _ = await Assert.That(output.ToString()).Contains("input admitted: sent");
+        _ = await Assert.That(output.ToString()).Contains("input promoted: input");
+        _ = await Assert.That(output.ToString()).Contains("retry 1 in 0 ms:");
+        _ = await Assert.That(output.ToString()).Contains("turn started: model");
+        _ = await Assert.That(output.ToString()).Contains("tool call shell:");
     }
 
     [Test]

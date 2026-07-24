@@ -34,6 +34,17 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    [Arguments(0x0a)]
+    [Arguments(0x0d)]
+    public async Task Decoder_treats_lf_and_cr_as_submit(int value)
+    {
+        var decoded = new TerminalKeyDecoder().Feed([(byte)value]);
+
+        _ = await Assert.That(decoded.Count).IsEqualTo(1);
+        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.Submit));
+    }
+
+    [Test]
     public async Task Decoder_bounds_bracketed_paste_to_sixty_four_kibibytes()
     {
         var decoder = new TerminalKeyDecoder();

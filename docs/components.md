@@ -88,10 +88,13 @@ arguments. Actual execution emits `ToolStarted`, followed by exactly one of
 call id and name; errors also carry their message. Calls skipped after an
 interrupt emit `ToolCancelled` without `ToolStarted` because they never ran.
 Both CLIs render these events directly rather than inferring execution state
-from argument chunks or tool-result text.
+from argument chunks or tool-result text. `EnhancedCli` additionally emits each
+`ToolCallChunk` as provider activity so no streamed event is silent; it does not
+interpret a chunk as execution.
 
 **Why.** Separating provider streaming from execution gives clients an
-unambiguous, durable lifecycle and prevents duplicate tool announcements.
+unambiguous, durable lifecycle even when enhanced chat also exposes the provider
+stream for diagnostics.
 
 **Affects.** The `Event` message, `AgentSession`, `BasicCli`, and `EnhancedCli`.
 
@@ -749,8 +752,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   renderer** owns display-width layout, sanitisation, bounded mutable rows,
   serialized ANSI cursor operations, the raw-mode thinking animation, and
   promotion of stable rows into ordinary terminal scrollback.
-- **Inbound** the same event stream and payloads as `BasicCli`; terminal width is
-  sampled while laying out each enhanced frame.
+- **Inbound** the same event stream and payloads as `BasicCli`; every event is
+  rendered so admission, promotion, turn, retry, provider, tool, agent, and
+  completion activity remains observable. Terminal width is sampled while
+  laying out each enhanced frame.
 - **Outbound** the generated gRPC client and a `TextWriter` representing the
   terminal. Provider text crosses this boundary only after control-character
   sanitisation.
@@ -762,7 +767,8 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   movement, multiline input, bracketed paste, editing controls, and a modeline;
   line-buffered input remains the fallback when raw mode is unavailable or
   `TERM=dumb`. After prompt submission, a raw-mode thinking frame animates until
-  the first visible turn event; completion, interruption, EOF, cancellation,
+  the first streamed event, which is rendered before later events; completion,
+  interruption, EOF, cancellation,
   and failures cancel and join the animation before clearing it. Picker,
   markdown, modal prompts, and richer multi-row activity frames remain deferred
   M7 work.

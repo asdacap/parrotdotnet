@@ -142,16 +142,12 @@ internal sealed class EnhancedCli(
 
         var view = new TurnView(output, error, columns);
         var waitingForVisibleEvent = beforeRender is not null;
-        var turnStarted = false;
 
         try
         {
             while (await stream.MoveNext(cancellationToken).ConfigureAwait(false))
             {
-                turnStarted |= stream.Current.PayloadCase == Event.PayloadOneofCase.TurnStarted;
-                if (waitingForVisibleEvent &&
-                    beforeRender is { } callback &&
-                    IsVisible(stream.Current, turnStarted))
+                if (waitingForVisibleEvent && beforeRender is { } callback)
                 {
                     waitingForVisibleEvent = false;
                     await callback(stream.Current, cancellationToken).ConfigureAwait(false);
@@ -173,17 +169,6 @@ internal sealed class EnhancedCli(
             return false;
         }
     }
-
-    private static bool IsVisible(Event published, bool turnStarted) => published.PayloadCase switch
-    {
-        Event.PayloadOneofCase.InputAdmitted => turnStarted,
-        Event.PayloadOneofCase.None or
-        Event.PayloadOneofCase.TurnStarted or
-        Event.PayloadOneofCase.ToolCallChunk or
-        Event.PayloadOneofCase.InputPromoted or
-        Event.PayloadOneofCase.RetryNotice => false,
-        _ => true,
-    };
 
     private static SendMessageRequest Message(string userSessionId, string text) =>
         new()
@@ -609,13 +594,29 @@ internal sealed class EnhancedCli(
 
             switch (published.PayloadCase)
             {
-                case Event.PayloadOneofCase.TurnStarted:
-                    _started = true;
+                case Event.PayloadOneofCase.None:
+                    await output.WriteLineAsync(
+                        $"{Dim}  event {TerminalText.Sanitize(published.Id)} has no payload{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
                     break;
 
-                case Event.PayloadOneofCase.InputAdmitted when _started:
+                case Event.PayloadOneofCase.TurnStarted:
+                    _started = true;
                     await output.WriteLineAsync(
-                        $"{Dim}  queued: {TerminalText.Sanitize(published.InputAdmitted.Content)}{Reset}".AsMemory(),
+                        $"{Dim}  turn started: {TerminalText.Sanitize(published.TurnStarted.Model)}{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.InputAdmitted:
+                    var admission = _started ? "queued" : "input admitted";
+                    await output.WriteLineAsync(
+                        $"{Dim}  {admission}: {TerminalText.Sanitize(published.InputAdmitted.Content)}{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.InputPromoted:
+                    await output.WriteLineAsync(
+                        $"{Dim}  input promoted: {TerminalText.Sanitize(published.InputPromoted.InputId)}{Reset}".AsMemory(),
                         cancellationToken).ConfigureAwait(false);
                     break;
 
@@ -633,6 +634,21 @@ internal sealed class EnhancedCli(
                     _textActive = true;
                     await _live.Append(
                         new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ToolCallChunk:
+                    await output.WriteLineAsync(
+                        ($"{Dim}  tool call {TerminalText.Sanitize(published.ToolCallChunk.ToolName)}: " +
+                         $"{TerminalText.Sanitize(published.ToolCallChunk.ArgumentsFragment)}{Reset}").AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.RetryNotice:
+                    await output.WriteLineAsync(
+                        ($"{Dim}  retry {published.RetryNotice.Attempt} in " +
+                         $"{published.RetryNotice.RetryAfterMs} ms: " +
+                         $"{TerminalText.Sanitize(published.RetryNotice.Reason)}{Reset}").AsMemory(),
                         cancellationToken).ConfigureAwait(false);
                     break;
 
