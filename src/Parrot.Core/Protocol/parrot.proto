@@ -12,29 +12,34 @@ package parrot.v1;
 // resume the stream without re-sending the prompt.
 service Parrot {
   rpc ListModels (ListModelsRequest) returns (ListModelsResponse);
-  rpc CreateSession (CreateSessionRequest) returns (Session);
-  rpc UpdateSession (UpdateSessionRequest) returns (Session);
+  rpc CreateSession (CreateSessionRequest) returns (UserSession);
+  rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
   rpc Listen (ListenRequest) returns (stream Event);
 }
 
-// The model is session state, not a property of a message: selection belongs
-// to the session (see AgentSession in components.md), so changing it is an
-// explicit UpdateSession rather than a different value on the next prompt.
-message Session {
-  string id                = 1;
-  string model             = 2;
-  string parent_session_id = 3;
+// A UserSession, which is what the API deals in: one working directory's
+// session, owning its database and its event stream.
+//
+// AgentSessions live inside it and are not addressable here. A user never
+// spawns a subagent -- an agent does, into a background child session whose
+// events surface on this same stream -- so there is no parent id on this
+// message and no way to ask for one.
+//
+// The model is session state, not a property of a message, so changing it is
+// an explicit UpdateSession rather than a different value on the next prompt.
+message UserSession {
+  string id    = 1;
+  string model = 2;
 }
 
 message CreateSessionRequest {
-  string model             = 1;
-  string parent_session_id = 2;
+  string model = 1;
 }
 
 message UpdateSessionRequest {
-  string id    = 1;
-  string model = 2;
+  string user_session_id = 1;
+  string model           = 2;
 }
 
 message ListModelsRequest {}
@@ -49,8 +54,8 @@ message Model {
 }
 
 message SendMessageRequest {
-  string session_id = 1;
-  string text       = 2;
+  string user_session_id = 1;
+  string text            = 2;
 }
 
 message SendMessageResponse {
@@ -58,7 +63,7 @@ message SendMessageResponse {
 }
 
 message ListenRequest {
-  string session_id = 1;
+  string user_session_id = 1;
 }
 
 // Flat, and named by its session.
@@ -76,8 +81,9 @@ message ListenRequest {
 // use and no test could exercise. It arrives with tasks at M5, where a task
 // belongs to the session that started it and tasks do not nest.
 message Event {
-  string id         = 1;
-  string session_id = 2;
+  string id              = 1;
+  // The agent session that produced it, which may be a background subagent.
+  string agent_session_id = 2;
 
   oneof payload {
     TurnStarted     turn_started     = 3;

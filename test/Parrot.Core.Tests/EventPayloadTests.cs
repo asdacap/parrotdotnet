@@ -35,7 +35,7 @@ internal sealed class EventPayloadTests
         var published = await FirstOf(events, cancellationToken);
 
         await Assert.That(published.PayloadCase).IsEqualTo(expectedPayload);
-        await Assert.That(published.SessionId).IsEqualTo("session");
+        await Assert.That(published.AgentSessionId).IsEqualTo("session");
         await Assert.That(published.Id).IsNotEmpty();
     }
 

@@ -1,15 +1,16 @@
 using System.Collections.Concurrent;
 using Grpc.Core;
-using Parrot.Agent;
-using Parrot.Events;
 using Parrot.Llm;
 
 namespace Parrot.Protocol;
 
 // The gRPC contract. Commands in, one flat event stream out.
+//
+// It deals in user sessions only. Agent sessions live inside one and are not
+// addressable here, because a user never spawns a subagent -- an agent does.
 internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase
 {
-    private readonly ConcurrentDictionary<string, SessionHost> _sessions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
 
     public override async Task<ListModelsResponse> ListModels(ListModelsRequest request, ServerCallContext context)
     {
@@ -26,32 +27,28 @@ internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase
         return response;
     }
 
-    public override Task<Session> CreateSession(CreateSessionRequest request, ServerCallContext context)
+    public override Task<UserSession> CreateSession(CreateSessionRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var host = Host(Identifier.New());
-        host.Session.Model = request.Model;
-        host.ParentSessionId = request.ParentSessionId;
+        var created = new Agent.UserSession(Identifier.New(), request.Model, provider);
+        _ = _userSessions.TryAdd(created.Id, created);
 
-        return Task.FromResult(Describe(host));
+        return Task.FromResult(Describe(created));
     }
 
-    public override Task<Session> UpdateSession(UpdateSessionRequest request, ServerCallContext context)
+    public override Task<UserSession> UpdateSession(UpdateSessionRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (!_sessions.TryGetValue(request.Id, out var host))
-        {
-            throw new RpcException(new Status(StatusCode.NotFound, $"no session {request.Id}"));
-        }
+        var found = Find(request.UserSessionId);
 
         if (request.Model.Length > 0)
         {
-            host.Session.Model = request.Model;
+            found.Model = request.Model;
         }
 
-        return Task.FromResult(Describe(host));
+        return Task.FromResult(Describe(found));
     }
 
     public override Task<SendMessageResponse> SendMessage(SendMessageRequest request, ServerCallContext context)
@@ -59,18 +56,16 @@ internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
 
-        if (!_sessions.TryGetValue(request.SessionId, out var host))
-        {
-            throw new RpcException(new Status(StatusCode.NotFound, $"no session {request.SessionId}"));
-        }
-
         // Admitting the prompt does not wait for the turn, and does not require
         // anyone to be listening.
-        host.Turn = host.Session.Run(request.Text, context.CancellationToken);
+        Find(request.UserSessionId).Send(request.Text, context.CancellationToken);
 
         return Task.FromResult(new SendMessageResponse { MessageId = Identifier.New() });
     }
 
+    // Indefinite. It ends when the client stops listening or the call is
+    // cancelled -- not when a turn finishes, because a subagent spawned by the
+    // agent keeps publishing to this same stream long afterwards.
     public override async Task Listen(
         ListenRequest request,
         IServerStreamWriter<Event> responseStream,
@@ -80,30 +75,19 @@ internal sealed class ParrotService(ILLMProvider provider) : Parrot.ParrotBase
         ArgumentNullException.ThrowIfNull(responseStream);
         ArgumentNullException.ThrowIfNull(context);
 
-        var host = Host(request.SessionId);
+        var found = Find(request.UserSessionId);
 
-        await foreach (var published in host.Events.Subscribe(context.CancellationToken).ConfigureAwait(false))
+        await foreach (var published in found.Listen(context.CancellationToken).ConfigureAwait(false))
         {
             await responseStream.WriteAsync(published, context.CancellationToken).ConfigureAwait(false);
         }
-
-        await host.Turn.ConfigureAwait(false);
     }
 
-    private static Session Describe(SessionHost host) =>
-        new()
-        {
-            Id = host.Session.SessionId,
-            Model = host.Session.Model,
-            ParentSessionId = host.ParentSessionId,
-        };
+    private static UserSession Describe(Agent.UserSession session) =>
+        new() { Id = session.Id, Model = session.Model };
 
-    private SessionHost Host(string sessionId) =>
-        _sessions.GetOrAdd(
-            sessionId,
-            id =>
-            {
-                var events = new EventBroker();
-                return new SessionHost(new AgentSession(id, provider, events), events);
-            });
+    private Agent.UserSession Find(string userSessionId) =>
+        _userSessions.TryGetValue(userSessionId, out var found)
+            ? found
+            : throw new RpcException(new Status(StatusCode.NotFound, $"no user session {userSessionId}"));
 }

@@ -400,10 +400,19 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   subagents — so `Event` does not carry one. A field holding a fabricated id
   that no client can use and no test can exercise is the "stub that returns a
   plausible value" MIGRATION.md §7 forbids. It arrives with `TaskManager`.
-- **Inbound** five calls. `ListModels`; `CreateSession(model)` and
-  `UpdateSession(id, model)`; `SendMessage(session_id, text)`; and
-  `Listen(session_id)` streaming that session's flat `Event`s. Upholds
+- **Inbound** five calls, all in terms of **user sessions**. `ListModels`;
+  `CreateSession(model)` and `UpdateSession(user_session_id, model)`;
+  `SendMessage(user_session_id, text)`; and `Listen(user_session_id)`. Upholds
   principle 11 — local and remote use one contract.
+- **Agent sessions are not addressable.** A user never spawns a subagent; an
+  agent does, into a background child session. So there is no parent id on the
+  wire and no way to ask for one. An `Event` names the agent session that
+  produced it, which may be a subagent, and they all surface on the one user
+  session stream — which is why a client needs a single subscription however
+  deep the recursion goes.
+- **`Listen` is indefinite.** It ends when the client stops listening, not when
+  a turn finishes, because a subagent keeps publishing long afterwards. The
+  client decides when it has heard enough; `BasicCli` cancels on `TurnEnded`.
 - **The model is session state, not a message property.** Selection belongs to
   `AgentSession`, so changing it is an explicit `UpdateSession` rather than a
   different value on the next prompt. A session is created explicitly too:

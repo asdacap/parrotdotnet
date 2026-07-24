@@ -18,8 +18,8 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
         var response = request switch
         {
             ListModelsRequest list => Cast<TResponse, ListModelsResponse>(service.ListModels(list, context)),
-            CreateSessionRequest create => Cast<TResponse, Session>(service.CreateSession(create, context)),
-            UpdateSessionRequest update => Cast<TResponse, Session>(service.UpdateSession(update, context)),
+            CreateSessionRequest create => Cast<TResponse, UserSession>(service.CreateSession(create, context)),
+            UpdateSessionRequest update => Cast<TResponse, UserSession>(service.UpdateSession(update, context)),
             SendMessageRequest send => Cast<TResponse, SendMessageResponse>(service.SendMessage(send, context)),
             _ => throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}"),
         };

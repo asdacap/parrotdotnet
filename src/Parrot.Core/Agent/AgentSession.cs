@@ -14,6 +14,8 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
     // Selection is session state: an UpdateSession changes it, a prompt does not.
     public string Model { get; set; } = string.Empty;
 
+    public Task Turn { get; private set; } = Task.CompletedTask;
+
     public async Task Run(string prompt, CancellationToken cancellationToken)
     {
         var started = Compose();
@@ -49,11 +51,12 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
             failed.TurnFailed = new TurnFailed { Message = failure.Message };
             await events.Publish(failed, cancellationToken).ConfigureAwait(false);
         }
-        finally
-        {
-            events.Complete();
-        }
     }
+
+    // The turn is started, not awaited: admitting a prompt does not wait for it,
+    // and the event stream stays open afterwards for whatever comes next.
+    public void Start(string prompt, CancellationToken cancellationToken) =>
+        Turn = Run(prompt, cancellationToken);
 
     public ValueTask Publish(LLMEvent llmEvent, CancellationToken cancellationToken)
     {
@@ -94,5 +97,5 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
     }
 
     private Event Compose() =>
-        new() { Id = Identifier.New(), SessionId = SessionId };
+        new() { Id = Identifier.New(), AgentSessionId = SessionId };
 }
