@@ -51,6 +51,33 @@ deleted rather than skipped, and no block in `architecture.md` absorbs it.
 | Transactional file edits | `internal/change` (1172 lines): the all-or-nothing apply, rollback, and `FileStore`/`FileState` machinery | Dropped entirely by decision, 2026-07-24. Tools write files directly. `apply_patch` is kept and the patch model and parsing survive with it, folded into the tool. It applies directly, so a failed apply can leave files partially written and must report what it wrote. |
 | Windows support | Windows paths, credential storage, process trees, terminal behaviour | Upstream targets macOS and Linux; so does this. |
 
+## Deliberate divergences
+
+MIGRATION.md §1 permits changing anything outside the load-bearing invariants,
+*provided the divergence is recorded*. This is where. An undocumented change is
+indistinguishable from a porting mistake when a test fails six components later.
+
+### Tasks do not nest
+
+**Upstream.** A task may have a parent task, so tasks form a tree rooted at the
+session's main task; `task.start` carries `parent_task_id`; the main task of a
+subagent child session is the subagent task itself.
+
+**Here.** A task belongs to exactly one session — the session that started it is
+its parent. Sessions nest via `parent_session_id`; tasks do not. There is no
+`parent_task_id`, no task tree, and a session has no task id of its own.
+
+**Why.** A client had to rebuild the task tree from `parent_task_id` to make
+sense of a stream, which is work every client repeated and precisely what
+`BasicCli` is not allowed to do. Recursion now has one shape instead of two,
+at the session level, which is already where child lifetime and recursion
+limits live.
+
+**Affects.** The `Event` message, `TaskManager`, `AgentSession`, and the
+task lifecycle events. Upstream tests asserting task parentage are rewritten
+against session parentage rather than deleted — the behaviour still exists, it
+is attributed differently.
+
 ## Entry template
 
 One section per component. An entry is not complete until every field is filled.

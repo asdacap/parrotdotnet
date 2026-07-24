@@ -45,8 +45,8 @@ open questions are answered, and the document has been reviewed. No `<Namespace>
 placeholders left.
 
 **Forces.** The remaining five open questions. The one that blocked M1 — how
-`ILLMProvider` streams — is answered: `Call` takes an `IEventSink` and returns
-`Task<LLMResult>`.
+`ILLMProvider` streams — is answered: `Call` takes an `ILLMEventSink` and
+returns `Task<LLMResult>`.
 
 **No code.** This is the gate, and it is the cheapest place in the project to
 change your mind about a boundary.
@@ -75,8 +75,8 @@ parrot chat --model <model>     # type a prompt, see the reply stream back
   they are not. `BasicCli` renders them with a `switch` and a `WriteLine`, or
   the event model is wrong. This is why `BasicCli` is in the first milestone
   rather than the last.
-- **Does the sink shape hold?** Deltas go to `IEventSink`, the durable result
-  is the return value. Cheap to correct here, expensive once five call sites
+- **Does the sink shape hold?** Deltas go to `ILLMEventSink`, the durable
+  result is the return value. Cheap to correct here, expensive once five call sites
   depend on it.
 
 **Explicitly not in scope.** Persistence beyond whatever a single process
@@ -156,7 +156,8 @@ system context, sampled only at a safe turn boundary.
 rest of `AgentSession` — steer and queue input promotion, interrupt.
 
 **Exit.** `agent_spawn` starts a child session; the child's events appear on the
-parent's stream with their own `task_id`, and one subscription still suffices.
+parent's stream carrying their own `session_id` and `task_id`, and one
+subscription still suffices with no correlation table on the client.
 Recursion and per-parent concurrency limits hold. A child outlives the turn that
 spawned it, and `Await` returns its result.
 

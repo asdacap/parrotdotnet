@@ -28,10 +28,11 @@ manages, because in C# the namespace no longer disambiguates it.
 | TOOLS     ToolRegistry        ITool                  PermissionBroker     |
 |           QuestionBroker      ProcessRunner          WebFetcher           |
 +---------------------------------------------------------------------------+
-| PROVIDERS ProviderRegistry    ILLMProvider           ICredentialStore     |
+| PROVIDERS ProviderRegistry    ILLMProvider           ILLMEventSink        |
+|           ICredentialStore                                                |
 +---------------------------------------------------------------------------+
 | STORAGE   SessionDatabase     EventBroker            EventRepository      |
-|           IEventSink          Configuration          StatePaths           |
+|           Configuration       StatePaths                                  |
 +---------------------------------------------------------------------------+
 ```
 
@@ -176,13 +177,13 @@ ParrotService
  |    |    |    +-- ILLMProvider  <<extension boundary>>   stateless
  |    |    |         +-- ICredentialStore  <<extension boundary>>
  |    |    |
- |    |    +-- TaskManager ...... the task tree
+ |    |    +-- TaskManager ...... this session's tasks; they do not nest
  |
  +-- TaskManager
  +-- PermissionBroker ............ authorises an operation, not a tool name
  +-- QuestionBroker
  +-- EventBroker ................. serialised publication    [principle 9]
- |    +-- IEventSink ............. the one narrow publish contract
+ |    +-- Event ................. the flat wire event
       +-- EventRepository
            +-- SessionDatabase
 
@@ -247,7 +248,7 @@ a dumb terminal, a CI log, a pipe, a bug report where the TUI is the suspect —
 it only serves that purpose if it is obviously correct at a glance.
 
 The second matters more. **`BasicCli` is the test of the event contract.**
-Events are flat and carry their own `task_id` and `session_id` precisely so a
+Events are flat and carry their own `session_id` and `task_id` precisely so a
 client needs no tree, no correlation table, and no subscription per subagent.
 If `BasicCli` cannot render an event with a `switch` and a `WriteLine`, the
 event is underspecified — and the shared view layer is exactly what hides that,
@@ -361,7 +362,7 @@ AgentSession
  |                      snapshots, history cutoff        [principle 4]
  +-- todos ............ upstream TodoService
  +-- goals ............ upstream GoalService
- +-- mainTask ......... root of this session's task tree
+ +-- tasks ............ the tasks this session started; a flat set
 ```
 
 ### Drain states
@@ -429,7 +430,7 @@ public interface ILLMProvider
     // Everything the call depends on arrives in the request. Nothing is
     // remembered between calls, and the sink is a parameter rather than a
     // dependency, so there is nothing to hold either.
-    Task<LLMResult> Call(LLMRequest request, IEventSink events, CancellationToken cancellationToken);
+    Task<LLMResult> Call(LLMRequest request, ILLMEventSink events, CancellationToken cancellationToken);
 }
 ```
 
@@ -440,7 +441,7 @@ final durable state: the assistant messages, the tool requests, and token usage.
 ### Why the sink is a parameter
 
 This is the shape that makes principle 10 fall out for free — live token deltas
-are disposable, final message state is durable. Deltas go to `IEventSink` and
+are disposable, final message state is durable. Deltas go to `ILLMEventSink` and
 nobody has to keep them; the durable outcome is the return value, and it exists
 exactly once.
 
@@ -452,62 +453,65 @@ of one call. So it is stateless in the strict sense and still streams, and
 `AgentSession` does not have to pump a stream to make that true.
 
 The layering consequence is worth naming: **`ILLMProvider` does not depend on
-`EventBroker`.** `AgentSession` implements or adapts `IEventSink` and hands it
-down. A provider cannot reach the event stream except through what its caller
-gave it, which is also what makes a provider trivial to test — pass a sink that
-records into a list.
+`EventBroker`, and does not know what a session is.** It was never told a
+session id or a task id, so it could not put one on an event even if it wanted
+to. What it emits are LLM events — token deltas, tool-call fragments, retry
+notices — and `AgentSession` is what turns those into session events by
+attaching the identity only it holds. A provider is trivial to test as a
+result: hand it a sink that records into a list.
 
-## IEventSink
+## The two event types
 
-One method. One flat event.
+There are two, and conflating them is the mistake worth naming up front.
+
+`LLMEvent` is what a provider emits. It is internal, never leaves the process,
+and carries **no identity** — a stateless provider was never told a session id
+or a task id, so it cannot attach one.
+
+`Event` is what a client consumes. It is the generated protobuf type, it goes
+down the wire, and it carries identity because `AgentSession` attaches it.
+
+```text
+ILLMProvider --LLMEvent--> AgentSession --Event--> EventBroker --> the CLIs
+                                        ^
+                                 attaches session_id
+                                 and task_id here
+```
+
+That middle step is a translation layer, which is normally a smell — it is where
+a gap in the event model gets quietly filled in. This one is legitimate for a
+specific reason: it **adds** the identity the provider structurally could not
+know, and does not reinterpret content. If it ever starts reshaping meaning
+rather than labelling it, the event model is wrong.
+
+### ILLMEventSink
 
 ```csharp
-public interface IEventSink
+public interface ILLMEventSink
 {
-    ValueTask Publish(Event @event, CancellationToken cancellationToken);
+    ValueTask Publish(LLMEvent @event, CancellationToken cancellationToken);
 }
 ```
 
-`Event` is the generated protobuf type — the same one that goes down the wire
-to the CLIs. Not a parallel internal model that gets mapped at the edge: if the
-provider and `BasicCli` do not agree on the type, there is a translation layer,
-and a translation layer is where a gap in the event model gets quietly filled
-in.
+`LLMEvent` is a plain sealed type, not protobuf, because it never goes on the
+wire: text deltas, reasoning deltas, tool-call fragments, retry notices, usage.
 
-### Why one method and not several
-
-`Publish(Event)` rather than `OnTextDelta`, `OnToolCall`, `OnRetry`. A typed
-method per event kind means every new kind changes the interface and every
-implementation, which is Open–Closed failing — the one SOLID principle
-`AGENTS.md` weights as *yes*. Interface Segregation would argue the other way
-and is weighted *eh*, which is exactly the trade being made.
-
-It is an interface rather than a .NET `event` or an `Action<Event>` because
-`PARROT0001` and `PARROT0002` forbid both, and for the reason those rules exist:
-a multicast delegate has no delivery ordering across subscribers and no
-backpressure, and principle 9 needs both.
-
-It is push rather than `IAsyncEnumerable<Event>` because the provider is
-producing while it is also working. A pull model would force the provider to be
-an iterator and would make "stream deltas *and* return a final result" awkward
-in a way the sink makes trivial.
-
-`ValueTask` because the common implementation writes to a `Channel<Event>` and
-completes synchronously. Backpressure, when it matters, is the channel's bound.
-
-### The event
+### The session event
 
 ```proto
 message Event {
-  string    id             = 1;
-  string    session_id     = 2;
-  string    task_id        = 3;   // every event names its task
-  string    parent_task_id = 4;   // set on task.start only
-  EventKind kind           = 5;
-  string    text           = 6;   // one rendered line, on every event
-  oneof payload { ... }           // typed detail, for EnhancedCli
+  string    id         = 1;
+  string    session_id = 2;
+  string    task_id    = 3;   // the task within that session
+  EventKind kind       = 4;
+  string    text       = 5;   // one rendered line, on every event
+  oneof payload { ... }       // typed detail, for EnhancedCli
 }
 ```
+
+A task belongs to the session that started it, and a session may have a parent
+session. There is no `parent_task_id`, and tasks do not nest — see
+[Tasks and sessions](#tasks-and-sessions).
 
 `text` is the load-bearing field and the one most likely to be dropped as
 redundant. **Every event carries one human-readable line.** That is what makes
@@ -519,17 +523,51 @@ fix the event" from a slogan into something a reviewer can check. An event whose
 `EnhancedCli` ignores `text` and reads the payload. Both stay honest because
 neither can compensate for the other.
 
+### Why one method and not several
+
+`Publish(...)` rather than `OnTextDelta`, `OnToolCall`, `OnRetry`. A typed
+method per event kind means every new kind changes the interface and every
+implementation, which is Open–Closed failing — the one SOLID principle
+`AGENTS.md` weights as *yes*. Interface Segregation would argue the other way
+and is weighted *eh*, which is exactly the trade being made.
+
+It is an interface rather than a .NET `event` or an `Action<T>` because
+`PARROT0001` and `PARROT0002` forbid both, and for the reason those rules exist:
+a multicast delegate has no delivery ordering across subscribers and no
+backpressure, and principle 9 needs both.
+
+It is push rather than `IAsyncEnumerable<T>` because the provider is producing
+while it is also working. A pull model would force the provider to be an
+iterator and would make "stream deltas *and* return a final result" awkward in a
+way the sink makes trivial.
+
+`ValueTask` because the common implementation writes to a `Channel<T>` and
+completes synchronously. Backpressure, when it matters, is the channel's bound.
+
 ### Durability
 
-The sink handed to `ILLMProvider` carries live deltas, which principle 10 makes
-disposable — so cancelling a `Publish` mid-flight loses nothing that matters.
-The durable write happens when `AgentSession` commits the `LLMResult`, through
-`EventRepository`, atomically with its projection (principle 9).
+`LLMEvent`s are live deltas, which principle 10 makes disposable — so cancelling
+a `Publish` mid-flight loses nothing that matters. The durable write happens when
+`AgentSession` commits the `LLMResult`, through `EventRepository`, atomically
+with its projection (principle 9).
 
-Same interface, different instances, different guarantees. That is a property of
-the implementation and deliberately not of the contract: a caller that had to
-know which kind of sink it held would be a caller branching on identity, which
-is the antipattern `AGENTS.md` names.
+## Tasks and sessions
+
+A task belongs to exactly one session: **the session that started it is its
+parent.** Sessions nest — a subagent runs in a child session with a
+`parent_session_id` — but tasks do not. There is no task tree and no
+`parent_task_id`, and a session does not have a task id of its own.
+
+This diverges from upstream, which parents tasks to other tasks and roots the
+tree at a session's main task. Two things get simpler:
+
+- **A client needs no correlation table.** An event names its session and its
+  task, and that is the whole story. Reconstructing a task tree from
+  `parent_task_id` was work every client had to repeat, and it is exactly the
+  kind of work `BasicCli` is not allowed to do.
+- **Recursion has one shape, not two.** Nesting happens at the session level
+  only, which is already where the child-outlives-the-turn semantics and the
+  recursion limits live.
 
 ## AgentRegistry
 
