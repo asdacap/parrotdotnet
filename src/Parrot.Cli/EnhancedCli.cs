@@ -3,18 +3,12 @@ using Parrot.Protocol;
 
 namespace Parrot.Cli;
 
-// The richer client. It reads the typed payload rather than a rendered line:
-// reasoning is dimmed, tool calls are announced, the assistant text is plain,
-// and the turn summary is set apart. No alternate screen -- output scrolls, so
-// the terminal's scrollback is the history. It shares no rendering with
-// BasicCli; both only implement ITurnRenderer and use the generated client.
-internal sealed class EnhancedCli : ITurnRenderer
+internal sealed class EnhancedCli(Func<int> columns) : ITurnRenderer
 {
-    private const string Dim = "\u001b[2m";
-    private const string Cyan = "\u001b[36m";
-    private const string Green = "\u001b[32m";
-    private const string Red = "\u001b[31m";
-    private const string Reset = "\u001b[0m";
+    public EnhancedCli()
+        : this(static () => Console.WindowWidth)
+    {
+    }
 
     public async Task<bool> RenderTurn(
         IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
@@ -23,62 +17,88 @@ internal sealed class EnhancedCli : ITurnRenderer
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
 
-        var reasoning = false;
+        var view = new TurnView(output, error, columns);
 
-        // Whether the prompt this call is rendering has started. Before it has,
-        // an admission is the prompt the user just typed and is already on
-        // screen; after it, an admission is one they typed over the top of a
-        // turn, and saying so is the only sign it was taken.
-        var started = false;
-
-        while (await MoveNext(stream, cancellationToken).ConfigureAwait(false))
+        try
         {
-            var published = stream.Current;
-
-            // Reasoning prints dim; a switch away from it closes the dim run.
-            if (reasoning && published.PayloadCase != Event.PayloadOneofCase.ReasoningChunk)
+            while (await stream.MoveNext(cancellationToken).ConfigureAwait(false))
             {
-                await output.WriteAsync(Reset.AsMemory(), cancellationToken).ConfigureAwait(false);
-                reasoning = false;
+                var completed = await view.Render(stream.Current, cancellationToken).ConfigureAwait(false);
+                if (completed is not null)
+                {
+                    return completed.Value;
+                }
+            }
+
+            await view.End(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            await view.Cancel(CancellationToken.None).ConfigureAwait(false);
+            return false;
+        }
+    }
+
+    private sealed class TurnView(TextWriter output, TextWriter error, Func<int> columns)
+    {
+        private const string Dim = "\u001b[2m";
+        private const string Cyan = "\u001b[36m";
+        private const string Green = "\u001b[32m";
+        private const string Red = "\u001b[31m";
+        private const string Reset = "\u001b[0m";
+
+        private readonly LiveTerminalRenderer _live = new(output, columns);
+        private bool _reasoning;
+        private bool _reasoningEndsLine;
+        private bool _started;
+        private bool _textActive;
+        private int _textSegment;
+
+        private string TextId => $"assistant-{_textSegment}";
+
+        public async Task<bool?> Render(Event published, CancellationToken cancellationToken)
+        {
+            if (_textActive && published.PayloadCase != Event.PayloadOneofCase.TextChunk)
+            {
+                await CommitText(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (_reasoning && published.PayloadCase != Event.PayloadOneofCase.ReasoningChunk)
+            {
+                await EndReasoning(cancellationToken).ConfigureAwait(false);
             }
 
             switch (published.PayloadCase)
             {
                 case Event.PayloadOneofCase.TurnStarted:
-                    started = true;
+                    _started = true;
                     break;
 
-                case Event.PayloadOneofCase.InputAdmitted when started:
-                    await output.WriteLineAsync().ConfigureAwait(false);
+                case Event.PayloadOneofCase.InputAdmitted when _started:
                     await output.WriteLineAsync(
-                        $"{Dim}  queued: {published.InputAdmitted.Content}{Reset}".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
+                        $"{Dim}  queued: {TerminalText.Sanitize(published.InputAdmitted.Content)}{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.ReasoningChunk:
-                    if (!reasoning)
-                    {
-                        await output.WriteAsync(Dim.AsMemory(), cancellationToken).ConfigureAwait(false);
-                        reasoning = true;
-                    }
-
-                    await output.WriteAsync(published.ReasoningChunk.Fragment.AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
+                    await RenderReasoning(published.ReasoningChunk.Fragment, cancellationToken).ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.TextChunk:
-                    await output.WriteAsync(published.TextChunk.Fragment.AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
+                    _textActive = true;
+                    await _live.Append(
+                        new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment),
+                        cancellationToken).ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.ToolCallChunk when published.ToolCallChunk.ToolName.Length > 0:
                     await output.WriteLineAsync(
-                        $"{Cyan}  * {published.ToolCallChunk.ToolName}{Reset}".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
+                        $"{Cyan}  * {TerminalText.Sanitize(published.ToolCallChunk.ToolName)}{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.TurnEnded:
-                    await output.WriteLineAsync().ConfigureAwait(false);
                     await output.WriteLineAsync(
                         $"{Green}  {Summarise(published.TurnEnded)}{Reset}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
@@ -86,30 +106,76 @@ internal sealed class EnhancedCli : ITurnRenderer
 
                 case Event.PayloadOneofCase.TurnFailed:
                     await error.WriteLineAsync(
-                        $"{Red}  {published.TurnFailed.Message}{Reset}".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
+                        $"{Red}  {TerminalText.Sanitize(published.TurnFailed.Message)}{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
                     return false;
 
                 default:
                     break;
             }
+
+            return null;
         }
 
-        return false;
-    }
-
-    private static async Task<bool> MoveNext(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken)
-    {
-        try
+        public async Task End(CancellationToken cancellationToken)
         {
-            return await stream.MoveNext(cancellationToken).ConfigureAwait(false);
+            if (_textActive)
+            {
+                await CommitText(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (_reasoning)
+            {
+                await EndReasoning(cancellationToken).ConfigureAwait(false);
+            }
         }
-        catch (OperationCanceledException)
+
+        public async Task Cancel(CancellationToken cancellationToken)
         {
-            return false;
+            if (_textActive)
+            {
+                await _live.Clear(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (_reasoning)
+            {
+                await output.WriteAsync(Reset.AsMemory(), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private static string Summarise(TurnEnded ended) =>
+            $"{TerminalText.Sanitize(ended.FinishReason)} - {ended.InputTokens} in / {ended.OutputTokens} out";
+
+        private async Task CommitText(CancellationToken cancellationToken)
+        {
+            await _live.Commit(cancellationToken).ConfigureAwait(false);
+            _textActive = false;
+            _textSegment++;
+        }
+
+        private async Task RenderReasoning(string fragment, CancellationToken cancellationToken)
+        {
+            if (!_reasoning)
+            {
+                await output.WriteAsync(Dim.AsMemory(), cancellationToken).ConfigureAwait(false);
+                _reasoning = true;
+            }
+
+            var clean = TerminalText.Sanitize(fragment);
+            await output.WriteAsync(clean.AsMemory(), cancellationToken).ConfigureAwait(false);
+            _reasoningEndsLine = clean.EndsWith('\n');
+        }
+
+        private async Task EndReasoning(CancellationToken cancellationToken)
+        {
+            await output.WriteAsync(Reset.AsMemory(), cancellationToken).ConfigureAwait(false);
+            if (!_reasoningEndsLine)
+            {
+                await output.WriteLineAsync(ReadOnlyMemory<char>.Empty, cancellationToken).ConfigureAwait(false);
+            }
+
+            _reasoning = false;
+            _reasoningEndsLine = false;
         }
     }
-
-    private static string Summarise(TurnEnded ended) =>
-        $"{ended.FinishReason} - {ended.InputTokens} in / {ended.OutputTokens} out";
 }

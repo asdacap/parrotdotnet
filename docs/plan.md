@@ -313,15 +313,20 @@ works and still shares no code with it.
 else, so its shape is guessable only once everything it renders exists. It is
 also the only milestone that can be cut without cutting the product.
 
-**Done (a first enhanced renderer).** `EnhancedCli` reads the typed payload:
-reasoning dim, tool calls announced, the turn summary set apart in colour, no
-alternate screen so scrollback is the history. It is the default in a terminal;
-`--basic`, or redirected output, selects `BasicCli`. The two share no rendering
--- only the `ITurnRenderer` seam and the generated client -- so BasicCli stays a
-pure test of the event contract. Verified live through a PTY: the same turn
-renders coloured under the default and plain under `--basic`. The full terminal
-editor/picker/markdown layer is a richer M7 than this; what ships is the honest
-first version of a distinct enhanced client.
+**Done (incrementally).** `EnhancedCli` reads the typed payload: reasoning dim,
+tool calls announced, and the turn summary set apart in colour. Its terminal
+renderer progressively promotes complete physical rows of the cumulative
+assistant response into ordinary scrollback and redraws only the unfinished
+last row. Layout resamples terminal width, counts Unicode display cells, expands
+tabs, and strips untrusted terminal controls. It uses no alternate screen.
+
+`EnhancedCli` is the default in a terminal; `--basic`, or redirected output,
+selects `BasicCli`. The two share no rendering -- only the `ITurnRenderer` seam
+and the generated client -- so BasicCli stays a pure test of the event contract.
+Verified live through a PTY: the same turn renders coloured under the default
+and plain under `--basic`. The full raw-mode editor, picker, markdown layer, and
+multi-row activity frame remain richer M7 work; the line-buffered client does
+not pretend to provide an editable prompt while a response is streaming.
 
 ## What this plan does not schedule
 
