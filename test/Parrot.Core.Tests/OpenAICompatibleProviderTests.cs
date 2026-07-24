@@ -81,7 +81,9 @@ internal sealed class OpenAICompatibleProviderTests
         }
 
         var completed = events[^1];
+        var toolCall = events.Single(item => item.Kind == LLMEventKind.ToolCallDelta);
 
+        _ = await Assert.That(toolCall.Text).IsEqualTo("""{"command": "echo hi"}""");
         _ = await Assert.That(completed.Kind).IsEqualTo(LLMEventKind.Completed);
         _ = await Assert.That(completed.FinishReason).IsEqualTo("tool_calls");
         _ = await Assert.That(completed.ToolCalls).HasSingleItem();

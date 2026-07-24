@@ -93,6 +93,11 @@ internal static class ChatCompletionsAdapter
                 "chatcompletions: unexpected provider EOF (stream ended without a terminal event)");
         }
 
+        foreach (var toolCall in state.ToolCallEvents())
+        {
+            yield return toolCall;
+        }
+
         yield return state.Complete();
     }
 
@@ -158,10 +163,7 @@ internal static class ChatCompletionsAdapter
 
             if (delta.TryGetProperty("tool_calls", out var toolCalls) && toolCalls.ValueKind == JsonValueKind.Array)
             {
-                foreach (var published in ConsumeToolCalls(toolCalls, state))
-                {
-                    yield return published;
-                }
+                ConsumeToolCalls(toolCalls, state);
             }
         }
 
@@ -172,7 +174,7 @@ internal static class ChatCompletionsAdapter
         }
     }
 
-    private static IEnumerable<LLMEvent> ConsumeToolCalls(JsonElement toolCalls, ParseState state)
+    private static void ConsumeToolCalls(JsonElement toolCalls, ParseState state)
     {
         foreach (var toolCall in toolCalls.EnumerateArray())
         {
@@ -199,11 +201,6 @@ internal static class ChatCompletionsAdapter
             }
 
             _ = accumulator.Arguments.Append(arguments);
-
-            if (arguments.Length > 0)
-            {
-                yield return LLMEvent.ToolCallDelta(accumulator.Id, accumulator.Name, arguments);
-            }
         }
     }
 
@@ -383,6 +380,10 @@ internal static class ChatCompletionsAdapter
 
             return accumulator;
         }
+
+        public IEnumerable<LLMEvent> ToolCallEvents() =>
+            _tools.Values.Select(
+                call => LLMEvent.ToolCallDelta(call.Id, call.Name, call.Arguments.ToString()));
 
         public LLMEvent Complete() =>
             LLMEvent.Completed(

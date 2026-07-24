@@ -113,6 +113,11 @@ internal static class ResponsesAdapter
 
             if (state.Done)
             {
+                foreach (var toolCall in state.ToolCallEvents())
+                {
+                    yield return toolCall;
+                }
+
                 yield return state.Complete();
                 yield break;
             }
@@ -182,12 +187,6 @@ internal static class ResponsesAdapter
                     ?? state.AddTool(itemId, callId, ReadString(root, "name"), string.Empty);
                 var delta = ReadString(root, "delta");
                 accumulator.Arguments += delta;
-
-                if (delta.Length > 0)
-                {
-                    yield return LLMEvent.ToolCallDelta(accumulator.ToolId(), accumulator.Name, delta);
-                }
-
                 break;
             }
 
@@ -512,6 +511,11 @@ internal static class ResponsesAdapter
 
             return null;
         }
+
+        public IEnumerable<LLMEvent> ToolCallEvents() =>
+            _tools.Keys.OrderBy(key => key, StringComparer.Ordinal)
+                .Select(key => _tools[key])
+                .Select(call => LLMEvent.ToolCallDelta(call.ToolId(), call.Name, call.Arguments));
 
         public LLMEvent Complete() =>
             LLMEvent.Completed(
