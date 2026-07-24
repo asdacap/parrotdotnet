@@ -1,5 +1,7 @@
 using Parrot.Agent;
 using Parrot.Llm;
+using Parrot.Process;
+using Parrot.Tools;
 
 namespace Parrot.Store;
 
@@ -12,7 +14,9 @@ namespace Parrot.Store;
 internal sealed class SessionStore(
     string stateDirectory,
     string workingDirectory,
-    string hostKey) : IDisposable
+    string hostKey,
+    ToolRegistry tools,
+    ProcessRunner processes) : IDisposable
 {
     private readonly List<SessionDatabase> _open = [];
 
@@ -40,7 +44,8 @@ internal sealed class SessionStore(
             CreatedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         });
 
-        return new UserSession(id, model, provider, new EventRepository(database));
+        return new UserSession(
+            id, model, provider, new EventRepository(database), tools, new ToolContext(workingDirectory, processes));
     }
 
     public void Dispose()

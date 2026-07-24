@@ -192,6 +192,19 @@ criterion in the plan that is a security property rather than a feature.
 **Retires.** Sandbox escape, and permission semantics that authorise a tool name
 rather than an operation (principle 7).
 
+**Done (tools + sandbox; permission prompt deferred).** The agentic loop runs:
+`AgentSession` calls the provider, executes the tool calls it returns under the
+sandbox, feeds results back, and repeats until the model stops. Verified live:
+"create made.txt containing 'hello from the agent'" produced the file in the
+workspace via a sandboxed `exec_command`. Fail-closed is asserted in tests. Not
+yet built: `PermissionBroker`/`QuestionBroker` -- `exec_command` runs sandboxed
+without a prompt (the sandbox is the boundary), so the interactive permission
+flow waits for a tool that needs `disable_sandbox`. Recorded as an M3 remainder.
+
+**Divergence found:** `deepseek-v4-pro` on opencode-go 400s on tool-continuation
+(other models -- glm, kimi, qwen, minimax -- work), so the built-in default
+moved to `glm-5.2`. Recorded in components.md.
+
 ---
 
 ### M4 — Context and compaction

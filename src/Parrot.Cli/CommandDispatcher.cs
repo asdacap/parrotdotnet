@@ -2,9 +2,12 @@ using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
+using Parrot.Tools;
+
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
@@ -16,7 +19,7 @@ internal static class CommandDispatcher
     public const int ExitFailure = 1;
 
     private const string ProviderId = "opencode-go";
-    private const string DefaultModel = "deepseek-v4-pro";
+    private const string DefaultModel = "glm-5.2";
 
     private const string UsageText = """
         parrot - a coding agent that is not too much
@@ -149,7 +152,8 @@ internal static class CommandDispatcher
         }
 
         var paths = StatePaths.ResolveFromEnvironment();
-        using var store = new SessionStore(paths.State, Directory.GetCurrentDirectory(), Environment.MachineName);
+        using var store = new SessionStore(
+            paths.State, Directory.GetCurrentDirectory(), Environment.MachineName, BuiltinTools(), ProcessRunner.Locate());
         using var service = new ParrotService(provider, store);
 
         var listed = await ClientFor(service)
@@ -187,6 +191,11 @@ internal static class CommandDispatcher
 
         return provider;
     }
+
+    // The tools the agent may call. exec_command is the one that reaches the
+    // sandbox; read_file is read-only.
+    private static ToolRegistry BuiltinTools() =>
+        new([new ExecCommandTool(), new ReadFileTool()]);
 
     // Composed by hand, per AGENTS.md: no container, and the registry is the
     // one place that knows which commands exist.
@@ -280,7 +289,8 @@ internal static class CommandDispatcher
             return ExitFailure;
         }
 
-        using var store = new SessionStore(paths.State, Directory.GetCurrentDirectory(), Environment.MachineName);
+        using var store = new SessionStore(
+            paths.State, Directory.GetCurrentDirectory(), Environment.MachineName, BuiltinTools(), ProcessRunner.Locate());
         using var service = new ParrotService(provider, store);
         var client = ClientFor(service);
         var prompt = string.Join(' ', words);

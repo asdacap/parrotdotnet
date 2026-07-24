@@ -1,8 +1,10 @@
 using Parrot.Agent;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Store;
+using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
 
@@ -23,7 +25,13 @@ internal sealed class EventPayloadTests
         // A real repository over an in-memory database, not a null: the code
         // under test should take the same path production does.
         using var database = SessionDatabase.Open(":memory:");
-        var session = new AgentSession("session", new UnusedProvider(), events, new EventRepository(database));
+        var session = new AgentSession(
+            "session",
+            new UnusedProvider(),
+            events,
+            new EventRepository(database),
+            new ToolRegistry([]),
+            new ToolContext(".", new ProcessRunner(string.Empty)));
 
         var llmEvent = source switch
         {

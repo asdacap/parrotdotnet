@@ -169,6 +169,7 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
                 .. message.ToolCalls.Select(call => new WireToolCall
                 {
                     Id = call.Id,
+                    Type = "function",
                     Function = new WireToolCallFunction { Name = call.Name, Arguments = call.ArgumentsJson },
                 }),
             ],
@@ -188,10 +189,12 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
     private static ToolCallAssembly Accumulate(
         SortedDictionary<int, ToolCallAssembly> calls, WireToolCall fragment)
     {
-        if (!calls.TryGetValue(fragment.Index, out var assembly))
+        var index = fragment.Index ?? 0;
+
+        if (!calls.TryGetValue(index, out var assembly))
         {
             assembly = new ToolCallAssembly();
-            calls[fragment.Index] = assembly;
+            calls[index] = assembly;
         }
 
         if (fragment.Id is { Length: > 0 } id)

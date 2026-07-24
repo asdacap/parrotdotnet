@@ -3,6 +3,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
+using Parrot.Tools;
 
 namespace Parrot.Agent;
 
@@ -21,11 +22,18 @@ internal sealed class UserSession : IDisposable
 
     private readonly EventRepository _eventRepository;
 
-    public UserSession(string id, string model, ILLMProvider provider, EventRepository eventRepository)
+    public UserSession(
+        string id,
+        string model,
+        ILLMProvider provider,
+        EventRepository eventRepository,
+        ToolRegistry tools,
+        IToolContext toolContext)
     {
         Id = id;
         _eventRepository = eventRepository;
-        _main = new AgentSession(Identifier.AgentSession(), provider, _eventBroker, eventRepository) { Model = model };
+        _main = new AgentSession(
+            Identifier.AgentSession(), provider, _eventBroker, eventRepository, tools, toolContext) { Model = model };
         _ = _agents.TryAdd(_main.SessionId, _main);
     }
 
