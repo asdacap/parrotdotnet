@@ -46,12 +46,17 @@ is a bug in any implementation, in any language:
   concerns (principle 8).
 - **The sandbox fails closed.** A shell command does not run when the sandbox is
   unavailable. Not a warning, not a fallback.
-- **One machine writes one session database.** No `-shm` or `-wal` file may ever
-  appear under the state directory, so WAL is out. Listing reads the published
-  projection, never another host's database. Repair never ranges across
-  sessions. Read the storage-layout section of upstream `docs/architecture.md`
-  before touching any of this — the reasoning is subtle and the failure is
-  silent corruption.
+- **One machine writes one user session's database.** The state directory may
+  sit on NFS, and a shared filesystem cannot be assumed to provide working
+  locks, so the division is structural rather than lock-based: a working
+  directory is a host-local name. No `-shm` or `-wal` file may ever appear under
+  the state directory, so WAL is out. Listing reads the published projection,
+  never another host's database. A claim uses `link()`, not `rename`. Repair
+  never ranges across user sessions. `config.yaml` is the single deliberate
+  exception — shared, whole-file, atomic by rename, and therefore the only place
+  global mutable state such as flags may live. Read the `UserSession` section of
+  `docs/architecture.md` before touching any of this; the reasoning is subtle
+  and the failure is silent corruption.
 - **A prompt is durable before execution, and a tool call is durable before its
   side effects begin** (principles 1 and 5).
 - **Event ordering.** Durable events and their query projections commit

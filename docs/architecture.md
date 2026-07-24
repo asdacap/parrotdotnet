@@ -20,15 +20,15 @@ manages, because in C# the namespace no longer disambiguates it.
 +---------------------------------------------------------------------------+
 | ROOT      ParrotApplication                                               |
 +---------------------------------------------------------------------------+
-| DOMAIN    AgentSession        AgentRegistry          TaskManager          |
-|           Compactor           SystemContextBuilder                        |
+| DOMAIN    UserSession         AgentSession           AgentRegistry        |
+|           TaskManager         Compactor              SystemContextBuilder |
 +---------------------------------------------------------------------------+
 | TOOLS     ToolRegistry        ITool                  PermissionBroker     |
 |           QuestionBroker      ProcessRunner          WebFetcher           |
 +---------------------------------------------------------------------------+
 | PROVIDERS ProviderRegistry    ILLMProvider           ICredentialStore     |
 +---------------------------------------------------------------------------+
-| STORAGE   AgentSessionStore   EventBroker            EventRepository      |
+| STORAGE   SessionDatabase     EventBroker            EventRepository      |
 |           Configuration       StatePaths                                  |
 +---------------------------------------------------------------------------+
 ```
@@ -79,40 +79,45 @@ Who calls whom. Read the indentation as "depends on".
 ```text
 ApiBackend
  |
- +-- AgentSession ................ a rich object, not a record plus a service.
- |    |                           it owns its state, its drain, and its turns
- |    |                                             [principles 2, 3, 4, 6]
- |    +-- AgentSessionStore ...... loads and persists it
- |    +-- EventRepository
- |    +-- SystemContextBuilder ... sampled only at a safe turn boundary
- |    +-- Compactor
- |    +-- AgentRegistry ......... agent profiles; also spawns and owns
- |    |                           child sessions
- |    |    +-- AgentSession ..... (recurses: a child session)
+ +-- UserSession ................. one per working directory. owns the database
+ |    |                           and holds the claim on it for its lifetime
+ |    +-- SessionDatabase ........ one SQLite file, exactly one writing machine
+ |    +-- Configuration ........ the shared exception; see below
  |    |
- |    +-- ToolRegistry .......... immutable snapshot per turn
- |    |    +-- ITool  <<extension boundary>>
- |    |         +-- ProcessRunner .. sandboxed exec, fails closed
- |    |         +-- WebFetcher
- |    |
- |    +-- ProviderRegistry
- |    |    +-- ILLMProvider  <<extension boundary>>   stateless
- |    |         +-- ICredentialStore  <<extension boundary>>
- |    |
- |    +-- TaskManager ........... the task tree
+ |    +-- AgentSession ........... a rich object, not a record plus a service.
+ |    |    |                      it owns its state, its drain, and its turns
+ |    |    |                                        [principles 2, 3, 4, 6]
+ |    |    +-- SessionDatabase ... loads and persists it
+ |    |    +-- EventRepository
+ |    |    +-- SystemContextBuilder .. sampled only at a safe turn boundary
+ |    |    +-- Compactor
+ |    |    +-- AgentRegistry .... agent profiles; also spawns and owns
+ |    |    |    |                 child sessions
+ |    |    |    +-- AgentSession  (recurses: a child session, same database)
+ |    |    |
+ |    |    +-- ToolRegistry ..... immutable snapshot per turn
+ |    |    |    +-- ITool  <<extension boundary>>
+ |    |    |         +-- ProcessRunner .. sandboxed exec, fails closed
+ |    |    |         +-- WebFetcher
+ |    |    |
+ |    |    +-- ProviderRegistry
+ |    |    |    +-- ILLMProvider  <<extension boundary>>   stateless
+ |    |    |         +-- ICredentialStore  <<extension boundary>>
+ |    |    |
+ |    |    +-- TaskManager ...... the task tree
  |
  +-- TaskManager
  +-- PermissionBroker ............ authorises an operation, not a tool name
  +-- QuestionBroker
  +-- EventBroker ................. serialised publication    [principle 9]
       +-- EventRepository
-           +-- AgentSessionStore
+           +-- SessionDatabase
 
 ParrotApplication                  the composition root: constructs and owns
  |                                 every singleton above, explicitly, by hand
- +-- Configuration ............... merged once, immutable thereafter
+ +-- Configuration ............... config and centralized state, shared
  +-- StatePaths
-      +-- AgentSessionStore ...... one database per session, never two hosts
+      +-- SessionDatabase ........ one per user session, never two hosts
 ```
 
 ## The Run tree
@@ -128,19 +133,88 @@ CommandDispatcher.Run                       returns => the process exits
  |
  +-- HttpServer.Run ....................... serve mode only
  +-- TerminalChat.Run ..................... local mode only
- +-- AgentRegistry.Run .................... hosts spawned child sessions
- |    |                                     a child outlives the turn that
- |    |                                     spawned it, so it is not nested
- |    +-- AgentSession.Run ................ one child session
- |
- +-- AgentSession.Run ..................... one drain per session
-      |                                     a turn is a loop iteration here,
-      |                                     not a nested Run
-      +-- ProcessRunner.Run ............... one child process
+ +-- UserSession.Run ...................... the cwd claim is held for exactly
+ |    |                                     this Run, and released when it
+ |    |                                     returns
+ |    +-- AgentRegistry.Run ............... hosts spawned child sessions
+ |    |    |                                a child outlives the turn that
+ |    |    |                                spawned it, so it is not nested
+ |    |    +-- AgentSession.Run ........... one child session
+ |    |
+ |    +-- AgentSession.Run ................ one drain per agent session
+ |         |                                a turn is a loop iteration here,
+ |         |                                not a nested Run
+ |         +-- ProcessRunner.Run .......... one child process
 ```
 
 There is no `Stop` anywhere. Shutdown is cancellation of the token `Program`
 holds; `IDisposable` releases handles after `Run` has already returned.
+
+## UserSession
+
+A `UserSession` is one working directory's session. Starting `parrot` in a
+directory that has no live session starts one; starting it where a session is
+already live starts a second rather than joining it. Each owns its own database.
+
+This is not a convenience. It is the only structure that survives a home
+directory on NFS.
+
+### Why the databases are separate
+
+A shared filesystem cannot be assumed to provide working locks. A mount may
+grant every advisory lock locally and tell no other host, so two machines both
+believe they hold an exclusive lock and both write. SQLite corrupts silently
+under that, and so would any embedded database, because they all rest on the
+same primitive.
+
+So the division is **structural, not lock-based**: a working directory is a
+host-local name, so keying a database by working directory guarantees that one
+machine writes it. Nothing negotiates. Nothing needs to.
+
+```text
+<state>/config.yaml ................. shared. every host reads and writes it
+<state>/sessions/<id>/session.db .... one user session, one writing machine
+<state>/sessions/<id>/meta.json ..... published by rename; the listing reads
+                                      this, never another host's database
+<state>/owners/<hash>/v<N>.json ..... per host. claimed with link(), which
+                                      reports EEXIST instead of overwriting
+```
+
+Four rules follow, and all four are load-bearing:
+
+1. **One machine writes one session database.** It holds every table belonging
+   to that user session, so its foreign keys stay inside one file. It uses
+   `journal_mode=TRUNCATE`, because WAL coordinates through a memory-mapped
+   `-shm` file and two hosts mapping one file get incoherent private views
+   rather than shared state. No `-shm` or `-wal` may ever appear under the
+   state directory.
+2. **Listing reads `meta.json`, never another host's database.** Entries are
+   published by rename, which a reader cannot observe half-written. The
+   database stays the source of truth; the entry is a projection.
+3. **Owner records are per host, and a claim uses `link()`.** `rename` would
+   silently discard a competing claim; `link` onto a version-named target
+   reports `EEXIST` instead. No lock manager is involved. Startup atomically
+   reclaims a binding abandoned by a dead process; a live binding causes a
+   second user session instead.
+4. **Repair never ranges across user sessions.** A process cannot tell whether
+   work in another machine's session is abandoned or in flight.
+
+### The configuration exception
+
+`config.yaml` is the one file every host reads and writes. It is both the
+configuration and the centralized atomic state — the place for things that are
+genuinely global, like flags, which would be meaningless if each working
+directory held its own copy.
+
+It gets away with being shared because it is small, whole-file, and written
+atomically by rename. There is no partial write for a reader to observe and no
+range for two writers to interleave within. That is the whole reason the
+exception is safe, and it is also the constraint on what may go in it: anything
+that needs a read-modify-write against concurrent writers on another host does
+not belong here, because rename gives atomicity, not serialisation.
+
+`Configuration` is therefore **not immutable at runtime**, unlike the merged
+view each user session resolves from it at startup.
 
 ## AgentSession
 
@@ -285,7 +359,7 @@ Rank is migration order. A block may not be built before anything it depends on.
 | --- | --- | --- |
 | 1 | `StatePaths` | `appdirs`, `project`, `id`, `atomicfile`, `processidentity` |
 | 1 | `Configuration` | `config`, `mode` |
-| 2 | `AgentSessionStore` | `store`, `workspace` |
+| 2 | `SessionDatabase` | `store` (database, meta), `workspace` |
 | 2 | `EventRepository` | `event` (persistence half) |
 | 3 | `EventBroker` | `event` (broker, stream, subscription) |
 | 3 | `ICredentialStore` | `auth`, `security` |
@@ -297,19 +371,21 @@ Rank is migration order. A block may not be built before anything it depends on.
 | 7 | `ITool`, `ToolRegistry` | `tool`, `change` (patch model and parsing only) |
 | 7 | `SystemContextBuilder` | `systemcontext`, `skill`, `command` |
 | 8 | `Compactor` | `compaction` |
-| 9 | `AgentSession` | `session` (all of it), `agent` (runner and coordinator) |
+| 9 | `AgentSession` | `session` (conversation half), `agent` (runner and coordinator) |
 | 9 | `AgentRegistry` | `agent` (registry, provider resolution), `subagent` |
-| 10 | `ApiBackend` | `api/v1`, `httpapi` (backend half) |
-| 10 | `InProcessTransport` | `transport`, `client` |
-| 11 | `HttpServer` | `httpapi` (server, routes) |
-| 11 | `ParrotApplication` | `app` |
-| 12 | `CommandDispatcher`, `TerminalChat` | `cli`, `terminal`, `diagnostics` |
+| 10 | `UserSession` | `session` (InteractiveOwner, InteractiveClaim), `store` (owners, claims) |
+| 11 | `ApiBackend` | `api/v1`, `httpapi` (backend half) |
+| 11 | `InProcessTransport` | `transport`, `client` |
+| 12 | `HttpServer` | `httpapi` (server, routes) |
+| 12 | `ParrotApplication` | `app` |
+| 13 | `CommandDispatcher`, `TerminalChat` | `cli`, `terminal`, `diagnostics` |
 
-`AgentSession` sits at rank 9, not at the rank 4 its state alone would suggest,
-because it owns the drain and the turn, and a turn needs the tool registry and
-the providers. That is the cost of collapsing the coordinator and the runner
-into it, and it is why `AgentSessionStore` is ranked 2: session state becomes
-persistable long before `AgentSession` itself can be built.
+Two blocks rank far later than their state alone would suggest, both for the
+same reason: they own a lifetime, and a lifetime depends on everything it runs.
+`AgentSession` is rank 9 because it owns the drain and the turn, and a turn
+needs the tool registry and the providers. `UserSession` is rank 10 because it
+owns the agent sessions inside it. This is why `SessionDatabase` is ranked 2 —
+the state becomes persistable long before either owner can be built.
 
 ## Open questions
 
