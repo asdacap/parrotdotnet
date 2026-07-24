@@ -28,6 +28,7 @@ is a block built against guesses.
 M0  close the plan gate        no code
 M1  walking skeleton           one prompt in, one reply out
 M2  durable and recoverable    survives kill -9 and a second machine
+M2.5 interactive               a REPL with slash commands
 M3  tools and the sandbox      it can edit code, and cannot escape
 M4  context and compaction     long conversations stop falling over
 M5  agents, tasks, subagents   the full agent loop
@@ -134,6 +135,41 @@ Not done, and deliberately: an interrupted turn is not *replayed* on resume.
 The prompt and the messages are durable and the session is reclaimed, but
 recovery does not re-run a turn that died mid-flight. That is a bigger piece of
 the drain than M2 needs, and it belongs with the input-promotion work in M5.
+
+---
+
+### M2.5 — Interactive
+
+**Goal.** `parrot chat` opens a session, not a single answer.
+
+**Blocks.** `InteractiveSession`, `ISlashCommand` and eight commands, a renderer
+split so one `Listen` stream spans every turn. No new domain block: the contract
+already had what a REPL needs, because `Listen` was made indefinite for exactly
+this.
+
+**Exit.**
+
+```sh
+parrot chat            # a prompt, not an exit
+> /auth login          # key entry does not echo
+> /model glm-5.2
+> hello                # streams
+> /clear               # a new session; the old one stays listed
+> /exit
+echo piped | parrot chat   # still one-shot
+parrot chat "argument"     # still one-shot
+```
+
+**Why before M3, not with M7.** A permission prompt cannot be answered in a
+one-shot process, so `PermissionBroker` is unusable without a loop to answer in.
+The eight commands are the ones existing RPCs back; the rest arrive with the
+milestone that gives them something to do. This is the basic CLI's loop —
+`EnhancedCli` at M7 is a different, richer client, and shares no code with it.
+
+**Done.** Verified through a real PTY: `/version`, `/model` (issues
+`UpdateSession`), a streamed turn, `/clear` (new session id, old one still
+listed with `*` marking the current), `/nope` reported rather than sent to the
+model, `/exit`. One-shot survives both piped and as an argument.
 
 ---
 

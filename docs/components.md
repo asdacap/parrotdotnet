@@ -493,7 +493,10 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 
 - **Absorbs** `cli/chat`, rewritten far smaller. **Not** `cli/chatview`.
 - **Owns** nothing. No model of the conversation beyond what it has printed.
-- **Inbound** a `switch` over `Event.PayloadCase` and a `WriteLine`.
+- **Inbound** a `switch` over `Event.PayloadCase` and a `WriteLine`, driven
+  either one-shot or by `InteractiveSession`'s REPL. Slash commands are
+  client-side and never reach the event stream, so they do not give it a
+  conversation model.
 - **Outbound** the generated gRPC client, and nothing else.
 - **Boundary** no.
 - **Note** it is the test of the event contract. If it needs a helper, fix the

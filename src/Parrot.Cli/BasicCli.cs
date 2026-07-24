@@ -1,6 +1,5 @@
 using Grpc.Core;
 using Parrot.Protocol;
-using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
 
@@ -9,37 +8,22 @@ namespace Parrot.Cli;
 // event is underspecified -- fix the event, not the CLI.
 internal static class BasicCli
 {
-    public static async Task<int> Render(
-        GeneratedParrot.ParrotClient client,
-        string model,
-        string prompt,
+    // Renders one turn and returns, leaving the stream open. That is what lets
+    // a session share a single Listen call across every turn: the stream is
+    // indefinite by design, and only the client decides when it is done.
+    public static async Task<bool> RenderTurn(
+        IAsyncStreamReader<Event> stream,
         TextWriter output,
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(error);
 
-        var session = await client.CreateSessionAsync(
-            new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
-
-        // The stream is indefinite -- a subagent keeps publishing to it long
-        // after a turn ends -- so this call decides when it has heard enough
-        // and cancels, rather than waiting for the server to stop.
-        using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-        // Listen before sending: a stream opened after the turn starts would
-        // miss its opening events.
-        using var call = client.Listen(
-            new ListenRequest { UserSessionId = session.Id }, cancellationToken: listening.Token);
-
-        _ = await client.SendMessageAsync(
-            new SendMessageRequest { UserSessionId = session.Id, Text = prompt },
-            cancellationToken: cancellationToken);
-        var failed = false;
-
-        while (await MoveNext(call.ResponseStream, listening.Token).ConfigureAwait(false))
+        while (await MoveNext(stream, cancellationToken).ConfigureAwait(false))
         {
-            var published = call.ResponseStream.Current;
+            var published = stream.Current;
 
             switch (published.PayloadCase)
             {
@@ -53,27 +37,24 @@ internal static class BasicCli
                     await output.WriteLineAsync(
                         $"  {Summarise(published.TurnEnded)}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
-                    await listening.CancelAsync().ConfigureAwait(false);
-                    break;
+                    return true;
 
                 case Event.PayloadOneofCase.TurnFailed:
-                    failed = true;
                     await error.WriteLineAsync(
                         $"parrot: {published.TurnFailed.Message}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
-                    await listening.CancelAsync().ConfigureAwait(false);
-                    break;
+                    return false;
 
                 default:
                     break;
             }
         }
 
-        return failed ? CommandDispatcher.ExitFailure : CommandDispatcher.ExitSuccess;
+        return false;
     }
 
-    // Cancelling the stream is how this call says it is done, so the
-    // cancellation it caused is an ending rather than a failure.
+    // A cancelled stream is an ending, not a failure: cancelling is how a
+    // caller says it has heard enough.
     private static async Task<bool> MoveNext(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken)
     {
         try

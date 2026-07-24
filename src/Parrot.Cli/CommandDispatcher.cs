@@ -1,4 +1,5 @@
 using Parrot.Auth;
+using Parrot.Cli.Commands;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.State;
@@ -182,6 +183,59 @@ internal static class CommandDispatcher
         return provider;
     }
 
+    // Composed by hand, per AGENTS.md: no container, and the registry is the
+    // one place that knows which commands exist.
+    private static SlashCommandRegistry BuildRegistry(string defaultModel)
+    {
+        var commands = new List<ISlashCommand>
+        {
+            new ExitCommand(),
+            new VersionCommand(),
+            new ModelCommand(),
+            new ModelsCommand(),
+            new SessionsCommand(),
+            new ClearCommand(defaultModel),
+            new AuthCommand(ReadSecret),
+        };
+
+        var registry = new SlashCommandRegistry(commands);
+        commands.Add(new HelpCommand(registry));
+
+        return registry;
+    }
+
+    // Not ReadLine: a key must not land in the terminal scrollback, nor in a
+    // screen recording.
+    private static string ReadSecret()
+    {
+        var typed = new System.Text.StringBuilder();
+
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+
+            if (key.Key == ConsoleKey.Enter)
+            {
+                return typed.ToString();
+            }
+
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (typed.Length > 0)
+                {
+                    _ = typed.Remove(typed.Length - 1, 1);
+                }
+
+                continue;
+            }
+
+            if (!char.IsControl(key.KeyChar))
+            {
+                _ = typed.Append(key.KeyChar);
+            }
+        }
+    }
+
     // Local mode opens no socket: the generated client reaches the service
     // through the in-process invoker.
     private static GeneratedParrot.ParrotClient ClientFor(ParrotService service) =>
@@ -208,13 +262,6 @@ internal static class CommandDispatcher
             }
         }
 
-        if (words.Count == 0)
-        {
-            await error.WriteLineAsync("usage: parrot chat [--model <id>] <text>".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return ExitUsage;
-        }
-
         var provider = await ResolveProvider(error, cancellationToken).ConfigureAwait(false);
 
         if (provider is null)
@@ -225,10 +272,31 @@ internal static class CommandDispatcher
         var paths = StatePaths.ResolveFromEnvironment();
         using var store = new SessionStore(paths.State, Directory.GetCurrentDirectory(), Environment.MachineName);
         using var service = new ParrotService(provider, store);
+        var client = ClientFor(service);
         var prompt = string.Join(' ', words);
 
-        return await BasicCli
-            .Render(ClientFor(service), model, prompt, output, error, cancellationToken)
+        // A prompt on the command line, or piped stdin, means the caller wants
+        // one answer and not a session. Scripts and CI depend on that.
+        if (prompt.Length > 0 || Console.IsInputRedirected)
+        {
+            var piped = prompt.Length > 0
+                ? prompt
+                : (await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+
+            return piped.Length == 0
+                ? ExitUsage
+                : await OneShot.Run(client, model, piped, output, error, cancellationToken).ConfigureAwait(false);
+        }
+
+        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
+
+        var context = new SlashContext(client, credentials, ProviderId, session.Id, output, error);
+
+        return await InteractiveSession
+            .Run(client, BuildRegistry(model), context, Console.In, output, cancellationToken)
             .ConfigureAwait(false);
     }
 }

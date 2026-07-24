@@ -64,6 +64,12 @@ That builds the portable, framework-dependent binary. Development and the
 Native AOT publish both happen inside the dev shell; there is no supported way
 to build this repository against an ambient SDK.
 
+> **`git add` new files before `nix build`/`nix run`.** A flake sees only
+> git-tracked files, so an untracked `.cs` file is silently dropped from the
+> build — which surfaces as a spurious "type not found" from the sandbox
+> compile, not as "you forgot to add a file". `dotnet build` in the dev shell
+> does not hit this, because it reads the working tree directly.
+
 ```sh
 nix develop
 

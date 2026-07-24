@@ -67,6 +67,12 @@ nix develop
 binary rather than the AOT one. A package reference change requires
 regenerating `nix/deps.json`; see README.
 
+**`git add` a new file before `nix build`/`nix run`.** A flake sees only
+git-tracked files, so an untracked `.cs` is dropped from the build and surfaces
+as a spurious "type not found", not "you forgot to add a file". The dev-shell
+gates below read the working tree directly and never hit this, so a green
+`dotnet build` can still fail under Nix until the file is tracked.
+
 ## Gates
 
 ```sh
