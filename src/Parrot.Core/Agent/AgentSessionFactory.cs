@@ -12,7 +12,6 @@ namespace Parrot.Agent;
 // instance per agent session from there.
 internal sealed class AgentSessionFactory(
     UserSession owner,
-    ILLMProvider provider,
     string workingDirectory,
     ProcessRunner processes,
     SystemContextBuilder systemContext,
@@ -27,6 +26,8 @@ internal sealed class AgentSessionFactory(
 
     public AgentSession Create(
         string sessionId,
+        ILLMProvider provider,
+        string model,
         int depth,
         EventBroker eventBroker,
         EventRepository eventRepository) =>
@@ -38,5 +39,8 @@ internal sealed class AgentSessionFactory(
             _toolFactories,
             systemContext,
             compactor,
-            depth);
+            depth)
+        {
+            Model = model,
+        };
 }

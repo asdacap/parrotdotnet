@@ -31,7 +31,7 @@ internal sealed class EventPayloadTests
             new EventRepository(database),
             [],
             new SystemContextBuilder(".", "2026-07-24"),
-            new Compactor(new UnusedProvider(), 120_000),
+            new Compactor(120_000),
             depth: 0);
 
         var llmEvent = source switch

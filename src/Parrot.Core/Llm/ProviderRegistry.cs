@@ -9,10 +9,12 @@ internal sealed class ProviderRegistry
     private readonly Dictionary<string, ILLMProvider> _byId;
     private readonly IReadOnlyList<ILLMProvider> _ordered;
     private readonly Dictionary<string, IReadOnlyList<LLMModel>> _catalogues;
+    private readonly ProviderModel? _defaultModel;
 
     public ProviderRegistry(
         IReadOnlyList<ILLMProvider> providers,
-        IReadOnlyDictionary<string, IReadOnlyList<LLMModel>> catalogues)
+        IReadOnlyDictionary<string, IReadOnlyList<LLMModel>> catalogues,
+        ProviderModel? defaultModel)
     {
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(catalogues);
@@ -27,18 +29,24 @@ internal sealed class ProviderRegistry
             }
         }
 
+        if (defaultModel is not null && !ReferenceEquals(defaultModel.Provider, byId.GetValueOrDefault(defaultModel.Provider.Id)))
+        {
+            throw new LLMProviderException($"provider: default provider \"{defaultModel.Provider.Id}\" is not registered");
+        }
+
         _byId = byId;
         _ordered = [.. providers.OrderBy(provider => provider.Id, StringComparer.Ordinal)];
         _catalogues = new Dictionary<string, IReadOnlyList<LLMModel>>(catalogues, StringComparer.Ordinal);
+        _defaultModel = defaultModel;
     }
 
     public IReadOnlyList<ILLMProvider> List() => _ordered;
 
+    public IReadOnlyList<ProviderModel> AllModels() =>
+        [.. _ordered.SelectMany(provider => Models(provider.Id).Select(model => new ProviderModel(provider, model)))];
+
     public IReadOnlyList<LLMModel> Models(string providerId) =>
         _catalogues.TryGetValue(providerId, out var models) ? models : [];
-
-    public IReadOnlyList<LLMModel> AllModels() =>
-        [.. _ordered.SelectMany(provider => Models(provider.Id))];
 
     // Best effort: a provider that cannot be reached, or has no usable
     // credential, keeps the catalogue it was seeded with.
@@ -59,23 +67,38 @@ internal sealed class ProviderRegistry
         }
     }
 
-    // Resolves a "provider/model" selection. An empty provider takes the first
-    // sorted one; an empty model takes that provider's first sorted model. The
-    // model portion keeps any vendor prefix, since selection splits on the first
-    // slash only.
-    public (ILLMProvider Provider, LLMModel Model) Resolve(string providerId, string modelId)
+    // Resolves a "provider/model" selection. An empty provider takes the
+    // configured default when available, otherwise the first sorted one; an empty
+    // model takes that provider's default when available, otherwise its first
+    // sorted model. The model portion keeps any vendor prefix, since selection
+    // splits on the first slash only.
+    public ProviderModel Resolve(string providerId, string modelId)
     {
         if (_ordered.Count == 0)
         {
             throw new LLMProviderException("provider: no providers configured");
         }
 
-        var provider = providerId.Length == 0
-            ? _ordered[0]
-            : _byId.TryGetValue(providerId, out var found)
-                ? found
-                : throw new LLMProviderException($"provider: unknown provider \"{providerId}\"");
+        if (providerId.Length == 0)
+        {
+            if (modelId.Length == 0 && _defaultModel is not null)
+            {
+                return _defaultModel;
+            }
 
+            var fallbackProvider = _defaultModel?.Provider ?? _ordered[0];
+            return ResolveForProvider(fallbackProvider, modelId);
+        }
+
+        var provider = _byId.TryGetValue(providerId, out var found)
+            ? found
+            : throw new LLMProviderException($"provider: unknown provider \"{providerId}\"");
+
+        return ResolveForProvider(provider, modelId);
+    }
+
+    private ProviderModel ResolveForProvider(ILLMProvider provider, string modelId)
+    {
         var models = Models(provider.Id);
 
         if (models.Count == 0)
@@ -85,12 +108,15 @@ internal sealed class ProviderRegistry
 
         if (modelId.Length == 0)
         {
-            return (provider, models.OrderBy(model => model.Id, StringComparer.Ordinal).First());
+            var model = _defaultModel is { Provider.Id: var defaultProviderId, Model: var defaultModel } && defaultProviderId == provider.Id
+                ? defaultModel
+                : models.OrderBy(candidate => candidate.Id, StringComparer.Ordinal).First();
+            return new ProviderModel(provider, model);
         }
 
-        var model = models.FirstOrDefault(candidate => candidate.Id == modelId)
-            ?? throw new LLMProviderException($"provider: unknown model \"{providerId}/{modelId}\"");
+        var resolved = models.FirstOrDefault(candidate => candidate.Id == modelId)
+            ?? throw new LLMProviderException($"provider: unknown model \"{provider.Id}/{modelId}\"");
 
-        return (provider, model);
+        return new ProviderModel(provider, resolved);
     }
 }

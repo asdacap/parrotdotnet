@@ -12,7 +12,7 @@ internal sealed class OpenCodeGoProvider : ILLMProvider, IUsageReporter
     private readonly OpenAICompatibleProvider _inner;
     private readonly HttpClient _client;
     private readonly Uri _usageEndpoint;
-    private readonly string _apiKey;
+    private readonly IApiKeySource _apiKeySource;
 
     public OpenCodeGoProvider(OpenAICompatibleOptions options, HttpClient client)
     {
@@ -20,7 +20,7 @@ internal sealed class OpenCodeGoProvider : ILLMProvider, IUsageReporter
         _inner = new OpenAICompatibleProvider(options, client);
         _client = client;
         _usageEndpoint = HttpStreaming.EndpointUrl(options.BaseUrl, "usage", options.AllowInsecureLocalhost);
-        _apiKey = options.ApiKey;
+        _apiKeySource = options.ApiKeySource;
     }
 
     public string Id => _inner.Id;
@@ -35,13 +35,14 @@ internal sealed class OpenCodeGoProvider : ILLMProvider, IUsageReporter
 
     public async Task<SubscriptionUsage> Usage(CancellationToken cancellationToken)
     {
-        var headers = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["Authorization"] = "Bearer " + _apiKey,
-        };
-
         var body = await HttpStreaming
-            .Get(_client, _usageEndpoint, headers, HttpStreaming.RequestTimeout, HttpStreaming.MaxErrorBytes, cancellationToken)
+            .Get(
+                _client,
+                _usageEndpoint,
+                await AuthHeaders(cancellationToken).ConfigureAwait(false),
+                HttpStreaming.RequestTimeout,
+                HttpStreaming.MaxErrorBytes,
+                cancellationToken)
             .ConfigureAwait(false);
 
         using var document = JsonDocument.Parse(body);
@@ -116,5 +117,20 @@ internal sealed class OpenCodeGoProvider : ILLMProvider, IUsageReporter
             value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
             ? parsed
             : null;
+    }
+
+    private async Task<Dictionary<string, string>> AuthHeaders(CancellationToken cancellationToken)
+    {
+        var apiKey = await _apiKeySource.ApiKey(cancellationToken).ConfigureAwait(false);
+
+        if (apiKey.Length == 0)
+        {
+            throw new LLMProviderException($"provider: \"{Id}\" has no API key");
+        }
+
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Authorization"] = "Bearer " + apiKey,
+        };
     }
 }

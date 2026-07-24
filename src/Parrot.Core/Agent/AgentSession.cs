@@ -138,7 +138,7 @@ internal sealed class AgentSession(
             // window. Compaction starts a fresh epoch.
             if (compactor.ShouldCompact(_history))
             {
-                var compacted = (await compactor.Compact(Model, _history, cancellationToken)
+                var compacted = (await Compactor.Compact(provider, Model, _history, cancellationToken)
                     .ConfigureAwait(false)).ToList();
                 _history.Clear();
                 _history.AddRange(compacted);

@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Llm;
 
 namespace Parrot.Store;
 
@@ -18,7 +19,7 @@ internal sealed class SessionStore(
 
     public SessionIndex Index { get; } = new(stateDirectory);
 
-    public UserSession Open(string model)
+    public UserSession Open(ILLMProvider provider, string providerId, string model)
     {
         var claim = new WorkingDirectoryClaim(stateDirectory, hostKey);
         var claimed = claim.Claim(workingDirectory, Identifier.UserSession(), ProcessIsAlive);
@@ -35,12 +36,13 @@ internal sealed class SessionStore(
             Id = id,
             WorkingDirectory = workingDirectory,
             HostKey = hostKey,
+            ProviderId = providerId,
             Model = model,
             ProcessId = Environment.ProcessId,
             CreatedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         });
 
-        return userSessions.Create(id, model, new EventRepository(database));
+        return userSessions.Create(id, provider, providerId, model, new EventRepository(database));
     }
 
     public void Dispose()

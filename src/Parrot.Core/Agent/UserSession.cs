@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
 
@@ -16,6 +17,7 @@ internal sealed class UserSession : IDisposable
     private readonly EventBroker _eventBroker = new();
     private readonly EventRepository _eventRepository;
     private readonly IAgentSessionFactory _agentSessions;
+    private readonly Lock _mainGate = new();
 
     // The main agent session is not built here. Its tools are constructed with
     // the session they belong to, and their factories with this user session,
@@ -24,24 +26,31 @@ internal sealed class UserSession : IDisposable
     // prompt instead; its id is settled now so History has something to ask
     // about before then.
     private readonly string _mainSessionId = Identifier.AgentSession();
-    private readonly Lock _mainGate = new();
+    private ILLMProvider _provider;
     private AgentSession? _main;
 
     public UserSession(
         string id,
+        ILLMProvider provider,
+        string providerId,
         string model,
         EventRepository eventRepository,
         IAgentSessionFactorySource agentSessionFactories)
     {
+        ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
 
         Id = id;
+        ProviderId = providerId;
         Model = model;
         _eventRepository = eventRepository;
-        _agentSessions = agentSessionFactories.Create(this);
+        _provider = provider;
+        _agentSessions = agentSessionFactories.Create(this, provider);
     }
 
     public string Id { get; }
+
+    public string ProviderId { get; private set; }
 
     // Session state, and owned here rather than on the main agent session:
     // CreateSession reports it and UpdateSession changes it, both of which can
@@ -49,15 +58,22 @@ internal sealed class UserSession : IDisposable
     // Under the same lock as Main: an UpdateSession racing the first prompt
     // would otherwise be free to see a null _main, skip, and lose the selection
     // the turn is about to run with.
-    public string Model
+    public string Model { get; private set; }
+
+    public void UpdateSelection(ILLMProvider provider, string providerId, string model)
     {
-        get;
-        set
+        ArgumentNullException.ThrowIfNull(provider);
+
+        lock (_mainGate)
         {
-            lock (_mainGate)
+            _provider = provider;
+            ProviderId = providerId;
+            Model = model;
+
+            if (_main is not null)
             {
-                field = value;
-                _ = _main?.Model = value;
+                _main = _agentSessions.Create(_mainSessionId, _provider, Model, 0, _eventBroker, _eventRepository);
+                _agents[_mainSessionId] = _main;
             }
         }
     }
@@ -103,8 +119,7 @@ internal sealed class UserSession : IDisposable
         {
             if (_main is null)
             {
-                _main = _agentSessions.Create(_mainSessionId, 0, _eventBroker, _eventRepository);
-                _main.Model = Model;
+                _main = _agentSessions.Create(_mainSessionId, _provider, Model, 0, _eventBroker, _eventRepository);
                 Admit(_main);
             }
 

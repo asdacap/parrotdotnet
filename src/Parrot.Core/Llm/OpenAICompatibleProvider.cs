@@ -11,7 +11,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly Uri _endpoint;
     private readonly Uri _modelsEndpoint;
     private readonly CompatibleProtocol _protocol;
-    private readonly string _apiKey;
+    private readonly IApiKeySource _apiKeySource;
     private readonly IReadOnlyDictionary<string, string> _headers;
     private readonly IReadOnlyList<LLMModel> _declared;
     private readonly IReadOnlyList<LLMModel> _defaults;
@@ -29,10 +29,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             throw new LLMProviderException("provider: compatible provider ID is required");
         }
 
-        if (options.ApiKey.Length == 0)
-        {
-            throw new LLMProviderException("provider: compatible provider API key is required");
-        }
+        ArgumentNullException.ThrowIfNull(options.ApiKeySource);
 
         if (options.HeaderTimeout < TimeSpan.Zero)
         {
@@ -48,7 +45,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
 
         Id = options.Id;
         _protocol = options.Protocol;
-        _apiKey = options.ApiKey;
+        _apiKeySource = options.ApiKeySource;
         _endpoint = HttpStreaming.EndpointUrl(options.BaseUrl, endpointName, options.AllowInsecureLocalhost);
         _modelsEndpoint = HttpStreaming.EndpointUrl(options.BaseUrl, "models", options.AllowInsecureLocalhost);
         _headers = HttpStreaming.ValidateHeaders(options.Headers);
@@ -68,7 +65,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     public async Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken)
     {
         var body = await HttpStreaming
-            .Get(_client, _modelsEndpoint, AuthHeaders(), HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
+            .Get(_client, _modelsEndpoint, await AuthHeaders(cancellationToken).ConfigureAwait(false), HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
             .ConfigureAwait(false);
 
         return ModelCatalogue.Merge(_decoder.Decode(Id, body), _declared, _defaults);
@@ -91,7 +88,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             : ChatCompletionsAdapter.Encode(prepared);
 
         var stream = await HttpStreaming
-            .OpenStream(_client, _endpoint, body, AuthHeaders(), _headerTimeout, cancellationToken)
+            .OpenStream(_client, _endpoint, body, await AuthHeaders(cancellationToken).ConfigureAwait(false), _headerTimeout, cancellationToken)
             .ConfigureAwait(false);
 
         await using (stream.ConfigureAwait(false))
@@ -107,9 +104,18 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         }
     }
 
-    private Dictionary<string, string> AuthHeaders() =>
-        new(_headers, StringComparer.Ordinal)
+    private async Task<Dictionary<string, string>> AuthHeaders(CancellationToken cancellationToken)
+    {
+        var apiKey = await _apiKeySource.ApiKey(cancellationToken).ConfigureAwait(false);
+
+        if (apiKey.Length == 0)
         {
-            ["Authorization"] = "Bearer " + _apiKey,
+            throw new LLMProviderException($"provider: \"{Id}\" has no API key");
+        }
+
+        return new Dictionary<string, string>(_headers, StringComparer.Ordinal)
+        {
+            ["Authorization"] = "Bearer " + apiKey,
         };
+    }
 }

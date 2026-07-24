@@ -337,19 +337,22 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   classifies an HTTP failure. This keeps `LLMEvent` unchanged.
 - **Router metadata is not surfaced.** The `provider` object OpenRouter returns
   is parsed but dropped, since no consumer exists.
-- **A session is bound to one provider.** `ParrotService` resolves
-  `provider/model` at `CreateSession` and stores the bare model id; a `/model`
-  that names a different provider is refused with a message pointing at
-  `/clear`. Upstream re-resolves per turn.
+- **A session re-resolves its provider on selection change.** `ParrotService`
+  resolves `provider/model` at `CreateSession` and again at `UpdateSession`;
+  the user session holds the resolved provider and model, and a `/model` that
+  crosses providers rebuilds the main agent session with the new provider.
 - **`config.yaml` gains a `providers:` map** (`ProviderConfig`/`ModelConfig`)
   for custom compatible providers and per-model overrides.
 - **CLI strings changed:** `auth login <provider> [--api-key-stdin]` and
   `auth login chatgpt [--device]`; `/auth login <provider>` in the REPL.
 - **No same-origin redirect following** (upstream refuses cross-origin only):
   the provider `HttpClient` disables auto-redirect and any 3xx is an error.
-- **Adding an API-key credential mid-REPL** does not live-reload the registry
-  (upstream's `ReloadProviders` is not ported); a restart picks it up. ChatGPT is
-  always present, so its OAuth login takes effect immediately.
+- **API keys are resolved per request, not at startup.** Every provider holds an
+  `IApiKeySource` that reads the environment variable or credential store on each
+  call, so `auth login` takes effect immediately without a restart. The registry
+  is built once with all configured providers regardless of whether a credential
+  exists yet; a missing key surfaces as a non-retryable `LLMProviderException` at
+  call time.
 
 ---
 

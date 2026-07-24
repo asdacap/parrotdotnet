@@ -39,9 +39,9 @@ internal partial class Composition
 
             // Supplied when the composition is built: credentials are read and
             // the registry assembled asynchronously before this point, and
-            // roots are synchronous.
+            // roots are synchronous. The registry resolves the provider per
+            // session, so no single provider is bound here.
             .Arg<ProviderRegistry>("registry")
-            .Arg<ILLMProvider>("provider")
             .Arg<string>("workingDirectory", "workingDirectory")
             .Arg<string>("hostKey", "hostKey")
 
@@ -63,11 +63,7 @@ internal partial class Composition
                         "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
             })
 
-            .Bind().As(Lifetime.Singleton).To(ctx =>
-            {
-                ctx.Inject<ILLMProvider>(out var provider);
-                return new Compactor(provider, CompactionTokenBudget);
-            })
+            .Bind().As(Lifetime.Singleton).To(_ => new Compactor(CompactionTokenBudget))
 
             // The static half of an agent session is bound into the source
             // here. The source mints one factory per user session, that factory
@@ -77,14 +73,13 @@ internal partial class Composition
             // repository.
             .Bind().As(Lifetime.Singleton).To<IAgentSessionFactorySource>(ctx =>
             {
-                ctx.Inject<ILLMProvider>(out var provider);
                 ctx.Inject<ProcessRunner>(out var processes);
                 ctx.Inject<SystemContextBuilder>(out var systemContext);
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
 
                 return new AgentSessionFactorySource(
-                    provider, workingDirectory, processes, systemContext, compactor);
+                    workingDirectory, processes, systemContext, compactor);
             })
 
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>

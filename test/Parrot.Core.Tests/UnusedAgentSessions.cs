@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -9,9 +10,14 @@ namespace Parrot.Core.Tests;
 // source that works and a factory that is never reached.
 internal sealed class UnusedAgentSessions : IAgentSessionFactorySource, IAgentSessionFactory
 {
-    public IAgentSessionFactory Create(UserSession owner) => this;
+    public IAgentSessionFactory Create(UserSession owner, ILLMProvider provider) => this;
 
     public AgentSession Create(
-        string sessionId, int depth, EventBroker eventBroker, EventRepository eventRepository) =>
+        string sessionId,
+        ILLMProvider provider,
+        string model,
+        int depth,
+        EventBroker eventBroker,
+        EventRepository eventRepository) =>
         throw new NotSupportedException();
 }

@@ -5,15 +5,16 @@ namespace Parrot.Llm;
 
 // Builds the provider registry from presets, configuration, and stored
 // credentials. The ChatGPT OAuth provider is always present; API-key providers
-// are built when a credential (or its environment variable) is available. Every
-// provider is wrapped so its calls retry. Port of Go's app.BuildProviders.
+// are built regardless of whether a credential currently exists, and resolve it
+// per request. Every provider is wrapped so its calls retry. Port of Go's
+// app.BuildProviders.
 internal sealed class ProviderRegistryBuilder(
     Configuration configuration,
     ICredentialStore store,
     HttpClient httpClient,
     IBrowserOpener browser)
 {
-    public async Task<ProviderRegistry> Build(CancellationToken cancellationToken)
+    public Task<ProviderRegistry> Build()
     {
         var chatgpt = new ChatGptProvider(ChatGptTokens(), httpClient);
         var providers = new List<ILLMProvider> { new RetryingProvider(chatgpt) };
@@ -31,8 +32,7 @@ internal sealed class ProviderRegistryBuilder(
 
         foreach (var id in ids)
         {
-            var built = await BuildOne(
-                id, configured.GetValueOrDefault(id), configured.ContainsKey(id), cancellationToken).ConfigureAwait(false);
+            var built = BuildOne(id, configured.GetValueOrDefault(id));
 
             if (built is not null)
             {
@@ -41,7 +41,7 @@ internal sealed class ProviderRegistryBuilder(
             }
         }
 
-        return new ProviderRegistry(providers, catalogues);
+        return Task.FromResult(new ProviderRegistry(providers, catalogues, ResolveDefaultModel(providers, catalogues)));
     }
 
     private static string ProviderPreferences(ProviderConfig? config, ProviderPreset? preset) =>
@@ -92,14 +92,44 @@ internal sealed class ProviderRegistryBuilder(
 
     private static BuiltProvider Built(OpenAICompatibleProvider provider) => new(provider, provider.SeedModels());
 
+    private ProviderModel? ResolveDefaultModel(
+        IReadOnlyList<ILLMProvider> providers,
+        IReadOnlyDictionary<string, IReadOnlyList<LLMModel>> catalogues)
+    {
+        if (string.IsNullOrEmpty(configuration.Model))
+        {
+            return null;
+        }
+
+        var slash = configuration.Model.IndexOf('/', StringComparison.Ordinal);
+        var providerId = slash < 0 ? string.Empty : configuration.Model[..slash];
+        var modelId = slash < 0 ? configuration.Model : configuration.Model[(slash + 1)..];
+
+        if (modelId.Length == 0)
+        {
+            return null;
+        }
+
+        var provider = providerId.Length == 0
+            ? providers.FirstOrDefault(candidate => catalogues.GetValueOrDefault(candidate.Id, []).Any(model => model.Id == modelId))
+            : providers.FirstOrDefault(candidate => candidate.Id == providerId);
+
+        if (provider is null)
+        {
+            return null;
+        }
+
+        var model = catalogues.GetValueOrDefault(provider.Id, []).FirstOrDefault(candidate => candidate.Id == modelId);
+        return model is null ? null : new ProviderModel(provider, model);
+    }
+
     private OAuthTokenSource ChatGptTokens() =>
         new(
             store,
             new OpenAiOAuthClient(httpClient, browser, new OpenAiOAuthOptions()),
             ChatGptProvider.ProviderId);
 
-    private async Task<BuiltProvider?> BuildOne(
-        string id, ProviderConfig? config, bool explicitlyConfigured, CancellationToken cancellationToken)
+    private BuiltProvider? BuildOne(string id, ProviderConfig? config)
     {
         var preset = ProviderPresets.All.GetValueOrDefault(id);
         var baseUrl = FirstNonEmpty(config?.BaseUrl, preset?.BaseUrl);
@@ -117,25 +147,12 @@ internal sealed class ProviderRegistryBuilder(
         }
 
         var apiKeyEnv = FirstNonEmpty(config?.ApiKeyEnv, preset?.ApiKeyEnv);
-        var apiKey = await ResolveApiKey(id, apiKeyEnv, cancellationToken).ConfigureAwait(false);
-
-        if (apiKey.Length == 0)
-        {
-            if (explicitlyConfigured)
-            {
-                throw new LLMProviderException($"provider: \"{id}\" has no API key (set {apiKeyEnv} or store a credential)");
-            }
-
-            // An optional preset without a credential is silently skipped.
-            return null;
-        }
-
         var options = new OpenAICompatibleOptions
         {
             Id = id,
             BaseUrl = baseUrl,
             Protocol = ResolveProtocol(config?.Protocol, preset?.Protocol),
-            ApiKey = apiKey,
+            ApiKeySource = new StoredApiKeySource(id, apiKeyEnv, store),
             Headers = config?.Headers ?? new Dictionary<string, string>(StringComparer.Ordinal),
             AllowInsecureLocalhost = config?.AllowInsecureLocalhost ?? false,
             Models = DeclaredModels(id, config),
@@ -151,17 +168,6 @@ internal sealed class ProviderRegistryBuilder(
             "kimi-api" => Built(new KimiProvider(options, httpClient)),
             _ => Built(new OpenAICompatibleProvider(options, httpClient)),
         };
-    }
-
-    private async Task<string> ResolveApiKey(string id, string apiKeyEnv, CancellationToken cancellationToken)
-    {
-        if (apiKeyEnv.Length > 0 && Environment.GetEnvironmentVariable(apiKeyEnv) is { Length: > 0 } fromEnv)
-        {
-            return fromEnv;
-        }
-
-        var credential = await store.Get(id, cancellationToken).ConfigureAwait(false);
-        return credential is { Type: CredentialType.ApiKey, ApiKey: { } apiKey } ? apiKey.Key.Value : string.Empty;
     }
 
     // A provider and the catalogue it is selectable with before its endpoint is

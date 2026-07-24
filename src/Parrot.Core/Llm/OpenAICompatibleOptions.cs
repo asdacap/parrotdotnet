@@ -9,7 +9,7 @@ internal sealed record OpenAICompatibleOptions
 
     public CompatibleProtocol Protocol { get; init; } = CompatibleProtocol.ChatCompletions;
 
-    public required string ApiKey { get; init; }
+    public required IApiKeySource ApiKeySource { get; init; }
 
     public IReadOnlyDictionary<string, string> Headers { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);

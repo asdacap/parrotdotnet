@@ -175,7 +175,7 @@ internal static class CommandDispatcher
         CancellationToken cancellationToken)
     {
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        using var composition = await Compose(credentials, Selection(), error, cancellationToken)
+        using var composition = await Compose(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -201,7 +201,6 @@ internal static class CommandDispatcher
     // OAuth providers refresh through it, so the caller owns both.
     private static async Task<Composition?> Compose(
         ICredentialStore credentials,
-        string selection,
         TextWriter error,
         CancellationToken cancellationToken)
     {
@@ -209,10 +208,10 @@ internal static class CommandDispatcher
         {
             var registry = await new ProviderRegistryBuilder(
                 Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile), credentials, Http, Browser)
-                .Build(cancellationToken).ConfigureAwait(false);
+                .Build().ConfigureAwait(false);
 
             return new Composition(
-                registry, Bind(registry, selection), Directory.GetCurrentDirectory(), Environment.MachineName);
+                registry, Directory.GetCurrentDirectory(), Environment.MachineName);
         }
         catch (LLMProviderException failure)
         {
@@ -222,34 +221,7 @@ internal static class CommandDispatcher
         }
     }
 
-    // The graph needs one provider up front. A selection that does not resolve
-    // -- no credential for it yet -- falls back to whatever is available, so
-    // `models` still lists. A turn re-resolves the real selection at
-    // CreateSession, which is where a bad --model is reported precisely.
-    private static ILLMProvider Bind(ProviderRegistry registry, string selection)
-    {
-        var slash = selection.IndexOf('/', StringComparison.Ordinal);
-
-        try
-        {
-            return slash < 0
-                ? registry.Resolve(string.Empty, selection).Provider
-                : registry.Resolve(selection[..slash], selection[(slash + 1)..]).Provider;
-        }
-        catch (LLMProviderException)
-        {
-            return registry.Resolve(string.Empty, string.Empty).Provider;
-        }
-    }
-
     private static OpenAiOAuthClient OAuthClient() => new(Http, Browser, new OpenAiOAuthOptions());
-
-    // The selection a command without its own --model runs under.
-    private static string Selection()
-    {
-        var configured = Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile).Model;
-        return configured.Length > 0 ? configured : DefaultModel;
-    }
 
     private static string ProviderOf(string model)
     {
@@ -277,7 +249,7 @@ internal static class CommandDispatcher
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        using var composition = await Compose(credentials, Selection(), error, cancellationToken)
+        using var composition = await Compose(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -406,7 +378,7 @@ internal static class CommandDispatcher
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        using var composition = await Compose(credentials, Selection(), error, cancellationToken)
+        using var composition = await Compose(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)

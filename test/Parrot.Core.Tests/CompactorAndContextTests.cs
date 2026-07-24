@@ -46,7 +46,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new EventRepository(database),
             [],
             new SystemContextBuilder(_workspace, "2026-07-24"),
-            new Compactor(provider, tokenBudget: 0),
+            new Compactor(tokenBudget: 0),
             depth: 0)
         {
             Model = "model",
@@ -65,7 +65,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("SUMMARY OF EARLIER");
 
         // A budget of zero forces compaction; the four newest messages survive.
-        var compactor = new Compactor(provider, tokenBudget: 0);
+        var compactor = new Compactor(tokenBudget: 0);
 
         var history = new List<LLMMessage>();
 
@@ -76,7 +76,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         _ = await Assert.That(compactor.ShouldCompact(history)).IsTrue();
 
-        var compacted = await compactor.Compact("model", history, cancellationToken);
+        var compacted = await Compactor.Compact(provider, "model", history, cancellationToken);
 
         _ = await Assert.That(compacted.Count).IsLessThan(history.Count);
         _ = await Assert.That(compacted[0].Role).IsEqualTo(LLMRole.System);

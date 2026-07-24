@@ -138,6 +138,11 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
                 throw failure;
 
+            // A missing key or bad configuration is not transient; retrying it
+            // only delays the inevitable.
+            case LLMProviderException:
+                throw failure;
+
             default:
                 // Network and protocol errors are retryable by default.
                 if (state.TakeStream(out var streamAttempt))

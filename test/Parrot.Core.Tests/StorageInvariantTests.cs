@@ -111,6 +111,7 @@ internal sealed class StorageInvariantTests : IDisposable
             Id = "listed",
             WorkingDirectory = "/work",
             HostKey = "host",
+            ProviderId = "opencode-go",
             Model = "deepseek-v4-pro",
         });
 

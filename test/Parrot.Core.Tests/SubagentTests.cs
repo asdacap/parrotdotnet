@@ -27,7 +27,7 @@ internal sealed class SubagentTests : IDisposable
     {
         var provider = new ScriptedProvider("child says hi");
         using var owner = new UserSession(
-            "user", "model", new EventRepository(_database), new UnusedAgentSessions());
+            "user", new UnusedProvider(), "provider", "model", new EventRepository(_database), new UnusedAgentSessions());
         var spawn = new AgentSpawnTool(owner, Session(provider, depth));
 
         var result = await spawn.Execute("""{"prompt":"do the subtask"}""", cancellationToken);
@@ -43,7 +43,7 @@ internal sealed class SubagentTests : IDisposable
             new EventRepository(_database),
             [],
             new SystemContextBuilder(".", "2026-07-24"),
-            new Compactor(provider, 120_000),
+            new Compactor(120_000),
             depth)
         {
             Model = "model",

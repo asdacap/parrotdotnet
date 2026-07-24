@@ -21,10 +21,6 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 {
     private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
 
-    // Which provider each session is bound to, so a /model that crosses
-    // providers is refused rather than silently answered by the wrong one.
-    private readonly ConcurrentDictionary<string, string> _sessionProviders = new(StringComparer.Ordinal);
-
     public override async Task<ListModelsResponse> ListModels(ListModelsRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -34,7 +30,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 
         foreach (var model in registry.AllModels())
         {
-            response.Models.Add(new Model { Id = model.Id, ProviderId = model.ProviderId });
+            response.Models.Add(new Model { Id = model.Model.Id, ProviderId = model.Model.ProviderId });
         }
 
         return response;
@@ -57,11 +53,8 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
             throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
 
-        // The session carries the bare model id; the composition already holds
-        // the provider that this selection resolved to.
-        var created = store.Open(model.Id);
+        var created = store.Open(resolved, model.ProviderId, model.Id);
         _ = _userSessions.TryAdd(created.Id, created);
-        _ = _sessionProviders.TryAdd(created.Id, resolved.Id);
 
         return Task.FromResult(Describe(created));
     }
@@ -75,16 +68,16 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
         if (request.Model.Length > 0)
         {
             var (providerId, modelId) = SplitModel(request.Model);
-            var bound = _sessionProviders.GetValueOrDefault(request.UserSessionId, string.Empty);
 
-            if (providerId.Length > 0 && bound.Length > 0 && providerId != bound)
+            try
             {
-                throw new RpcException(new Status(
-                    StatusCode.InvalidArgument,
-                    $"this session is bound to {bound}; use /clear to start one on {providerId}"));
+                var (resolved, model) = registry.Resolve(providerId, modelId);
+                found.UpdateSelection(resolved, model.ProviderId, model.Id);
             }
-
-            found.Model = modelId;
+            catch (LLMProviderException failure)
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+            }
         }
 
         return Task.FromResult(Describe(found));
@@ -144,7 +137,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
     }
 
     private static UserSession Describe(Agent.UserSession session) =>
-        new() { Id = session.Id, Model = session.Model };
+        new() { Id = session.Id, Model = $"{session.ProviderId}/{session.Model}" };
 
     private Agent.UserSession Find(string userSessionId) =>
         _userSessions.TryGetValue(userSessionId, out var found)

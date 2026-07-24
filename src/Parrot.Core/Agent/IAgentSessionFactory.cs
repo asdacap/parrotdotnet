@@ -1,4 +1,5 @@
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -9,5 +10,11 @@ namespace Parrot.Agent;
 // parameters it never uses.
 internal interface IAgentSessionFactory
 {
-    AgentSession Create(string sessionId, int depth, EventBroker eventBroker, EventRepository eventRepository);
+    AgentSession Create(
+        string sessionId,
+        ILLMProvider provider,
+        string model,
+        int depth,
+        EventBroker eventBroker,
+        EventRepository eventRepository);
 }

@@ -11,7 +11,7 @@ internal sealed class KimiProvider : ILLMProvider, IUsageReporter
     private readonly OpenAICompatibleProvider _inner;
     private readonly HttpClient _client;
     private readonly Uri _balanceEndpoint;
-    private readonly string _apiKey;
+    private readonly IApiKeySource _apiKeySource;
 
     public KimiProvider(OpenAICompatibleOptions options, HttpClient client)
     {
@@ -19,7 +19,7 @@ internal sealed class KimiProvider : ILLMProvider, IUsageReporter
         _inner = new OpenAICompatibleProvider(options, client);
         _client = client;
         _balanceEndpoint = HttpStreaming.EndpointUrl(options.BaseUrl, "users/me/balance", options.AllowInsecureLocalhost);
-        _apiKey = options.ApiKey;
+        _apiKeySource = options.ApiKeySource;
     }
 
     public string Id => _inner.Id;
@@ -34,13 +34,14 @@ internal sealed class KimiProvider : ILLMProvider, IUsageReporter
 
     public async Task<SubscriptionUsage> Usage(CancellationToken cancellationToken)
     {
-        var headers = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["Authorization"] = "Bearer " + _apiKey,
-        };
-
         var body = await HttpStreaming
-            .Get(_client, _balanceEndpoint, headers, HttpStreaming.RequestTimeout, HttpStreaming.MaxErrorBytes, cancellationToken)
+            .Get(
+                _client,
+                _balanceEndpoint,
+                await AuthHeaders(cancellationToken).ConfigureAwait(false),
+                HttpStreaming.RequestTimeout,
+                HttpStreaming.MaxErrorBytes,
+                cancellationToken)
             .ConfigureAwait(false);
 
         using var document = JsonDocument.Parse(body);
@@ -54,5 +55,20 @@ internal sealed class KimiProvider : ILLMProvider, IUsageReporter
         var balance = data.TryGetProperty("available_balance", out var raw) ? raw.GetRawText().Trim('"') : "0";
 
         return new SubscriptionUsage { Credits = new UsageCredits(available > 0, balance) };
+    }
+
+    private async Task<Dictionary<string, string>> AuthHeaders(CancellationToken cancellationToken)
+    {
+        var apiKey = await _apiKeySource.ApiKey(cancellationToken).ConfigureAwait(false);
+
+        if (apiKey.Length == 0)
+        {
+            throw new LLMProviderException($"provider: \"{Id}\" has no API key");
+        }
+
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Authorization"] = "Bearer " + apiKey,
+        };
     }
 }
