@@ -9,6 +9,7 @@ internal static class OneShot
 {
     public static async Task<int> Run(
         GeneratedParrot.ParrotClient client,
+        ITurnRenderer renderer,
         string model,
         string prompt,
         TextWriter output,
@@ -16,6 +17,7 @@ internal static class OneShot
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(renderer);
 
         var session = await client.CreateSessionAsync(
             new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
@@ -33,7 +35,7 @@ internal static class OneShot
             new SendMessageRequest { UserSessionId = session.Id, Text = prompt },
             cancellationToken: cancellationToken);
 
-        var completed = await BasicCli
+        var completed = await renderer
             .RenderTurn(call.ResponseStream, output, error, listening.Token)
             .ConfigureAwait(false);
 

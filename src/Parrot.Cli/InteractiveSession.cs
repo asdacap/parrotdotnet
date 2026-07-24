@@ -12,6 +12,7 @@ internal static class InteractiveSession
 
     public static async Task<int> Run(
         GeneratedParrot.ParrotClient client,
+        ITurnRenderer renderer,
         SlashCommandRegistry registry,
         SlashContext context,
         TextReader input,
@@ -19,6 +20,7 @@ internal static class InteractiveSession
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(renderer);
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(context);
 
@@ -77,7 +79,7 @@ internal static class InteractiveSession
                     new SendMessageRequest { UserSessionId = context.UserSessionId, Text = entered },
                     cancellationToken: cancellationToken);
 
-                _ = await BasicCli
+                _ = await renderer
                     .RenderTurn(call.ResponseStream, output, context.Error, listening.Token)
                     .ConfigureAwait(false);
             }

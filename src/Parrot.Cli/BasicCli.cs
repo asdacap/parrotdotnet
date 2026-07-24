@@ -4,18 +4,13 @@ using Parrot.Protocol;
 namespace Parrot.Cli;
 
 // A switch over the payload and a WriteLine. No model of the conversation
-// beyond what it has printed, and no helper. If this file ever needs one, the
-// event is underspecified -- fix the event, not the CLI.
-internal static class BasicCli
+// beyond what it has printed, and no helper. If this ever needs one, the event
+// is underspecified -- fix the event, not the CLI. It shares no rendering with
+// EnhancedCli, only the ITurnRenderer seam and the generated client.
+internal sealed class BasicCli : ITurnRenderer
 {
-    // Renders one turn and returns, leaving the stream open. That is what lets
-    // a session share a single Listen call across every turn: the stream is
-    // indefinite by design, and only the client decides when it is done.
-    public static async Task<bool> RenderTurn(
-        IAsyncStreamReader<Event> stream,
-        TextWriter output,
-        TextWriter error,
-        CancellationToken cancellationToken)
+    public async Task<bool> RenderTurn(
+        IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(output);
@@ -35,14 +30,12 @@ internal static class BasicCli
                 case Event.PayloadOneofCase.TurnEnded:
                     await output.WriteLineAsync().ConfigureAwait(false);
                     await output.WriteLineAsync(
-                        $"  {Summarise(published.TurnEnded)}".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
+                        $"  {Summarise(published.TurnEnded)}".AsMemory(), cancellationToken).ConfigureAwait(false);
                     return true;
 
                 case Event.PayloadOneofCase.TurnFailed:
                     await error.WriteLineAsync(
-                        $"parrot: {published.TurnFailed.Message}".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
+                        $"parrot: {published.TurnFailed.Message}".AsMemory(), cancellationToken).ConfigureAwait(false);
                     return false;
 
                 default:
@@ -53,8 +46,7 @@ internal static class BasicCli
         return false;
     }
 
-    // A cancelled stream is an ending, not a failure: cancelling is how a
-    // caller says it has heard enough.
+    // A cancelled stream is an ending, not a failure.
     private static async Task<bool> MoveNext(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken)
     {
         try

@@ -1,6 +1,7 @@
 # Migration Plan
 
-**Status: M0, M1 and M2 done.** Milestone 0 was the plan gate from
+**Status: M0 through M7 done.** A walking agent: interactive, durable, tools
+under a sandbox, context and compaction, subagents, serve, and two renderers. Milestone 0 was the plan gate from
 MIGRATION.md §0. `docs/components.md` now has an entry for all 29 blocks and
 the level-1 questions are answered in `architecture.md`.
 
@@ -288,6 +289,16 @@ works and still shares no code with it.
 **Last on purpose.** It is the largest block and the one that renders everything
 else, so its shape is guessable only once everything it renders exists. It is
 also the only milestone that can be cut without cutting the product.
+
+**Done (a first enhanced renderer).** `EnhancedCli` reads the typed payload:
+reasoning dim, tool calls announced, the turn summary set apart in colour, no
+alternate screen so scrollback is the history. It is the default in a terminal;
+`--basic`, or redirected output, selects `BasicCli`. The two share no rendering
+-- only the `ITurnRenderer` seam and the generated client -- so BasicCli stays a
+pure test of the event contract. Verified live through a PTY: the same turn
+renders coloured under the default and plain under `--basic`. The full terminal
+editor/picker/markdown layer is a richer M7 than this; what ships is the honest
+first version of a distinct enhanced client.
 
 ## What this plan does not schedule
 

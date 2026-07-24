@@ -39,6 +39,8 @@ internal static class CommandDispatcher
           chat --connect host:port    Drive a session on a remote parrot serve
           serve [--port <n>]          Host the service for remote clients
 
+        --basic forces the minimal renderer; the default is the enhanced one.
+
         Bare `parrot` is `parrot chat`. In a terminal that opens a REPL; with a
         prompt or piped stdin it answers once. /help lists the slash commands.
         """;
@@ -314,6 +316,7 @@ internal static class CommandDispatcher
         // for a fresh install with no config yet.
         var model = configuration.Model.Length > 0 ? configuration.Model : DefaultModel;
         var connect = string.Empty;
+        var basic = false;
         var words = new List<string>();
 
         for (var index = 1; index < arguments.Count; index++)
@@ -327,6 +330,10 @@ internal static class CommandDispatcher
 
                 case "--connect" when index + 1 < arguments.Count:
                     connect = arguments[++index];
+                    break;
+
+                case "--basic":
+                    basic = true;
                     break;
 
                 default:
@@ -344,7 +351,8 @@ internal static class CommandDispatcher
             using var channel = GrpcChannel.ForAddress(RemoteAddress(connect));
             var remote = new GeneratedParrot.ParrotClient(channel);
 
-            return await Drive(remote, paths, configuration, model, prompt, output, error, cancellationToken)
+            return await Drive(
+                remote, Renderer(basic), paths, configuration, model, prompt, output, error, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -360,13 +368,19 @@ internal static class CommandDispatcher
         using var service = new ParrotService(provider, store);
 
         return await Drive(
-            ClientFor(service), paths, configuration, model, prompt, output, error, cancellationToken)
+            ClientFor(service), Renderer(basic), paths, configuration, model, prompt, output, error, cancellationToken)
             .ConfigureAwait(false);
     }
+
+    // EnhancedCli by default in a terminal; BasicCli when asked, or when output
+    // is redirected and ANSI would only add noise. They share no rendering.
+    private static ITurnRenderer Renderer(bool basic) =>
+        basic || Console.IsOutputRedirected ? new BasicCli() : new EnhancedCli();
 
     // Shared by local and remote: one prompt is one-shot, otherwise a REPL.
     private static async Task<int> Drive(
         GeneratedParrot.ParrotClient client,
+        ITurnRenderer renderer,
         StatePaths paths,
         Configuration configuration,
         string model,
@@ -385,7 +399,8 @@ internal static class CommandDispatcher
 
             return piped.Length == 0
                 ? ExitUsage
-                : await OneShot.Run(client, model, piped, output, error, cancellationToken).ConfigureAwait(false);
+                : await OneShot.Run(client, renderer, model, piped, output, error, cancellationToken)
+                    .ConfigureAwait(false);
         }
 
         using var credentials = new FileCredentialStore(paths.CredentialsFile);
@@ -397,7 +412,7 @@ internal static class CommandDispatcher
             client, credentials, configuration, ProviderId, session.Id, output, error);
 
         return await InteractiveSession
-            .Run(client, BuildRegistry(model), context, Console.In, output, cancellationToken)
+            .Run(client, renderer, BuildRegistry(model), context, Console.In, output, cancellationToken)
             .ConfigureAwait(false);
     }
 }
