@@ -4,26 +4,64 @@ using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
 
-// The REPL. One Listen call for the whole session, reused turn after turn --
-// which is what the stream being indefinite was for.
-internal static class InteractiveSession
+// Drives a client, local or remote -- they are the same contract, so this does
+// not know which it holds. One prompt is answered once; otherwise it opens a
+// session and loops, reusing a single Listen call turn after turn, which is
+// what the stream being indefinite was for.
+//
+// Rendering is the one thing it does not do: that is ITurnRenderer, so the two
+// CLIs stay separate.
+internal sealed class CliDriver(
+    GeneratedParrot.ParrotClient client,
+    ITurnRenderer renderer,
+    SlashCommandRegistry commands)
 {
     private const string Prompt = "> ";
 
-    public static async Task<int> Run(
-        GeneratedParrot.ParrotClient client,
-        ITurnRenderer renderer,
-        SlashCommandRegistry registry,
+    // A prompt on the command line, or piped stdin, means the caller wants one
+    // answer and not a session. Scripts and CI depend on that.
+    public async Task<int> Run(
         SlashContext context,
+        string prompt,
         TextReader input,
         TextWriter output,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(client);
-        ArgumentNullException.ThrowIfNull(renderer);
-        ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(context);
 
+        return prompt.Length > 0
+            ? await Once(context, prompt, output, cancellationToken).ConfigureAwait(false)
+            : await Loop(context, input, output, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<int> Once(
+        SlashContext context, string prompt, TextWriter output, CancellationToken cancellationToken)
+    {
+        // The stream is indefinite, so this cancels once its one turn is done
+        // rather than waiting for the server to stop.
+        using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        // Listen before sending: a stream opened after the turn starts would
+        // miss its opening events.
+        using var call = client.Listen(
+            new ListenRequest { UserSessionId = context.UserSessionId }, cancellationToken: listening.Token);
+
+        _ = await client.SendMessageAsync(
+            new SendMessageRequest { UserSessionId = context.UserSessionId, Text = prompt },
+            cancellationToken: cancellationToken);
+
+        var completed = await renderer
+            .RenderTurn(call.ResponseStream, output, context.Error, listening.Token)
+            .ConfigureAwait(false);
+
+        await listening.CancelAsync().ConfigureAwait(false);
+
+        return completed ? CommandDispatcher.ExitSuccess : CommandDispatcher.ExitFailure;
+    }
+
+    private async Task<int> Loop(
+        SlashContext context, TextReader input, TextWriter output, CancellationToken cancellationToken)
+    {
         await output.WriteLineAsync(
             $"parrot {BuildInfo.Version} — /help for commands, /exit to leave".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
@@ -56,7 +94,7 @@ internal static class InteractiveSession
 
                 if (entered.StartsWith('/'))
                 {
-                    if (await Dispatch(registry, context, entered, cancellationToken).ConfigureAwait(false)
+                    if (await Dispatch(context, entered, cancellationToken).ConfigureAwait(false)
                         == SlashOutcome.Exit)
                     {
                         break;
@@ -93,17 +131,14 @@ internal static class InteractiveSession
         return CommandDispatcher.ExitSuccess;
     }
 
-    private static async Task<SlashOutcome> Dispatch(
-        SlashCommandRegistry registry,
-        SlashContext context,
-        string entered,
-        CancellationToken cancellationToken)
+    private async Task<SlashOutcome> Dispatch(
+        SlashContext context, string entered, CancellationToken cancellationToken)
     {
         var split = entered.IndexOf(' ', StringComparison.Ordinal);
         var name = split < 0 ? entered : entered[..split];
         var arguments = split < 0 ? string.Empty : entered[(split + 1)..].Trim();
 
-        var command = registry.Find(name);
+        var command = commands.Find(name);
 
         if (command is null)
         {

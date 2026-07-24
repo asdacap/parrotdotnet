@@ -377,7 +377,8 @@ internal static class CommandDispatcher
     private static ITurnRenderer Renderer(bool basic) =>
         basic || Console.IsOutputRedirected ? new BasicCli() : new EnhancedCli();
 
-    // Shared by local and remote: one prompt is one-shot, otherwise a REPL.
+    // Builds the session and hands it to the driver. Local and remote take the
+    // same path from here: the driver does not know which client it holds.
     private static async Task<int> Drive(
         GeneratedParrot.ParrotClient client,
         ITurnRenderer renderer,
@@ -389,18 +390,17 @@ internal static class CommandDispatcher
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        // A prompt on the command line, or piped stdin, means the caller wants
-        // one answer and not a session. Scripts and CI depend on that.
-        if (prompt.Length > 0 || Console.IsInputRedirected)
-        {
-            var piped = prompt.Length > 0
-                ? prompt
-                : (await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+        var text = prompt;
 
-            return piped.Length == 0
-                ? ExitUsage
-                : await OneShot.Run(client, renderer, model, piped, output, error, cancellationToken)
-                    .ConfigureAwait(false);
+        // Piped stdin is one answer, not a session. Scripts and CI depend on it.
+        if (text.Length == 0 && Console.IsInputRedirected)
+        {
+            text = (await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+
+            if (text.Length == 0)
+            {
+                return ExitUsage;
+            }
         }
 
         using var credentials = new FileCredentialStore(paths.CredentialsFile);
@@ -411,8 +411,8 @@ internal static class CommandDispatcher
         var context = new SlashContext(
             client, credentials, configuration, ProviderId, session.Id, output, error);
 
-        return await InteractiveSession
-            .Run(client, renderer, BuildRegistry(model), context, Console.In, output, cancellationToken)
-            .ConfigureAwait(false);
+        var driver = new CliDriver(client, renderer, BuildRegistry(model));
+
+        return await driver.Run(context, text, Console.In, output, cancellationToken).ConfigureAwait(false);
     }
 }
