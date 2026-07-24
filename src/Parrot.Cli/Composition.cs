@@ -69,14 +69,9 @@ internal partial class Composition
                 return WebFetcher.Create(policy);
             })
 
-            .Bind().As(Lifetime.Singleton).To(ctx =>
-            {
-                ctx.Inject<string>("workingDirectory", out var workingDirectory);
-                return new SystemContextBuilder(
-                    workingDirectory,
-                    DateTimeOffset.UtcNow.ToString(
-                        "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
-            })
+            .Bind("date").As(Lifetime.Singleton).To(_ =>
+                DateTimeOffset.UtcNow.ToString(
+                    "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))
 
             .Bind().As(Lifetime.Singleton).To(_ => new Compactor(CompactionTokenBudget))
 
@@ -90,13 +85,13 @@ internal partial class Composition
             {
                 ctx.Inject<SessionIndex>(out var sessionIndex);
                 ctx.Inject<ProcessRunner>(out var processes);
-                ctx.Inject<SystemContextBuilder>(out var systemContext);
+                ctx.Inject<string>("date", out var date);
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<WebFetcher>(out var webFetcher);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
 
                 return new AgentSessionFactorySource(
-                    workingDirectory, sessionIndex, processes, systemContext, compactor, webFetcher);
+                    workingDirectory, sessionIndex, processes, date, compactor, webFetcher);
             })
 
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>

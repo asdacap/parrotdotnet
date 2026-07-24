@@ -63,6 +63,11 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(completed.RootElement.GetProperty("output").GetString()).IsEqualTo("child says hi");
         _ = await Assert.That(retained.RootElement.GetProperty("output").GetString()).IsEqualTo("child says hi");
         _ = await Assert.That(sessions.Identities.Single()?.Name).IsEqualTo("child-helper");
+
+        var systemPrompt = provider.Requests.Single().Messages.Single(message => message.Role == LLMRole.System).Content;
+        _ = await Assert.That(systemPrompt).Contains($"Child agent session: {sessionId}");
+        _ = await Assert.That(systemPrompt).Contains("Parent agent session: agent");
+        _ = await Assert.That(systemPrompt).Contains("Child agent name: child-helper");
     }
 
     [Test]
@@ -137,7 +142,7 @@ internal sealed class SubagentTests : IDisposable
             _broker,
             _repository,
             [],
-            new SystemContextBuilder(".", "2026-07-24"),
+            new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
             cancellationToken)
         {
@@ -166,7 +171,7 @@ internal sealed class SubagentTests : IDisposable
                 eventBroker,
                 eventRepository,
                 [],
-                new SystemContextBuilder(".", "2026-07-24"),
+                new SystemContextBuilder(".", "2026-07-24", identity.Context),
                 new Compactor(120_000),
                 lifetime)
             {

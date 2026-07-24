@@ -38,7 +38,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             events,
             new EventRepository(database),
             [],
-            new SystemContextBuilder(_workspace, "2026-07-24"),
+            new SystemContextBuilder(_workspace, "2026-07-24", string.Empty),
             new Compactor(120_000),
             CancellationToken.None);
         var processes = new ShellProcessOwner(

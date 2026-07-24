@@ -26,7 +26,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     {
         await File.WriteAllTextAsync(Path.Combine(_workspace, "AGENTS.md"), "PROJECT RULE: be terse.");
 
-        var built = new SystemContextBuilder(_workspace, "2026-07-24").Build();
+        var built = new SystemContextBuilder(_workspace, "2026-07-24", string.Empty).Build();
 
         _ = await Assert.That(built).Contains("2026-07-24");
         _ = await Assert.That(built).Contains(_workspace);
@@ -45,7 +45,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             broker,
             new EventRepository(database),
             [],
-            new SystemContextBuilder(_workspace, "2026-07-24"),
+            new SystemContextBuilder(_workspace, "2026-07-24", string.Empty),
             new Compactor(tokenBudget: 0),
             cancellationToken)
         {

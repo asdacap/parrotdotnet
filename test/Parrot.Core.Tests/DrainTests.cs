@@ -197,7 +197,7 @@ internal sealed class DrainTests : IDisposable
             _broker,
             repository,
             toolFactories,
-            new SystemContextBuilder(".", "2026-07-24"),
+            new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
             lifetime)
         {
