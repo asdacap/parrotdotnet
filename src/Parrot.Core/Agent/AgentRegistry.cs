@@ -96,6 +96,8 @@ internal sealed class AgentRegistry(
         CancellationToken cancellationToken)
     {
         AgentEntry entry;
+        Task<bool>? admission = null;
+        var messageId = Identifier.MessageId();
 
         lock (_gate)
         {
@@ -105,18 +107,23 @@ internal sealed class AgentRegistry(
             }
 
             entry = Resolve(sessionIdOrName);
+            if (!entry.Running)
+            {
+                var admitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                admission = admitted.Task;
+                entry.Start(ExecuteFollowUp(entry, message, messageId, admitted, cancellationToken));
+            }
         }
 
-        var messageId = Identifier.MessageId();
-        var (_, followUp) = await entry.Child.Send(message, messageId, Delivery.Steer, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (followUp)
+        var followUp = admission is not null;
+        if (admission is not null)
         {
-            lock (_gate)
-            {
-                entry.Start(Execute(entry, entry.Child, prompt: null));
-            }
+            _ = await admission.ConfigureAwait(false);
+        }
+        else
+        {
+            _ = await entry.Child.Send(message, messageId, Delivery.Steer, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return new AgentSendResult(entry.SessionId, entry.Name, messageId, followUp);
@@ -293,7 +300,50 @@ internal sealed class AgentRegistry(
         _lifetime.Dispose();
     }
 
-    private async Task Execute(AgentEntry entry, AgentSession child, string? prompt)
+    private Task Execute(AgentEntry entry, AgentSession child, string prompt) =>
+        Execute(
+            entry,
+            child,
+            async () => _ = await child.Send(prompt, Identifier.MessageId(), Delivery.Steer, _lifetime.Token)
+                .ConfigureAwait(false));
+
+    private async Task ExecuteFollowUp(
+        AgentEntry entry,
+        string message,
+        string messageId,
+        TaskCompletionSource<bool> admitted,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Execute(
+                entry,
+                entry.Child,
+                async () =>
+                {
+                    var (_, followUp) = await entry.Child.Send(
+                        message,
+                        messageId,
+                        Delivery.Steer,
+                        cancellationToken).ConfigureAwait(false);
+                    _ = admitted.TrySetResult(followUp);
+                }).ConfigureAwait(false);
+            if (!admitted.Task.IsCompleted)
+            {
+                _ = admitted.TrySetException(new AgentRegistryException("follow-up admission failed"));
+            }
+        }
+        catch (Exception failure)
+        {
+            _ = admitted.TrySetException(failure);
+            throw;
+        }
+    }
+
+    private async Task Execute(
+        AgentEntry entry,
+        AgentSession child,
+        Func<Task> admit)
     {
         await Task.Yield();
 
@@ -307,12 +357,7 @@ internal sealed class AgentRegistry(
                 new AgentStarted { ParentAgentSessionId = entry.ParentSessionId, Name = entry.Name })
                 .ConfigureAwait(false);
             started = true;
-            if (prompt is not null)
-            {
-                _ = await child.Send(prompt, Identifier.MessageId(), Delivery.Steer, _lifetime.Token)
-                    .ConfigureAwait(false);
-            }
-
+            await admit().ConfigureAwait(false);
             completed = Bounded(await child.ResultSettled().ConfigureAwait(false));
         }
         catch (Exception failure)
