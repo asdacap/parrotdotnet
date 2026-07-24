@@ -609,7 +609,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Owns** OS child execution, output capture, output storage, and the sandbox.
   A per-`UserSession` shell-process owner owns named run state and delivery.
 - **Inbound** run a command. **Fails closed**: no sandbox, no execution. Not a
-  warning, not a fallback. Stdout and stderr retain at most 65,536 characters
+  warning, not a fallback. The working directory and its Git repository root
+  are writable; the latter is detected from linked-worktree metadata when the
+  worktree lives outside the repository. The rest of the host remains read-only.
+  Stdout and stderr retain at most 65,536 characters
   each in memory; if either exceeds that bound, the complete result is persisted
   in the owning user session's blob directory and the tool returns only its full
   absolute path. Child agents share their owning user session's directory.
