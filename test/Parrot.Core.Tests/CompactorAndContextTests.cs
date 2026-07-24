@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Protocol;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -54,7 +55,9 @@ internal sealed class CompactorAndContextTests : IDisposable
             Model = "model",
         };
 
-        _ = await session.Run("keep this prompt", cancellationToken);
+        _ = await session.Send(
+            "keep this prompt", Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        _ = await session.ResultSettled();
 
         var inferenceRequest = provider.Requests.Single();
         _ = await Assert.That(inferenceRequest.Messages)
@@ -86,5 +89,26 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         // The tail is kept verbatim so the thread is not lost.
         _ = await Assert.That(compacted[^1].Content).IsEqualTo("message 19");
+
+        history =
+        [
+            .. Enumerable.Range(0, 4).Select(index => LLMMessage.User($"old {index}")),
+            LLMMessage.Assistant(
+                string.Empty,
+                [
+                    new LLMToolCall("call-1", "read", "{}"),
+                    new LLMToolCall("call-2", "read", "{}"),
+                ]),
+            LLMMessage.ToolResult("call-1", "first result"),
+            LLMMessage.ToolResult("call-2", "second result"),
+            LLMMessage.User("latest"),
+        ];
+
+        compacted = await Compactor.Compact(provider, "model", history, cancellationToken);
+
+        _ = await Assert.That(compacted[1].ToolCalls).Count().IsEqualTo(2);
+        _ = await Assert.That(compacted[1].ToolCalls[0].Id).IsEqualTo("call-1");
+        _ = await Assert.That(compacted[2].ToolCallId).IsEqualTo("call-1");
+        _ = await Assert.That(compacted[3].ToolCallId).IsEqualTo("call-2");
     }
 }

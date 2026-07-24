@@ -33,6 +33,7 @@ internal sealed class AgentSessionFactory(
             new GitDiffToolFactory(workingDirectory),
             new WebFetchToolFactory(webFetcher),
             new AgentSpawnToolFactory(owner.Registry),
+            new AgentSendToolFactory(owner.Registry),
             new WaitAgentToolFactory(owner.Registry),
             new TodoReadToolFactory(),
             new TodoWriteToolFactory(),

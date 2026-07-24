@@ -155,9 +155,13 @@ internal sealed class UserSession : IAsyncDisposable
     // The user talks to the user session; the main agent session is what
     // actually runs the turn. Admitting is not running it: it returns as soon
     // as the prompt is durable, whether or not a turn was already in flight.
-    public Task<Admission> Send(
-        string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
-        Main().Admit(prompt, messageId, delivery, cancellationToken);
+    public async Task<Admission> Send(
+        string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken)
+    {
+        var (admission, _) = await Main().Send(prompt, messageId, delivery, cancellationToken)
+            .ConfigureAwait(false);
+        return admission;
+    }
 
     // Stops the main turn in flight. Registry-owned children outlive the tool
     // call that spawned them and are stopped separately at user-session shutdown.

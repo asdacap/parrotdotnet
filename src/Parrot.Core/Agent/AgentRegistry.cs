@@ -17,14 +17,12 @@ internal sealed class AgentRegistry(
     CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource
 {
     private const int MaxDepth = 4;
-    private const int MaxConcurrentPerParent = 4;
     private const int MaxRetained = 1024;
     private const int MaxPromptBytes = 1024 * 1024;
     private const int MaxResultBytes = 1024 * 1024;
 
     private readonly Dictionary<string, AgentEntry> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int> _activeByParent = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Lock _gate = new();
 
@@ -64,13 +62,6 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent depth limit reached");
             }
 
-            _ = _activeByParent.TryGetValue(parent.SessionId, out var parentActive);
-
-            if (parentActive >= MaxConcurrentPerParent)
-            {
-                throw new AgentRegistryException("subagent concurrency limit reached for this parent");
-            }
-
             var sessionId = Identifier.AgentSession();
             var name = UniqueName(requestedName, sessionId);
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
@@ -88,7 +79,6 @@ internal sealed class AgentRegistry(
 
             _entries.Add(sessionId, entry);
             _names.Add(name, sessionId);
-            _activeByParent[parent.SessionId] = parentActive + 1;
             entry.Start(Execute(entry, child, prompt));
 
             return entry.Result(
@@ -100,6 +90,45 @@ internal sealed class AgentRegistry(
         }
     }
 
+    public async Task<AgentSendResult> Send(
+        string sessionIdOrName,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        AgentEntry entry;
+        Task<bool>? admission = null;
+        var messageId = Identifier.MessageId();
+
+        lock (_gate)
+        {
+            if (!_accepting)
+            {
+                throw new AgentRegistryException("the user session is shutting down");
+            }
+
+            entry = Resolve(sessionIdOrName);
+            if (!entry.Running)
+            {
+                var admitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                admission = admitted.Task;
+                entry.Start(ExecuteFollowUp(entry, message, messageId, admitted, cancellationToken));
+            }
+        }
+
+        var followUp = admission is not null;
+        if (admission is not null)
+        {
+            _ = await admission.ConfigureAwait(false);
+        }
+        else
+        {
+            _ = await entry.Child.Send(message, messageId, Delivery.Steer, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new AgentSendResult(entry.SessionId, entry.Name, messageId, followUp);
+    }
+
     public async Task<AgentTaskResult> Wait(
         AgentSession requester,
         string sessionIdOrName,
@@ -109,17 +138,19 @@ internal sealed class AgentRegistry(
         ArgumentNullException.ThrowIfNull(requester);
 
         AgentEntry entry;
+        Task<AgentExecution> completion;
 
         lock (_gate)
         {
-            entry = Resolve(requester, sessionIdOrName);
+            entry = Resolve(sessionIdOrName);
+            completion = entry.Completion;
         }
 
         var started = Stopwatch.GetTimestamp();
 
         if (yieldAfterMilliseconds == 0)
         {
-            var completed = await entry.Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var completed = await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
             return Terminal(entry, completed, Elapsed(started));
         }
 
@@ -128,7 +159,7 @@ internal sealed class AgentRegistry(
 
         try
         {
-            var completed = await entry.Completion.WaitAsync(wait.Token).ConfigureAwait(false);
+            var completed = await completion.WaitAsync(wait.Token).ConfigureAwait(false);
             return Terminal(entry, completed, Elapsed(started));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -199,6 +230,13 @@ internal sealed class AgentRegistry(
                 completed.Error),
         };
 
+    private static AgentExecution Bounded(AgentExecution execution) =>
+        execution with
+        {
+            Output = Bounded(execution.Output),
+            Error = Bounded(execution.Error),
+        };
+
     private static string Bounded(string value)
     {
         if (Encoding.UTF8.GetByteCount(value) <= MaxResultBytes)
@@ -262,7 +300,50 @@ internal sealed class AgentRegistry(
         _lifetime.Dispose();
     }
 
-    private async Task Execute(AgentEntry entry, AgentSession child, string prompt)
+    private Task Execute(AgentEntry entry, AgentSession child, string prompt) =>
+        Execute(
+            entry,
+            child,
+            async () => _ = await child.Send(prompt, Identifier.MessageId(), Delivery.Steer, _lifetime.Token)
+                .ConfigureAwait(false));
+
+    private async Task ExecuteFollowUp(
+        AgentEntry entry,
+        string message,
+        string messageId,
+        TaskCompletionSource<bool> admitted,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Execute(
+                entry,
+                entry.Child,
+                async () =>
+                {
+                    var (_, followUp) = await entry.Child.Send(
+                        message,
+                        messageId,
+                        Delivery.Steer,
+                        cancellationToken).ConfigureAwait(false);
+                    _ = admitted.TrySetResult(followUp);
+                }).ConfigureAwait(false);
+            if (!admitted.Task.IsCompleted)
+            {
+                _ = admitted.TrySetException(new AgentRegistryException("follow-up admission failed"));
+            }
+        }
+        catch (Exception failure)
+        {
+            _ = admitted.TrySetException(failure);
+            throw;
+        }
+    }
+
+    private async Task Execute(
+        AgentEntry entry,
+        AgentSession child,
+        Func<Task> admit)
     {
         await Task.Yield();
 
@@ -276,24 +357,13 @@ internal sealed class AgentRegistry(
                 new AgentStarted { ParentAgentSessionId = entry.ParentSessionId, Name = entry.Name })
                 .ConfigureAwait(false);
             started = true;
-            completed = await child.Run(prompt, _lifetime.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            completed = AgentExecution.Canceled();
+            await admit().ConfigureAwait(false);
+            completed = Bounded(await child.ResultSettled().ConfigureAwait(false));
         }
         catch (Exception failure)
         {
-            // An agent execution is a containment boundary: its failure is
-            // retained for wait_agent rather than escaping as an unobserved task.
-            completed = AgentExecution.Failed(failure.Message);
+            completed = AgentExecution.Failed(Bounded(failure.Message));
         }
-
-        completed = completed with
-        {
-            Output = Bounded(completed.Output),
-            Error = Bounded(completed.Error),
-        };
 
         try
         {
@@ -309,17 +379,6 @@ internal sealed class AgentRegistry(
 
         lock (_gate)
         {
-            var remaining = _activeByParent[entry.ParentSessionId] - 1;
-
-            if (remaining == 0)
-            {
-                _ = _activeByParent.Remove(entry.ParentSessionId);
-            }
-            else
-            {
-                _activeByParent[entry.ParentSessionId] = remaining;
-            }
-
             entry.Complete(completed);
         }
     }
@@ -366,38 +425,18 @@ internal sealed class AgentRegistry(
         await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
     }
 
-    private AgentEntry Resolve(AgentSession requester, string sessionIdOrName)
+    private AgentEntry Resolve(string sessionIdOrName)
     {
         var sessionId = _entries.ContainsKey(sessionIdOrName)
             ? sessionIdOrName
             : _names.GetValueOrDefault(sessionIdOrName);
 
-        if (sessionId is null
-            || !_entries.TryGetValue(sessionId, out var entry)
-            || !IsVisibleTo(requester.SessionId, entry))
+        if (sessionId is null || !_entries.TryGetValue(sessionId, out var entry))
         {
             throw new AgentRegistryException($"child agent not found: {sessionIdOrName}");
         }
 
         return entry;
-    }
-
-    private bool IsVisibleTo(string requesterSessionId, AgentEntry entry)
-    {
-        var current = entry;
-
-        while (true)
-        {
-            if (string.Equals(current.ParentSessionId, requesterSessionId, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (!_entries.TryGetValue(current.ParentSessionId, out current))
-            {
-                return false;
-            }
-        }
     }
 
     private string UniqueName(string requestedName, string sessionId)
@@ -423,8 +462,9 @@ internal sealed class AgentRegistry(
 
     private sealed class AgentEntry(AgentSession child, string parentSessionId, string name)
     {
-        private readonly TaskCompletionSource<AgentExecution> _completion =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource<AgentExecution> _completion = CompletionSource();
+
+        public AgentSession Child { get; } = child;
 
         public string SessionId { get; } = child.SessionId;
 
@@ -436,13 +476,21 @@ internal sealed class AgentRegistry(
 
         public Task<AgentExecution> Completion => _completion.Task;
 
+        public bool Running { get; private set; }
+
         public Task Execution { get; private set; } = Task.CompletedTask;
 
-        public void Start(Task execution) => Execution = execution;
+        public void Start(Task execution)
+        {
+            _completion = CompletionSource();
+            Running = true;
+            Execution = execution;
+        }
 
         public void Complete(AgentExecution result)
         {
             _completion.SetResult(result);
+            Running = false;
             Execution = Task.CompletedTask;
         }
 
@@ -453,5 +501,8 @@ internal sealed class AgentRegistry(
             string output,
             string error) =>
             new(SessionId, Name, Depth, status, yielded, elapsedMilliseconds, output, error);
+
+        private static TaskCompletionSource<AgentExecution> CompletionSource() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

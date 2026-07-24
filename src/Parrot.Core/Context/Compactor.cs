@@ -29,8 +29,13 @@ internal sealed class Compactor(int tokenBudget)
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(history);
 
-        var keep = Math.Min(4, history.Count);
-        var toSummarise = history.Take(history.Count - keep).ToList();
+        var keepFrom = history.Count - Math.Min(4, history.Count);
+        while (keepFrom > 0 && history[keepFrom].Role == LLMRole.Tool)
+        {
+            keepFrom--;
+        }
+
+        var toSummarise = history.Take(keepFrom).ToList();
 
         if (toSummarise.Count == 0)
         {
@@ -65,7 +70,7 @@ internal sealed class Compactor(int tokenBudget)
         return
         [
             LLMMessage.System($"Summary of the earlier conversation:\n{summary}"),
-            .. history.Skip(history.Count - keep),
+            .. history.Skip(keepFrom),
         ];
     }
 

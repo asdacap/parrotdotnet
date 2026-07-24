@@ -60,7 +60,7 @@ internal sealed class AgentSession(
 
     private AgentSelection _selection = new(provider, string.Empty, mode);
     private string _epochContext = string.Empty;
-    private Task _drain = Task.CompletedTask;
+    private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
     private bool _wake;
 
@@ -72,6 +72,8 @@ internal sealed class AgentSession(
     private bool _stopping;
 
     public string SessionId => identity.SessionId;
+
+    public string Name => identity.Name;
 
     public TodoCollection Todos { get; } = new(identity.SessionId, eventRepository, eventBroker);
 
@@ -127,22 +129,8 @@ internal sealed class AgentSession(
     // boundary its delivery asks for. Waking is not waiting -- the caller is
     // told the prompt was taken, not what the model said about it.
     public async Task<Admission> Admit(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
-    {
-        var admission = eventRepository.Admit(SessionId, messageId, text, delivery, Announce);
-
-        // Only a real admission has an event; a re-send of one already taken
-        // has nothing new to publish, but still wakes, because the sender
-        // re-sent precisely because they were not sure it had been.
-        if (admission.Published is not null)
-        {
-            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
-        }
-
-        Wake();
-
-        return admission;
-    }
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
+        (await AdmitAndWake(text, messageId, delivery, cancellationToken).ConfigureAwait(false)).Admission;
 
     // Stops the turn in flight and returns once the drain has unwound, so a
     // caller that sends again cannot race the turn it just stopped.
@@ -200,7 +188,7 @@ internal sealed class AgentSession(
 
         if (eventRepository.HasPendingInputs(SessionId))
         {
-            Wake();
+            _ = Wake();
         }
     }
 
@@ -208,16 +196,23 @@ internal sealed class AgentSession(
     // Run to bound the drain by, so this is how an owner keeps its own Run from
     // returning while a turn is still writing to a database it is about to
     // close.
-    public async Task Settled()
+    public async Task Settled() =>
+        _ = await ResultSettled().ConfigureAwait(false);
+
+    internal Task<(Admission Admission, bool FollowUp)> Send(
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
+        AdmitAndWake(text, messageId, delivery, cancellationToken);
+
+    internal async Task<AgentExecution> ResultSettled()
     {
-        Task draining;
+        Task<AgentExecution> draining;
 
         lock (_drainGate)
         {
             draining = _drain;
         }
 
-        await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        return await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
     internal Event Translate(LLMEvent llmEvent)
@@ -256,39 +251,33 @@ internal sealed class AgentSession(
         return published;
     }
 
-    // Runs a child's one subtask directly rather than through the interactive
-    // drain. The registry owns this call and retains its terminal result.
-    internal async Task<AgentExecution> Run(string prompt, CancellationToken cancellationToken)
+    private async Task<(Admission Admission, bool FollowUp)> AdmitAndWake(
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
     {
-        if (status is not null)
+        var admission = eventRepository.Admit(SessionId, messageId, text, delivery, Announce);
+
+        // Only a real admission has an event; a re-send of one already taken
+        // has nothing new to publish, but still wakes, because the sender
+        // re-sent precisely because they were not sure it had been.
+        if (admission.Published is not null)
         {
-            throw new InvalidOperationException("a foreground session must run through its input drain");
+            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
         }
 
-        var selection = Selection();
-        selection.Mode?.Prepare();
-        var started = NewEvent();
-        started.TurnStarted = new TurnStarted { Model = selection.Model };
-
-        // The prompt is durable before execution is requested (principle 1).
-        await EmitEvent(started, "user", prompt, cancellationToken).ConfigureAwait(false);
-
-        _history.Add(LLMMessage.User(prompt));
-
-        return await Pass(turnOpen: true, selection, cancellationToken).ConfigureAwait(false);
+        return (admission, Wake());
     }
 
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
     // principle 2: one owner, however many prompts arrive.
-    private void Wake()
+    private bool Wake()
     {
         lock (_drainGate)
         {
             if (_drainCancellation is not null)
             {
                 _wake = true;
-                return;
+                return false;
             }
 
             // Linked to the session's lifetime, never to the request that woke
@@ -297,19 +286,26 @@ internal sealed class AgentSession(
             _drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             State = DrainState.Running;
             _drain = Drain(_drainCancellation.Token);
+            return true;
         }
     }
 
-    private async Task Drain(CancellationToken cancellationToken)
+    private async Task<AgentExecution> Drain(CancellationToken cancellationToken)
     {
         // The drain belongs to the session, not to whoever admitted the prompt:
         // yielding here returns Wake to its caller instead of running the first
         // turn on the admitting thread.
         await Task.Yield();
 
+        var completed = AgentExecution.Succeeded(string.Empty);
+
         while (true)
         {
-            _ = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
+            var pass = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
+            if (pass.Status != AgentExecutionStatus.Succeeded || pass.Output.Length > 0)
+            {
+                completed = pass;
+            }
 
             lock (_drainGate)
             {
@@ -331,7 +327,7 @@ internal sealed class AgentSession(
 
                 _drainCancellation = null;
                 State = DrainState.Idle;
-                return;
+                return completed;
             }
         }
     }

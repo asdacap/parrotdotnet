@@ -284,10 +284,13 @@ Three defects went with it: the turn ran on the gRPC call's cancellation token,
 `SendMessageResponse.message_id` was a fabricated id, and `/model` rebuilt the
 main agent session and lost its history. Divergences are in components.md.
 
+**Done (reusable child turns).** `agent_send` durably steers a running child and
+starts a follow-up turn when that child is idle. Follow-ups retain the child
+session id, name, and conversation, while waits capture and observe one turn.
+
 **Remaining in M5:** `TaskManager`, protocol-level `task_id` correlation,
-agent profiles, reusable child turns (`agent_send`), generic task observation
-and interruption, and replaying pending input at startup. These remain deferred
-rather than represented by stubs.
+agent profiles, generic task observation and interruption, and replaying pending
+input at startup. These remain deferred rather than represented by stubs.
 
 ---
 
