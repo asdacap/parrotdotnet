@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using Parrot.Events;
+using Parrot.Protocol;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -247,9 +248,15 @@ internal sealed class AgentRegistry(
         await Task.Yield();
 
         AgentExecution completed;
+        var started = false;
 
         try
         {
+            await Emit(
+                child.SessionId,
+                new AgentStarted { ParentAgentSessionId = entry.ParentSessionId, Name = entry.Name })
+                .ConfigureAwait(false);
+            started = true;
             completed = await child.Run(prompt, _lifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -269,6 +276,18 @@ internal sealed class AgentRegistry(
             Error = Bounded(completed.Error),
         };
 
+        try
+        {
+            if (started)
+            {
+                await Emit(child.SessionId, entry, completed).ConfigureAwait(false);
+            }
+        }
+        catch (Exception failure)
+        {
+            completed = AgentExecution.Failed(Bounded(failure.Message));
+        }
+
         lock (_gate)
         {
             var remaining = _activeByParent[entry.ParentSessionId] - 1;
@@ -284,6 +303,48 @@ internal sealed class AgentRegistry(
 
             entry.Complete(completed);
         }
+    }
+
+    private async ValueTask Emit(string sessionId, AgentEntry entry, AgentExecution completed)
+    {
+        var published = new Event { Id = Identifier.EventId(), AgentSessionId = sessionId };
+
+        if (completed.Status == AgentExecutionStatus.Succeeded)
+        {
+            published.AgentFinished = new AgentFinished
+            {
+                ParentAgentSessionId = entry.ParentSessionId,
+                Name = entry.Name,
+            };
+        }
+        else
+        {
+            published.AgentFailed = new AgentFailed
+            {
+                ParentAgentSessionId = entry.ParentSessionId,
+                Name = entry.Name,
+                Message = completed.Error,
+            };
+        }
+
+        await Emit(published).ConfigureAwait(false);
+    }
+
+    private async ValueTask Emit(string sessionId, AgentStarted started)
+    {
+        var published = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = sessionId,
+            AgentStarted = started,
+        };
+        await Emit(published).ConfigureAwait(false);
+    }
+
+    private async ValueTask Emit(Event published)
+    {
+        eventRepository.Append(published, null, null);
+        await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
     }
 
     private AgentEntry Resolve(AgentSession requester, string sessionIdOrName)

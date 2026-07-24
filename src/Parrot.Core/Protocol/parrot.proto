@@ -134,7 +134,26 @@ message Event {
     ToolFinished    tool_finished    = 13;
     ToolCancelled   tool_cancelled   = 14;
     ToolError       tool_error       = 15;
+    AgentStarted    agent_started    = 16;
+    AgentFinished   agent_finished   = 17;
+    AgentFailed     agent_failed     = 18;
   }
+}
+
+message AgentStarted {
+  string parent_agent_session_id = 1;
+  string name                    = 2;
+}
+
+message AgentFinished {
+  string parent_agent_session_id = 1;
+  string name                    = 2;
+}
+
+message AgentFailed {
+  string parent_agent_session_id = 1;
+  string name                    = 2;
+  string message                 = 3;
 }
 
 // The user's own prompt, accepted but not yet part of the conversation. It is

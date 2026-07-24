@@ -60,6 +60,21 @@ internal sealed class EnhancedCliTests
                         Message = "denied\u001b[2J",
                     },
                 },
+                new Event
+                {
+                    Id = "agent-started",
+                    AgentStarted = new AgentStarted { Name = "explorer\u001b[31m" },
+                },
+                new Event
+                {
+                    Id = "agent-finished",
+                    AgentFinished = new AgentFinished { Name = "explorer\u001b[31m" },
+                },
+                new Event
+                {
+                    Id = "agent-failed",
+                    AgentFailed = new AgentFailed { Name = "reviewer\u001b[31m", Message = "boom\u001b[2J" },
+                },
                 new Event { Id = "text-3", TextChunk = new TextChunk { Fragment = "tail" } },
                 new Event
                 {
@@ -81,6 +96,9 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(output).Contains("  + shell[31m finished");
         _ = await Assert.That(output).Contains("  - read[2J cancelled");
         _ = await Assert.That(output).Contains("  ! write[31m: denied[2J");
+        _ = await Assert.That(output).Contains("  * agent explorer[31m started");
+        _ = await Assert.That(output).Contains("  + agent explorer[31m finished");
+        _ = await Assert.That(output).Contains("  ! agent reviewer[31m: boom[2J");
         _ = await Assert.That(output).Contains("tail\n");
         _ = await Assert.That(output).Contains("  stop[2J - 3 in / 4 out");
         _ = await Assert.That(Count(output, "abcdefgh\n")).IsEqualTo(1);

@@ -129,7 +129,10 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.ToolStarted or
                 Event.PayloadOneofCase.ToolFinished or
                 Event.PayloadOneofCase.ToolCancelled or
-                Event.PayloadOneofCase.ToolError)
+                Event.PayloadOneofCase.ToolError or
+                Event.PayloadOneofCase.AgentStarted or
+                Event.PayloadOneofCase.AgentFinished or
+                Event.PayloadOneofCase.AgentFailed)
             {
                 await output.WriteLineAsync().ConfigureAwait(false);
                 textEndsLine = true;
@@ -175,6 +178,24 @@ internal sealed class BasicCli(
                 case Event.PayloadOneofCase.ToolError:
                     await output.WriteLineAsync(
                         $"  tool error: {published.ToolError.ToolName}: {published.ToolError.Message}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.AgentStarted:
+                    await output.WriteLineAsync(
+                        $"  agent started: {published.AgentStarted.Name}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.AgentFinished:
+                    await output.WriteLineAsync(
+                        $"  agent finished: {published.AgentFinished.Name}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.AgentFailed:
+                    await output.WriteLineAsync(
+                        $"  agent failed: {published.AgentFailed.Name}: {published.AgentFailed.Message}".AsMemory(),
                         cancellationToken).ConfigureAwait(false);
                     break;
 

@@ -394,6 +394,25 @@ internal sealed class EnhancedCli(
                         cancellationToken).ConfigureAwait(false);
                     break;
 
+                case Event.PayloadOneofCase.AgentStarted:
+                    await output.WriteLineAsync(
+                        $"{Cyan}  * agent {TerminalText.Sanitize(published.AgentStarted.Name)} started{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.AgentFinished:
+                    await output.WriteLineAsync(
+                        $"{Green}  + agent {TerminalText.Sanitize(published.AgentFinished.Name)} finished{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.AgentFailed:
+                    await output.WriteLineAsync(
+                        ($"{Red}  ! agent {TerminalText.Sanitize(published.AgentFailed.Name)}: " +
+                         $"{TerminalText.Sanitize(published.AgentFailed.Message)}{Reset}").AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
                 case Event.PayloadOneofCase.TurnEnded:
                     await output.WriteLineAsync(
                         $"{Green}  {Summarise(published.TurnEnded)}{Reset}".AsMemory(), cancellationToken)

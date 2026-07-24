@@ -25,6 +25,12 @@ internal sealed class BasicCliTests
                 ToolError = new ToolError { ToolCallId = "call-3", ToolName = "shell", Message = "denied" },
             },
             cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentStarted = new AgentStarted { Name = "explorer" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentFinished = new AgentFinished { Name = "explorer" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentFailed = new AgentFailed { Name = "reviewer", Message = "boom" } }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -36,7 +42,10 @@ internal sealed class BasicCliTests
             $"  tool started: read{Environment.NewLine}" +
             $"  tool finished: read{Environment.NewLine}" +
             $"  tool cancelled: write{Environment.NewLine}" +
-            $"  tool error: shell: denied{Environment.NewLine}");
+            $"  tool error: shell: denied{Environment.NewLine}" +
+            $"  agent started: explorer{Environment.NewLine}" +
+            $"  agent finished: explorer{Environment.NewLine}" +
+            $"  agent failed: reviewer: boom{Environment.NewLine}");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 

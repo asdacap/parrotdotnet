@@ -3,6 +3,7 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Protocol;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -63,6 +64,19 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(completed.RootElement.GetProperty("output").GetString()).IsEqualTo("child says hi");
         _ = await Assert.That(retained.RootElement.GetProperty("output").GetString()).IsEqualTo("child says hi");
         _ = await Assert.That(sessions.Identities.Single()?.Name).IsEqualTo("child-helper");
+
+        var lifecycle = _repository.Replay()
+            .Where(published => published.PayloadCase is Event.PayloadOneofCase.AgentStarted
+                or Event.PayloadOneofCase.AgentFinished
+                or Event.PayloadOneofCase.AgentFailed)
+            .ToArray();
+        _ = await Assert.That(string.Join(",", lifecycle.Select(published => published.PayloadCase)))
+            .IsEqualTo("AgentStarted,AgentFinished");
+        _ = await Assert.That(lifecycle.All(published => published.AgentSessionId == sessionId)).IsTrue();
+        _ = await Assert.That(lifecycle[0].AgentStarted.ParentAgentSessionId).IsEqualTo("agent");
+        _ = await Assert.That(lifecycle[0].AgentStarted.Name).IsEqualTo("child-helper");
+        _ = await Assert.That(lifecycle[1].AgentFinished.ParentAgentSessionId).IsEqualTo("agent");
+        _ = await Assert.That(lifecycle[1].AgentFinished.Name).IsEqualTo("child-helper");
 
         var systemPrompt = provider.Requests.Single().Messages.Single(message => message.Role == LLMRole.System).Content;
         _ = await Assert.That(systemPrompt).Contains($"Child agent session: {sessionId}");
@@ -125,6 +139,12 @@ internal sealed class SubagentTests : IDisposable
 
         _ = await Assert.That(terminal.Status).IsEqualTo(AgentTaskStatus.Canceled);
         _ = await Assert.That(terminal.Error).IsEqualTo("interrupted");
+        var failed = _repository.Replay().Single(
+            published => published.PayloadCase == Event.PayloadOneofCase.AgentFailed);
+        _ = await Assert.That(failed.AgentSessionId).IsEqualTo(spawned.SessionId);
+        _ = await Assert.That(failed.AgentFailed.ParentAgentSessionId).IsEqualTo("agent");
+        _ = await Assert.That(failed.AgentFailed.Name).IsEqualTo("worker");
+        _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
         _ = await Assert.That(() => registry.Spawn(parent, "again", "worker"))
             .Throws<AgentRegistryException>();
     }
