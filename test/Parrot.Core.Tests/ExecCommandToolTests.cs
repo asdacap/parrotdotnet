@@ -40,6 +40,8 @@ internal sealed class ExecCommandToolTests : IDisposable
             [],
             new SystemContextBuilder(_workspace, "2026-07-24", string.Empty),
             new Compactor(120_000),
+            mode: null,
+            status: null,
             CancellationToken.None);
         var processes = new ShellProcessOwner(
             _workspace,

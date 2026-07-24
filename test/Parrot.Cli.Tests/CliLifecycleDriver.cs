@@ -46,6 +46,7 @@ internal sealed class CliLifecycleDriver : IDisposable
             ["provider"],
             "user-session",
             "provider/model",
+            "build",
             Input,
             _output,
             _error);

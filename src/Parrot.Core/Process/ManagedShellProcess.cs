@@ -28,6 +28,8 @@ internal sealed class ManagedShellProcess
 
     public string Name { get; }
 
+    public bool Completed => _result.IsCompleted;
+
     public void Claim()
     {
         lock (_gate)

@@ -67,6 +67,7 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
         object answered = request switch
         {
             ListModelsRequest list => await service.ListModels(list, context).ConfigureAwait(false),
+            ListModesRequest list => await service.ListModes(list, context).ConfigureAwait(false),
             CreateSessionRequest create => await service.CreateSession(create, context).ConfigureAwait(false),
             UpdateSessionRequest update => await service.UpdateSession(update, context).ConfigureAwait(false),
             SendMessageRequest send => await service.SendMessage(send, context).ConfigureAwait(false),

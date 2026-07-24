@@ -22,10 +22,11 @@ internal sealed class ClearCommand(string defaultModel) : ISlashCommand
                 : defaultModel;
 
         var created = await context.Client.CreateSessionAsync(
-            new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
+            new CreateSessionRequest { Model = model, Mode = "build" }, cancellationToken: cancellationToken);
 
         context.UserSessionId = created.Id;
         context.Model = created.Model;
+        context.Mode = created.Mode;
 
         await context.Output.WriteLineAsync($"  new session {created.Id}".AsMemory(), cancellationToken)
             .ConfigureAwait(false);

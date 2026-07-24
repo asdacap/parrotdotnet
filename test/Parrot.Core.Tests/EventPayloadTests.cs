@@ -1,3 +1,4 @@
+using Google.Protobuf;
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
@@ -9,6 +10,23 @@ namespace Parrot.Core.Tests;
 
 internal sealed class EventPayloadTests
 {
+    [Test]
+    public async Task Status_injected_roundtrips_as_a_protobuf_payload()
+    {
+        var source = new Event
+        {
+            Id = "status-event",
+            AgentSessionId = "session",
+            StatusInjected = new StatusInjected(),
+        };
+
+        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
+
+        _ = await Assert.That(roundtripped.Id).IsEqualTo("status-event");
+        _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("session");
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.StatusInjected);
+    }
+
     // The payload is the only discriminator, so this is what pins the mapping.
     [Test]
     [Arguments(LLMEventKind.TextDelta, Event.PayloadOneofCase.TextChunk)]
@@ -32,6 +50,8 @@ internal sealed class EventPayloadTests
             [],
             new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
+            mode: null,
+            status: null,
             CancellationToken.None);
 
         var llmEvent = source switch

@@ -50,6 +50,24 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    public async Task Status_injection_renders_as_its_own_notification(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(new Event { Id = "status", StatusInjected = new StatusInjected() }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(output.ToString()).Contains("  ↻ Status prompt injected");
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task A_line_typed_during_a_turn_is_sent_rather_than_held_until_it_ends(

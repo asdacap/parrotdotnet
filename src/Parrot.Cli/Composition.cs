@@ -74,6 +74,11 @@ internal partial class Composition
                     "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))
 
             .Bind().As(Lifetime.Singleton).To(_ => new Compactor(CompactionTokenBudget))
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<StatePaths>(out var paths);
+                return new ModeRegistry(Path.Combine(paths.State, "plans"));
+            })
 
             // The static half of an agent session is bound into the source
             // here. The source mints one factory per user session, that factory
@@ -97,7 +102,8 @@ internal partial class Composition
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>
             {
                 ctx.Inject<IAgentSessionFactorySource>(out var agentSessionFactories);
-                return new UserSessionFactory(agentSessionFactories);
+                ctx.Inject<ModeRegistry>(out var modes);
+                return new UserSessionFactory(agentSessionFactories, modes);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -113,7 +119,8 @@ internal partial class Composition
             {
                 ctx.Inject<ProviderRegistry>(out var registry);
                 ctx.Inject<SessionStore>(out var store);
-                return new ParrotService(registry, store);
+                ctx.Inject<ModeRegistry>(out var modes);
+                return new ParrotService(registry, store, modes);
             })
 
             .Root<StatePaths>("Paths")

@@ -239,6 +239,8 @@ internal sealed class DrainTests : IDisposable
             toolFactories,
             new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
+            mode: null,
+            status: null,
             lifetime)
         {
             Model = "model",

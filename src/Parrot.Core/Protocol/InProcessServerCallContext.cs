@@ -20,7 +20,7 @@ internal sealed class InProcessServerCallContext(CancellationToken cancellationT
 
     protected override Metadata ResponseTrailersCore { get; } = [];
 
-    protected override Status StatusCore { get; set; }
+    protected override Grpc.Core.Status StatusCore { get; set; }
 
     protected override WriteOptions? WriteOptionsCore { get; set; }
 

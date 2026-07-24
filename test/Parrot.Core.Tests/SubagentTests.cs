@@ -4,6 +4,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -164,6 +165,8 @@ internal sealed class SubagentTests : IDisposable
             [],
             new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
+            mode: null,
+            status: null,
             cancellationToken)
         {
             Model = "model",
@@ -181,6 +184,8 @@ internal sealed class SubagentTests : IDisposable
             string model,
             EventBroker eventBroker,
             EventRepository eventRepository,
+            ModeProfile? mode,
+            RuntimeStatus? status,
             CancellationToken lifetime)
         {
             _identities.Add(identity);
@@ -193,6 +198,8 @@ internal sealed class SubagentTests : IDisposable
                 [],
                 new SystemContextBuilder(".", "2026-07-24", identity.Context),
                 new Compactor(120_000),
+                mode,
+                status,
                 lifetime)
             {
                 Model = model,

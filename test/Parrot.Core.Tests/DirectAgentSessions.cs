@@ -3,6 +3,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -24,6 +25,8 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         string model,
         EventBroker eventBroker,
         EventRepository eventRepository,
+        ModeProfile? mode,
+        RuntimeStatus? status,
         CancellationToken lifetime) =>
         new(
             identity,
@@ -33,6 +36,8 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             [],
             new SystemContextBuilder(".", "2026-07-24", identity.Context),
             new Compactor(120_000),
+            mode,
+            status,
             lifetime)
         {
             Model = model,

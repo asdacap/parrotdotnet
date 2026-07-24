@@ -1,6 +1,7 @@
 using Google.Protobuf;
 using Microsoft.Data.Sqlite;
 using Parrot.Agent;
+using Parrot.Llm;
 using Parrot.Protocol;
 
 namespace Parrot.Store;
@@ -218,9 +219,12 @@ internal sealed class EventRepository(SessionDatabase database)
         return events;
     }
 
-    public IReadOnlyList<string> Messages(string agentSessionId)
+    public IReadOnlyList<string> Messages(string agentSessionId) =>
+        [.. ModelHistory(agentSessionId).Select(message => $"{Text(message.Role)}: {message.Content}")];
+
+    public IReadOnlyList<LLMMessage> ModelHistory(string agentSessionId)
     {
-        var messages = new List<string>();
+        var messages = new List<LLMMessage>();
 
         lock (_gate)
         {
@@ -233,11 +237,146 @@ internal sealed class EventRepository(SessionDatabase database)
 
             while (reader.Read())
             {
-                messages.Add($"{reader["role"]}: {reader["content"]}");
+                messages.Add(Message((string)reader["role"], (string)reader["content"]));
             }
         }
 
         return messages;
+    }
+
+    public (string AgentSessionId, string Mode) SessionState(string userSessionId, string requestedMode)
+    {
+        lock (_gate)
+        {
+            using var transaction = database.Begin();
+            using var insert = database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText =
+                "INSERT OR IGNORE INTO session_state (user_session, agent_session, mode) VALUES ($user, $agent, $mode);";
+            _ = insert.Parameters.AddWithValue("$user", userSessionId);
+            _ = insert.Parameters.AddWithValue("$agent", Identifier.AgentSession());
+            _ = insert.Parameters.AddWithValue("$mode", requestedMode);
+            _ = insert.ExecuteNonQuery();
+
+            using var read = database.Connection.CreateCommand();
+            read.Transaction = transaction;
+            read.CommandText = "SELECT agent_session, mode FROM session_state WHERE user_session = $user;";
+            _ = read.Parameters.AddWithValue("$user", userSessionId);
+            using var reader = read.ExecuteReader();
+            _ = reader.Read();
+            var state = ((string)reader["agent_session"], (string)reader["mode"]);
+            transaction.Commit();
+            return state;
+        }
+    }
+
+    public void UpdateMode(string userSessionId, string agentSessionId, string mode)
+    {
+        lock (_gate)
+        {
+            using var transaction = database.Begin();
+            using var update = database.Connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = "UPDATE session_state SET mode = $mode WHERE user_session = $user;";
+            _ = update.Parameters.AddWithValue("$mode", mode);
+            _ = update.Parameters.AddWithValue("$user", userSessionId);
+            _ = update.ExecuteNonQuery();
+
+            using var insert = database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText =
+                "INSERT INTO mode_change (agent_session, mode, created_at) VALUES ($session, $mode, $at);";
+            _ = insert.Parameters.AddWithValue("$session", agentSessionId);
+            _ = insert.Parameters.AddWithValue("$mode", mode);
+            _ = insert.Parameters.AddWithValue("$at", Timestamp());
+            _ = insert.ExecuteNonQuery();
+            transaction.Commit();
+        }
+    }
+
+    public bool StatusPromptPending(string agentSessionId) => PendingStatus(agentSessionId) is not null;
+
+    public PendingStatus? PendingStatus(string agentSessionId)
+    {
+        lock (_gate)
+        {
+            using var read = database.Connection.CreateCommand();
+            read.CommandText =
+                """
+                SELECT state.mode,
+                       COALESCE((SELECT MAX(sequence) FROM mode_change WHERE agent_session = $session), -1) AS version,
+                       COALESCE((SELECT MAX(mode_change_sequence) FROM status_prompt WHERE agent_session = $session), -2)
+                           AS consumed
+                FROM session_state AS state
+                WHERE state.agent_session = $session;
+                """;
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+            using var reader = read.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var version = Convert.ToInt64(reader["version"], System.Globalization.CultureInfo.InvariantCulture);
+            var consumed = Convert.ToInt64(reader["consumed"], System.Globalization.CultureInfo.InvariantCulture);
+            return version > consumed ? new PendingStatus((string)reader["mode"], version) : null;
+        }
+    }
+
+    public bool AppendStatusPrompt(Event published, PendingStatus expected, string content)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+
+        published.StatusInjected = new StatusInjected();
+
+        lock (_gate)
+        {
+            using var transaction = database.Begin();
+            using var pending = database.Connection.CreateCommand();
+            pending.Transaction = transaction;
+            pending.CommandText =
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM session_state
+                    WHERE agent_session = $session AND mode = $mode
+                ) AND COALESCE((
+                    SELECT MAX(sequence) FROM mode_change WHERE agent_session = $session
+                ), -1) = $version
+                AND $version > COALESCE((
+                    SELECT MAX(mode_change_sequence) FROM status_prompt WHERE agent_session = $session
+                ), -2);
+                """;
+            _ = pending.Parameters.AddWithValue("$session", published.AgentSessionId);
+            _ = pending.Parameters.AddWithValue("$mode", expected.Mode);
+            _ = pending.Parameters.AddWithValue("$version", expected.Version);
+
+            if (Convert.ToInt64(
+                pending.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 0)
+            {
+                transaction.Commit();
+                return false;
+            }
+
+            Project(transaction, published.AgentSessionId, "system", content);
+
+            using var insert = database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText =
+                """
+                INSERT INTO status_prompt (agent_session, mode_change_sequence, created_at)
+                VALUES (
+                    $session,
+                    $version,
+                    $at
+                );
+                """;
+            _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
+            _ = insert.Parameters.AddWithValue("$version", expected.Version);
+            _ = insert.Parameters.AddWithValue("$at", Timestamp());
+            _ = insert.ExecuteNonQuery();
+            transaction.Commit();
+            return true;
+        }
     }
 
     // Spelt out rather than derived from the enum name: the column outlives any
@@ -296,6 +435,23 @@ internal sealed class EventRepository(SessionDatabase database)
         "medium" => TodoPriority.Medium,
         "low" => TodoPriority.Low,
         _ => throw new InvalidOperationException($"the todo table holds an unknown priority {priority}"),
+    };
+
+    private static LLMMessage Message(string role, string content) => role switch
+    {
+        "system" => LLMMessage.System(content),
+        "user" => LLMMessage.User(content),
+        "assistant" => LLMMessage.Assistant(content, []),
+        _ => throw new InvalidOperationException($"the message table holds an unknown role {role}"),
+    };
+
+    private static string Text(LLMRole role) => role switch
+    {
+        LLMRole.System => "system",
+        LLMRole.User => "user",
+        LLMRole.Assistant => "assistant",
+        LLMRole.Tool => "tool",
+        _ => throw new ArgumentOutOfRangeException(nameof(role)),
     };
 
     // The three writes a promotion is -- the input settles, the conversation

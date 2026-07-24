@@ -19,7 +19,7 @@ internal sealed class SessionStore(
 
     public SessionIndex Index { get; } = new(stateDirectory);
 
-    public UserSession Open(ILLMProvider provider, string providerId, string model)
+    public UserSession Open(ILLMProvider provider, string providerId, string model, string mode = ModeRegistry.Build)
     {
         var claim = new WorkingDirectoryClaim(stateDirectory, hostKey);
         var claimed = claim.Claim(workingDirectory, Identifier.UserSession(), ProcessIsAlive);
@@ -31,18 +31,31 @@ internal sealed class SessionStore(
         var database = SessionDatabase.Open(Index.DatabaseFor(id));
         _open.Add(database);
 
+        var session = userSessions.Create(id, provider, providerId, model, mode, new EventRepository(database));
         Index.Publish(new SessionMeta
         {
             Id = id,
             WorkingDirectory = workingDirectory,
             HostKey = hostKey,
-            ProviderId = providerId,
-            Model = model,
+            ProviderId = session.ProviderId,
+            Model = session.Model,
+            Mode = session.Mode.Id,
             ProcessId = Environment.ProcessId,
             CreatedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         });
 
-        return userSessions.Create(id, provider, providerId, model, new EventRepository(database));
+        return session;
+    }
+
+    public void Publish(UserSession session)
+    {
+        var current = Index.List().Single(meta => string.Equals(meta.Id, session.Id, StringComparison.Ordinal));
+        Index.Publish(current with
+        {
+            ProviderId = session.ProviderId,
+            Model = session.Model,
+            Mode = session.Mode.Id,
+        });
     }
 
     public void Dispose()

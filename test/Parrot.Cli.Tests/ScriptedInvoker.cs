@@ -12,6 +12,8 @@ internal sealed class ScriptedInvoker : CallInvoker
     // an in-process stream are what ChannelStreamWriter already is.
     private readonly ChannelStreamWriter<Event> _events = new();
     private readonly List<string> _sent = [];
+    private readonly List<CreateSessionRequest> _created = [];
+    private readonly List<UpdateSessionRequest> _updated = [];
     private readonly Lock _gate = new();
 
     public IReadOnlyList<string> Sent
@@ -21,6 +23,28 @@ internal sealed class ScriptedInvoker : CallInvoker
             lock (_gate)
             {
                 return [.. _sent];
+            }
+        }
+    }
+
+    public IReadOnlyList<CreateSessionRequest> Created
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _created];
+            }
+        }
+    }
+
+    public IReadOnlyList<UpdateSessionRequest> Updated
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _updated];
             }
         }
     }
@@ -36,6 +60,38 @@ internal sealed class ScriptedInvoker : CallInvoker
 
         switch (request)
         {
+            case CreateSessionRequest create:
+                lock (_gate)
+                {
+                    _created.Add(create);
+                }
+
+                answered = new UserSession
+                {
+                    Id = $"session-{_created.Count}",
+                    Model = create.Model,
+                    Mode = create.Mode,
+                };
+                break;
+            case UpdateSessionRequest update:
+                lock (_gate)
+                {
+                    _updated.Add(update);
+                }
+
+                answered = new UserSession
+                {
+                    Id = update.UserSessionId,
+                    Model = update.Model,
+                    Mode = update.Mode,
+                };
+                break;
+            case ListModesRequest:
+                answered = new ListModesResponse
+                {
+                    Modes = { new Mode { Id = "build" }, new Mode { Id = "plan" }, new Mode { Id = "query" } },
+                };
+                break;
             case SendMessageRequest send:
                 lock (_gate)
                 {

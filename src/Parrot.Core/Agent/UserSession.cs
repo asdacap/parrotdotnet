@@ -2,6 +2,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -18,6 +19,8 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly EventRepository _eventRepository;
     private readonly IAgentSessionFactory _agentSessions;
     private readonly Lock _mainGate = new();
+    private readonly ModeRegistry _modes;
+    private readonly RuntimeStatus _status;
 
     // What every drain inside this session is bounded by. It is owned here
     // rather than by an agent session because the drain outlives the request
@@ -30,7 +33,7 @@ internal sealed class UserSession : IAsyncDisposable
     // finish existing until the constructor returns. It is built on the first
     // prompt instead; its id is settled now so History has something to ask
     // about before then.
-    private readonly string _mainSessionId = Identifier.AgentSession();
+    private readonly string _mainSessionId;
     private ILLMProvider _provider;
     private AgentSession? _main;
 
@@ -39,8 +42,10 @@ internal sealed class UserSession : IAsyncDisposable
         ILLMProvider provider,
         string providerId,
         string model,
+        string mode,
         EventRepository eventRepository,
-        IAgentSessionFactorySource agentSessionFactories)
+        IAgentSessionFactorySource agentSessionFactories,
+        ModeRegistry modes)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
@@ -49,10 +54,15 @@ internal sealed class UserSession : IAsyncDisposable
         ProviderId = providerId;
         Model = model;
         _eventRepository = eventRepository;
+        _modes = modes;
+        var state = eventRepository.SessionState(id, modes.Resolve(mode, id).Id);
+        _mainSessionId = state.AgentSessionId;
+        Mode = modes.Resolve(state.Mode, id);
         _provider = provider;
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this, provider);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, _lifetime.Token);
+        _status = new RuntimeStatus(this);
     }
 
     public string Id { get; }
@@ -67,6 +77,8 @@ internal sealed class UserSession : IAsyncDisposable
     // the turn is about to run with.
     public string Model { get; private set; }
 
+    public ModeProfile Mode { get; private set; }
+
     internal CancellationToken Lifetime => _lifetime.Token;
 
     internal ShellProcessOwner ShellProcesses { get; }
@@ -77,21 +89,60 @@ internal sealed class UserSession : IAsyncDisposable
     // input admitted against it and the drain that may be running: replacing it
     // to change a model would throw all three away, and a turn in flight would
     // carry on inside a session nothing points at any more.
-    public void UpdateSelection(ILLMProvider provider, string providerId, string model)
+    public void UpdateMode(string mode)
     {
-        ArgumentNullException.ThrowIfNull(provider);
+        var selected = _modes.Resolve(mode, Id);
 
         lock (_mainGate)
         {
-            _provider = provider;
-            ProviderId = providerId;
-            Model = model;
-
-            if (_main is not null)
+            if (string.Equals(Mode.Id, selected.Id, StringComparison.Ordinal))
             {
-                _main.Provider = provider;
-                _main.Model = model;
+                return;
             }
+
+            _eventRepository.UpdateMode(Id, _mainSessionId, selected.Id);
+            Mode = selected;
+
+            _main?.UpdateSelection(_provider, Model, selected);
+        }
+    }
+
+    public void UpdateSelection(ILLMProvider provider, string providerId, string model) =>
+        Update(provider, providerId, model, null);
+
+    public void Update(
+        ILLMProvider? provider,
+        string? providerId,
+        string? model,
+        ModeProfile? mode)
+    {
+        lock (_mainGate)
+        {
+            if (provider is not null && providerId is not { Length: > 0 })
+            {
+                throw new ArgumentException("A provider ID is required with a provider.", nameof(providerId));
+            }
+
+            if (provider is not null && model is not { Length: > 0 })
+            {
+                throw new ArgumentException("A model is required with a provider.", nameof(model));
+            }
+
+            if (mode is not null && !string.Equals(Mode.Id, mode.Id, StringComparison.Ordinal))
+            {
+                _eventRepository.UpdateMode(Id, _mainSessionId, mode.Id);
+                Mode = mode;
+            }
+
+            if (provider is not null && providerId is { Length: > 0 } selectedProviderId &&
+                model is { Length: > 0 } selectedModel)
+            {
+                _provider = provider;
+                ProviderId = selectedProviderId;
+                Model = selectedModel;
+            }
+
+            _main?.UpdateSelection(_provider, Model, Mode);
         }
     }
 
@@ -140,6 +191,8 @@ internal sealed class UserSession : IAsyncDisposable
         _agents.Clear();
     }
 
+    internal IReadOnlyList<ActiveWorkObservation> ActiveWork() => [.. ShellProcesses.Active(), .. Registry.Active()];
+
     // Built once, on the first prompt. Under a lock because SendMessage arrives
     // on gRPC handler threads and two concurrent first prompts would otherwise
     // each build a main session.
@@ -155,6 +208,8 @@ internal sealed class UserSession : IAsyncDisposable
                     Model,
                     _eventBroker,
                     _eventRepository,
+                    Mode,
+                    _status,
                     _lifetime.Token);
                 _agents.Add(_main);
             }

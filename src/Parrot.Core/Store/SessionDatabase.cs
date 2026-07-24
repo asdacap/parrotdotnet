@@ -94,6 +94,31 @@ internal sealed class SessionDatabase : IDisposable
                 );
 
                 CREATE INDEX IF NOT EXISTS todo_by_session ON todo (agent_session, position);
+                CREATE TABLE IF NOT EXISTS mode_change (
+                    sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_session TEXT NOT NULL,
+                    mode          TEXT NOT NULL,
+                    created_at    TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS mode_change_by_session
+                    ON mode_change (agent_session, sequence);
+
+                CREATE TABLE IF NOT EXISTS status_prompt (
+                    sequence             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_session        TEXT NOT NULL,
+                    mode_change_sequence INTEGER NOT NULL,
+                    created_at           TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS status_prompt_by_session
+                    ON status_prompt (agent_session, sequence);
+
+                CREATE TABLE IF NOT EXISTS session_state (
+                    user_session  TEXT PRIMARY KEY,
+                    agent_session TEXT NOT NULL,
+                    mode          TEXT NOT NULL
+                );
                 """;
             _ = schema.ExecuteNonQuery();
         }

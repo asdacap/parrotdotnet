@@ -3,6 +3,7 @@ using Parrot.Agent;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Core.Tests;
 
@@ -27,7 +28,7 @@ internal sealed class ParrotServiceTests : IDisposable
     public async Task A_prompt_is_answered_with_the_admission_it_made(CancellationToken cancellationToken)
     {
         using var store = Store();
-        await using var service = new ParrotService(Registry(), store);
+        await using var service = new ParrotService(Registry(), store, Modes());
         var context = new InProcessServerCallContext(cancellationToken);
 
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
@@ -46,10 +47,42 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Modes_are_listed_created_updated_and_validated(CancellationToken cancellationToken)
+    {
+        using var store = Store();
+        await using var service = new ParrotService(Registry(), store, Modes());
+        var context = new InProcessServerCallContext(cancellationToken);
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+
+        var listed = await client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
+        var defaulted = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
+        var created = await service.CreateSession(
+            new CreateSessionRequest { Model = Selection, Mode = ModeRegistry.Plan }, context);
+        var updated = await service.UpdateSession(
+            new UpdateSessionRequest { UserSessionId = created.Id, Mode = ModeRegistry.Query }, context);
+        var carried = await service.UpdateSession(
+            new UpdateSessionRequest { UserSessionId = created.Id, Model = Selection }, context);
+        var refused = await Assert.That(async () => await service.UpdateSession(
+            new UpdateSessionRequest { UserSessionId = created.Id, Mode = ModeRegistry.Plan, Model = "unknown/model" },
+            context)).Throws<RpcException>();
+        var afterRefusal = await service.UpdateSession(
+            new UpdateSessionRequest { UserSessionId = created.Id }, context);
+
+        _ = await Assert.That(string.Join(",", listed.Modes.Select(mode => mode.Id)))
+            .IsEqualTo("build,plan,query");
+        _ = await Assert.That(defaulted.Mode).IsEqualTo(ModeRegistry.Build);
+        _ = await Assert.That(created.Mode).IsEqualTo(ModeRegistry.Plan);
+        _ = await Assert.That(updated.Mode).IsEqualTo(ModeRegistry.Query);
+        _ = await Assert.That(carried.Mode).IsEqualTo(ModeRegistry.Query);
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(afterRefusal.Mode).IsEqualTo(ModeRegistry.Query);
+    }
+
+    [Test]
     public async Task A_prompt_with_no_delivery_is_refused(CancellationToken cancellationToken)
     {
         using var store = Store();
-        await using var service = new ParrotService(Registry(), store);
+        await using var service = new ParrotService(Registry(), store, Modes());
         var context = new InProcessServerCallContext(cancellationToken);
 
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
@@ -66,7 +99,7 @@ internal sealed class ParrotServiceTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var store = Store();
-        await using var service = new ParrotService(Registry(), store);
+        await using var service = new ParrotService(Registry(), store, Modes());
         var context = new InProcessServerCallContext(cancellationToken);
 
         var prompted = await Assert.That(async () =>
@@ -101,10 +134,12 @@ internal sealed class ParrotServiceTests : IDisposable
             new ProviderModel(provider, new LLMModel("model", "scripted")));
     }
 
+    private ModeRegistry Modes() => new(Path.Combine(_root, "plans"));
+
     private SessionStore Store() =>
         new(
             _root,
             Path.Combine(_root, "work"),
             "host",
-            new UserSessionFactory(new DirectAgentSessions()));
+            new UserSessionFactory(new DirectAgentSessions(), Modes()));
 }

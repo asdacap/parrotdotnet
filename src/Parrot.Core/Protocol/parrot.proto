@@ -12,6 +12,7 @@ package parrot.v1;
 // resume the stream without re-sending the prompt.
 service Parrot {
   rpc ListModels (ListModelsRequest) returns (ListModelsResponse);
+  rpc ListModes (ListModesRequest) returns (ListModesResponse);
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
@@ -32,15 +33,18 @@ service Parrot {
 message UserSession {
   string id    = 1;
   string model = 2;
+  string mode  = 3;
 }
 
 message CreateSessionRequest {
   string model = 1;
+  string mode  = 2;
 }
 
 message UpdateSessionRequest {
   string user_session_id = 1;
   string model           = 2;
+  string mode            = 3;
 }
 
 message ListModelsRequest {}
@@ -52,6 +56,16 @@ message ListModelsResponse {
 message Model {
   string id          = 1;
   string provider_id = 2;
+}
+
+message ListModesRequest {}
+
+message ListModesResponse {
+  repeated Mode modes = 1;
+}
+
+message Mode {
+  string id = 1;
 }
 
 // When an admitted prompt is promoted into the conversation.
@@ -138,6 +152,7 @@ message Event {
     AgentFinished   agent_finished   = 17;
     AgentFailed     agent_failed     = 18;
     TodoUpdated     todo_updated     = 19;
+    StatusInjected status_injected  = 20;
   }
 }
 
@@ -168,6 +183,10 @@ message TodoState {
   string priority = 4;
   int32 position  = 5;
 }
+
+// Transient notification that the durable runtime status system message was
+// added to model history. Its text is deliberately not duplicated on the wire.
+message StatusInjected {}
 
 // The user's own prompt, accepted but not yet part of the conversation. It is
 // on the stream because more than one client can watch a session, and a client

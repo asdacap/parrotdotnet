@@ -17,6 +17,7 @@ internal sealed class EnhancedCliTests
                     InputAdmitted = new InputAdmitted { Content = "already visible" },
                 },
                 new Event { Id = "start", TurnStarted = new TurnStarted { Model = "model" } },
+                new Event { Id = "status", StatusInjected = new StatusInjected() },
                 new Event
                 {
                     Id = "queued",
@@ -87,6 +88,7 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error).IsEmpty();
         _ = await Assert.That(output).DoesNotContain("already visible");
+        _ = await Assert.That(output).Contains("Status prompt injected");
         _ = await Assert.That(output).Contains("  queued: next[2J    line");
         _ = await Assert.That(output).Contains("think]0;title\n");
         _ = await Assert.That(output).Contains("abcdefgh\n");

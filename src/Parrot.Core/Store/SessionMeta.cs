@@ -1,3 +1,5 @@
+using Parrot.Agent;
+
 namespace Parrot.Store;
 
 // The published projection of a session. The database stays the source of
@@ -13,6 +15,8 @@ internal sealed record SessionMeta
     public required string ProviderId { get; init; }
 
     public required string Model { get; init; }
+
+    public string Mode { get; init; } = ModeRegistry.Build;
 
     public int ProcessId { get; init; }
 

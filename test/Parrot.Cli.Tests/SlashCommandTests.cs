@@ -10,6 +10,8 @@ internal sealed class SlashCommandTests
     [Arguments("/version")]
     [Arguments("/model")]
     [Arguments("/models")]
+    [Arguments("/mode")]
+    [Arguments("/modes")]
     [Arguments("/sessions")]
     [Arguments("/clear")]
     [Arguments("/auth")]
@@ -57,6 +59,8 @@ internal sealed class SlashCommandTests
             new VersionCommand(),
             new ModelCommand(),
             new ModelsCommand(),
+            new ModeCommand(),
+            new ModesCommand(),
             new SessionsCommand(),
             new ClearCommand("model"),
             new AuthCommand(static () => string.Empty),

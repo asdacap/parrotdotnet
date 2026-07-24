@@ -112,5 +112,7 @@ internal sealed class TodoToolTests : IDisposable
             [],
             new SystemContextBuilder("/workspace", "2026-07-24", string.Empty),
             new Compactor(120_000),
+            null,
+            null,
             CancellationToken.None);
 }

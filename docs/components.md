@@ -186,7 +186,7 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   from it. Rename gives atomicity, not serialisation: a flag write is safe, a
   read-modify-write against a concurrent host is not. See the configuration
   exception in `architecture.md`.
-- **Built (partial), M2.5.** `config.yaml` carries `model` only; the interactive
+- **Built (partial), M2.5 and M8.** `config.yaml` carries `model` only; the interactive
   `/model` writes it back so the choice is the default for the next launch, the
   `--model` flag stays a per-invocation override. YamlDotNet, edited through the
   representation model so a one-field write keeps other keys — comments are the
@@ -195,6 +195,10 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   moves domain-side, and the nested `providers:` map is the point to add typed
   parsing. Auth is deliberately a separate file (`credentials.json`), never in
   here.
+- **M8.** The mode registry owns the three selectable foreground execution
+  policies (`build`, `plan`, and `query`), their prompts, declared rules, limits,
+  and turn hooks. Mode remains per-session state rather than a YAML key. Child
+  profiles are not selectable foreground modes.
 
 ### `SessionDatabase` — rank 2, M2
 
@@ -388,6 +392,12 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   is the session that started it, and tasks do not nest.
 - **Outbound** `EventBroker`.
 - **Boundary** no.
+- **M8.** The status slice observes selection and active user-session work
+  through typed providers with stable namespaced keys. It deterministically
+  composes nonblank observations for `AgentSession`; active shell processes and
+  child agents are observed through their owning objects rather than inferred
+  from IDs. Generic task commands and protocol-level task correlation remain
+  deferred.
 
 ### `PermissionBroker` — rank 5, M3
 
@@ -440,6 +450,11 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 - **Boundary** no. Concrete, and rich — never a record plus a service.
 - **Note** it is also the `ILLMEventSink` implementer, attaching `session_id`
   and `task_id` to make a wire `Event` from an `LLMEvent`.
+- **M8.** It owns the selected foreground mode and the pending/consumed runtime
+  status transition. Status is appended atomically as typed, sequenced `system`
+  history before the first real provider call and after an actual mode change;
+  it is not part of the immutable epoch baseline. Provider/model-only updates,
+  idle drains, interruptions, and tool rounds do not duplicate it.
 
 ### `AgentSession` — todos (ported 2026-07-24)
 
@@ -508,8 +523,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   Each child publishes a durable `AgentStarted` event followed by exactly one
   `AgentFinished` or `AgentFailed` event; cancellation is a failure carrying the
   retained interruption message. User-session shutdown cancels and joins every
-  child. Profiles, reusable `agent_send`, generic task APIs, and `TaskManager`
-  remain deferred rather than stubbed.
+  child. Profiles, reusable `agent_send`, generic task APIs, and the remaining
+  `TaskManager` work stay deferred rather than stubbed. M8 adds only foreground
+  profiles and typed observation of the existing child lifecycle.
 
 ### `UserSession` — rank 10, M2
 
@@ -522,6 +538,25 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Outbound** `SessionDatabase`, `StatePaths`, `Configuration`.
 - **Boundary** no.
 - **Note** the claim is held for exactly the duration of `Run`.
+
+---
+
+### M8 wire and presentation divergences
+
+- `mode` is a first-class field on the .NET session create/update/response
+  contract rather than upstream's compatibility alias for `agent`; this port
+  does not expose foreground profiles as agents.
+- A status injection publishes a small transient protobuf event after the
+  durable system message commits. The prompt text stays in message history and
+  is not duplicated on the live wire.
+- `/mode` and `/modes` select and discover foreground policies. `/status` remains
+  deferred because it is a separate user-facing summary, not status-prompt
+  injection. Basic and Enhanced render the transient notification independently.
+- **Temporary divergence:** upstream enforces mode tool capabilities, but M8
+  deliberately defers that runtime enforcement here. `query` and `plan` prompts
+  state the intended workspace policy, but neither is currently a security
+  boundary and the plan artifact is not yet the only runtime-writable path.
+  Plan approval dialogs remain deferred with that enforcement work.
 
 ---
 

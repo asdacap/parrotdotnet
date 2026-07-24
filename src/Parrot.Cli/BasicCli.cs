@@ -31,6 +31,7 @@ internal sealed class BasicCli(
         Configuration configuration,
         OpenAiOAuthClient oauthClient,
         string model,
+        string mode,
         string prompt,
         TextReader input,
         TextWriter output,
@@ -57,7 +58,7 @@ internal sealed class BasicCli(
         try
         {
             session = await client.CreateSessionAsync(
-                new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
+                new CreateSessionRequest { Model = model, Mode = mode }, cancellationToken: cancellationToken);
         }
         catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
         {
@@ -75,6 +76,7 @@ internal sealed class BasicCli(
             ProviderRegistryBuilder.BuildableProviderIds(configuration),
             session.Id,
             session.Model,
+            session.Mode,
             input,
             output,
             error);
@@ -149,6 +151,11 @@ internal sealed class BasicCli(
                     await output.WriteLineAsync().ConfigureAwait(false);
                     await output.WriteLineAsync(
                         $"  queued: {published.InputAdmitted.Content}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.StatusInjected:
+                    await output.WriteLineAsync("  ↻ Status prompt injected".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 

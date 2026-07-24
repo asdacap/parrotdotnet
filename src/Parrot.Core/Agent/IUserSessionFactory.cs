@@ -8,5 +8,11 @@ namespace Parrot.Agent;
 // the repository over that session's own database.
 internal interface IUserSessionFactory
 {
-    UserSession Create(string id, ILLMProvider provider, string providerId, string model, EventRepository eventRepository);
+    UserSession Create(
+        string id,
+        ILLMProvider provider,
+        string providerId,
+        string model,
+        string mode,
+        EventRepository eventRepository);
 }

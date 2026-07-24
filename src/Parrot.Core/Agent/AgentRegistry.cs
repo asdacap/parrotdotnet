@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using Parrot.Events;
 using Parrot.Protocol;
+using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Agent;
@@ -13,7 +14,7 @@ internal sealed class AgentRegistry(
     IAgentSessionFactory agentSessions,
     EventBroker eventBroker,
     EventRepository eventRepository,
-    CancellationToken lifetime) : IAsyncDisposable
+    CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource
 {
     private const int MaxDepth = 4;
     private const int MaxConcurrentPerParent = 4;
@@ -73,12 +74,15 @@ internal sealed class AgentRegistry(
             var sessionId = Identifier.AgentSession();
             var name = UniqueName(requestedName, sessionId);
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
+            var selection = parent.Selection();
             var child = agentSessions.Create(
                 identity,
-                parent.Provider,
-                parent.Model,
+                selection.Provider,
+                selection.Model,
                 eventBroker,
                 eventRepository,
+                mode: null,
+                status: null,
                 _lifetime.Token);
             var entry = new AgentEntry(child, parent.SessionId, name);
 
@@ -135,6 +139,21 @@ internal sealed class AgentRegistry(
                 Elapsed(started),
                 string.Empty,
                 string.Empty);
+        }
+    }
+
+    public IReadOnlyList<ActiveWorkObservation> Active()
+    {
+        lock (_gate)
+        {
+            return [.. _entries.Values
+                .Where(entry => !entry.Completion.IsCompleted)
+                .Select(entry => new ActiveWorkObservation(
+                    entry.SessionId,
+                    entry.Name,
+                    ActiveWorkKind.Agent,
+                    ActiveWorkState.Running))
+                .OrderBy(item => item.Id, StringComparer.Ordinal)];
         }
     }
 

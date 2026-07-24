@@ -1,6 +1,6 @@
 # Migration Plan
 
-**Status: M0 through M7 done.** A walking agent: interactive, durable, tools
+**Status: M0 through M8 done.** A walking agent: interactive, durable, tools
 under a sandbox, context and compaction, subagents, serve, and two renderers. Milestone 0 was the plan gate from
 MIGRATION.md §0. `docs/components.md` now has an entry for all 29 blocks and
 the level-1 questions are answered in `architecture.md`.
@@ -35,6 +35,7 @@ M4  context and compaction     long conversations stop falling over
 M5  agents, tasks, subagents   the full agent loop
 M6  serve                      a second machine can drive it
 M7  enhanced CLI               the terminal experience
+M8  modes and runtime status   policy changes and durable status are visible
 ```
 
 ---
@@ -341,6 +342,34 @@ submission and deterministically removes it before the first visible turn event
 or on completion, interruption, EOF, cancellation, and failure. Renderer access
 is serialized so animation and editor frames cannot interleave. Picker,
 markdown, modal prompts, and richer multi-row activity frames remain M7 work.
+
+### M8 — Foreground modes and runtime status
+
+**Goal.** A user session selects a foreground execution policy, and the model
+sees a durable description of that policy and current runtime state at the
+first real turn and after each actual policy change.
+
+**Blocks.** The `mode` portion of `Configuration`; foreground profiles in
+`AgentRegistry`; the `status` and active-observation portion of `TaskManager`;
+mode selection, typed history, and durable status lifecycle in `AgentSession`;
+and the protocol and both CLI renderers.
+
+**Exit.** Create sessions in `build`, `plan`, and `query`; each first provider
+request contains exactly one sequenced status system message. Change an existing
+session's mode and its next real provider request contains exactly one additional
+status message. A model-only update and an idle drain add none.
+
+**Scope.** Foreground modes are `build`, `plan`, and `query`; child-agent
+profiles are not selectable modes. Mode is per-session state and is not a YAML
+configuration key. Runtime status includes profile, selection, and active task
+observations. The status text is durable model history, separate from the
+immutable context-epoch baseline and from the transient client notification.
+A user-facing `/status` summary, model-variant selection, reusable child turns,
+generic task commands, plan approval dialogs, and runtime enforcement of mode
+workspace capabilities remain deferred. Until that enforcement lands, mode
+prompts describe intended behaviour but are not a security boundary.
+
+---
 
 ## What this plan does not schedule
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Grpc.Core;
+using Parrot.Agent;
 using Parrot.Llm;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -16,7 +17,7 @@ namespace Parrot.Protocol;
 // `ParrotClient` for clients. The alias exists because `Parrot` is also this
 // repository's root namespace, and `Parrot.ParrotBase` reads as though it were
 // a namespace lookup.
-internal sealed class ParrotService(ProviderRegistry registry, SessionStore store)
+internal sealed class ParrotService(ProviderRegistry registry, SessionStore store, ModeRegistry modes)
     : GeneratedParrot.ParrotBase, IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
@@ -36,6 +37,16 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
         return response;
     }
 
+    public override Task<ListModesResponse> ListModes(ListModesRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var response = new ListModesResponse();
+        response.Modes.AddRange(modes.List().Select(id => new Mode { Id = id }));
+        return Task.FromResult(response);
+    }
+
     public override Task<UserSession> CreateSession(CreateSessionRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -53,7 +64,18 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
             throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
 
-        var created = store.Open(resolved, model.ProviderId, model.Id);
+        Agent.UserSession created;
+
+        try
+        {
+            _ = modes.Resolve(request.Mode, string.Empty);
+            created = store.Open(resolved, model.ProviderId, model.Id, request.Mode);
+        }
+        catch (ModeRegistryException failure)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+
         _ = _userSessions.TryAdd(created.Id, created);
 
         return Task.FromResult(Describe(created));
@@ -65,20 +87,34 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 
         var found = Find(request.UserSessionId);
 
-        if (request.Model.Length > 0)
-        {
-            var (providerId, modelId) = SplitModel(request.Model);
+        ModeProfile? selectedMode = null;
+        ILLMProvider? selectedProvider = null;
+        LLMModel? selectedModel = null;
 
-            try
+        try
+        {
+            if (request.Mode.Length > 0)
             {
-                var (resolved, model) = registry.Resolve(providerId, modelId);
-                found.UpdateSelection(resolved, model.ProviderId, model.Id);
+                selectedMode = modes.Resolve(request.Mode, found.Id);
             }
-            catch (LLMProviderException failure)
+
+            if (request.Model.Length > 0)
             {
-                throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+                var (providerId, modelId) = SplitModel(request.Model);
+                (selectedProvider, selectedModel) = registry.Resolve(providerId, modelId);
             }
         }
+        catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+
+        found.Update(
+            selectedProvider,
+            selectedModel?.ProviderId,
+            selectedModel?.Id,
+            selectedMode);
+        store.Publish(found);
 
         return Task.FromResult(Describe(found));
     }
@@ -178,7 +214,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
     }
 
     private static UserSession Describe(Agent.UserSession session) =>
-        new() { Id = session.Id, Model = $"{session.ProviderId}/{session.Model}" };
+        new() { Id = session.Id, Model = $"{session.ProviderId}/{session.Model}", Mode = session.Mode.Id };
 
     private Agent.UserSession Find(string userSessionId) =>
         _userSessions.TryGetValue(userSessionId, out var found)

@@ -2,6 +2,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -27,13 +28,13 @@ internal sealed class AgentSession(
     IReadOnlyList<IToolFactory> toolFactories,
     SystemContextBuilder systemContext,
     Compactor compactor,
+    ModeProfile? mode,
+    RuntimeStatus? status,
     CancellationToken lifetime)
 {
     // A turn that keeps calling tools without ever finishing is a runaway, not
     // work. This bounds the provider calls a promoted prompt may make; new
     // input resets it, so a long conversation is not a runaway.
-    private const int MaxToolRounds = 24;
-
     private const string RunawayMessage = "the turn exceeded its tool-call limit";
 
     // What the model is told about a call the interrupt cut short. It is a tool
@@ -50,10 +51,14 @@ internal sealed class AgentSession(
 
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
-    private readonly List<LLMMessage> _history = [];
+    private readonly List<LLMMessage> _history = status is null
+        ? []
+        : [.. eventRepository.ModelHistory(identity.SessionId)];
 
     private readonly Lock _drainGate = new();
+    private readonly Lock _selectionGate = new();
 
+    private AgentSelection _selection = new(provider, string.Empty, mode);
     private string _epochContext = string.Empty;
     private Task _drain = Task.CompletedTask;
     private CancellationTokenSource? _drainCancellation;
@@ -71,12 +76,18 @@ internal sealed class AgentSession(
     public TodoCollection Todos { get; } = new(identity.SessionId, eventRepository, eventBroker);
 
     // Selection is session state: an UpdateSession changes it, a prompt does
-    // not. Settable rather than fixed at construction because a running drain
-    // holds this session's history and its pending input, so replacing the
-    // session to change a model would throw both away.
-    public ILLMProvider Provider { get; set; } = provider;
+    // not. One immutable snapshot is used for a whole turn because a running
+    // drain keeps its history and pending input while later updates wait for
+    // the next turn boundary.
+    public ILLMProvider Provider => Selection().Provider;
 
-    public string Model { get; set; } = string.Empty;
+    public string Model
+    {
+        get => Selection().Model;
+        init => _selection = _selection with { Model = value };
+    }
+
+    public ModeProfile? Mode => Selection().Mode;
 
     // How deep this session sits below the root. The registry refuses a child
     // beyond its recursion limit.
@@ -92,6 +103,24 @@ internal sealed class AgentSession(
     // and `this` is not available there.
     private IReadOnlyList<ITool> Tools =>
         field ??= [.. toolFactories.Select(factory => factory.Create(this))];
+
+    public AgentSelection Selection()
+    {
+        lock (_selectionGate)
+        {
+            return _selection;
+        }
+    }
+
+    public void UpdateSelection(ILLMProvider provider, string model, ModeProfile? mode)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+
+        lock (_selectionGate)
+        {
+            _selection = new AgentSelection(provider, model, mode);
+        }
+    }
 
     // Accepts a prompt. It does not run it: the prompt becomes durable here
     // (principle 1) and joins the conversation when the drain reaches the
@@ -231,15 +260,22 @@ internal sealed class AgentSession(
     // drain. The registry owns this call and retains its terminal result.
     internal async Task<AgentExecution> Run(string prompt, CancellationToken cancellationToken)
     {
+        if (status is not null)
+        {
+            throw new InvalidOperationException("a foreground session must run through its input drain");
+        }
+
+        var selection = Selection();
+        selection.Mode?.Prepare();
         var started = NewEvent();
-        started.TurnStarted = new TurnStarted { Model = Model };
+        started.TurnStarted = new TurnStarted { Model = selection.Model };
 
         // The prompt is durable before execution is requested (principle 1).
         await EmitEvent(started, "user", prompt, cancellationToken).ConfigureAwait(false);
 
         _history.Add(LLMMessage.User(prompt));
 
-        return await Pass(turnOpen: true, cancellationToken).ConfigureAwait(false);
+        return await Pass(turnOpen: true, selection, cancellationToken).ConfigureAwait(false);
     }
 
     // Starts a drain, or tells the one already running that there is more to
@@ -273,7 +309,7 @@ internal sealed class AgentSession(
 
         while (true)
         {
-            _ = await Pass(turnOpen: false, cancellationToken).ConfigureAwait(false);
+            _ = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
 
             lock (_drainGate)
             {
@@ -304,7 +340,10 @@ internal sealed class AgentSession(
     // and repeat until nothing is left to answer. The sequence is the one
     // docs/architecture.md fixes, and its two promotion points are the whole
     // difference between a steer and a queued prompt.
-    private async Task<AgentExecution> Pass(bool turnOpen, CancellationToken cancellationToken)
+    private async Task<AgentExecution> Pass(
+        bool turnOpen,
+        AgentSelection? activeSelection,
+        CancellationToken cancellationToken)
     {
         var answer = string.Empty;
         var rounds = 0;
@@ -315,43 +354,53 @@ internal sealed class AgentSession(
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var promoted = await Promote(cancellationToken).ConfigureAwait(false);
-
-                // Nothing promoted and nothing owed an answer: the pass is done.
-                if (promoted == 0 && !Answerable())
+                // Looking is not consuming. A pending status remains pending
+                // while an idle drain has no input that could reach a provider.
+                if (!Answerable() && !eventRepository.HasPendingInputs(SessionId))
                 {
                     return AgentExecution.Succeeded(answer);
                 }
+
+                if (!turnOpen)
+                {
+                    activeSelection = Selection();
+                    activeSelection.Mode?.Prepare();
+                    turnOpen = true;
+                    var started = NewEvent();
+                    started.TurnStarted = new TurnStarted { Model = activeSelection.Model };
+                    await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
+                    activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
+                }
+
+                // Status is committed before promotion, so sequenced history is
+                // epoch baseline, status, then the user input it describes.
+                var promoted = await Promote(cancellationToken).ConfigureAwait(false);
 
                 if (promoted > 0)
                 {
                     rounds = 0;
                 }
 
-                if (!turnOpen)
-                {
-                    turnOpen = true;
-                    var started = NewEvent();
-                    started.TurnStarted = new TurnStarted { Model = Model };
-                    await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
-                }
-
-                if (rounds++ >= MaxToolRounds)
+                if (rounds++ >= (activeSelection?.Mode?.MaxToolRounds ?? 24))
                 {
                     await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
                     return AgentExecution.Failed(RunawayMessage);
                 }
 
-                await Epoch(cancellationToken).ConfigureAwait(false);
+                await Epoch(activeSelection, cancellationToken).ConfigureAwait(false);
 
                 // One snapshot for the round, so what is offered to the model is
                 // what answers it (principle 4).
                 var snapshot = new ToolSnapshot(Tools);
 
-                var messages = new List<LLMMessage>(_history.Count + 1) { LLMMessage.System(_epochContext) };
+                var messages = new List<LLMMessage>(_history.Count + 1)
+                {
+                    LLMMessage.System(SystemPrompt(activeSelection?.Mode)),
+                };
                 messages.AddRange(_history);
 
-                var completed = await Call(snapshot, messages, cancellationToken).ConfigureAwait(false);
+                var completed = await Call(activeSelection, snapshot, messages, cancellationToken)
+                    .ConfigureAwait(false);
 
                 if (completed.ToolCalls.Count > 0)
                 {
@@ -376,6 +425,7 @@ internal sealed class AgentSession(
                 // Back to the top rather than out: a queued prompt is promoted
                 // exactly here, where the turn would otherwise stop.
                 turnOpen = false;
+                activeSelection = null;
             }
         }
         catch (OperationCanceledException)
@@ -467,7 +517,7 @@ internal sealed class AgentSession(
 
     // Sampled at the start of an epoch, not every turn, and compaction starts a
     // fresh one -- so a turn never begins already over the window.
-    private async Task Epoch(CancellationToken cancellationToken)
+    private async Task Epoch(AgentSelection? selection, CancellationToken cancellationToken)
     {
         if (_epochContext.Length == 0)
         {
@@ -481,7 +531,11 @@ internal sealed class AgentSession(
 
         // Copied before the clear: a compaction with nothing to summarise hands
         // back the very list being emptied.
-        var compacted = (await Compactor.Compact(Provider, Model, _history, cancellationToken)
+        var compacted = (await Compactor.Compact(
+            selection?.Provider ?? Provider,
+            selection?.Model ?? Model,
+            _history,
+            cancellationToken)
             .ConfigureAwait(false)).ToList();
 
         _history.Clear();
@@ -489,14 +543,60 @@ internal sealed class AgentSession(
         _epochContext = systemContext.Build();
     }
 
+    private string SystemPrompt(ModeProfile? activeMode) => activeMode is null
+        ? _epochContext
+        : $"{_epochContext}\n\n{activeMode.Prompt}\n\n{activeMode.HardRule}";
+
+    private async Task<AgentSelection> InjectStatus(
+        AgentSelection selection,
+        CancellationToken cancellationToken)
+    {
+        if (status is null || selection.Mode is null)
+        {
+            return selection;
+        }
+
+        while (eventRepository.PendingStatus(SessionId) is { } pending)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var mode = selection.Mode;
+
+            if (mode is null || !string.Equals(mode.Id, pending.Mode, StringComparison.Ordinal))
+            {
+                selection = Selection();
+                selection.Mode?.Prepare();
+                await Task.Yield();
+                continue;
+            }
+
+            var content = await status.Observe(this, selection, mode, cancellationToken).ConfigureAwait(false);
+            var published = NewEvent();
+            published.StatusInjected = new StatusInjected();
+            if (!eventRepository.AppendStatusPrompt(published, pending, content))
+            {
+                selection = Selection();
+                selection.Mode?.Prepare();
+                continue;
+            }
+
+            _history.Add(LLMMessage.System(content));
+            await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+        }
+
+        return selection;
+    }
+
     // Streams one provider call: deltas go out as events, and the terminal
     // Completed is returned so the loop can decide what to do next.
     private async Task<LLMEvent> Call(
-        ToolSnapshot snapshot, IReadOnlyList<LLMMessage> messages, CancellationToken cancellationToken)
+        AgentSelection? selection,
+        ToolSnapshot snapshot,
+        IReadOnlyList<LLMMessage> messages,
+        CancellationToken cancellationToken)
     {
         var request = new LLMRequest
         {
-            Model = Model,
+            Model = selection?.Model ?? Model,
             MaxTokens = 4096,
             Messages = messages,
             Tools = snapshot.Definitions,
@@ -504,7 +604,8 @@ internal sealed class AgentSession(
 
         var completed = LLMEvent.Completed(string.Empty, 0, 0, string.Empty, []);
 
-        await foreach (var llmEvent in Provider.Call(request, cancellationToken).ConfigureAwait(false))
+        await foreach (var llmEvent in (selection?.Provider ?? Provider)
+            .Call(request, cancellationToken).ConfigureAwait(false))
         {
             if (llmEvent.Kind == LLMEventKind.Completed)
             {

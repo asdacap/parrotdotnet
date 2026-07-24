@@ -1,6 +1,7 @@
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
 using Parrot.Tools.ApplyPatch;
@@ -43,6 +44,8 @@ internal sealed class AgentSessionFactory(
         string model,
         EventBroker eventBroker,
         EventRepository eventRepository,
+        ModeProfile? mode,
+        RuntimeStatus? status,
         CancellationToken lifetime) =>
         new(
             identity,
@@ -52,6 +55,8 @@ internal sealed class AgentSessionFactory(
             ToolFactories,
             new SystemContextBuilder(workingDirectory, date, identity.Context),
             compactor,
+            mode,
+            status,
             lifetime)
         {
             Model = model,

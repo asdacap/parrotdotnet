@@ -1,12 +1,14 @@
 using Parrot.Agent;
 
+using Parrot.Statuses;
+
 namespace Parrot.Process;
 
 internal sealed class ShellProcessOwner(
     string workingDirectory,
     string blobDirectory,
     ProcessRunner runner,
-    CancellationToken lifetime)
+    CancellationToken lifetime) : IActiveWorkSource
 {
     private readonly Dictionary<string, ManagedShellProcess> _processes = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
@@ -49,6 +51,21 @@ internal sealed class ShellProcessOwner(
 
             process.Claim();
             return process;
+        }
+    }
+
+    public IReadOnlyList<ActiveWorkObservation> Active()
+    {
+        lock (_gate)
+        {
+            return [.. _processes.Values
+                .Where(process => !process.Completed)
+                .Select(process => new ActiveWorkObservation(
+                    process.Name,
+                    process.Name,
+                    ActiveWorkKind.Shell,
+                    ActiveWorkState.Running))
+                .OrderBy(item => item.Id, StringComparer.Ordinal)];
         }
     }
 

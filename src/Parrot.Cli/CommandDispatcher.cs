@@ -18,6 +18,7 @@ internal static class CommandDispatcher
     public const int ExitFailure = 1;
 
     private const string DefaultModel = "opencode-go/glm-5.2";
+    private const string DefaultMode = "build";
 
     private const string UsageText = """
         parrot - a coding agent that is not too much
@@ -32,7 +33,8 @@ internal static class CommandDispatcher
           auth login --api-key-stdin  Store the opencode-go key read from stdin
           models                      List the models the provider serves
           sessions                    List sessions, reading meta.json only
-          chat [--model <id>] [text]  A session, or one prompt if text is given
+          chat [--model <id>] [--mode <id>] [text]
+                                      A session, or one prompt if text is given
           chat --connect host:port    Drive a session on a remote parrot serve
           serve [--port <n>]          Host the service for remote clients
 
@@ -285,6 +287,8 @@ internal static class CommandDispatcher
             new VersionCommand(),
             new ModelCommand(),
             new ModelsCommand(),
+            new ModeCommand(),
+            new ModesCommand(),
             new SessionsCommand(),
             new ClearCommand(defaultModel),
             new AuthCommand(ReadSecret),
@@ -346,6 +350,7 @@ internal static class CommandDispatcher
         // The saved model is the default; the built-in one is only the fallback
         // for a fresh install with no config yet.
         var model = configuration.Model.Length > 0 ? configuration.Model : DefaultModel;
+        var mode = DefaultMode;
         var connect = string.Empty;
         var basic = false;
         var words = new List<string>();
@@ -357,6 +362,10 @@ internal static class CommandDispatcher
                 // A per-invocation override; unlike /model it does not persist.
                 case "--model" when index + 1 < arguments.Count:
                     model = arguments[++index];
+                    break;
+
+                case "--mode" when index + 1 < arguments.Count:
+                    mode = arguments[++index];
                     break;
 
                 case "--connect" when index + 1 < arguments.Count:
@@ -391,6 +400,7 @@ internal static class CommandDispatcher
                     configuration,
                     OAuthClient(),
                     model,
+                    mode,
                     prompt,
                     Console.In,
                     output,
@@ -404,6 +414,7 @@ internal static class CommandDispatcher
                     configuration,
                     OAuthClient(),
                     model,
+                    mode,
                     prompt,
                     Console.In,
                     output,
@@ -430,6 +441,7 @@ internal static class CommandDispatcher
                 configuration,
                 OAuthClient(),
                 model,
+                mode,
                 prompt,
                 Console.In,
                 output,
@@ -443,6 +455,7 @@ internal static class CommandDispatcher
                 configuration,
                 OAuthClient(),
                 model,
+                mode,
                 prompt,
                 Console.In,
                 output,
