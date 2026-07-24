@@ -2,12 +2,9 @@ using Grpc.Net.Client;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
-using Parrot.Llm;
-using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
-using Parrot.Tools;
 
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -44,9 +41,6 @@ internal static class CommandDispatcher
         Bare `parrot` is `parrot chat`. In a terminal that opens a REPL; with a
         prompt or piped stdin it answers once. /help lists the slash commands.
         """;
-
-    // One handler for the process, which is what HttpClient wants anyway.
-    private static readonly HttpClient Http = new();
 
     // The single top-level Run. Every other Run is a descendant of this call.
     public static async Task<int> Run(
@@ -152,19 +146,14 @@ internal static class CommandDispatcher
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        var provider = await ResolveProvider(error, cancellationToken).ConfigureAwait(false);
+        using var composition = await Compose(error, cancellationToken).ConfigureAwait(false);
 
-        if (provider is null)
+        if (composition is null)
         {
             return ExitFailure;
         }
 
-        var paths = StatePaths.ResolveFromEnvironment();
-        using var store = new SessionStore(
-            paths.State, Directory.GetCurrentDirectory(), Environment.MachineName, BuiltinTools(), ProcessRunner.Locate());
-        using var service = new ParrotService(provider, store);
-
-        var listed = await ClientFor(service)
+        var listed = await ClientFor(composition.Service)
             .ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
 
         foreach (var model in listed.Models)
@@ -176,15 +165,15 @@ internal static class CommandDispatcher
         return ExitSuccess;
     }
 
-    // Resolves the credential and builds the provider. It deliberately does not
-    // build the service: the caller owns that, and owning it is what makes the
-    // disposal visible at the call site.
-    private static async Task<ILLMProvider?> ResolveProvider(
+    // Reads the credential, then builds the composition around it. Null when
+    // there is no credential: the graph has no provider to build. The caller
+    // owns the composition, so its singletons are disposed at the call site.
+    private static async Task<Composition?> Compose(
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        using var store = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        var key = await store.Get(ProviderId, cancellationToken).ConfigureAwait(false);
+        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
+        var key = await credentials.Get(ProviderId, cancellationToken).ConfigureAwait(false);
 
         if (key is null)
         {
@@ -194,10 +183,7 @@ internal static class CommandDispatcher
             return null;
         }
 
-        var provider = new OpenAICompatibleProvider(
-            ProviderId, new Uri("https://opencode.ai/zen/go/v1/"), key, Http);
-
-        return provider;
+        return new Composition(key, Directory.GetCurrentDirectory(), Environment.MachineName);
     }
 
     private static async Task<int> Serve(
@@ -219,31 +205,21 @@ internal static class CommandDispatcher
             }
         }
 
-        var provider = await ResolveProvider(error, cancellationToken).ConfigureAwait(false);
+        using var composition = await Compose(error, cancellationToken).ConfigureAwait(false);
 
-        if (provider is null)
+        if (composition is null)
         {
             return ExitFailure;
         }
 
-        var paths = StatePaths.ResolveFromEnvironment();
-        using var store = new SessionStore(
-            paths.State, Directory.GetCurrentDirectory(), Environment.MachineName, BuiltinTools(), ProcessRunner.Locate());
-        using var service = new ParrotService(provider, store);
-
         await output.WriteLineAsync($"parrot serving on port {port} (ctrl-c to stop)".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
-        return await GrpcServer.Run(service, port, cancellationToken).ConfigureAwait(false);
+        return await GrpcServer.Run(composition.Service, port, cancellationToken).ConfigureAwait(false);
     }
 
     private static string RemoteAddress(string target) =>
         target.StartsWith("http", StringComparison.Ordinal) ? target : $"http://{target}";
-
-    // The tools the agent may call. exec_command is the one that reaches the
-    // sandbox; read_file is read-only.
-    private static ToolRegistry BuiltinTools() =>
-        new([new ExecCommandTool(), new ReadFileTool(), new AgentSpawnTool()]);
 
     // Composed by hand, per AGENTS.md: no container, and the registry is the
     // one place that knows which commands exist.
@@ -356,20 +332,23 @@ internal static class CommandDispatcher
                 .ConfigureAwait(false);
         }
 
-        var provider = await ResolveProvider(error, cancellationToken).ConfigureAwait(false);
+        using var composition = await Compose(error, cancellationToken).ConfigureAwait(false);
 
-        if (provider is null)
+        if (composition is null)
         {
             return ExitFailure;
         }
 
-        using var store = new SessionStore(
-            paths.State, Directory.GetCurrentDirectory(), Environment.MachineName, BuiltinTools(), ProcessRunner.Locate());
-        using var service = new ParrotService(provider, store);
-
         return await Drive(
-            ClientFor(service), Renderer(basic), paths, configuration, model, prompt, output, error, cancellationToken)
-            .ConfigureAwait(false);
+            ClientFor(composition.Service),
+            Renderer(basic),
+            paths,
+            configuration,
+            model,
+            prompt,
+            output,
+            error,
+            cancellationToken).ConfigureAwait(false);
     }
 
     // EnhancedCli by default in a terminal; BasicCli when asked, or when output

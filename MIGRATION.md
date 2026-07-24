@@ -220,9 +220,17 @@ From this repository's `AGENTS.md`:
   `AgentSession` section of `docs/architecture.md`.
 - **Dependency injection, but no IoC container.** Dependencies are passed to
   constructors — primary constructors, per `docs/style.md` — and the object
-  graph is composed explicitly in `Parrot.Cli`. No `IServiceCollection`, no
-  runtime service resolution. This is also an AOT requirement: container
-  registration by scanning is exactly the reflection §2 forbids.
+  graph is composed in `Parrot.Cli`. No `IServiceCollection`, no runtime service
+  resolution. This is also an AOT requirement: container registration by
+  scanning is exactly the reflection §2 forbids.
+- **The one exception: Pure.DI**, granted deliberately. It is a compile-time
+  generator, so the composition it produces *is* explicit constructor code with
+  no container and no reflection — it satisfies the substance while being a DI
+  framework, which is the part that bends. Two bounds keep it honest:
+  `Hint.Resolve` is `Off` (typed roots only, so a missing binding fails the
+  build rather than the process), and it is referenced only by `Parrot.Cli`.
+  Anything the composition cannot express cleanly — a cycle, a dependency-free
+  object, a runtime branch — stays hand-written, and `Composition.cs` says why.
 - **No comment unless necessary.** A comment explains why, or it is deleted.
   Restating the code is worse than silence, and XML doc generation is off.
 

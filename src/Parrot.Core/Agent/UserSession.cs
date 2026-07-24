@@ -1,11 +1,7 @@
 using System.Collections.Concurrent;
-using Parrot.Context;
 using Parrot.Events;
-using Parrot.Llm;
-using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Store;
-using Parrot.Tools;
 
 namespace Parrot.Agent;
 
@@ -24,33 +20,21 @@ internal sealed class UserSession : IDisposable
 
     private readonly EventRepository _eventRepository;
 
+    // The agent factory carries the static half of a session; this only
+    // supplies what is genuinely per-session, so it no longer relays five
+    // parameters it never uses.
     public UserSession(
         string id,
         string model,
-        ILLMProvider provider,
         EventRepository eventRepository,
-        ToolRegistry tools,
-        string workingDirectory,
-        ProcessRunner processes,
-        SystemContextBuilder systemContext,
-        Compactor compactor)
+        Func<string, int, EventBroker, EventRepository, AgentSession> newAgent)
     {
+        ArgumentNullException.ThrowIfNull(newAgent);
+
         Id = id;
         _eventRepository = eventRepository;
-        _main = new AgentSession(
-            Identifier.AgentSession(),
-            provider,
-            _eventBroker,
-            eventRepository,
-            tools,
-            workingDirectory,
-            processes,
-            systemContext,
-            compactor,
-            depth: 0)
-        {
-            Model = model,
-        };
+        _main = newAgent(Identifier.AgentSession(), 0, _eventBroker, eventRepository);
+        _main.Model = model;
         _ = _agents.TryAdd(_main.SessionId, _main);
     }
 

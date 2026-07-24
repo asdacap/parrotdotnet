@@ -85,6 +85,11 @@
     "hash": "sha256-Prh2RPebz/s8AzHb2sPHg3Jl8s31inv9k+Qxd293ybo="
   },
   {
+    "pname": "Pure.DI",
+    "version": "2.5.2",
+    "hash": "sha256-DwLIq2LSN0y2FmDz1KtUZWvpzBE1ZnkuIy0t8i2O2Y8="
+  },
+  {
     "pname": "SourceGear.sqlite3",
     "version": "3.53.3",
     "hash": "sha256-EH+QhpU46WTe262bdJIvoECSrbB43keR+ZcJyp7Z8FA="

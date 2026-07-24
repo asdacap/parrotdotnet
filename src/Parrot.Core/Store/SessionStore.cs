@@ -1,8 +1,4 @@
 using Parrot.Agent;
-using Parrot.Context;
-using Parrot.Llm;
-using Parrot.Process;
-using Parrot.Tools;
 
 namespace Parrot.Store;
 
@@ -16,18 +12,13 @@ internal sealed class SessionStore(
     string stateDirectory,
     string workingDirectory,
     string hostKey,
-    ToolRegistry tools,
-    ProcessRunner processes) : IDisposable
+    Func<string, string, EventRepository, UserSession> newUserSession) : IDisposable
 {
-    // Well under the smallest model window here, with margin for the system
-    // context and tool results the estimate does not see precisely.
-    private const int CompactionTokenBudget = 120_000;
-
     private readonly List<SessionDatabase> _open = [];
 
     public SessionIndex Index { get; } = new(stateDirectory);
 
-    public UserSession Open(string model, ILLMProvider provider)
+    public UserSession Open(string model)
     {
         var claim = new WorkingDirectoryClaim(stateDirectory, hostKey);
         var claimed = claim.Claim(workingDirectory, Identifier.UserSession(), ProcessIsAlive);
@@ -49,18 +40,7 @@ internal sealed class SessionStore(
             CreatedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         });
 
-        var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-
-        return new UserSession(
-            id,
-            model,
-            provider,
-            new EventRepository(database),
-            tools,
-            workingDirectory,
-            processes,
-            new SystemContextBuilder(workingDirectory, today),
-            new Compactor(provider, CompactionTokenBudget));
+        return newUserSession(id, model, new EventRepository(database));
     }
 
     public void Dispose()

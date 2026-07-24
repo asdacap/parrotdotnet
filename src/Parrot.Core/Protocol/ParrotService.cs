@@ -40,7 +40,7 @@ internal sealed class ParrotService(ILLMProvider provider, SessionStore store)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var created = store.Open(request.Model, provider);
+        var created = store.Open(request.Model);
         _ = _userSessions.TryAdd(created.Id, created);
 
         return Task.FromResult(Describe(created));
