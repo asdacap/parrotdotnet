@@ -6,7 +6,10 @@ namespace Parrot.Tools;
 // The one tool that reaches outside the process. It runs under the sandbox, so
 // a failure to sandbox is reported to the model rather than run unconfined --
 // the fail-closed property, surfaced as a tool error the model can react to.
-internal sealed class ExecCommandTool(string workingDirectory, ProcessRunner processes) : ITool
+internal sealed class ExecCommandTool(
+    string workingDirectory,
+    string blobDirectory,
+    ProcessRunner processes) : ITool
 {
     public string Name => "exec_command";
 
@@ -40,7 +43,7 @@ internal sealed class ExecCommandTool(string workingDirectory, ProcessRunner pro
         try
         {
             var result = await processes
-                .Run(command, workingDirectory, cancellationToken)
+                .Run(command, workingDirectory, blobDirectory, cancellationToken)
                 .ConfigureAwait(false);
 
             return Format(result);
@@ -55,26 +58,25 @@ internal sealed class ExecCommandTool(string workingDirectory, ProcessRunner pro
 
     private static string Format(ProcessResult result)
     {
+        if (result.Spilled)
+        {
+            return result.BlobPath;
+        }
+
         var text = new System.Text.StringBuilder();
         _ = text.Append("Process exited with code ").Append(result.ExitCode);
-        AppendOutput(text, "stdout", result.Stdout, result.StdoutTruncated);
-        AppendOutput(text, "stderr", result.Stderr, result.StderrTruncated);
+        AppendOutput(text, "stdout", result.Stdout);
+        AppendOutput(text, "stderr", result.Stderr);
         return text.ToString();
     }
 
-    private static void AppendOutput(
-        System.Text.StringBuilder text, string name, string output, bool truncated)
+    private static void AppendOutput(System.Text.StringBuilder text, string name, string output)
     {
-        if (output.Length == 0 && !truncated)
+        if (output.Length == 0)
         {
             return;
         }
 
         _ = text.Append('\n').Append('[').Append(name).Append("]\n").Append(output);
-
-        if (truncated)
-        {
-            _ = text.Append('\n').Append('[').Append(name).Append(" truncated]");
-        }
     }
 }

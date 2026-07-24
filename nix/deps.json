@@ -45,6 +45,11 @@
     "hash": "sha256-eHpibB+2MzHJEppSstnYf/8ypmAwQJu8LvhlOeNvE04="
   },
   {
+    "pname": "Haikunator",
+    "version": "3.0.1",
+    "hash": "sha256-ADJb0oeWjVdqTwyRPGEeyz8Feif3L0mV4CQM0jPY8zM="
+  },
+  {
     "pname": "Microsoft.CodeAnalysis.Analyzers",
     "version": "3.11.0",
     "hash": "sha256-hQ2l6E6PO4m7i+ZsfFlEx+93UsLPo4IY3wDkNG11/Sw="
@@ -78,6 +83,11 @@
     "pname": "Microsoft.VisualStudio.Threading.Analyzers",
     "version": "18.7.23",
     "hash": "sha256-KRi8KaS76bUV33CUlutuu+LDlBMH3zFEXIZBYF+OZh8="
+  },
+  {
+    "pname": "NETStandard.Library",
+    "version": "1.6.1",
+    "hash": "sha256-iNan1ix7RtncGWC9AjAZ2sk70DoxOsmEOgQ10fXm4Pw="
   },
   {
     "pname": "NETStandard.Library",

@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Haikunator" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Grpc.Core.Api" />

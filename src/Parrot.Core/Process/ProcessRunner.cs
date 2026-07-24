@@ -17,7 +17,10 @@ internal sealed class ProcessRunner(string bubblewrapPath)
     public static ProcessRunner Locate() => new(FindOnPath("bwrap"));
 
     public async Task<ProcessResult> Run(
-        string command, string workingDirectory, CancellationToken cancellationToken)
+        string command,
+        string workingDirectory,
+        string blobDirectory,
+        CancellationToken cancellationToken)
     {
         if (!SandboxAvailable)
         {
@@ -32,28 +35,52 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
         _ = process.Start();
 
-        var stdout = ReadBounded(process.StandardOutput);
-        var stderr = ReadBounded(process.StandardError);
+        var stdoutTask = ReadBounded(process.StandardOutput, blobDirectory);
+        var stderrTask = ReadBounded(process.StandardError, blobDirectory);
+        var exitTask = process.WaitForExitAsync(cancellationToken);
+        ProcessOutput[] output;
 
         try
         {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            var pending = new List<Task> { exitTask, stdoutTask, stderrTask };
+
+            while (pending.Count > 0)
+            {
+                var completed = await Task.WhenAny(pending).ConfigureAwait(false);
+                _ = pending.Remove(completed);
+                await completed.ConfigureAwait(false);
+            }
+
+            output = await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch
         {
             Kill(process);
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            _ = await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
+            await DrainAndDelete(stdoutTask, stderrTask).ConfigureAwait(false);
             throw;
         }
 
-        var output = await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
-        return new ProcessResult(
-            process.ExitCode,
-            output[0].Text,
-            output[1].Text,
-            output[0].Truncated,
-            output[1].Truncated);
+        var stdout = output[0];
+        var stderr = output[1];
+
+        try
+        {
+            if (!stdout.Spilled && !stderr.Spilled)
+            {
+                return new ProcessResult(process.ExitCode, stdout.Text, stderr.Text, string.Empty);
+            }
+
+            var blobPath = await new ProcessOutputBlobStore(blobDirectory)
+                .Persist(process.ExitCode, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+            return new ProcessResult(process.ExitCode, string.Empty, string.Empty, blobPath);
+        }
+        finally
+        {
+            stdout.DeleteTemporaryFile();
+            stderr.DeleteTemporaryFile();
+        }
     }
 
     private static void Kill(System.Diagnostics.Process process)
@@ -64,11 +91,79 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         }
     }
 
-    private static async Task<BoundedOutput> ReadBounded(StreamReader reader)
+    private static async Task<ProcessOutput> ReadBounded(StreamReader reader, string blobDirectory)
     {
         var output = new System.Text.StringBuilder(MaxOutputCharacters);
         var buffer = new char[4096];
-        var truncated = false;
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer).ConfigureAwait(false);
+
+            if (read == 0)
+            {
+                return new ProcessOutput(output.ToString(), string.Empty);
+            }
+
+            if (output.Length + read <= MaxOutputCharacters)
+            {
+                _ = output.Append(buffer, 0, read);
+                continue;
+            }
+
+            ProcessOutputBlobStore.EnsureDirectory(blobDirectory);
+            var temporaryPath = TemporaryPath(blobDirectory);
+
+            try
+            {
+                await Spill(reader, output, buffer.AsMemory(0, read), temporaryPath).ConfigureAwait(false);
+                return new ProcessOutput(string.Empty, temporaryPath);
+            }
+            catch
+            {
+                File.Delete(temporaryPath);
+                throw;
+            }
+        }
+    }
+
+    private static async Task DrainAndDelete(params Task<ProcessOutput>[] outputs)
+    {
+        try
+        {
+            var completed = await Task.WhenAll(outputs).ConfigureAwait(false);
+
+            foreach (var output in completed)
+            {
+                output.DeleteTemporaryFile();
+            }
+        }
+        catch
+        {
+            foreach (var task in outputs)
+            {
+                try
+                {
+                    var output = await task.ConfigureAwait(false);
+                    output.DeleteTemporaryFile();
+                }
+                catch
+                {
+                }
+            }
+        }
+    }
+
+    private static async Task Spill(
+        StreamReader reader,
+        System.Text.StringBuilder initial,
+        ReadOnlyMemory<char> firstOverflow,
+        string path)
+    {
+        await using var stream = new FileStream(path, TemporaryFileOptions());
+        await using var writer = new StreamWriter(stream);
+        await writer.WriteAsync(initial.ToString()).ConfigureAwait(false);
+        await writer.WriteAsync(firstOverflow).ConfigureAwait(false);
+        var buffer = new char[4096];
 
         while (true)
         {
@@ -76,21 +171,32 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
             if (read == 0)
             {
-                break;
+                return;
             }
 
-            var remaining = MaxOutputCharacters - output.Length;
+            await writer.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+        }
+    }
 
-            if (remaining > 0)
-            {
-                _ = output.Append(buffer, 0, Math.Min(read, remaining));
-            }
+    private static FileStreamOptions TemporaryFileOptions()
+    {
+        var options = new FileStreamOptions
+        {
+            Access = FileAccess.Write,
+            Mode = FileMode.CreateNew,
+            Options = FileOptions.Asynchronous,
+        };
 
-            truncated |= read > remaining;
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         }
 
-        return new BoundedOutput(output.ToString(), truncated);
+        return options;
     }
+
+    private static string TemporaryPath(string blobDirectory) =>
+        Path.Combine(blobDirectory, $".process-{Guid.NewGuid():n}.tmp");
 
     // Read-only host root first, then the writable working directory over it, so
     // the workspace is the one writable place. --unshare-* and --cap-drop are
@@ -145,6 +251,4 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
         return start;
     }
-
-    private sealed record BoundedOutput(string Text, bool Truncated);
 }
