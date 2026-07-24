@@ -1,4 +1,3 @@
-using Grpc.Core;
 using Grpc.Net.Client;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
@@ -384,22 +383,26 @@ internal static class CommandDispatcher
             var remote = new GeneratedParrot.ParrotClient(channel);
 
             return basic || Console.IsOutputRedirected
-                ? await DriveBasic(
+                ? await BasicCli.Drive(
                     remote,
+                    BuildRegistry(model),
                     interrupts,
                     paths,
                     configuration,
+                    OAuthClient(),
                     model,
                     prompt,
                     Console.In,
                     output,
                     error,
                     cancellationToken).ConfigureAwait(false)
-                : await DriveEnhanced(
+                : await EnhancedCli.Drive(
                     remote,
+                    BuildRegistry(model),
                     interrupts,
                     paths,
                     configuration,
+                    OAuthClient(),
                     model,
                     prompt,
                     Console.In,
@@ -419,139 +422,31 @@ internal static class CommandDispatcher
 
         var client = ClientFor(composition.Service);
         return basic || Console.IsOutputRedirected
-            ? await DriveBasic(
+            ? await BasicCli.Drive(
                 client,
+                BuildRegistry(model),
                 interrupts,
                 paths,
                 configuration,
+                OAuthClient(),
                 model,
                 prompt,
                 Console.In,
                 output,
                 error,
                 cancellationToken).ConfigureAwait(false)
-            : await DriveEnhanced(
+            : await EnhancedCli.Drive(
                 client,
+                BuildRegistry(model),
                 interrupts,
                 paths,
                 configuration,
+                OAuthClient(),
                 model,
                 prompt,
                 Console.In,
                 output,
                 error,
                 cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<int> DriveBasic(
-        GeneratedParrot.ParrotClient client,
-        Interrupts interrupts,
-        StatePaths paths,
-        Configuration configuration,
-        string model,
-        string prompt,
-        TextReader input,
-        TextWriter output,
-        TextWriter error,
-        CancellationToken cancellationToken)
-    {
-        var text = prompt;
-
-        // Piped stdin is one answer, not a session. Scripts and CI depend on it.
-        if (text.Length == 0 && Console.IsInputRedirected)
-        {
-            text = (await input.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
-
-            if (text.Length == 0)
-            {
-                return ExitUsage;
-            }
-        }
-
-        using var credentials = new FileCredentialStore(paths.CredentialsFile);
-
-        UserSession session;
-
-        try
-        {
-            session = await client.CreateSessionAsync(
-                new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
-        }
-        catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
-        {
-            // A selection the registry cannot resolve is a usage error, not a crash.
-            await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return ExitFailure;
-        }
-
-        var context = new SlashContext(
-            client,
-            credentials,
-            OAuthClient(),
-            configuration,
-            ProviderRegistryBuilder.BuildableProviderIds(configuration),
-            session.Id,
-            input,
-            output,
-            error);
-
-        var cli = new BasicCli(client, BuildRegistry(model), interrupts);
-        return await cli.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<int> DriveEnhanced(
-        GeneratedParrot.ParrotClient client,
-        Interrupts interrupts,
-        StatePaths paths,
-        Configuration configuration,
-        string model,
-        string prompt,
-        TextReader input,
-        TextWriter output,
-        TextWriter error,
-        CancellationToken cancellationToken)
-    {
-        var text = prompt;
-
-        if (text.Length == 0 && Console.IsInputRedirected)
-        {
-            text = (await input.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
-
-            if (text.Length == 0)
-            {
-                return ExitUsage;
-            }
-        }
-
-        using var credentials = new FileCredentialStore(paths.CredentialsFile);
-
-        UserSession session;
-
-        try
-        {
-            session = await client.CreateSessionAsync(
-                new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
-        }
-        catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
-        {
-            await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return ExitFailure;
-        }
-
-        var context = new SlashContext(
-            client,
-            credentials,
-            OAuthClient(),
-            configuration,
-            ProviderRegistryBuilder.BuildableProviderIds(configuration),
-            session.Id,
-            input,
-            output,
-            error);
-
-        var cli = new EnhancedCli(client, BuildRegistry(model), interrupts);
-        return await cli.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
     }
 }
