@@ -99,13 +99,10 @@ internal partial class Composition
                     workingDirectory, sessionIndex, processes, systemContext, compactor, webFetcher);
             })
 
-            .Bind().As(Lifetime.Singleton).To<ProcessAgentConcurrency>()
-
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>
             {
                 ctx.Inject<IAgentSessionFactorySource>(out var agentSessionFactories);
-                ctx.Inject<ProcessAgentConcurrency>(out var agentConcurrency);
-                return new UserSessionFactory(agentSessionFactories, agentConcurrency);
+                return new UserSessionFactory(agentSessionFactories);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

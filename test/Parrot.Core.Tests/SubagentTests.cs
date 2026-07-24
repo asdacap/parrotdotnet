@@ -29,7 +29,7 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "child says hi", []));
         var sessions = new TestAgentSessions();
         await using var registry = new AgentRegistry(
-            sessions, new ProcessAgentConcurrency(), _broker, _repository, cancellationToken);
+            sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
         var spawn = new AgentSpawnTool(registry, parent);
         var wait = new WaitAgentTool(registry, parent);
@@ -66,57 +66,36 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
-    public async Task Registry_enforces_depth_per_parent_and_process_concurrency_limits(
+    public async Task Registry_enforces_depth_and_per_parent_concurrency_limits(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 1, "one", []),
             LLMEvent.Completed("stop", 1, 1, "two", []),
             LLMEvent.Completed("stop", 1, 1, "three", []),
-            LLMEvent.Completed("stop", 1, 1, "four", []),
-            LLMEvent.Completed("stop", 1, 1, "five", []),
-            LLMEvent.Completed("stop", 1, 1, "six", []),
-            LLMEvent.Completed("stop", 1, 1, "seven", []),
-            LLMEvent.Completed("stop", 1, 1, "eight", []));
-        var concurrency = new ProcessAgentConcurrency();
-        await using var firstRegistry = new AgentRegistry(
-            new TestAgentSessions(), concurrency, _broker, _repository, cancellationToken);
-        await using var secondRegistry = new AgentRegistry(
-            new TestAgentSessions(), concurrency, _broker, _repository, cancellationToken);
-        var firstParent = Session(provider, depth: 0, cancellationToken, "first-parent");
-        var secondParent = Session(provider, depth: 0, cancellationToken, "second-parent");
-        var firstSpawn = new AgentSpawnTool(firstRegistry, firstParent);
-        var secondSpawn = new AgentSpawnTool(secondRegistry, secondParent);
+            LLMEvent.Completed("stop", 1, 1, "four", []));
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(), _broker, _repository, cancellationToken);
+        var parent = Session(provider, depth: 0, cancellationToken, "parent");
+        var spawn = new AgentSpawnTool(registry, parent);
 
         for (var index = 0; index < 4; index++)
         {
-            var result = await firstSpawn.Execute($$"""{"prompt":"first {{index}}"}""", cancellationToken);
+            var result = await spawn.Execute($$"""{"prompt":"child {{index}}"}""", cancellationToken);
             _ = await Assert.That(result).Contains("\"status\":\"running\"");
             await provider.Arrived(cancellationToken);
         }
 
-        var tooManyForParent = await firstSpawn.Execute("""{"prompt":"fifth"}""", cancellationToken);
+        var tooManyForParent = await spawn.Execute("""{"prompt":"fifth"}""", cancellationToken);
         var tooDeep = await new AgentSpawnTool(
-            firstRegistry, Session(provider, depth: 4, cancellationToken, "deep-parent")).Execute(
+            registry, Session(provider, depth: 4, cancellationToken, "deep-parent")).Execute(
             """{"prompt":"too deep"}""", cancellationToken);
-
-        for (var index = 0; index < 4; index++)
-        {
-            var result = await secondSpawn.Execute($$"""{"prompt":"second {{index}}"}""", cancellationToken);
-            _ = await Assert.That(result).Contains("\"status\":\"running\"");
-            await provider.Arrived(cancellationToken);
-        }
-
-        var processLimit = await new AgentSpawnTool(
-            secondRegistry, Session(provider, depth: 0, cancellationToken, "third-parent")).Execute(
-            """{"prompt":"ninth"}""", cancellationToken);
 
         _ = await Assert.That(tooManyForParent)
             .IsEqualTo("error: subagent concurrency limit reached for this parent");
         _ = await Assert.That(tooDeep).IsEqualTo("error: subagent depth limit reached");
-        _ = await Assert.That(processLimit).IsEqualTo("error: subagent concurrency limit reached");
 
-        for (var index = 0; index < 8; index++)
+        for (var index = 0; index < 4; index++)
         {
             provider.Release();
         }
@@ -129,7 +108,6 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "unreachable", []));
         var registry = new AgentRegistry(
             new TestAgentSessions(),
-            new ProcessAgentConcurrency(),
             _broker,
             _repository,
             cancellationToken);

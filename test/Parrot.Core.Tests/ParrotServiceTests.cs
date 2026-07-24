@@ -106,5 +106,5 @@ internal sealed class ParrotServiceTests : IDisposable
             _root,
             Path.Combine(_root, "work"),
             "host",
-            new UserSessionFactory(new DirectAgentSessions(), new ProcessAgentConcurrency()));
+            new UserSessionFactory(new DirectAgentSessions()));
 }

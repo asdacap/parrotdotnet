@@ -4,8 +4,7 @@ using Parrot.Store;
 namespace Parrot.Agent;
 
 internal sealed class UserSessionFactory(
-    IAgentSessionFactorySource agentSessionFactories,
-    ProcessAgentConcurrency agentConcurrency) : IUserSessionFactory
+    IAgentSessionFactorySource agentSessionFactories) : IUserSessionFactory
 {
     public UserSession Create(
         string id,
@@ -19,6 +18,5 @@ internal sealed class UserSessionFactory(
             providerId,
             model,
             eventRepository,
-            agentSessionFactories,
-            agentConcurrency);
+            agentSessionFactories);
 }

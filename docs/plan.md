@@ -265,8 +265,8 @@ without canceling the child, and repeatably returns the retained terminal result
 The user session owns the registry, so children outlive the spawning tool call
 but are canceled and joined when that session shuts down. Child events continue
 to share the parent's broker and store, but completion does not implicitly steer
-the parent. Recursion, process-wide and per-parent concurrency, prompt, result,
-and retained-entry limits are enforced.
+the parent. Recursion and per-parent concurrency, prompt, result, and
+retained-entry limits are enforced.
 
 **Done (the message queue: admitted input, promotion, interrupt).** A prompt is
 admitted durably against an `input` table and promoted by the drain at the

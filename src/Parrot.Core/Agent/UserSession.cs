@@ -40,8 +40,7 @@ internal sealed class UserSession : IAsyncDisposable
         string providerId,
         string model,
         EventRepository eventRepository,
-        IAgentSessionFactorySource agentSessionFactories,
-        ProcessAgentConcurrency agentConcurrency)
+        IAgentSessionFactorySource agentSessionFactories)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
@@ -53,8 +52,7 @@ internal sealed class UserSession : IAsyncDisposable
         _provider = provider;
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this, provider);
-        Registry = new AgentRegistry(
-            _agentSessions, agentConcurrency, _eventBroker, _eventRepository, _lifetime.Token);
+        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, _lifetime.Token);
     }
 
     public string Id { get; }
