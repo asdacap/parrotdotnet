@@ -86,10 +86,123 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Send_steers_running_child_and_reuses_idle_session_for_follow_up(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 1, "steered", []),
+            LLMEvent.Completed("stop", 1, 1, "followed up", []));
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(), _broker, _repository, cancellationToken);
+        var parent = Session(provider, depth: 0, cancellationToken);
+        var spawned = registry.Spawn(parent, "initial", "worker");
+        var send = new AgentSendTool(registry, parent);
+
+        await provider.Arrived(cancellationToken);
+        var steeredJson = await send.Execute(
+            """{"session_id":"worker","message":"steer now"}""", cancellationToken);
+        using var steered = JsonDocument.Parse(steeredJson);
+        _ = await Assert.That(steered.RootElement.GetProperty("session_id").GetString())
+            .IsEqualTo(spawned.SessionId);
+        _ = await Assert.That(steered.RootElement.GetProperty("message_id").GetString())
+            .StartsWith("msg-");
+
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[1].Messages.Select(message => message.Content))
+            .Contains("steer now");
+        provider.Release();
+        var steeredResult = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        _ = await Assert.That(steeredResult.Output).IsEqualTo("steered");
+
+        var followedUpJson = await send.Execute(
+            $$"""{"session_id":"{{spawned.SessionId}}","message":"follow up"}""", cancellationToken);
+        using var followedUp = JsonDocument.Parse(followedUpJson);
+        _ = await Assert.That(followedUp.RootElement.GetProperty("session_id").GetString())
+            .IsEqualTo(spawned.SessionId);
+        _ = await Assert.That(followedUp.RootElement.GetProperty("status").GetString()).IsEqualTo("running");
+
+        await provider.Arrived(cancellationToken);
+        var conversation = string.Join('\n', provider.Requests[2].Messages.Select(message => message.Content));
+        _ = await Assert.That(
+            conversation.Contains("initial", StringComparison.Ordinal)
+            && conversation.Contains("first", StringComparison.Ordinal)
+            && conversation.Contains("steer now", StringComparison.Ordinal)
+            && conversation.Contains("steered", StringComparison.Ordinal)
+            && conversation.Contains("follow up", StringComparison.Ordinal)).IsTrue();
+        provider.Release();
+        var followedUpResult = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        _ = await Assert.That(followedUpResult.Output).IsEqualTo("followed up");
+    }
+
+    [Test]
+    public async Task Send_at_completion_boundary_is_delivered_once(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 1, "second", []));
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(), _broker, _repository, cancellationToken);
+        var parent = Session(provider, depth: 0, cancellationToken);
+        var spawned = registry.Spawn(parent, "initial", "worker");
+
+        await provider.Arrived(cancellationToken);
+        var sending = registry.Send(parent, spawned.SessionId, "boundary", cancellationToken);
+        provider.Release();
+        _ = await sending;
+        await provider.Arrived(cancellationToken);
+
+        var secondRequest = string.Join('\n', provider.Requests[1].Messages.Select(message => message.Content));
+        _ = await Assert.That(secondRequest.Split("boundary", StringSplitOptions.None).Length - 1).IsEqualTo(1);
+        provider.Release();
+        var completed = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        _ = await Assert.That(completed.Output).IsEqualTo("second");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Send_validates_arguments_size_and_descendant_visibility(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "done", []));
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(), _broker, _repository, cancellationToken);
+        var parent = Session(provider, depth: 0, cancellationToken, "parent");
+        var stranger = Session(provider, depth: 0, cancellationToken, "stranger");
+        var spawned = registry.Spawn(parent, "initial", "worker");
+        var send = new AgentSendTool(registry, parent);
+
+        var malformed = await send.Execute("{}", cancellationToken);
+        var blank = await send.Execute(
+            $$"""{"session_id":"{{spawned.SessionId}}","message":" "}""", cancellationToken);
+        var missing = await send.Execute(
+            """{"session_id":"missing","message":"hello"}""", cancellationToken);
+        var invisible = await new AgentSendTool(registry, stranger).Execute(
+            $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}""", cancellationToken);
+        var oversized = await registry.Send(
+            parent, spawned.SessionId, new string('x', (1024 * 1024) + 1), cancellationToken)
+            .ContinueWith(
+                completed => completed.Exception?.GetBaseException().Message ?? string.Empty,
+                cancellationToken,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+
+        _ = await Assert.That(malformed).StartsWith("error:");
+        _ = await Assert.That(blank).IsEqualTo("error: no message given");
+        _ = await Assert.That(missing).IsEqualTo("error: child agent not found: missing");
+        _ = await Assert.That(invisible).IsEqualTo($"error: child agent not found: {spawned.SessionId}");
+        _ = await Assert.That(oversized).IsEqualTo("agent message exceeds 1048576 bytes");
+        provider.Release();
+    }
+
+    [Test]
     public async Task Registry_enforces_depth_and_per_parent_concurrency_limits(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 1, "idle", []),
             LLMEvent.Completed("stop", 1, 1, "one", []),
             LLMEvent.Completed("stop", 1, 1, "two", []),
             LLMEvent.Completed("stop", 1, 1, "three", []),
@@ -98,6 +211,10 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken, "parent");
         var spawn = new AgentSpawnTool(registry, parent);
+        var idle = registry.Spawn(parent, "become idle", "idle");
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        _ = await registry.Wait(parent, idle.SessionId, 0, cancellationToken);
 
         for (var index = 0; index < 4; index++)
         {
@@ -107,11 +224,15 @@ internal sealed class SubagentTests : IDisposable
         }
 
         var tooManyForParent = await spawn.Execute("""{"prompt":"fifth"}""", cancellationToken);
+        var followUpAtLimit = await new AgentSendTool(registry, parent).Execute(
+            """{"session_id":"idle","message":"restart"}""", cancellationToken);
         var tooDeep = await new AgentSpawnTool(
             registry, Session(provider, depth: 4, cancellationToken, "deep-parent")).Execute(
             """{"prompt":"too deep"}""", cancellationToken);
 
         _ = await Assert.That(tooManyForParent)
+            .IsEqualTo("error: subagent concurrency limit reached for this parent");
+        _ = await Assert.That(followUpAtLimit)
             .IsEqualTo("error: subagent concurrency limit reached for this parent");
         _ = await Assert.That(tooDeep).IsEqualTo("error: subagent depth limit reached");
 
@@ -122,17 +243,23 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
-    public async Task Disposing_the_registry_cancels_and_joins_running_children(
+    public async Task Disposing_the_registry_cancels_and_joins_an_active_follow_up(
         CancellationToken cancellationToken)
     {
-        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "unreachable", []));
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 1, "unreachable", []));
         var registry = new AgentRegistry(
             new TestAgentSessions(),
             _broker,
             _repository,
             cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
-        var spawned = registry.Spawn(parent, "wait forever", "worker");
+        var spawned = registry.Spawn(parent, "first", "worker");
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        _ = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
+        _ = await registry.Send(parent, spawned.SessionId, "wait forever", cancellationToken);
         await provider.Arrived(cancellationToken);
 
         await registry.DisposeAsync();
@@ -147,6 +274,9 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.Name).IsEqualTo("worker");
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
         _ = await Assert.That(() => registry.Spawn(parent, "again", "worker"))
+            .Throws<AgentRegistryException>();
+        _ = await Assert.That(async () =>
+            await registry.Send(parent, spawned.SessionId, "again", cancellationToken))
             .Throws<AgentRegistryException>();
     }
 

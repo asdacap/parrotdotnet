@@ -278,6 +278,22 @@ internal sealed class AgentSession(
         return await Pass(turnOpen: true, selection, cancellationToken).ConfigureAwait(false);
     }
 
+    internal async Task<string> Steer(string message, CancellationToken cancellationToken)
+    {
+        var messageId = Identifier.MessageId();
+        var admission = eventRepository.Admit(SessionId, messageId, message, Delivery.Steer, Announce);
+
+        if (admission.Published is not null)
+        {
+            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+        }
+
+        return messageId;
+    }
+
+    internal Task<AgentExecution> Resume(CancellationToken cancellationToken) =>
+        Pass(turnOpen: false, cancellationToken);
+
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
     // principle 2: one owner, however many prompts arrive.

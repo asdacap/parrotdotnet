@@ -89,7 +89,7 @@ internal sealed class AgentRegistry(
             _entries.Add(sessionId, entry);
             _names.Add(name, sessionId);
             _activeByParent[parent.SessionId] = parentActive + 1;
-            entry.Start(Execute(entry, child, prompt));
+            entry.Start(Execute(entry, child, prompt, followUp: false));
 
             return entry.Result(
                 AgentTaskStatus.Running,
@@ -97,6 +97,74 @@ internal sealed class AgentRegistry(
                 elapsedMilliseconds: 0,
                 string.Empty,
                 string.Empty);
+        }
+    }
+
+    public async Task<AgentSendResult> Send(
+        AgentSession requester,
+        string sessionIdOrName,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requester);
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            throw new AgentRegistryException("no message given");
+        }
+
+        if (Encoding.UTF8.GetByteCount(message) > MaxPromptBytes)
+        {
+            throw new AgentRegistryException("agent message exceeds 1048576 bytes");
+        }
+
+        AgentEntry entry;
+
+        lock (_gate)
+        {
+            entry = Resolve(requester, sessionIdOrName);
+        }
+
+        await entry.Operation.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            Task<string> steering;
+
+            lock (_gate)
+            {
+                if (!_accepting)
+                {
+                    throw new AgentRegistryException("the user session is shutting down");
+                }
+
+                if (!entry.Running)
+                {
+                    _ = _activeByParent.TryGetValue(entry.ParentSessionId, out var parentActive);
+
+                    if (parentActive >= MaxConcurrentPerParent)
+                    {
+                        throw new AgentRegistryException("subagent concurrency limit reached for this parent");
+                    }
+
+                    _activeByParent[entry.ParentSessionId] = parentActive + 1;
+                    entry.Start(Execute(entry, entry.Child, message, followUp: true));
+
+                    return new AgentSendResult(entry.SessionId, entry.Name, string.Empty, FollowUp: true);
+                }
+
+                // Steer performs its durable admission synchronously before its
+                // first await. Starting it under the registry gate linearizes
+                // accepted sends before shutdown closes admission.
+                steering = entry.Child.Steer(message, cancellationToken);
+            }
+
+            var messageId = await steering.ConfigureAwait(false);
+            return new AgentSendResult(entry.SessionId, entry.Name, messageId, FollowUp: false);
+        }
+        finally
+        {
+            _ = entry.Operation.Release();
         }
     }
 
@@ -109,17 +177,19 @@ internal sealed class AgentRegistry(
         ArgumentNullException.ThrowIfNull(requester);
 
         AgentEntry entry;
+        Task<AgentExecution> completion;
 
         lock (_gate)
         {
             entry = Resolve(requester, sessionIdOrName);
+            completion = entry.Completion;
         }
 
         var started = Stopwatch.GetTimestamp();
 
         if (yieldAfterMilliseconds == 0)
         {
-            var completed = await entry.Completion.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var completed = await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
             return Terminal(entry, completed, Elapsed(started));
         }
 
@@ -128,7 +198,7 @@ internal sealed class AgentRegistry(
 
         try
         {
-            var completed = await entry.Completion.WaitAsync(wait.Token).ConfigureAwait(false);
+            var completed = await completion.WaitAsync(wait.Token).ConfigureAwait(false);
             return Terminal(entry, completed, Elapsed(started));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -199,6 +269,13 @@ internal sealed class AgentRegistry(
                 completed.Error),
         };
 
+    private static AgentExecution Bounded(AgentExecution execution) =>
+        execution with
+        {
+            Output = Bounded(execution.Output),
+            Error = Bounded(execution.Error),
+        };
+
     private static string Bounded(string value)
     {
         if (Encoding.UTF8.GetByteCount(value) <= MaxResultBytes)
@@ -262,7 +339,7 @@ internal sealed class AgentRegistry(
         _lifetime.Dispose();
     }
 
-    private async Task Execute(AgentEntry entry, AgentSession child, string prompt)
+    private async Task Execute(AgentEntry entry, AgentSession child, string prompt, bool followUp)
     {
         await Task.Yield();
 
@@ -276,24 +353,26 @@ internal sealed class AgentRegistry(
                 new AgentStarted { ParentAgentSessionId = entry.ParentSessionId, Name = entry.Name })
                 .ConfigureAwait(false);
             started = true;
-            completed = await child.Run(prompt, _lifetime.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            completed = AgentExecution.Canceled();
+            completed = await ExecuteTurn(child, prompt, followUp).ConfigureAwait(false);
+
+            while (true)
+            {
+                await entry.Operation.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+
+                if (eventRepository.HasPendingInputs(child.SessionId) && !_lifetime.IsCancellationRequested)
+                {
+                    _ = entry.Operation.Release();
+                    completed = await ExecuteTurn(child, string.Empty, followUp: true).ConfigureAwait(false);
+                    continue;
+                }
+
+                break;
+            }
         }
         catch (Exception failure)
         {
-            // An agent execution is a containment boundary: its failure is
-            // retained for wait_agent rather than escaping as an unobserved task.
-            completed = AgentExecution.Failed(failure.Message);
+            completed = AgentExecution.Failed(Bounded(failure.Message));
         }
-
-        completed = completed with
-        {
-            Output = Bounded(completed.Output),
-            Error = Bounded(completed.Error),
-        };
 
         try
         {
@@ -321,6 +400,39 @@ internal sealed class AgentRegistry(
             }
 
             entry.Complete(completed);
+        }
+
+        if (entry.Operation.CurrentCount == 0)
+        {
+            _ = entry.Operation.Release();
+        }
+    }
+
+    private async Task<AgentExecution> ExecuteTurn(AgentSession child, string prompt, bool followUp)
+    {
+        try
+        {
+            if (!followUp)
+            {
+                return Bounded(await child.Run(prompt, _lifetime.Token).ConfigureAwait(false));
+            }
+
+            if (prompt.Length > 0)
+            {
+                _ = await child.Steer(prompt, _lifetime.Token).ConfigureAwait(false);
+            }
+
+            return Bounded(await child.Resume(_lifetime.Token).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException)
+        {
+            return AgentExecution.Canceled();
+        }
+        catch (Exception failure)
+        {
+            // An agent execution is a containment boundary: its failure is
+            // retained for wait_agent rather than escaping as an unobserved task.
+            return AgentExecution.Failed(Bounded(failure.Message));
         }
     }
 
@@ -423,8 +535,9 @@ internal sealed class AgentRegistry(
 
     private sealed class AgentEntry(AgentSession child, string parentSessionId, string name)
     {
-        private readonly TaskCompletionSource<AgentExecution> _completion =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource<AgentExecution> _completion = CompletionSource();
+
+        public AgentSession Child { get; } = child;
 
         public string SessionId { get; } = child.SessionId;
 
@@ -436,13 +549,23 @@ internal sealed class AgentRegistry(
 
         public Task<AgentExecution> Completion => _completion.Task;
 
+        public SemaphoreSlim Operation { get; } = new(1, 1);
+
+        public bool Running { get; private set; }
+
         public Task Execution { get; private set; } = Task.CompletedTask;
 
-        public void Start(Task execution) => Execution = execution;
+        public void Start(Task execution)
+        {
+            _completion = CompletionSource();
+            Running = true;
+            Execution = execution;
+        }
 
         public void Complete(AgentExecution result)
         {
             _completion.SetResult(result);
+            Running = false;
             Execution = Task.CompletedTask;
         }
 
@@ -453,5 +576,8 @@ internal sealed class AgentRegistry(
             string output,
             string error) =>
             new(SessionId, Name, Depth, status, yielded, elapsedMilliseconds, output, error);
+
+        private static TaskCompletionSource<AgentExecution> CompletionSource() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }
