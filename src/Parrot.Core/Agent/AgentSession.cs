@@ -60,8 +60,9 @@ internal sealed class AgentSession(
 
     private AgentSelection _selection = new(provider, string.Empty, mode);
     private string _epochContext = string.Empty;
-    private Task _drain = Task.CompletedTask;
+    private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
+    private bool _directRunning;
     private bool _wake;
 
     // Set while an interrupt is unwinding a drain. It says who disposes the
@@ -208,16 +209,27 @@ internal sealed class AgentSession(
     // Run to bound the drain by, so this is how an owner keeps its own Run from
     // returning while a turn is still writing to a database it is about to
     // close.
-    public async Task Settled()
+    public async Task Settled() =>
+        _ = await ResultSettled().ConfigureAwait(false);
+
+    internal async Task<Admission> Send(
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
     {
-        Task draining;
+        var admission = await Admit(text, messageId, delivery, cancellationToken).ConfigureAwait(false);
+        Wake();
+        return admission;
+    }
+
+    internal async Task<AgentExecution> ResultSettled()
+    {
+        Task<AgentExecution> draining;
 
         lock (_drainGate)
         {
             draining = _drain;
         }
 
-        await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        return await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
     internal Event Translate(LLMEvent llmEvent)
@@ -260,39 +272,46 @@ internal sealed class AgentSession(
     // drain. The registry owns this call and retains its terminal result.
     internal async Task<AgentExecution> Run(string prompt, CancellationToken cancellationToken)
     {
-        if (status is not null)
+        DirectStarted();
+
+        try
         {
-            throw new InvalidOperationException("a foreground session must run through its input drain");
+            if (status is not null)
+            {
+                throw new InvalidOperationException("a foreground session must run through its input drain");
+            }
+
+            var selection = Selection();
+            selection.Mode?.Prepare();
+            var started = NewEvent();
+            started.TurnStarted = new TurnStarted { Model = selection.Model };
+
+            // The prompt is durable before execution is requested (principle 1).
+            await EmitEvent(started, "user", prompt, cancellationToken).ConfigureAwait(false);
+
+            _history.Add(LLMMessage.User(prompt));
+
+            return await Pass(turnOpen: true, selection, cancellationToken).ConfigureAwait(false);
         }
-
-        var selection = Selection();
-        selection.Mode?.Prepare();
-        var started = NewEvent();
-        started.TurnStarted = new TurnStarted { Model = selection.Model };
-
-        // The prompt is durable before execution is requested (principle 1).
-        await EmitEvent(started, "user", prompt, cancellationToken).ConfigureAwait(false);
-
-        _history.Add(LLMMessage.User(prompt));
-
-        return await Pass(turnOpen: true, selection, cancellationToken).ConfigureAwait(false);
+        finally
+        {
+            DirectFinished();
+        }
     }
 
-    internal async Task<string> Steer(string message, CancellationToken cancellationToken)
+    internal async Task<AgentExecution> Resume(CancellationToken cancellationToken)
     {
-        var messageId = Identifier.MessageId();
-        var admission = eventRepository.Admit(SessionId, messageId, message, Delivery.Steer, Announce);
+        DirectStarted();
 
-        if (admission.Published is not null)
+        try
         {
-            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+            return await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
         }
-
-        return messageId;
+        finally
+        {
+            DirectFinished();
+        }
     }
-
-    internal Task<AgentExecution> Resume(CancellationToken cancellationToken) =>
-        Pass(turnOpen: false, cancellationToken);
 
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
@@ -301,6 +320,11 @@ internal sealed class AgentSession(
     {
         lock (_drainGate)
         {
+            if (_directRunning)
+            {
+                return;
+            }
+
             if (_drainCancellation is not null)
             {
                 _wake = true;
@@ -316,7 +340,7 @@ internal sealed class AgentSession(
         }
     }
 
-    private async Task Drain(CancellationToken cancellationToken)
+    private async Task<AgentExecution> Drain(CancellationToken cancellationToken)
     {
         // The drain belongs to the session, not to whoever admitted the prompt:
         // yielding here returns Wake to its caller instead of running the first
@@ -325,7 +349,7 @@ internal sealed class AgentSession(
 
         while (true)
         {
-            _ = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
+            var completed = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
 
             lock (_drainGate)
             {
@@ -347,8 +371,24 @@ internal sealed class AgentSession(
 
                 _drainCancellation = null;
                 State = DrainState.Idle;
-                return;
+                return completed;
             }
+        }
+    }
+
+    private void DirectStarted()
+    {
+        lock (_drainGate)
+        {
+            _directRunning = true;
+        }
+    }
+
+    private void DirectFinished()
+    {
+        lock (_drainGate)
+        {
+            _directRunning = false;
         }
     }
 

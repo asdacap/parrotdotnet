@@ -157,7 +157,7 @@ internal sealed class UserSession : IAsyncDisposable
     // as the prompt is durable, whether or not a turn was already in flight.
     public Task<Admission> Send(
         string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
-        Main().Admit(prompt, messageId, delivery, cancellationToken);
+        Main().Send(prompt, messageId, delivery, cancellationToken);
 
     // Stops the main turn in flight. Registry-owned children outlive the tool
     // call that spawned them and are stopped separately at user-session shutdown.

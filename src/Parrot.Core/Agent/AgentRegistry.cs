@@ -100,24 +100,10 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public async Task<AgentSendResult> Send(
-        AgentSession requester,
-        string sessionIdOrName,
-        string message,
-        CancellationToken cancellationToken)
+    public async Task<AgentHandle> Get(
+        AgentSession requester, string sessionIdOrName, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(requester);
-
-        if (string.IsNullOrWhiteSpace(message))
-        {
-            throw new AgentRegistryException("no message given");
-        }
-
-        if (Encoding.UTF8.GetByteCount(message) > MaxPromptBytes)
-        {
-            throw new AgentRegistryException("agent message exceeds 1048576 bytes");
-        }
-
         AgentEntry entry;
 
         lock (_gate)
@@ -127,44 +113,44 @@ internal sealed class AgentRegistry(
 
         await entry.Operation.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        try
+        lock (_gate)
         {
-            Task<string> steering;
-
-            lock (_gate)
+            if (!_accepting)
             {
-                if (!_accepting)
-                {
-                    throw new AgentRegistryException("the user session is shutting down");
-                }
-
-                if (!entry.Running)
-                {
-                    _ = _activeByParent.TryGetValue(entry.ParentSessionId, out var parentActive);
-
-                    if (parentActive >= MaxConcurrentPerParent)
-                    {
-                        throw new AgentRegistryException("subagent concurrency limit reached for this parent");
-                    }
-
-                    _activeByParent[entry.ParentSessionId] = parentActive + 1;
-                    entry.Start(Execute(entry, entry.Child, message, followUp: true));
-
-                    return new AgentSendResult(entry.SessionId, entry.Name, string.Empty, FollowUp: true);
-                }
-
-                // Steer performs its durable admission synchronously before its
-                // first await. Starting it under the registry gate linearizes
-                // accepted sends before shutdown closes admission.
-                steering = entry.Child.Steer(message, cancellationToken);
+                _ = entry.Operation.Release();
+                throw new AgentRegistryException("the user session is shutting down");
             }
 
-            var messageId = await steering.ConfigureAwait(false);
-            return new AgentSendResult(entry.SessionId, entry.Name, messageId, FollowUp: false);
+            return new AgentHandle(entry.Child, entry.Running, entry.Operation);
         }
-        finally
+    }
+
+    public void FollowUp(AgentHandle child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+
+        lock (_gate)
         {
-            _ = entry.Operation.Release();
+            if (!_accepting)
+            {
+                throw new AgentRegistryException("the user session is shutting down");
+            }
+
+            if (!_entries.TryGetValue(child.Session.SessionId, out var entry)
+                || !ReferenceEquals(entry.Child, child.Session))
+            {
+                throw new AgentRegistryException($"child agent not found: {child.Session.SessionId}");
+            }
+
+            _ = _activeByParent.TryGetValue(entry.ParentSessionId, out var parentActive);
+
+            if (parentActive >= MaxConcurrentPerParent)
+            {
+                throw new AgentRegistryException("subagent concurrency limit reached for this parent");
+            }
+
+            _activeByParent[entry.ParentSessionId] = parentActive + 1;
+            entry.Start(Execute(entry, entry.Child, string.Empty, followUp: true));
         }
     }
 
@@ -417,12 +403,7 @@ internal sealed class AgentRegistry(
                 return Bounded(await child.Run(prompt, _lifetime.Token).ConfigureAwait(false));
             }
 
-            if (prompt.Length > 0)
-            {
-                _ = await child.Steer(prompt, _lifetime.Token).ConfigureAwait(false);
-            }
-
-            return Bounded(await child.Resume(_lifetime.Token).ConfigureAwait(false));
+            return Bounded(await child.ResultSettled().ConfigureAwait(false));
         }
         catch (OperationCanceledException)
         {
@@ -531,6 +512,15 @@ internal sealed class AgentRegistry(
         }
 
         return candidate;
+    }
+
+    internal sealed class AgentHandle(AgentSession session, bool running, SemaphoreSlim operation) : IDisposable
+    {
+        public AgentSession Session { get; } = session;
+
+        public bool Running { get; } = running;
+
+        public void Dispose() => operation.Release();
     }
 
     private sealed class AgentEntry(AgentSession child, string parentSessionId, string name)

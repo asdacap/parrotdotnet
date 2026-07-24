@@ -149,7 +149,8 @@ internal sealed class SubagentTests : IDisposable
         var spawned = registry.Spawn(parent, "initial", "worker");
 
         await provider.Arrived(cancellationToken);
-        var sending = registry.Send(parent, spawned.SessionId, "boundary", cancellationToken);
+        var sending = new AgentSendTool(registry, parent).Execute(
+            $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}""", cancellationToken);
         provider.Release();
         _ = await sending;
         await provider.Arrived(cancellationToken);
@@ -181,19 +182,15 @@ internal sealed class SubagentTests : IDisposable
             """{"session_id":"missing","message":"hello"}""", cancellationToken);
         var invisible = await new AgentSendTool(registry, stranger).Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}""", cancellationToken);
-        var oversized = await registry.Send(
-            parent, spawned.SessionId, new string('x', (1024 * 1024) + 1), cancellationToken)
-            .ContinueWith(
-                completed => completed.Exception?.GetBaseException().Message ?? string.Empty,
-                cancellationToken,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+        var oversized = await send.Execute(
+            $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (1024 * 1024) + 1)}}"}""",
+            cancellationToken);
 
         _ = await Assert.That(malformed).StartsWith("error:");
         _ = await Assert.That(blank).IsEqualTo("error: no message given");
         _ = await Assert.That(missing).IsEqualTo("error: child agent not found: missing");
         _ = await Assert.That(invisible).IsEqualTo($"error: child agent not found: {spawned.SessionId}");
-        _ = await Assert.That(oversized).IsEqualTo("agent message exceeds 1048576 bytes");
+        _ = await Assert.That(oversized).IsEqualTo("error: agent message exceeds 1048576 bytes");
         provider.Release();
     }
 
@@ -259,7 +256,9 @@ internal sealed class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await registry.Wait(parent, spawned.SessionId, 0, cancellationToken);
-        _ = await registry.Send(parent, spawned.SessionId, "wait forever", cancellationToken);
+        var send = new AgentSendTool(registry, parent);
+        _ = await send.Execute(
+            $$"""{"session_id":"{{spawned.SessionId}}","message":"wait forever"}""", cancellationToken);
         await provider.Arrived(cancellationToken);
 
         await registry.DisposeAsync();
@@ -275,9 +274,9 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
         _ = await Assert.That(() => registry.Spawn(parent, "again", "worker"))
             .Throws<AgentRegistryException>();
-        _ = await Assert.That(async () =>
-            await registry.Send(parent, spawned.SessionId, "again", cancellationToken))
-            .Throws<AgentRegistryException>();
+        var rejected = await send.Execute(
+            $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}""", cancellationToken);
+        _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");
     }
 
     private AgentSession Session(
