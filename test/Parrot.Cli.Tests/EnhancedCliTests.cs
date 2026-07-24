@@ -95,8 +95,7 @@ internal sealed class EnhancedCliTests
 
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var completed = await new EnhancedCli(() => 8)
-            .RenderTurn(stream.Reader, output, error, cancellationToken);
+        var completed = await EnhancedCli.RenderTurn(stream.Reader, output, error, static () => 8, cancellationToken);
         return (completed, output.ToString(), error.ToString());
     }
 

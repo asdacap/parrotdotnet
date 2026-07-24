@@ -321,8 +321,8 @@ last row. Layout resamples terminal width, counts Unicode display cells, expands
 tabs, and strips untrusted terminal controls. It uses no alternate screen.
 
 `EnhancedCli` is the default in a terminal; `--basic`, or redirected output,
-selects `BasicCli`. The two share no rendering -- only the `ITurnRenderer` seam
-and the generated client -- so BasicCli stays a pure test of the event contract.
+selects `BasicCli`. The two are complete, separate session drivers and share
+only the generated client, so BasicCli stays a pure test of the event contract.
 Verified live through a PTY: the same turn renders coloured under the default
 and plain under `--basic`. The full raw-mode editor, picker, markdown layer, and
 multi-row activity frame remain richer M7 work; the line-buffered client does

@@ -383,18 +383,29 @@ internal static class CommandDispatcher
             using var channel = GrpcChannel.ForAddress(RemoteAddress(connect));
             var remote = new GeneratedParrot.ParrotClient(channel);
 
-            return await Drive(
-                remote,
-                Renderer(basic),
-                interrupts,
-                paths,
-                configuration,
-                model,
-                prompt,
-                Console.In,
-                output,
-                error,
-                cancellationToken).ConfigureAwait(false);
+            return basic || Console.IsOutputRedirected
+                ? await DriveBasic(
+                    remote,
+                    interrupts,
+                    paths,
+                    configuration,
+                    model,
+                    prompt,
+                    Console.In,
+                    output,
+                    error,
+                    cancellationToken).ConfigureAwait(false)
+                : await DriveEnhanced(
+                    remote,
+                    interrupts,
+                    paths,
+                    configuration,
+                    model,
+                    prompt,
+                    Console.In,
+                    output,
+                    error,
+                    cancellationToken).ConfigureAwait(false);
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
@@ -406,30 +417,34 @@ internal static class CommandDispatcher
             return ExitFailure;
         }
 
-        return await Drive(
-            ClientFor(composition.Service),
-            Renderer(basic),
-            interrupts,
-            paths,
-            configuration,
-            model,
-            prompt,
-            Console.In,
-            output,
-            error,
-            cancellationToken).ConfigureAwait(false);
+        var client = ClientFor(composition.Service);
+        return basic || Console.IsOutputRedirected
+            ? await DriveBasic(
+                client,
+                interrupts,
+                paths,
+                configuration,
+                model,
+                prompt,
+                Console.In,
+                output,
+                error,
+                cancellationToken).ConfigureAwait(false)
+            : await DriveEnhanced(
+                client,
+                interrupts,
+                paths,
+                configuration,
+                model,
+                prompt,
+                Console.In,
+                output,
+                error,
+                cancellationToken).ConfigureAwait(false);
     }
 
-    // EnhancedCli by default in a terminal; BasicCli when asked, or when output
-    // is redirected and ANSI would only add noise. They share no rendering.
-    private static ITurnRenderer Renderer(bool basic) =>
-        basic || Console.IsOutputRedirected ? new BasicCli() : new EnhancedCli();
-
-    // Builds the session and hands it to the driver. Local and remote take the
-    // same path from here: the driver does not know which client it holds.
-    private static async Task<int> Drive(
+    private static async Task<int> DriveBasic(
         GeneratedParrot.ParrotClient client,
-        ITurnRenderer renderer,
         Interrupts interrupts,
         StatePaths paths,
         Configuration configuration,
@@ -481,8 +496,62 @@ internal static class CommandDispatcher
             output,
             error);
 
-        var driver = new CliDriver(client, renderer, BuildRegistry(model), interrupts);
+        var cli = new BasicCli(client, BuildRegistry(model), interrupts);
+        return await cli.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
+    }
 
-        return await driver.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
+    private static async Task<int> DriveEnhanced(
+        GeneratedParrot.ParrotClient client,
+        Interrupts interrupts,
+        StatePaths paths,
+        Configuration configuration,
+        string model,
+        string prompt,
+        TextReader input,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
+        var text = prompt;
+
+        if (text.Length == 0 && Console.IsInputRedirected)
+        {
+            text = (await input.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+
+            if (text.Length == 0)
+            {
+                return ExitUsage;
+            }
+        }
+
+        using var credentials = new FileCredentialStore(paths.CredentialsFile);
+
+        UserSession session;
+
+        try
+        {
+            session = await client.CreateSessionAsync(
+                new CreateSessionRequest { Model = model }, cancellationToken: cancellationToken);
+        }
+        catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
+        {
+            await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return ExitFailure;
+        }
+
+        var context = new SlashContext(
+            client,
+            credentials,
+            OAuthClient(),
+            configuration,
+            ProviderRegistryBuilder.BuildableProviderIds(configuration),
+            session.Id,
+            input,
+            output,
+            error);
+
+        var cli = new EnhancedCli(client, BuildRegistry(model), interrupts);
+        return await cli.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
     }
 }
