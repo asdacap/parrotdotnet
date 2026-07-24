@@ -64,7 +64,7 @@ nix develop
 dotnet build Parrot.slnx -c Release
 dotnet test Parrot.slnx -c Release
 dotnet format Parrot.slnx --verify-no-changes
-dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release
+dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
 nix flake check    # nix formatting only; see the comment in flake.nix
 ```
 

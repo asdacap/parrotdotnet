@@ -29,6 +29,24 @@
             zlib
           ]
           ++ lib.optionals stdenv.isLinux [stdenv.cc.libc];
+
+        # The shipped binary is statically linked against musl, so it depends on
+        # no interpreter and no shared library at all.
+        muslToolchain = pkgs.pkgsCross.musl64.stdenv.cc;
+
+        # ILCompiler treats a musl RID on a glibc host as a cross build and
+        # passes clang's --target=. The nix musl wrapper is gcc, already targets
+        # musl, and rejects the flag. Drop it and forward the rest.
+        muslLinker = pkgs.writeShellScriptBin "musl-clang" ''
+          args=()
+          for a in "$@"; do
+            case "$a" in
+              --target=*) ;;
+              *) args+=("$a") ;;
+            esac
+          done
+          exec ${muslToolchain}/bin/x86_64-unknown-linux-musl-gcc "''${args[@]}"
+        '';
       in {
         default = pkgs.mkShell {
           packages = with pkgs;
@@ -39,7 +57,8 @@
               alejandra
               nil
             ]
-            ++ aotToolchain;
+            ++ aotToolchain
+            ++ lib.optionals (system == "x86_64-linux") [muslToolchain muslLinker];
 
           env = {
             DOTNET_ROOT = "${sdk}/share/dotnet";

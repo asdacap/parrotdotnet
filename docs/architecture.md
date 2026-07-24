@@ -73,7 +73,8 @@ which is principle 11 — the local CLI and a remote client use one contract.
 ### What gRPC costs
 
 Measured on this toolchain, not estimated — a minimal ASP.NET Core + gRPC
-service, published Native AOT for linux-x64:
+service published Native AOT, against the current `parrot`, both glibc-dynamic
+linux-x64 and both reported by `du`:
 
 ```text
                         with symbols   stripped
@@ -85,6 +86,13 @@ That is roughly a 4x floor before any Parrot code exists, and it is the one
 place this design fights the premise of a small single binary. It also collides
 with keeping symbols, which the build does deliberately to match the Go build's
 `dontStrip` — 32 MB is a large download to hand someone.
+
+Caveat on those numbers: they predate the move to static musl and were taken
+glibc-dynamic. Static linking adds libc to every binary, so both sides grow —
+`parrot` itself went from 4.4 MB to 5.8 MB apparent size. The gRPC side has not
+been re-measured under static musl, and ASP.NET Core static-linking is not a
+configuration Microsoft tests, so it may not link at all. Re-measure before
+treating the ratio above as settled.
 
 Worth knowing before committing: the cost is Kestrel and the ASP.NET Core
 hosting stack, not the protobuf codec. A hand-rolled framed protocol over a unix

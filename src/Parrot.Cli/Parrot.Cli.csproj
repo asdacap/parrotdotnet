@@ -18,6 +18,14 @@
     <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
   </PropertyGroup>
 
+  <!-- The shipped binary is statically linked against musl: no interpreter, no
+       shared library, nothing to install. `musl-clang` comes from the dev
+       shell; see the comment on it in flake.nix for why it exists. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'linux-musl-x64'">
+    <StaticExecutable>true</StaticExecutable>
+    <CppCompilerAndLinker>musl-clang</CppCompilerAndLinker>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="../Parrot.Core/Parrot.Core.csproj" />
   </ItemGroup>

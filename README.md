@@ -61,17 +61,38 @@ nix develop
 
 dotnet build Parrot.slnx -c Release
 dotnet test Parrot.slnx -c Release
-dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release
+dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
 
-./artifacts/publish/Parrot.Cli/release/parrot version
+./artifacts/publish/Parrot.Cli/release_linux-musl-x64/parrot version
 ```
 
-The dev shell supplies .NET SDK 10, clang, lld and zlib. Native AOT shells out
-to a C toolchain and a linker, which on NixOS are not on a fixed path, so
-publishing outside the shell fails at the link step.
+The dev shell supplies .NET SDK 10, clang, lld, zlib, and a musl cross
+toolchain. Native AOT shells out to a C toolchain and a linker, which on NixOS
+are not on a fixed path, so publishing outside the shell fails at the link step.
 
-The published binary is around 2.3 MB and keeps its symbols, matching the Go
-build's `dontStrip`, so a core dump from a release binary is still usable.
+## Static musl
+
+The shipped binary is linked statically against musl. It has no interpreter and
+no `NEEDED` entry — nothing to install, and it runs on any Linux regardless of
+which libc is present, which is the property the Go original got from
+`CGO_ENABLED=0`.
+
+```console
+$ ldd parrot
+        statically linked
+```
+
+It costs about 1.4 MB over a glibc-dynamic build (5.8 MB against 4.4 MB), and
+both keep their symbols, matching the Go build's `dontStrip` so a core dump from
+a release binary is still usable.
+
+One wrinkle is wired into the flake rather than left as folklore. ILCompiler
+treats a musl RID on a glibc host as a cross build and passes clang's
+`--target=`; the nixpkgs musl toolchain is gcc, already targets musl, and
+rejects that flag. The shell therefore provides `musl-clang`, a shim that drops
+`--target=` and forwards the rest. `Parrot.Cli.csproj` selects it automatically
+whenever the RID is `linux-musl-x64`, so there are no flags to remember beyond
+`-r`.
 
 ## Gates
 
@@ -81,7 +102,7 @@ A change is ready when all of these pass:
 dotnet build Parrot.slnx -c Release          # warnings are errors
 dotnet test Parrot.slnx -c Release
 dotnet format Parrot.slnx --verify-no-changes
-dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release
+dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
 nix flake check
 ```
 

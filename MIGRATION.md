@@ -93,8 +93,10 @@ The product is a single self-contained binary. Therefore:
 - A new NuGet dependency must be AOT-compatible and must be justified in the
   pull request. Prefer the framework, then a source-generated library, then
   nothing. The Go original depends on ten packages; beating that is the target.
-- `dotnet publish -c Release` must succeed with zero warnings before a
-  component is called done.
+- `dotnet publish -c Release -r linux-musl-x64` must succeed with zero
+  warnings before a component is called done. The shipped binary is statically
+  linked against musl, so a dependency that needs a shared library at runtime
+  does not qualify as AOT-compatible here even if it compiles.
 
 ## 3. Concurrency
 
