@@ -259,17 +259,14 @@ spawned it, and `Await` returns its result.
 **Retires.** The `AgentSession`/`AgentRegistry` mutual dependency, which is
 inherent but only proven workable once both are real.
 
-**Done (synchronous subagents).** `agent_spawn` delegates a subtask to a child
-`AgentSession` that shares the parent's broker and store -- so the child's
-events stream on the same session stream -- runs to completion, and returns its
-final text as the tool result. Recursion is bounded by a depth limit. Verified
-live: the parent spawned a child that replied BANANA and reported it back.
-
-**Divergence:** the child is spawned-and-awaited within the tool call, not run
-as a background task the parent `Await`s later. That is the simpler subagent
-shape and matches how a delegated-subtask tool usually works; the async
-background-session model is deferred with it. Recorded here rather than
-pretended complete.
+**Done (asynchronous child lifecycle).** `agent_spawn` admits a background child
+session and returns its id immediately; `wait_agent` waits separately, may yield
+without canceling the child, and repeatably returns the retained terminal result.
+The user session owns the registry, so children outlive the spawning tool call
+but are canceled and joined when that session shuts down. Child events continue
+to share the parent's broker and store, but completion does not implicitly steer
+the parent. Recursion, process-wide and per-parent concurrency, prompt, result,
+and retained-entry limits are enforced.
 
 **Done (the message queue: admitted input, promotion, interrupt).** A prompt is
 admitted durably against an `input` table and promoted by the drain at the
@@ -286,8 +283,10 @@ Three defects went with it: the turn ran on the gRPC call's cancellation token,
 `SendMessageResponse.message_id` was a fabricated id, and `/model` rebuilt the
 main agent session and lost its history. Divergences are in components.md.
 
-**Remaining in M5:** `TaskManager`, `AgentRegistry` as a block, per-parent
-concurrency limits, and replaying pending input at startup.
+**Remaining in M5:** `TaskManager`, protocol-level `task_id` correlation,
+agent profiles, reusable child turns (`agent_send`), generic task observation
+and interruption, and replaying pending input at startup. These remain deferred
+rather than represented by stubs.
 
 ---
 

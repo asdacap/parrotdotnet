@@ -102,5 +102,9 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     private SessionStore Store() =>
-        new(_root, Path.Combine(_root, "work"), "host", new UserSessionFactory(new DirectAgentSessions()));
+        new(
+            _root,
+            Path.Combine(_root, "work"),
+            "host",
+            new UserSessionFactory(new DirectAgentSessions(), new AgentRegistryAdmission()));
 }

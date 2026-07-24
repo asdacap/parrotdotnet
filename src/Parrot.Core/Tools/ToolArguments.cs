@@ -24,11 +24,17 @@ internal sealed class ToolArguments(string json) : IDisposable
     {
         var root = _document.RootElement;
 
-        return root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty(name, out var value)
-            && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? string.Empty
-            : string.Empty;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var value))
+        {
+            return string.Empty;
+        }
+
+        if (value.ValueKind != JsonValueKind.String)
+        {
+            throw new FormatException($"Tool argument '{name}' must be a string.");
+        }
+
+        return value.GetString() ?? string.Empty;
     }
 
     public string? OptionalStrictString(string name)
@@ -74,12 +80,17 @@ internal sealed class ToolArguments(string json) : IDisposable
     {
         var root = _document.RootElement;
 
-        return root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty(name, out var value)
-            && value.ValueKind == JsonValueKind.Number
-            && value.TryGetInt32(out var result)
-            ? result
-            : null;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var result))
+        {
+            throw new FormatException($"Tool argument '{name}' must be an integer.");
+        }
+
+        return result;
     }
 
     public void Dispose() => _document.Dispose();

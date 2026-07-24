@@ -16,13 +16,20 @@ internal sealed class SystemContextBuilder(string workingDirectory, string date)
         + "and exec_command only for shell commands. The host filesystem is read-only and the "
         + "working directory is writable. Prefer small, verifiable steps.";
 
-    public string Build()
+    public string Build() => Build(string.Empty);
+
+    public string Build(string sessionContext)
     {
         var text = new System.Text.StringBuilder();
         _ = text.Append(BasePrompt).Append("\n\n");
         _ = text.Append("Date: ").Append(date).Append('\n');
         _ = text.Append("Platform: ").Append(RuntimeInformation.RuntimeIdentifier).Append('\n');
         _ = text.Append("Working directory: ").Append(workingDirectory).Append('\n');
+
+        if (sessionContext.Length > 0)
+        {
+            _ = text.Append(sessionContext).Append('\n');
+        }
 
         foreach (var (path, content) in AgentsFiles())
         {

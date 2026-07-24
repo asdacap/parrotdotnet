@@ -200,6 +200,7 @@ internal sealed class DrainTests : IDisposable
             new SystemContextBuilder(".", "2026-07-24"),
             new Compactor(120_000),
             depth: 0,
+            identity: null,
             lifetime)
         {
             Model = "model",

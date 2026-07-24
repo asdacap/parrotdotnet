@@ -474,9 +474,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   child session.
 - **Outbound** `Configuration`, `AgentSession`.
 - **Boundary** no.
-- **Note** mutually dependent with `AgentSession`; both rank 9, neither
-  buildable without a stub of the other. Not passive — it has a `Run`, and a
-  spawned child outlives the turn that spawned it.
+- **Note** mutually dependent with `AgentSession`; both rank 9. The implemented
+  registry owns background child sessions, compact retained terminal results,
+  friendly names, and recursion/process-wide/per-parent limits. `agent_spawn` returns
+  immediately and `wait_agent` waits or yields without canceling the child;
+  user-session shutdown cancels and joins every child. Profiles, reusable
+  `agent_send`, generic task APIs, and `TaskManager` remain deferred rather than
+  stubbed.
 
 ### `UserSession` — rank 10, M2
 

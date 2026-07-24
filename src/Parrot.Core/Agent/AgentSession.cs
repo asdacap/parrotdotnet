@@ -28,16 +28,13 @@ internal sealed class AgentSession(
     SystemContextBuilder systemContext,
     Compactor compactor,
     int depth,
+    AgentIdentity? identity,
     CancellationToken lifetime)
 {
     // A turn that keeps calling tools without ever finishing is a runaway, not
     // work. This bounds the provider calls a promoted prompt may make; new
     // input resets it, so a long conversation is not a runaway.
     private const int MaxToolRounds = 24;
-
-    // Recursion terminates: a subagent runs one level deeper, and a child
-    // beyond this is refused rather than descended into.
-    private const int MaxDepth = 4;
 
     private const string RunawayMessage = "the turn exceeded its tool-call limit";
 
@@ -81,8 +78,8 @@ internal sealed class AgentSession(
 
     public string Model { get; set; } = string.Empty;
 
-    // How deep this session sits below the root. A subagent runs at Depth + 1,
-    // and Child refuses beyond a limit so recursion terminates.
+    // How deep this session sits below the root. The registry refuses a child
+    // beyond its recursion limit.
     public int Depth { get; } = depth;
 
     // Read without the gate on purpose: a caller asking what a session is doing
@@ -194,29 +191,6 @@ internal sealed class AgentSession(
         await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    // A subagent: a fresh child session sharing this one's broker and store, so
-    // its events surface on the same stream. Built but not run, because the
-    // spawning tool registers it on the user session first -- a subagent should
-    // be visible while it runs, not only once it finishes.
-    //
-    // Null is the depth refusal, so recursion terminates.
-    internal AgentSession? Child(int childDepth) =>
-        childDepth > MaxDepth
-            ? null
-            : new AgentSession(
-                Identifier.AgentSession(),
-                Provider,
-                eventBroker,
-                eventRepository,
-                toolFactories,
-                systemContext,
-                compactor,
-                childDepth,
-                lifetime)
-            {
-                Model = Model,
-            };
-
     internal Event Translate(LLMEvent llmEvent)
     {
         var published = Compose();
@@ -253,10 +227,9 @@ internal sealed class AgentSession(
         return published;
     }
 
-    // A child's one subtask, run to completion and answered here rather than
-    // through the drain: a subagent has no user to admit input, and the tool
-    // that spawned it is waiting on the answer.
-    internal async Task<string> Run(string prompt, CancellationToken cancellationToken)
+    // Runs a child's one subtask directly rather than through the interactive
+    // drain. The registry owns this call and retains its terminal result.
+    internal async Task<AgentExecution> Run(string prompt, CancellationToken cancellationToken)
     {
         var started = Compose();
         started.TurnStarted = new TurnStarted { Model = Model };
@@ -331,7 +304,7 @@ internal sealed class AgentSession(
     // and repeat until nothing is left to answer. The sequence is the one
     // docs/architecture.md fixes, and its two promotion points are the whole
     // difference between a steer and a queued prompt.
-    private async Task<string> Pass(bool turnOpen, CancellationToken cancellationToken)
+    private async Task<AgentExecution> Pass(bool turnOpen, CancellationToken cancellationToken)
     {
         var answer = string.Empty;
         var rounds = 0;
@@ -347,7 +320,7 @@ internal sealed class AgentSession(
                 // Nothing promoted and nothing owed an answer: the pass is done.
                 if (promoted == 0 && !Answerable())
                 {
-                    return answer;
+                    return AgentExecution.Succeeded(answer);
                 }
 
                 if (promoted > 0)
@@ -366,7 +339,7 @@ internal sealed class AgentSession(
                 if (rounds++ >= MaxToolRounds)
                 {
                     await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
-                    return RunawayMessage;
+                    return AgentExecution.Failed(RunawayMessage);
                 }
 
                 await Epoch(cancellationToken).ConfigureAwait(false);
@@ -420,7 +393,7 @@ internal sealed class AgentSession(
                     .ConfigureAwait(false);
             }
 
-            return InterruptedFinish;
+            return AgentExecution.Canceled();
         }
         catch (Exception failure)
         {
@@ -428,7 +401,7 @@ internal sealed class AgentSession(
             // this one is total: the drain is nobody's awaited task, so an
             // escaping exception would be unobserved rather than reported.
             await Fail(failure.Message, CancellationToken.None).ConfigureAwait(false);
-            return $"error: {failure.Message}";
+            return AgentExecution.Failed(failure.Message);
         }
     }
 
@@ -497,7 +470,7 @@ internal sealed class AgentSession(
     {
         if (_epochContext.Length == 0)
         {
-            _epochContext = systemContext.Build();
+            _epochContext = systemContext.Build(identity?.Context ?? string.Empty);
         }
 
         if (!compactor.ShouldCompact(_history))
@@ -512,7 +485,7 @@ internal sealed class AgentSession(
 
         _history.Clear();
         _history.AddRange(compacted);
-        _epochContext = systemContext.Build();
+        _epochContext = systemContext.Build(identity?.Context ?? string.Empty);
     }
 
     // Streams one provider call: deltas go out as events, and the terminal

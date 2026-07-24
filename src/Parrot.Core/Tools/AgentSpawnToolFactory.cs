@@ -2,7 +2,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentSpawnToolFactory(UserSession owner) : IToolFactory
+internal sealed class AgentSpawnToolFactory(AgentRegistry agents) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new AgentSpawnTool(owner, session);
+    public ITool Create(AgentSession session) => new AgentSpawnTool(agents, session);
 }

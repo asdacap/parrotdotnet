@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
@@ -14,7 +13,7 @@ namespace Parrot.Agent;
 // however deep the recursion goes.
 internal sealed class UserSession : IAsyncDisposable
 {
-    private readonly ConcurrentDictionary<string, AgentSession> _agents = new(StringComparer.Ordinal);
+    private readonly List<AgentSession> _agents = [];
     private readonly EventBroker _eventBroker = new();
     private readonly EventRepository _eventRepository;
     private readonly IAgentSessionFactory _agentSessions;
@@ -41,7 +40,8 @@ internal sealed class UserSession : IAsyncDisposable
         string providerId,
         string model,
         EventRepository eventRepository,
-        IAgentSessionFactorySource agentSessionFactories)
+        IAgentSessionFactorySource agentSessionFactories,
+        AgentRegistryAdmission agentAdmission)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
@@ -53,6 +53,8 @@ internal sealed class UserSession : IAsyncDisposable
         _provider = provider;
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this, provider);
+        Registry = new AgentRegistry(
+            _agentSessions, agentAdmission, _eventBroker, _eventRepository, _lifetime.Token);
     }
 
     public string Id { get; }
@@ -70,6 +72,8 @@ internal sealed class UserSession : IAsyncDisposable
     internal CancellationToken Lifetime => _lifetime.Token;
 
     internal ShellProcessOwner ShellProcesses { get; }
+
+    internal AgentRegistry Registry { get; }
 
     // Assigned, never rebuilt. The main session holds the conversation, the
     // input admitted against it and the drain that may be running: replacing it
@@ -106,20 +110,10 @@ internal sealed class UserSession : IAsyncDisposable
         string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
         Main().Admit(prompt, messageId, delivery, cancellationToken);
 
-    // Stops the turn in flight. Only the main session is asked: a subagent runs
-    // inside a parent tool call, so cancelling the parent's drain is what
-    // cancels the child.
+    // Stops the main turn in flight. Registry-owned children outlive the tool
+    // call that spawned them and are stopped separately at user-session shutdown.
     public Task Interrupt(CancellationToken cancellationToken) =>
         Main().Interrupt(cancellationToken);
-
-    // A subagent joining this session, registered by the tool that spawned it
-    // so it is visible while it runs rather than only once it finishes.
-    public void Admit(AgentSession agent)
-    {
-        ArgumentNullException.ThrowIfNull(agent);
-
-        _ = _agents.TryAdd(agent.SessionId, agent);
-    }
 
     // What a resumed session already said. Read from the projection, never by
     // replaying the raw event log.
@@ -132,10 +126,11 @@ internal sealed class UserSession : IAsyncDisposable
     // remember would be the same crash whenever anyone forgot.
     public async ValueTask DisposeAsync()
     {
+        await Registry.DisposeAsync().ConfigureAwait(false);
         await _lifetime.CancelAsync().ConfigureAwait(false);
         await ShellProcesses.Settle().ConfigureAwait(false);
 
-        foreach (var agent in _agents.Values)
+        foreach (var agent in _agents)
         {
             await agent.Settled().ConfigureAwait(false);
         }
@@ -157,8 +152,15 @@ internal sealed class UserSession : IAsyncDisposable
             if (_main is null)
             {
                 _main = _agentSessions.Create(
-                    _mainSessionId, _provider, Model, 0, _eventBroker, _eventRepository, _lifetime.Token);
-                Admit(_main);
+                    _mainSessionId,
+                    _provider,
+                    Model,
+                    0,
+                    _eventBroker,
+                    _eventRepository,
+                    null,
+                    _lifetime.Token);
+                _agents.Add(_main);
             }
 
             return _main;

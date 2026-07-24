@@ -25,6 +25,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         int depth,
         EventBroker eventBroker,
         EventRepository eventRepository,
+        AgentIdentity? identity,
         CancellationToken lifetime) =>
         new(
             sessionId,
@@ -35,6 +36,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             new SystemContextBuilder(".", "2026-07-24"),
             new Compactor(120_000),
             depth,
+            identity,
             lifetime)
         {
             Model = model,

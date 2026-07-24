@@ -3,52 +3,41 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-// Delegates a subtask to a child agent. The child runs to completion and its
-// result comes back as this tool's result, so the parent sees a subtask as one
-// tool call while the child's own events stream on the shared session stream.
-internal sealed class AgentSpawnTool(UserSession owner, AgentSession session) : ITool
+internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session) : ITool
 {
     public string Name => "agent_spawn";
 
     public string Description =>
-        "Delegate a self-contained subtask to a child agent. It runs to completion and returns its result.";
+        "Start a child agent in an isolated session and return its session ID immediately.";
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"prompt":{"type":"string","description":"The subtask for the child agent"}},"required":["prompt"]}
+        {"type":"object","properties":{"prompt":{"type":"string","minLength":1,"description":"The subtask for the child agent"},"name":{"type":"string","description":"Optional friendly name. It is lowercased and sanitized to letters, digits, and hyphens; omitted or empty names are generated."}},"required":["prompt"],"additionalProperties":false}
         """;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         string prompt;
+        string requestedName;
 
         try
         {
             using var arguments = new ToolArguments(argumentsJson);
             prompt = arguments.RequiredString("prompt");
+            requestedName = arguments.OptionalString("name");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return Task.FromResult($"error: {failure.Message}");
         }
 
-        if (prompt.Length == 0)
+        try
         {
-            return "error: no prompt given";
+            return Task.FromResult(agents.Spawn(session, prompt, requestedName).FormatSpawn());
         }
-
-        var child = session.Child(session.Depth + 1);
-
-        if (child is null)
+        catch (AgentRegistryException failure)
         {
-            return "error: subagent depth limit reached";
+            return Task.FromResult($"error: {failure.Message}");
         }
-
-        // The child joins the user session's agents before it runs, which is
-        // what "subagents join later, from the agent side" always meant: the
-        // tool is the agent side, and the only place holding both sessions.
-        owner.Admit(child);
-
-        return await child.Run(prompt, cancellationToken).ConfigureAwait(false);
     }
 }

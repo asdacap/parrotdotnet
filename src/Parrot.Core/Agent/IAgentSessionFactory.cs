@@ -17,5 +17,6 @@ internal interface IAgentSessionFactory
         int depth,
         EventBroker eventBroker,
         EventRepository eventRepository,
+        AgentIdentity? identity,
         CancellationToken lifetime);
 }

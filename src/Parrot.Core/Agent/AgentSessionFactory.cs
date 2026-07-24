@@ -31,7 +31,8 @@ internal sealed class AgentSessionFactory(
             new ApplyPatchToolFactory(workingDirectory),
             new GitDiffToolFactory(workingDirectory),
             new WebFetchToolFactory(webFetcher),
-            new AgentSpawnToolFactory(owner),
+            new AgentSpawnToolFactory(owner.Registry),
+            new WaitAgentToolFactory(owner.Registry),
         ];
 
     public AgentSession Create(
@@ -41,6 +42,7 @@ internal sealed class AgentSessionFactory(
         int depth,
         EventBroker eventBroker,
         EventRepository eventRepository,
+        AgentIdentity? identity,
         CancellationToken lifetime) =>
         new(
             sessionId,
@@ -51,6 +53,7 @@ internal sealed class AgentSessionFactory(
             systemContext,
             compactor,
             depth,
+            identity,
             lifetime)
         {
             Model = model,
