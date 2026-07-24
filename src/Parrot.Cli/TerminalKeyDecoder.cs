@@ -36,9 +36,8 @@ internal sealed class TerminalKeyDecoder
         0x05 => new(TerminalKeyKind.End),
         0x08 or 0x7f => new(TerminalKeyKind.Backspace),
         0x09 => new(TerminalKeyKind.Complete),
-        0x0a => new(TerminalKeyKind.Newline),
+        0x0a or 0x0d => new(TerminalKeyKind.Submit),
         0x0b => new(TerminalKeyKind.KillLine),
-        0x0d => new(TerminalKeyKind.Submit),
         0x18 or 0x1e => new(TerminalKeyKind.Mode),
         _ => null,
     };
