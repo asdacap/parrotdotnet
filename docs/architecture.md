@@ -489,12 +489,95 @@ rather than labelling it, the event model is wrong.
 ```csharp
 public interface ILLMEventSink
 {
-    ValueTask Publish(LLMEvent @event, CancellationToken cancellationToken);
+    ValueTask Publish(LLMEvent llmEvent, CancellationToken cancellationToken);
 }
 ```
 
-`LLMEvent` is a plain sealed type, not protobuf, because it never goes on the
-wire: text deltas, reasoning deltas, tool-call fragments, retry notices, usage.
+### LLMEvent
+
+Four kinds, and only four, because the stream carries what is worth *watching*
+while a call is in flight. Anything worth *keeping* is in `LLMResult` — token
+usage and the final tool requests live there, not here, which is principle 10
+deciding the split rather than taste.
+
+```csharp
+public enum LLMEventKind
+{
+    TextDelta,
+    ReasoningDelta,
+    ToolCallDelta,
+    Retry,
+}
+```
+
+```csharp
+public sealed record LLMEvent
+{
+    public required LLMEventKind Kind { get; init; }
+
+    // TextDelta and ReasoningDelta: the fragment.
+    // ToolCallDelta: the arguments fragment. Retry: why.
+    public string Text { get; init; } = string.Empty;
+
+    // ToolCallDelta only.
+    public string ToolCallId { get; init; } = string.Empty;
+
+    public string ToolName { get; init; } = string.Empty;
+
+    // Retry only.
+    public int Attempt { get; init; }
+
+    public TimeSpan RetryAfter { get; init; }
+
+    public static LLMEvent TextDelta(string fragment) =>
+        new() { Kind = LLMEventKind.TextDelta, Text = fragment };
+
+    public static LLMEvent ReasoningDelta(string fragment) =>
+        new() { Kind = LLMEventKind.ReasoningDelta, Text = fragment };
+
+    public static LLMEvent ToolCallDelta(string toolCallId, string toolName, string argumentsFragment) =>
+        new()
+        {
+            Kind = LLMEventKind.ToolCallDelta,
+            ToolCallId = toolCallId,
+            ToolName = toolName,
+            Text = argumentsFragment,
+        };
+
+    public static LLMEvent Retry(int attempt, TimeSpan retryAfter, string reason) =>
+        new() { Kind = LLMEventKind.Retry, Attempt = attempt, RetryAfter = retryAfter, Text = reason };
+}
+```
+
+Three things about that shape are forced rather than chosen.
+
+**It is one flat type with a discriminator, not a hierarchy.** The natural C#
+spelling would be an abstract record with a case per kind. `AGENTS.md` forbids
+inheritance outright — *"or just straight up no inheritance, just compose"* —
+and C# has no discriminated union, so flat-plus-`Kind` is what is left. It also
+happens to be the shape the wire `Event` already has, which is mild evidence it
+is not a compromise.
+
+**No field is nullable.** Absent means `string.Empty` or zero, never `null`.
+That is not incidental: `PARROT0003` bans the null-forgiving operator, so a
+nullable union field would force a real check at every read site, on a value the
+`Kind` already determines. Empty defaults sidestep the whole argument.
+
+**Construction goes through the factories.** The invalid states — a `Retry`
+carrying a `ToolName`, a `TextDelta` with an attempt count — are unreachable
+without going out of your way, and the reader of a call site sees the kind in
+the method name rather than inferring it from which properties were set.
+
+Consumers `switch` on `Kind`. `AgentSession` maps each to an `EventKind`,
+attaches `session_id` and `task_id`, and renders the one-line `text` the wire
+event requires.
+
+This listing was compiled against the repository's analyzers before being
+written down, and three things changed because of it: the sink parameter is
+`llmEvent` rather than `@event`, since CA1716 rejects a reserved keyword on an
+interface member even when escaped; empty defaults are `string.Empty`, not `""`
+(SA1122); and the properties carry blank lines between them (SA1516). Worth
+doing for a shape other code will be written against.
 
 ### The session event
 
