@@ -468,7 +468,7 @@ internal sealed class AgentSession(
     {
         if (_epochContext.Length == 0)
         {
-            _epochContext = systemContext.Build(identity.Context);
+            _epochContext = systemContext.Build();
         }
 
         if (!compactor.ShouldCompact(_history))
@@ -483,7 +483,7 @@ internal sealed class AgentSession(
 
         _history.Clear();
         _history.AddRange(compacted);
-        _epochContext = systemContext.Build(identity.Context);
+        _epochContext = systemContext.Build();
     }
 
     // Streams one provider call: deltas go out as events, and the terminal

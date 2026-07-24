@@ -10,12 +10,12 @@ internal sealed class AgentSessionFactorySource(
     string workingDirectory,
     SessionIndex sessionIndex,
     ProcessRunner processes,
-    SystemContextBuilder systemContext,
+    string date,
     Compactor compactor,
     WebFetcher webFetcher) : IAgentSessionFactorySource
 {
     public IAgentSessionFactory Create(UserSession owner, ILLMProvider provider) =>
-        new AgentSessionFactory(owner, workingDirectory, systemContext, compactor, webFetcher);
+        new AgentSessionFactory(owner, workingDirectory, date, compactor, webFetcher);
 
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
         new(

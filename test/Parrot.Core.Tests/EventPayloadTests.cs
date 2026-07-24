@@ -30,7 +30,7 @@ internal sealed class EventPayloadTests
             events,
             new EventRepository(database),
             [],
-            new SystemContextBuilder(".", "2026-07-24"),
+            new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
             CancellationToken.None);
 

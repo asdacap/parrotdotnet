@@ -8,7 +8,7 @@ namespace Parrot.Context;
 // M4 sources: a base prompt, the date, the platform, the working directory, and
 // the AGENTS.md files found from the working directory upward. Skills and richer
 // project metadata arrive with the milestones that own them.
-internal sealed class SystemContextBuilder(string workingDirectory, string date)
+internal sealed class SystemContextBuilder(string workingDirectory, string date, string sessionContext)
 {
     private const string BasePrompt =
         "You are parrot, a coding agent. You work in the user's project directory. "
@@ -16,9 +16,7 @@ internal sealed class SystemContextBuilder(string workingDirectory, string date)
         + "and exec_command only for shell commands. The host filesystem is read-only and the "
         + "working directory is writable. Prefer small, verifiable steps.";
 
-    public string Build() => Build(string.Empty);
-
-    public string Build(string sessionContext)
+    public string Build()
     {
         var text = new System.Text.StringBuilder();
         _ = text.Append(BasePrompt).Append("\n\n");
