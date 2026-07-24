@@ -223,10 +223,12 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Absorbs** `provider`, `protocol`.
 - **Owns** nothing. Stateless by rule: no conversation, no session, no history
   between calls.
-- **Inbound** `Call(LLMRequest, ILLMEventSink, CancellationToken)` →
-  `Task<LLMResult>`. Deltas to the sink, final durable state returned.
-- **Outbound** `ICredentialStore`, and the sink it is handed per call. It owns
-  its own credential refresh, because only it knows its token lifecycle.
+- **Inbound** `Call(LLMRequest, CancellationToken)` →
+  `IAsyncEnumerable<LLMEvent>`, terminated by a `Completed` event carrying the
+  finish reason and token counts. The last event is the durable outcome, so
+  there is no second return channel.
+- **Outbound** `ICredentialStore` only. It owns its own credential refresh,
+  because only it knows its token lifecycle.
 - **Boundary** **yes** — provider protocols.
 - **Note** the wire shape is confirmed against a live OpenCode Go call, not
   read from documentation: SSE `data:` lines carrying `choices[0].delta`, where

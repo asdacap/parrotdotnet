@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 namespace Parrot.Llm;
@@ -34,13 +35,11 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
         ];
     }
 
-    public async Task<LLMResult> Call(
+    public async IAsyncEnumerable<LLMEvent> Call(
         LLMRequest request,
-        ILLMEventSink events,
-        CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(events);
 
         using var message = new HttpRequestMessage(HttpMethod.Post, new Uri(baseAddress, "chat/completions"))
         {
@@ -59,20 +58,27 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
             throw new LLMProviderException($"{Id} returned {(int)response.StatusCode}: {Truncate(body)}");
         }
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        return await Consume(stream, events, cancellationToken).ConfigureAwait(false);
+        var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+
+        await using (stream.ConfigureAwait(false))
+        {
+            await foreach (var published in Consume(stream, cancellationToken).ConfigureAwait(false))
+            {
+                yield return published;
+            }
+        }
     }
 
-    internal static async Task<LLMResult> Consume(
+    // The last event is Completed, so a consumer that reads to the end has the
+    // outcome without a second channel.
+    internal static async IAsyncEnumerable<LLMEvent> Consume(
         Stream stream,
-        ILLMEventSink events,
-        CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var reader = new StreamReader(stream);
-        var text = new System.Text.StringBuilder();
-        var reasoning = new System.Text.StringBuilder();
         var finishReason = string.Empty;
-        var usage = LLMUsage.None;
+        var inputTokens = 0;
+        var outputTokens = 0;
 
         while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
         {
@@ -91,9 +97,10 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
             var chunk = JsonSerializer.Deserialize(payload, LlmJsonContext.Default.ChatCompletionsWire);
             var choice = chunk?.Choices is { Count: > 0 } choices ? choices[0] : null;
 
-            if (chunk?.Usage is { } wireUsage)
+            if (chunk?.Usage is { } usage)
             {
-                usage = new LLMUsage(wireUsage.PromptTokens, wireUsage.CompletionTokens);
+                inputTokens = usage.PromptTokens;
+                outputTokens = usage.CompletionTokens;
             }
 
             if (choice?.FinishReason is { Length: > 0 } reason)
@@ -103,24 +110,16 @@ internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, strin
 
             if (choice?.Delta?.Content is { Length: > 0 } content)
             {
-                _ = text.Append(content);
-                await events.Publish(LLMEvent.TextDelta(content), cancellationToken).ConfigureAwait(false);
+                yield return LLMEvent.TextDelta(content);
             }
 
             if (choice?.Delta?.ReasoningContent is { Length: > 0 } thought)
             {
-                _ = reasoning.Append(thought);
-                await events.Publish(LLMEvent.ReasoningDelta(thought), cancellationToken).ConfigureAwait(false);
+                yield return LLMEvent.ReasoningDelta(thought);
             }
         }
 
-        return new LLMResult
-        {
-            Text = text.ToString(),
-            Reasoning = reasoning.ToString(),
-            FinishReason = finishReason,
-            Usage = usage,
-        };
+        yield return LLMEvent.Completed(finishReason, inputTokens, outputTokens);
     }
 
     private static WireRequest ToWire(LLMRequest request) =>

@@ -11,6 +11,6 @@ internal sealed class UnusedProvider : ILLMProvider
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
         throw new NotSupportedException("the mapping does not list models");
 
-    public Task<LLMResult> Call(LLMRequest request, ILLMEventSink events, CancellationToken cancellationToken) =>
+    public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
         throw new NotSupportedException("the mapping does not call the provider");
 }

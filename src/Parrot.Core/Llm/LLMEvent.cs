@@ -18,6 +18,14 @@ internal sealed record LLMEvent
 
     public TimeSpan RetryAfter { get; init; }
 
+    // Completed only. The stream's last event is its durable outcome, which is
+    // principle 10: the deltas before it were disposable, this is not.
+    public string FinishReason { get; init; } = string.Empty;
+
+    public int InputTokens { get; init; }
+
+    public int OutputTokens { get; init; }
+
     public static LLMEvent TextDelta(string fragment) =>
         new() { Kind = LLMEventKind.TextDelta, Text = fragment };
 
@@ -35,4 +43,13 @@ internal sealed record LLMEvent
 
     public static LLMEvent Retry(int attempt, TimeSpan retryAfter, string reason) =>
         new() { Kind = LLMEventKind.Retry, Attempt = attempt, RetryAfter = retryAfter, Text = reason };
+
+    public static LLMEvent Completed(string finishReason, int inputTokens, int outputTokens) =>
+        new()
+        {
+            Kind = LLMEventKind.Completed,
+            FinishReason = finishReason,
+            InputTokens = inputTokens,
+            OutputTokens = outputTokens,
+        };
 }

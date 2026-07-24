@@ -7,61 +7,21 @@ namespace Parrot.Agent;
 // M1: one turn, no tools, no compaction, no persistence. It is already the
 // thing that attaches identity, which is the part the provider structurally
 // cannot do.
-internal sealed class AgentSession(string sessionId, ILLMProvider provider, EventBroker events) : ILLMEventSink
+internal sealed class AgentSession(string sessionId, ILLMProvider provider, EventBroker events)
 {
     public string SessionId { get; } = sessionId;
 
     // Selection is session state: an UpdateSession changes it, a prompt does not.
     public string Model { get; set; } = string.Empty;
 
-    public Task Turn { get; private set; } = Task.CompletedTask;
-
-    public async Task Run(string prompt, CancellationToken cancellationToken)
-    {
-        var started = Compose();
-        started.TurnStarted = new TurnStarted { Model = Model };
-        await events.Publish(started, cancellationToken).ConfigureAwait(false);
-
-        try
-        {
-            var result = await provider.Call(
-                new LLMRequest
-                {
-                    Model = Model,
-                    MaxTokens = 4096,
-                    Messages = [new LLMMessage(LLMRole.User, prompt)],
-                },
-                this,
-                cancellationToken).ConfigureAwait(false);
-
-            var ended = Compose();
-            ended.TurnEnded = new TurnEnded
-            {
-                FinishReason = result.FinishReason,
-                InputTokens = result.Usage.InputTokens,
-                OutputTokens = result.Usage.OutputTokens,
-            };
-            await events.Publish(ended, cancellationToken).ConfigureAwait(false);
-        }
-        catch (LLMProviderException failure)
-        {
-            // A provider boundary is a deliberate containment point: the turn
-            // reports and ends rather than taking the process down.
-            var failed = Compose();
-            failed.TurnFailed = new TurnFailed { Message = failure.Message };
-            await events.Publish(failed, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
     // The turn is started, not awaited: admitting a prompt does not wait for it,
-    // and the event stream stays open afterwards for whatever comes next.
+    // and the event stream stays open afterwards for whatever comes next. Run
+    // lets nothing escape, so discarding the task loses nothing.
     public void Start(string prompt, CancellationToken cancellationToken) =>
-        Turn = Run(prompt, cancellationToken);
+        _ = Run(prompt, cancellationToken);
 
-    public ValueTask Publish(LLMEvent llmEvent, CancellationToken cancellationToken)
+    internal Event Translate(LLMEvent llmEvent)
     {
-        ArgumentNullException.ThrowIfNull(llmEvent);
-
         var published = Compose();
 
         switch (llmEvent.Kind)
@@ -83,6 +43,15 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
                 };
                 break;
 
+            case LLMEventKind.Completed:
+                published.TurnEnded = new TurnEnded
+                {
+                    FinishReason = llmEvent.FinishReason,
+                    InputTokens = llmEvent.InputTokens,
+                    OutputTokens = llmEvent.OutputTokens,
+                };
+                break;
+
             default:
                 published.RetryNotice = new RetryNotice
                 {
@@ -93,7 +62,38 @@ internal sealed class AgentSession(string sessionId, ILLMProvider provider, Even
                 break;
         }
 
-        return events.Publish(published, cancellationToken);
+        return published;
+    }
+
+    private async Task Run(string prompt, CancellationToken cancellationToken)
+    {
+        var started = Compose();
+        started.TurnStarted = new TurnStarted { Model = Model };
+        await events.Publish(started, cancellationToken).ConfigureAwait(false);
+
+        var request = new LLMRequest
+        {
+            Model = Model,
+            MaxTokens = 4096,
+            Messages = [new LLMMessage(LLMRole.User, prompt)],
+        };
+
+        try
+        {
+            await foreach (var llmEvent in provider.Call(request, cancellationToken).ConfigureAwait(false))
+            {
+                await events.Publish(Translate(llmEvent), cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception failure)
+        {
+            // A provider boundary is a deliberate containment point, and this
+            // one is total: nothing started here is awaited, so an escaping
+            // exception would be unobserved rather than reported.
+            var failed = Compose();
+            failed.TurnFailed = new TurnFailed { Message = failure.Message };
+            await events.Publish(failed, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private Event Compose() =>

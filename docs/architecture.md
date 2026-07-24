@@ -416,49 +416,41 @@ else:
 Stateless, by rule. It holds no conversation, no session, no accumulated
 history — `AgentSession` holds all of it and passes what a call needs.
 
-The surface is deliberately shallow: a request goes in, the final result comes
-back, and anything worth watching while the call is in flight goes to a sink the
-caller supplies.
-
 ```csharp
-public interface ILLMProvider
+internal interface ILLMProvider
 {
     string Id { get; }
 
-    IReadOnlyList<LLMModel> Models { get; }
+    Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken);
 
-    // Everything the call depends on arrives in the request. Nothing is
-    // remembered between calls, and the sink is a parameter rather than a
-    // dependency, so there is nothing to hold either.
-    Task<LLMResult> Call(LLMRequest request, ILLMEventSink events, CancellationToken cancellationToken);
+    IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken);
 }
 ```
 
-`LLMRequest` carries the model and variant, the system context baseline, the
-message history, and the tool schemas available this turn. `LLMResult` is the
-final durable state: the assistant messages, the tool requests, and token usage.
+An earlier draft took an `ILLMEventSink` and returned `Task<LLMResult>` — push
+rather than pull — and argued that a sink kept "stream deltas *and* return a
+final result" from being awkward. That was solving a problem the design did not
+have to have.
 
-### Why the sink is a parameter
+**The last event is the result.** `LLMEvent.Completed` carries the finish reason
+and the token counts, so a consumer that reads to the end has the outcome and
+there is no second return channel. Principle 10 still holds and is easier to
+see: everything before the last event is disposable, the last one is not.
 
-This is the shape that makes principle 10 fall out for free — live token deltas
-are disposable, final message state is durable. Deltas go to `ILLMEventSink` and
-nobody has to keep them; the durable outcome is the return value, and it exists
-exactly once.
+Three things fall out of dropping the sink:
 
-It also settles what "stateless" means here, which was genuinely ambiguous while
-the interface was a flat `Task<LLMResult>`. The provider does not publish to
-anything it holds — it has no broker field, no injected dependency, nothing
-constructed with it. It writes only to the sink it was handed, for the duration
-of one call. So it is stateless in the strict sense and still streams, and
-`AgentSession` does not have to pump a stream to make that true.
+- **A type disappears.** `ILLMEventSink` existed only to be passed to one
+  method, and `LLMResult` and `LLMUsage` with it.
+- **`AgentSession` stops implementing an interface it had no business
+  implementing.** It was `ILLMEventSink` purely so it could be handed to a
+  provider, which put a `Publish(LLMEvent, …)` method on the session's surface
+  that was really an artefact of how one call worked. Now it just consumes with
+  `await foreach`.
+- **It matches the rule already written down.** MIGRATION.md §3 says streaming
+  returns `IAsyncEnumerable<T>` with `[EnumeratorCancellation]`. The sink was
+  inconsistent with our own guidance, which is a decent sign it was wrong.
 
-The layering consequence is worth naming: **`ILLMProvider` does not depend on
-`EventBroker`, and does not know what a session is.** It was never told a
-session id or a task id, so it could not put one on an event even if it wanted
-to. What it emits are LLM events — token deltas, tool-call fragments, retry
-notices — and `AgentSession` is what turns those into session events by
-attaching the identity only it holds. A provider is trivial to test as a
-result: hand it a sink that records into a list.
+The provider is still trivial to test: iterate it and collect.
 
 ## The two event types
 

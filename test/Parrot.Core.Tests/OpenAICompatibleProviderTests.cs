@@ -23,32 +23,36 @@ internal sealed class OpenAICompatibleProviderTests
         """;
 
     [Test]
-    public async Task Stream_is_split_into_deltas_and_a_final_result(CancellationToken cancellationToken)
+    public async Task Stream_ends_with_a_completed_event_carrying_the_outcome(CancellationToken cancellationToken)
     {
-        var sink = new RecordingEventSink();
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(LiveShapedStream));
+        var events = await Drain(cancellationToken);
+        var completed = events[^1];
 
-        var result = await OpenAICompatibleProvider.Consume(stream, sink, cancellationToken);
-
-        await Assert.That(result.Text).IsEqualTo("hello world");
-        await Assert.That(result.Reasoning).IsEqualTo("think");
-        await Assert.That(result.FinishReason).IsEqualTo("stop");
-        await Assert.That(result.Usage.InputTokens).IsEqualTo(11);
-        await Assert.That(result.Usage.OutputTokens).IsEqualTo(3);
+        await Assert.That(completed.Kind).IsEqualTo(LLMEventKind.Completed);
+        await Assert.That(completed.FinishReason).IsEqualTo("stop");
+        await Assert.That(completed.InputTokens).IsEqualTo(11);
+        await Assert.That(completed.OutputTokens).IsEqualTo(3);
     }
 
     [Test]
     [Arguments(LLMEventKind.TextDelta, 2)]
     [Arguments(LLMEventKind.ReasoningDelta, 1)]
-    public async Task Empty_fragments_and_terminators_publish_nothing(
+    [Arguments(LLMEventKind.Completed, 1)]
+    public async Task Empty_fragments_and_terminators_yield_nothing(
         LLMEventKind kind, int expectedCount, CancellationToken cancellationToken)
     {
-        var sink = new RecordingEventSink();
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(LiveShapedStream));
+        var events = await Drain(cancellationToken);
 
-        _ = await OpenAICompatibleProvider.Consume(stream, sink, cancellationToken);
+        await Assert.That(events.Count(item => item.Kind == kind)).IsEqualTo(expectedCount);
+    }
 
-        await Assert.That(sink.Events.Count(item => item.Kind == kind)).IsEqualTo(expectedCount);
+    [Test]
+    public async Task Text_fragments_arrive_in_order(CancellationToken cancellationToken)
+    {
+        var events = await Drain(cancellationToken);
+        var text = string.Concat(events.Where(item => item.Kind == LLMEventKind.TextDelta).Select(item => item.Text));
+
+        await Assert.That(text).IsEqualTo("hello world");
     }
 
     [Test]
@@ -56,7 +60,20 @@ internal sealed class OpenAICompatibleProviderTests
     {
         await Assert.That(LLMEvent.TextDelta("x").ToolName).IsEmpty();
         await Assert.That(LLMEvent.Retry(2, TimeSpan.FromSeconds(1), "429").ToolCallId).IsEmpty();
-        await Assert.That(LLMEvent.ToolCallDelta("id", "grep", "{}").Attempt).IsEqualTo(0);
+        await Assert.That(LLMEvent.Completed("stop", 1, 2).Text).IsEmpty();
         await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    private static async Task<List<LLMEvent>> Drain(CancellationToken cancellationToken)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(LiveShapedStream));
+        var events = new List<LLMEvent>();
+
+        await foreach (var published in OpenAICompatibleProvider.Consume(stream, cancellationToken))
+        {
+            events.Add(published);
+        }
+
+        return events;
     }
 }

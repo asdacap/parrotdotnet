@@ -6,4 +6,5 @@ internal enum LLMEventKind
     ReasoningDelta,
     ToolCallDelta,
     Retry,
+    Completed,
 }
