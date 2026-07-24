@@ -9,6 +9,11 @@
         "enum",
         "delegate"
       ]
+    },
+    "documentationRules": {
+      "documentInternalElements": false,
+      "documentPrivateElements": false,
+      "documentInterfaces": false
     }
   }
 }

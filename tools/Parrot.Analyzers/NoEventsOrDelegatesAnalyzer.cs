@@ -45,6 +45,11 @@ public sealed class NoEventsOrDelegatesAnalyzer : DiagnosticAnalyzer
 
     public override void Initialize(AnalysisContext context)
     {
+        if (context is null)
+        {
+            throw new ArgumentNullException(nameof(context));
+        }
+
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze);
         context.EnableConcurrentExecution();
         context.RegisterSyntaxNodeAction(ReportEventField, SyntaxKind.EventFieldDeclaration);

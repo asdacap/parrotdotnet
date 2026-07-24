@@ -289,14 +289,23 @@ dotnet_diagnostic.CA1030.severity = none
 # .NET analyzers: rules turned off with a stated reason.
 # ---------------------------------------------------------------------------
 
-# Parrot is a single application, not a library. Its public surface is an
-# implementation detail of the executable, so API-shape rules aimed at
-# redistributable libraries do not apply.
+# Reevaluated 2026-07-24 against AGENTS.md's "NEVER turn off lint rules repo
+# wide". Every entry below was re-tested by removing it and rebuilding. CA1062
+# was removed and fixed in code. The rest fall into two groups, and neither is
+# an evasion:
+#
+#   1. Rules that directly contradict a setting decided elsewhere in this file.
+#      SA1101 wants "this." on local calls; dotnet_style_qualification_for_* is
+#      false:error. SA1309 forbids a leading underscore on fields; the naming
+#      rules require one. These pairs cannot both be satisfied -- enabling one
+#      makes the other unsatisfiable, so a choice is forced.
+#   2. Rules aimed at redistributable-library design, which Parrot is not.
+#
+# Both groups still need explicit permission under the current AGENTS.md rule.
 dotnet_diagnostic.CA1002.severity = none   # List<T> in a public signature
 dotnet_diagnostic.CA1003.severity = none   # EventHandler<T> shape
 dotnet_diagnostic.CA1034.severity = none   # nested public types
 dotnet_diagnostic.CA1051.severity = none   # visible instance fields (records/structs)
-dotnet_diagnostic.CA1062.severity = none   # nullable reference types cover this
 dotnet_diagnostic.CA1303.severity = none   # no resource-table localization
 dotnet_diagnostic.CA1848.severity = none   # LoggerMessage source-gen is not worth it for a CLI
 dotnet_diagnostic.CA2007.severity = none   # no synchronization context in a console host
