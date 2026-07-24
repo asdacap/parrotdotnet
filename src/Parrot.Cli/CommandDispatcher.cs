@@ -1,3 +1,4 @@
+using Grpc.Net.Client;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
@@ -35,6 +36,8 @@ internal static class CommandDispatcher
           models                      List the models the provider serves
           sessions                    List sessions, reading meta.json only
           chat [--model <id>] [text]  A session, or one prompt if text is given
+          chat --connect host:port    Drive a session on a remote parrot serve
+          serve [--port <n>]          Host the service for remote clients
 
         Bare `parrot` is `parrot chat`. In a terminal that opens a REPL; with a
         prompt or piped stdin it answers once. /help lists the slash commands.
@@ -80,6 +83,9 @@ internal static class CommandDispatcher
 
             case "chat":
                 return await Chat(arguments, output, error, cancellationToken).ConfigureAwait(false);
+
+            case "serve":
+                return await Serve(arguments, output, error, cancellationToken).ConfigureAwait(false);
 
             default:
                 await error.WriteLineAsync($"parrot: unknown command \"{command}\"".AsMemory(), cancellationToken)
@@ -192,6 +198,46 @@ internal static class CommandDispatcher
         return provider;
     }
 
+    private static async Task<int> Serve(
+        IReadOnlyList<string> arguments,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
+        var port = 8710;
+
+        for (var index = 1; index < arguments.Count; index++)
+        {
+            if (arguments[index] == "--port" && index + 1 < arguments.Count
+                && int.TryParse(
+                    arguments[index + 1], System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            {
+                port = parsed;
+                index++;
+            }
+        }
+
+        var provider = await ResolveProvider(error, cancellationToken).ConfigureAwait(false);
+
+        if (provider is null)
+        {
+            return ExitFailure;
+        }
+
+        var paths = StatePaths.ResolveFromEnvironment();
+        using var store = new SessionStore(
+            paths.State, Directory.GetCurrentDirectory(), Environment.MachineName, BuiltinTools(), ProcessRunner.Locate());
+        using var service = new ParrotService(provider, store);
+
+        await output.WriteLineAsync($"parrot serving on port {port} (ctrl-c to stop)".AsMemory(), cancellationToken)
+            .ConfigureAwait(false);
+
+        return await GrpcServer.Run(service, port, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string RemoteAddress(string target) =>
+        target.StartsWith("http", StringComparison.Ordinal) ? target : $"http://{target}";
+
     // The tools the agent may call. exec_command is the one that reaches the
     // sandbox; read_file is read-only.
     private static ToolRegistry BuiltinTools() =>
@@ -267,19 +313,39 @@ internal static class CommandDispatcher
         // The saved model is the default; the built-in one is only the fallback
         // for a fresh install with no config yet.
         var model = configuration.Model.Length > 0 ? configuration.Model : DefaultModel;
+        var connect = string.Empty;
         var words = new List<string>();
 
         for (var index = 1; index < arguments.Count; index++)
         {
-            // A per-invocation override; unlike /model it does not persist.
-            if (arguments[index] == "--model" && index + 1 < arguments.Count)
+            switch (arguments[index])
             {
-                model = arguments[++index];
+                // A per-invocation override; unlike /model it does not persist.
+                case "--model" when index + 1 < arguments.Count:
+                    model = arguments[++index];
+                    break;
+
+                case "--connect" when index + 1 < arguments.Count:
+                    connect = arguments[++index];
+                    break;
+
+                default:
+                    words.Add(arguments[index]);
+                    break;
             }
-            else
-            {
-                words.Add(arguments[index]);
-            }
+        }
+
+        var prompt = string.Join(' ', words);
+
+        // Remote: the server owns the provider, the state, and the tools; this
+        // process is only a client of the same contract (principle 11).
+        if (connect.Length > 0)
+        {
+            using var channel = GrpcChannel.ForAddress(RemoteAddress(connect));
+            var remote = new GeneratedParrot.ParrotClient(channel);
+
+            return await Drive(remote, paths, configuration, model, prompt, output, error, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var provider = await ResolveProvider(error, cancellationToken).ConfigureAwait(false);
@@ -292,9 +358,23 @@ internal static class CommandDispatcher
         using var store = new SessionStore(
             paths.State, Directory.GetCurrentDirectory(), Environment.MachineName, BuiltinTools(), ProcessRunner.Locate());
         using var service = new ParrotService(provider, store);
-        var client = ClientFor(service);
-        var prompt = string.Join(' ', words);
 
+        return await Drive(
+            ClientFor(service), paths, configuration, model, prompt, output, error, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    // Shared by local and remote: one prompt is one-shot, otherwise a REPL.
+    private static async Task<int> Drive(
+        GeneratedParrot.ParrotClient client,
+        StatePaths paths,
+        Configuration configuration,
+        string model,
+        string prompt,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
         // A prompt on the command line, or piped stdin, means the caller wants
         // one answer and not a session. Scripts and CI depend on that.
         if (prompt.Length > 0 || Console.IsInputRedirected)

@@ -27,6 +27,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="Grpc.Net.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Parrot.Core/Parrot.Core.csproj" />
   </ItemGroup>
 
