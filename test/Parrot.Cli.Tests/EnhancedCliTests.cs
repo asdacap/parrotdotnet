@@ -107,6 +107,51 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Before_render_runs_once_for_the_first_visible_event(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        Event[] events =
+        [
+            new Event { Id = "none" },
+            new Event { Id = "admitted-before-turn", InputAdmitted = new InputAdmitted { Content = "sent" } },
+            new Event { Id = "promoted", InputPromoted = new InputPromoted { InputId = "input" } },
+            new Event { Id = "retry", RetryNotice = new RetryNotice { Attempt = 1 } },
+            new Event { Id = "started", TurnStarted = new TurnStarted { Model = "model" } },
+            new Event { Id = "tool-chunk", ToolCallChunk = new ToolCallChunk { ToolName = "shell" } },
+            new Event { Id = "first-visible", TextChunk = new TextChunk { Fragment = "answer" } },
+            new Event { Id = "later-visible", ToolStarted = new ToolStarted { ToolName = "shell" } },
+            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+        ];
+        foreach (var published in events)
+        {
+            await stream.WriteAsync(published, cancellationToken);
+        }
+
+        stream.Complete();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var callbackIds = new List<string>();
+
+        async Task BeforeRender(Event published, CancellationToken token)
+        {
+            callbackIds.Add(published.Id);
+            await output.WriteAsync($"before:{published.Id}|".AsMemory(), token);
+        }
+
+        var completed = await EnhancedCli.RenderTurn(
+            stream.Reader,
+            output,
+            error,
+            static () => 80,
+            cancellationToken,
+            BeforeRender);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(string.Join(',', callbackIds)).IsEqualTo("first-visible");
+        _ = await Assert.That(output.ToString()).StartsWith("before:first-visible|");
+    }
+
+    [Test]
     public async Task Failure_commits_the_live_suffix_and_reports_sanitized_error(
         CancellationToken cancellationToken)
     {
