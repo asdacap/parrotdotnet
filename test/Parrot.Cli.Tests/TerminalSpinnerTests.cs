@@ -39,7 +39,7 @@ internal sealed class TerminalSpinnerTests
 
         _ = await Assert.That(string.Join(',', indices)).IsEqualTo("0,0");
         _ = await Assert.That(output.GetStringBuilder().Length).IsGreaterThan(afterFirstRun);
-        _ = await Assert.That(output.ToString()).EndsWith("\r\u001b[?25h");
+        _ = await Assert.That(output.ToString()).EndsWith("\r\u001b[?7h\u001b[?25h");
 
         async Task Lifetime(Func<Task> stop, CancellationToken token)
         {
