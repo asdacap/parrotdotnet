@@ -4,6 +4,8 @@ internal interface ILLMProvider
 {
     string Id { get; }
 
+    ValueTask<bool> HasCredential(CancellationToken cancellationToken);
+
     Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken);
 
     // Streaming is an IAsyncEnumerable, per MIGRATION.md section 3. The last

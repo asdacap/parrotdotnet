@@ -36,6 +36,9 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
     // The bundled catalogue stands in until the Codex endpoint is reached.
     public static IReadOnlyList<LLMModel> SeedModels() => BundledModels();
 
+    public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
+        _tokens.HasCredential(cancellationToken);
+
     public async Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken)
     {
         var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);

@@ -14,6 +14,24 @@ internal sealed class ProviderRegistryBuilder(
     HttpClient httpClient,
     IBrowserOpener browser)
 {
+    public static IReadOnlyList<string> BuildableProviderIds(Configuration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        return
+        [
+            ChatGptProvider.ProviderId,
+            .. configuration.Providers.Keys
+                .Concat(ProviderPresets.PresetOnlyIds(configuration.Providers.Keys))
+                .Where(id => id != ChatGptProvider.ProviderId)
+                .Where(id => FirstNonEmpty(
+                    configuration.Providers.GetValueOrDefault(id)?.BaseUrl,
+                    ProviderPresets.All.GetValueOrDefault(id)?.BaseUrl).Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(id => id, StringComparer.Ordinal),
+        ];
+    }
+
     public Task<ProviderRegistry> Build()
     {
         var chatgpt = new ChatGptProvider(ChatGptTokens(), httpClient);
@@ -24,11 +42,7 @@ internal sealed class ProviderRegistryBuilder(
         };
 
         var configured = configuration.Providers;
-        var ids = configured.Keys
-            .Concat(ProviderPresets.PresetOnlyIds(configured.Keys))
-            .Where(id => id != ChatGptProvider.ProviderId)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(id => id, StringComparer.Ordinal);
+        var ids = BuildableProviderIds(configuration).Where(id => id != ChatGptProvider.ProviderId);
 
         foreach (var id in ids)
         {

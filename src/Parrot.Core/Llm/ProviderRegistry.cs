@@ -48,23 +48,41 @@ internal sealed class ProviderRegistry
     public IReadOnlyList<LLMModel> Models(string providerId) =>
         _catalogues.TryGetValue(providerId, out var models) ? models : [];
 
-    // Best effort: a provider that cannot be reached, or has no usable
-    // credential, keeps the catalogue it was seeded with.
-    public async Task RefreshAll(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ProviderModel>> AvailableModels(CancellationToken cancellationToken)
     {
+        var available = new List<ProviderModel>();
+
         foreach (var provider in _ordered)
         {
+            bool hasCredential;
+
+            try
+            {
+                hasCredential = await provider.HasCredential(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (IsRefreshFailure(failure))
+            {
+                continue;
+            }
+
+            if (!hasCredential)
+            {
+                continue;
+            }
+
             try
             {
                 _catalogues[provider.Id] = await provider.ListModels(cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception failure) when (
-                failure is LLMProviderException or Wire.ProviderHttpException or Wire.HeaderTimeoutException
-                    or Wire.WireProtocolException or Auth.AuthException or HttpRequestException or IOException)
+            catch (Exception failure) when (IsRefreshFailure(failure))
             {
                 // A refresh failure is not fatal; the seeded catalogue stands in.
             }
+
+            available.AddRange(Models(provider.Id).Select(model => new ProviderModel(provider, model)));
         }
+
+        return available;
     }
 
     // Resolves a "provider/model" selection. An empty provider takes the
@@ -96,6 +114,10 @@ internal sealed class ProviderRegistry
 
         return ResolveForProvider(provider, modelId);
     }
+
+    private static bool IsRefreshFailure(Exception failure) =>
+        failure is LLMProviderException or Wire.ProviderHttpException or Wire.HeaderTimeoutException
+            or Wire.WireProtocolException or Auth.AuthException or HttpRequestException or IOException;
 
     private ProviderModel ResolveForProvider(ILLMProvider provider, string modelId)
     {

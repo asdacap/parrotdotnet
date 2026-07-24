@@ -62,6 +62,9 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     // The offline catalogue: what is selectable before the endpoint is reached.
     public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults);
 
+    public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
+        _apiKeySource.HasCredential(cancellationToken);
+
     public async Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken)
     {
         var body = await HttpStreaming

@@ -5,5 +5,7 @@ namespace Parrot.Auth;
 // The provider owns refresh through this seam, per architecture principle 4.
 internal interface IOAuthTokenSource
 {
+    ValueTask<bool> HasCredential(CancellationToken cancellationToken);
+
     Task<OAuthAccess> Token(CancellationToken cancellationToken);
 }

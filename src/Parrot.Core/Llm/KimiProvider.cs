@@ -24,6 +24,9 @@ internal sealed class KimiProvider : ILLMProvider, IUsageReporter
 
     public string Id => _inner.Id;
 
+    public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
+        _inner.HasCredential(cancellationToken);
+
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
         _inner.ListModels(cancellationToken);
 

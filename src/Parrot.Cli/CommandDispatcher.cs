@@ -48,7 +48,7 @@ internal static class CommandDispatcher
     private static readonly HttpClient Http =
         new(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
 
-    private static readonly IBrowserOpener Browser = new SystemBrowserOpener();
+    private static readonly IBrowserOpener Browser = new SystemBrowserOpener(System.Diagnostics.Process.Start);
 
     // The single top-level Run. Every other Run is a descendant of this call.
     public static async Task<int> Run(
@@ -132,9 +132,18 @@ internal static class CommandDispatcher
         }
         else if (provider == ChatGptProvider.ProviderId)
         {
-            await AuthFlows
-                .OAuthLogin(OAuthClient(), store, arguments.Contains("--device"), output, cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await AuthFlows
+                    .OAuthLogin(OAuthClient(), store, arguments.Contains("--device"), output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (AuthException failure)
+            {
+                await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                return ExitFailure;
+            }
         }
         else
         {
@@ -192,6 +201,12 @@ internal static class CommandDispatcher
                 .ConfigureAwait(false);
         }
 
+        if (listed.Models.Count == 0)
+        {
+            await output.WriteLineAsync("no providers are configured".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return ExitSuccess;
     }
 
@@ -222,12 +237,6 @@ internal static class CommandDispatcher
     }
 
     private static OpenAiOAuthClient OAuthClient() => new(Http, Browser, new OpenAiOAuthOptions());
-
-    private static string ProviderOf(string model)
-    {
-        var slash = model.IndexOf('/', StringComparison.Ordinal);
-        return slash < 0 ? string.Empty : model[..slash];
-    }
 
     private static async Task<int> Serve(
         IReadOnlyList<string> arguments,
@@ -373,7 +382,7 @@ internal static class CommandDispatcher
             var remote = new GeneratedParrot.ParrotClient(channel);
 
             return await Drive(
-                remote, Renderer(basic), paths, configuration, model, prompt, output, error, cancellationToken)
+                remote, Renderer(basic), paths, configuration, model, prompt, Console.In, output, error, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -393,6 +402,7 @@ internal static class CommandDispatcher
             configuration,
             model,
             prompt,
+            Console.In,
             output,
             error,
             cancellationToken).ConfigureAwait(false);
@@ -412,6 +422,7 @@ internal static class CommandDispatcher
         Configuration configuration,
         string model,
         string prompt,
+        TextReader input,
         TextWriter output,
         TextWriter error,
         CancellationToken cancellationToken)
@@ -421,7 +432,7 @@ internal static class CommandDispatcher
         // Piped stdin is one answer, not a session. Scripts and CI depend on it.
         if (text.Length == 0 && Console.IsInputRedirected)
         {
-            text = (await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+            text = (await input.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
 
             if (text.Length == 0)
             {
@@ -447,10 +458,18 @@ internal static class CommandDispatcher
         }
 
         var context = new SlashContext(
-            client, credentials, OAuthClient(), configuration, ProviderOf(model), session.Id, output, error);
+            client,
+            credentials,
+            OAuthClient(),
+            configuration,
+            ProviderRegistryBuilder.BuildableProviderIds(configuration),
+            session.Id,
+            input,
+            output,
+            error);
 
         var driver = new CliDriver(client, renderer, BuildRegistry(model));
 
-        return await driver.Run(context, text, Console.In, output, cancellationToken).ConfigureAwait(false);
+        return await driver.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
     }
 }

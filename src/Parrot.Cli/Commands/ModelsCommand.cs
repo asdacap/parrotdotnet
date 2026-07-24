@@ -23,6 +23,12 @@ internal sealed class ModelsCommand : ISlashCommand
                 .ConfigureAwait(false);
         }
 
+        if (listed.Models.Count == 0)
+        {
+            await context.Output.WriteLineAsync("  no providers are configured".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return SlashOutcome.Continue;
     }
 }
