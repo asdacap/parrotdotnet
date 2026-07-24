@@ -89,10 +89,18 @@ Two things fall out of this, and both are the opposite of the obvious guess.
 **gRPC is not what costs.** The service model, the codec, and the generated
 code together are about 1.6 MB. The HTTP/2 host is 7.8 MB, and it is not
 slimmable: dropping from `CreateSlimBuilder` to `CreateEmptyBuilder` with only
-`UseKestrelCore` and `AddRoutingCore` saves 0.6 MB. There is no thin
-gRPC-over-HTTP/2 stack in .NET. The one alternative server, `Grpc.Core`, is the
-C-core binding — end-of-life since 2021, and a native shared library, so it
-cannot be statically linked at all.
+`UseKestrelCore` and `AddRoutingCore` saves 0.6 MB.
+
+This is by design, not a configuration miss. [grpc-dotnet](https://github.com/grpc/grpc-dotnet)
+ships three packages — `Grpc.AspNetCore`, `Grpc.Net.Client`,
+`Grpc.Net.ClientFactory` — and describes the first as "an ASP.NET Core framework
+for hosting gRPC services". There is no server that does not host on ASP.NET
+Core. The client half is cheap; it is `HttpClient` over HTTP/2.
+
+The only other implementation, `Grpc.Core`, is the C-core binding: in
+maintenance mode since May 2021 and slated for deprecation in favour of
+grpc-dotnet, and a native shared library, so it could not be statically linked
+here regardless.
 
 **A thinner option exists, but it is not gRPC.** Length-delimited protobuf over
 a unix socket lands at 3.0 MB, keeps the `.proto` as the schema and `Grpc.Tools`
