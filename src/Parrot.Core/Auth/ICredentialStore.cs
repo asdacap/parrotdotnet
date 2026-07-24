@@ -1,6 +1,6 @@
 namespace Parrot.Auth;
 
-public interface ICredentialStore
+internal interface ICredentialStore
 {
     ValueTask<string?> Get(string providerId, CancellationToken cancellationToken);
 

@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Parrot.Llm;
 
-public sealed class WireRequest
+internal sealed class WireRequest
 {
     [JsonPropertyName("model")]
     public string Model { get; init; } = string.Empty;
@@ -14,5 +14,5 @@ public sealed class WireRequest
     public int MaxTokens { get; init; }
 
     [JsonPropertyName("messages")]
-    public List<WireMessage> Messages { get; init; } = [];
+    public IReadOnlyList<WireMessage> Messages { get; init; } = [];
 }

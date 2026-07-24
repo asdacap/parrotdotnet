@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Parrot.Llm;
 
-public sealed class WireMessage
+internal sealed class WireMessage
 {
     [JsonPropertyName("role")]
     public string Role { get; init; } = string.Empty;

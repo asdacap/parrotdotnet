@@ -1,6 +1,6 @@
 namespace Parrot.Llm;
 
-public enum LLMEventKind
+internal enum LLMEventKind
 {
     TextDelta,
     ReasoningDelta,

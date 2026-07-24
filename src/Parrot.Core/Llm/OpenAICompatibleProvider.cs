@@ -6,7 +6,7 @@ namespace Parrot.Llm;
 // One provider for every endpoint speaking chat-completions. It holds no
 // conversation and nothing between calls; the sink is a parameter, so there is
 // no outbound dependency to hold either.
-public sealed class OpenAICompatibleProvider(string id, Uri baseAddress, string apiKey, HttpClient client)
+internal sealed class OpenAICompatibleProvider(string id, Uri baseAddress, string apiKey, HttpClient client)
     : ILLMProvider
 {
     public string Id { get; } = id;

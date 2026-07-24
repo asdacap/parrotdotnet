@@ -2,7 +2,7 @@ namespace Parrot.Llm;
 
 // The final, durable state of one call. Live deltas went to the sink and are
 // disposable; this is what survives (principle 10).
-public sealed record LLMResult
+internal sealed record LLMResult
 {
     public required string Text { get; init; }
 

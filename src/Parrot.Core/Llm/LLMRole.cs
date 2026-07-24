@@ -1,6 +1,6 @@
 namespace Parrot.Llm;
 
-public enum LLMRole
+internal enum LLMRole
 {
     System,
     User,

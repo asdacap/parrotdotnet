@@ -283,8 +283,6 @@ dotnet_diagnostic.CA1034.severity = none   # nested public types
 dotnet_diagnostic.CA1051.severity = none   # visible instance fields (records/structs)
 dotnet_diagnostic.CA1062.severity = none   # nullable reference types cover this
 dotnet_diagnostic.CA1303.severity = none   # no resource-table localization
-dotnet_diagnostic.CA1716.severity = none   # keyword clashes only matter to cross-language implementers
-dotnet_diagnostic.CA2227.severity = none   # wire DTOs are deserialized into, not designed as API
 dotnet_diagnostic.CA1848.severity = none   # LoggerMessage source-gen is not worth it for a CLI
 dotnet_diagnostic.CA2007.severity = none   # no synchronization context in a console host
 

@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Parrot.Core.Tests" />
+    <InternalsVisibleTo Include="parrot" />
   </ItemGroup>
 
 </Project>

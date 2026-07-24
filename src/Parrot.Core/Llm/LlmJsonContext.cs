@@ -5,4 +5,4 @@ namespace Parrot.Llm;
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(WireRequest))]
 [JsonSerializable(typeof(ChatCompletionsWire))]
-public sealed partial class LlmJsonContext : JsonSerializerContext;
+internal sealed partial class LlmJsonContext : JsonSerializerContext;

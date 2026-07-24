@@ -1,6 +1,6 @@
 namespace Parrot.Llm;
 
-public interface ILLMProvider
+internal interface ILLMProvider
 {
     string Id { get; }
 

@@ -1,3 +1,3 @@
 namespace Parrot.Llm;
 
-public sealed record LLMMessage(LLMRole Role, string Content);
+internal sealed record LLMMessage(LLMRole Role, string Content);

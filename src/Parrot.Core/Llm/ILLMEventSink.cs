@@ -1,6 +1,6 @@
 namespace Parrot.Llm;
 
-public interface ILLMEventSink
+internal interface ILLMEventSink
 {
     ValueTask Publish(LLMEvent llmEvent, CancellationToken cancellationToken);
 }

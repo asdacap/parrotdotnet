@@ -3,7 +3,7 @@ using Parrot.Llm;
 
 namespace Parrot.Core.Tests;
 
-public class OpenAICompatibleProviderTests
+internal sealed class OpenAICompatibleProviderTests
 {
     // Captured verbatim from the live OpenCode Go endpoint: content and
     // reasoning_content arrive as separate fields on the same delta.

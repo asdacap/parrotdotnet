@@ -101,18 +101,29 @@ held to the same standard as `src`.
 
 ## Adding an exception
 
-In order of preference:
+**You do not turn a rule off.** Not repository-wide, not per-file, not inline.
+`#pragma warning disable` and `[SuppressMessage]` are not permitted either. The
+rule list in `.editorconfig` is the settled set; adding to the disabled block is
+not a normal move and needs the same scrutiny as changing the language version.
 
-1. **Change the code.** In almost every case the analyzer is right and the fix
-   is smaller than the argument.
-2. **Turn the rule off repository-wide** in `.editorconfig`, in the appropriate
-   section, with a comment stating why. This is the right move when the rule
-   targets redistributable-library design and Parrot is an application — see the
-   existing `CA1002` / `CA1034` / `CA1062` block.
-3. **Turn it off for test projects only**, in `Directory.Build.targets`.
+So there is one option: **change the code.** In practice the analyzer is right,
+and the fix is both smaller than the argument and better than what you wrote.
 
-Inline `#pragma warning disable` and `[SuppressMessage]` are not permitted. A
-suppression that is invisible in configuration is a suppression nobody reviews.
+The instructive case is `CA1716`, which flags a member whose name collides with
+a keyword reserved in another language — it fired on `ILLMProvider.Call`,
+`ICredentialStore.Get`, and `.Set`. Turning it off looked defensible: it targets
+cross-language library consumers and Parrot is an application. Renaming looked
+bad too, since those names are the ones the design chose.
+
+Both were wrong, and the third option was better than either. `CA1716` only
+applies to **externally visible** members, and `Parrot.Core` is an application
+assembly whose types had no business being `public` in the first place. Making
+them `internal` — with `InternalsVisibleTo` for the test project and the
+executable — silenced the rule by fixing the real defect, and kept the names.
+
+That is the shape to look for. A rule firing on code you believe is correct
+usually means the code is more public, more mutable, or more general than it
+needs to be.
 
 `IL2xxx` and `IL3xxx` are never suppressible by any of these routes. An AOT
 violation is a design problem; see MIGRATION.md §2.

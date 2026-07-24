@@ -4,7 +4,7 @@ namespace Parrot.Core.Tests;
 
 // The sink being a parameter is what makes this possible at all: no broker, no
 // container, no session.
-public sealed class RecordingEventSink : ILLMEventSink
+internal sealed class RecordingEventSink : ILLMEventSink
 {
     public List<LLMEvent> Events { get; } = [];
 

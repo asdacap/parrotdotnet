@@ -1,6 +1,6 @@
 namespace Parrot.State;
 
-public sealed class StatePaths(string state, string config, string data)
+internal sealed class StatePaths(string state, string config, string data)
 {
     public string State { get; } = state;
 

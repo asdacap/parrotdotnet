@@ -245,9 +245,9 @@ From this repository's `AGENTS.md`:
 - Do not add a project to the solution without recording the reason in
   `docs/components.md`. Namespaces are the unit of separation here, not
   assemblies.
-- Do not suppress an analyzer inline. Exceptions go in `.editorconfig` or
-  `Directory.Build.targets` with a comment giving the reason — see
-  `docs/style.md`.
+- Do not turn an analyzer off — not inline, not per-file, not repository-wide.
+  Change the code instead; see `docs/style.md` for why that is almost always
+  the better fix.
 - Do not widen `NoWarn`, lower `AnalysisLevel`, or turn off
   `TreatWarningsAsErrors` for any project.
 - Do not commit commented-out code, `TODO` without an owner, or a stub that

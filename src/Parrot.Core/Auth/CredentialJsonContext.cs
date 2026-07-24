@@ -6,4 +6,4 @@ namespace Parrot.Auth;
 // serialization, and the AOT analyzer enforces it.
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(Dictionary<string, string>))]
-public sealed partial class CredentialJsonContext : JsonSerializerContext;
+internal sealed partial class CredentialJsonContext : JsonSerializerContext;

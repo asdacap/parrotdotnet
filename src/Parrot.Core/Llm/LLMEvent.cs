@@ -1,6 +1,6 @@
 namespace Parrot.Llm;
 
-public sealed record LLMEvent
+internal sealed record LLMEvent
 {
     public required LLMEventKind Kind { get; init; }
 

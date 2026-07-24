@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Parrot.Llm;
 
-public sealed class WireUsage
+internal sealed class WireUsage
 {
     [JsonPropertyName("prompt_tokens")]
     public int PromptTokens { get; init; }

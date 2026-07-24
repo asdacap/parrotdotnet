@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Parrot.Llm;
 
-public sealed class WireDelta
+internal sealed class WireDelta
 {
     [JsonPropertyName("content")]
     public string? Content { get; init; }

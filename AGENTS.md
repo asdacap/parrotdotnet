@@ -8,6 +8,7 @@
 - No subclass unless necessary.
 - No subinterface unless necessary.
 - Interfaces and implementations are fine and in fact preferable.
+- NEVER turn of lint rules repo wide.
 
 ## Async lifecycle
 
@@ -80,9 +81,11 @@ AOT-clean.
 - **Do not deviate from the plan.** If the plan is wrong, stop and say so rather
   than improvising a fix.
 - **Do not port a component the map does not name.** Fix the map first.
-- **No inline suppressions.** `#pragma warning disable` and `[SuppressMessage]`
-  are not permitted; exceptions live in `.editorconfig` or
-  `Directory.Build.targets` with a stated reason.
+- **Never turn a rule off.** Not inline, not per-file, not repository-wide.
+  `#pragma warning disable` and `[SuppressMessage]` are not permitted, and
+  neither is adding to the disabled block in `.editorconfig`. Change the code.
+  A rule firing on code you believe is correct usually means the code is more
+  public, more mutable, or more general than it needs to be.
 - **No reflection, no reflection-based JSON.** Source generation only.
 - **No stubs that return plausible values.** An unimplemented path throws.
 - **Matching an id to change behaviour is an antipattern.** Put it on the

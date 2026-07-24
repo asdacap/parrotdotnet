@@ -2,7 +2,7 @@ using System.Reflection;
 
 namespace Parrot;
 
-public static class BuildInfo
+internal static class BuildInfo
 {
     public const string ProductName = "parrot";
 

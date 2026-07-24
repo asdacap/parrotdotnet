@@ -4,7 +4,7 @@ namespace Parrot.Auth;
 
 // Secrets live in the private data directory, written whole-file so a reader
 // never observes a partial map.
-public sealed class FileCredentialStore(string path) : ICredentialStore, IDisposable
+internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 

@@ -1,6 +1,6 @@
 namespace Parrot.Llm;
 
-public sealed record LLMRequest
+internal sealed record LLMRequest
 {
     public required string Model { get; init; }
 
