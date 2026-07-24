@@ -3,7 +3,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class WaitAgentTool(AgentRegistry agents, AgentSession session) : ITool
+internal sealed class WaitAgentTool(AgentRegistry agents) : ITool
 {
     public string Name => "wait_agent";
 
@@ -44,9 +44,7 @@ internal sealed class WaitAgentTool(AgentRegistry agents, AgentSession session) 
 
         try
         {
-            return (await agents.Wait(
-                session,
-                sessionId,
+            return (await agents.Get(sessionId).WaitChild(
                 yieldAfterMilliseconds,
                 cancellationToken).ConfigureAwait(false)).FormatWait();
         }

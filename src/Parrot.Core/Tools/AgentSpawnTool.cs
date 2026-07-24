@@ -33,7 +33,8 @@ internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session)
 
         try
         {
-            return Task.FromResult(agents.Spawn(session, prompt, requestedName).FormatSpawn());
+            var child = agents.Spawn(session, requestedName);
+            return Task.FromResult(child.StartChild(prompt).FormatSpawn());
         }
         catch (AgentRegistryException failure)
         {
