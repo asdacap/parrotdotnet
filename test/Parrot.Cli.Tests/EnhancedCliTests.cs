@@ -162,6 +162,40 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Finished_shell_tool_flushes_its_command_to_scrollback(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false));
+        var view = new EnhancedCli.RawActivityView(
+            renderer,
+            static () => new PromptValue("> ", string.Empty, 0),
+            static () => new ModelineValue("build", "working", "provider/model"));
+
+        await view.Render(
+            new Event
+            {
+                ToolCallChunk = new ToolCallChunk
+                {
+                    ToolCallId = "call-1",
+                    ToolName = "exec_command",
+                    ArgumentsFragment = "{\"command\":\"dotnet test\"}",
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                ToolFinished = new ToolFinished { ToolCallId = "call-1", ToolName = "exec_command" },
+            },
+            cancellationToken);
+
+        var rendered = output.ToString();
+        var command = "tool call exec_command: {\"command\":\"dotnet test\"}";
+        _ = await Assert.That(rendered).Contains(command + "\r\n+ exec_command finished\r\n");
+        _ = await Assert.That(Count(rendered, command + "\r\n")).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Failure_commits_the_live_suffix_and_reports_sanitized_error(
         CancellationToken cancellationToken)
     {
