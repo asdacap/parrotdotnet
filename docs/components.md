@@ -779,9 +779,20 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   the first streamed event. Each later activity event replaces that live frame,
   whose distinct background separates it from permanent scrollback, while one
   modeline and editor remain below it. Completion, interruption, EOF, cancellation,
-  and failures cancel and join the animation before clearing it. Picker,
-  markdown, modal prompts, and richer multi-row activity frames remain deferred
-  M7 work.
+  and failures cancel and join the animation before clearing it. Assistant text
+  uses the upstream terminal-safe Markdown subset: headings, blockquotes, lists,
+  task boxes, thematic rules, tables, inline emphasis/code/links, and fenced code.
+  Known fence languages use an embedded, AOT-safe lexical colorizer with the
+  upstream ANSI token palette; unknown/plain and no-color output remain plain.
+  Highlighting is bounded at 512 KiB and 10,000 lines. Picker, modal prompts, and
+  richer multi-row activity frames remain deferred M7 work.
+
+- **Divergence.** Chroma has no .NET port, and adding a reflection-discovered
+  grammar package would violate Native AOT. The embedded colorizer recognizes a
+  finite language list and preserves multiline block comments and Python triple
+  strings, but its token classification is deliberately more conservative than
+  Chroma's full grammars. Markdown structure, fallback rules, colors, and safety
+  limits remain the same.
 
 ## Assemblies
 

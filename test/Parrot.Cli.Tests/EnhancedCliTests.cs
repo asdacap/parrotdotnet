@@ -110,6 +110,42 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Split_markdown_chunks_are_promoted_to_scrollback_once(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        Event[] events =
+        [
+            new Event { Id = "start", TurnStarted = new TurnStarted { Model = "model" } },
+            new Event { Id = "text-1", TextChunk = new TextChunk { Fragment = "# Head" } },
+            new Event { Id = "text-2", TextChunk = new TextChunk { Fragment = "ing\n**bo" } },
+            new Event { Id = "text-3", TextChunk = new TextChunk { Fragment = "ld**" } },
+            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+        ];
+        foreach (var published in events)
+        {
+            await stream.WriteAsync(published, cancellationToken);
+        }
+
+        stream.Complete();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var completed = await EnhancedCli.RenderTurn(
+            stream.Reader,
+            output,
+            error,
+            static () => 80,
+            cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(error.ToString()).IsEmpty();
+        _ = await Assert.That(output.ToString()).Contains("Heading\n");
+        _ = await Assert.That(output.ToString()).Contains("bold\n");
+        _ = await Assert.That(Count(output.ToString(), "Heading\n")).IsEqualTo(1);
+        _ = await Assert.That(Count(output.ToString(), "bold\n")).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Before_render_runs_before_each_event(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();
