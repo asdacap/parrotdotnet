@@ -69,6 +69,8 @@ internal static class Identifier
 
     public static string InputId() => $"inp-{Opaque()}";
 
+    public static string TodoId() => $"todo-{Opaque()}";
+
     private static string Opaque() =>
         Guid.CreateVersion7().ToString("n", System.Globalization.CultureInfo.InvariantCulture);
 

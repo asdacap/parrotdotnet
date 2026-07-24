@@ -81,6 +81,19 @@ internal sealed class SessionDatabase : IDisposable
                 CREATE UNIQUE INDEX IF NOT EXISTS input_by_message ON input (agent_session, message_id);
 
                 CREATE INDEX IF NOT EXISTS input_pending ON input (agent_session, status, sequence);
+
+                CREATE TABLE IF NOT EXISTS todo (
+                    agent_session TEXT NOT NULL,
+                    id            TEXT NOT NULL,
+                    position      INTEGER NOT NULL CHECK (position >= 0),
+                    content       TEXT NOT NULL,
+                    status        TEXT NOT NULL,
+                    priority      TEXT NOT NULL,
+                    PRIMARY KEY (agent_session, id),
+                    UNIQUE (agent_session, position)
+                );
+
+                CREATE INDEX IF NOT EXISTS todo_by_session ON todo (agent_session, position);
                 """;
             _ = schema.ExecuteNonQuery();
         }

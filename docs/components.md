@@ -441,6 +441,16 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 - **Note** it is also the `ILLMEventSink` implementer, attaching `session_id`
   and `task_id` to make a wire `Event` from an `LLMEvent`.
 
+### `AgentSession` — todos (ported 2026-07-24)
+
+`TodoCollection` is the session-owned todo sub-object. `todoread` returns its
+ordered durable state, while `todowrite` validates and transactionally replaces
+the complete list, assigning ids and positions where required. A successful
+replacement records a `TodoUpdated` event in the same database transaction and
+then publishes it, so persisted state and replay cannot disagree. Todo rows and
+events are scoped by agent session; the tools reach the sub-object through the
+`AgentSession` they are constructed for rather than through a separate service.
+
 ### `AgentSession` — admitted input and the drain (ported 2026-07-24)
 
 `Admit` records a prompt durably and wakes the drain; `Interrupt` stops the turn
