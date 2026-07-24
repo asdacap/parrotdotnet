@@ -92,6 +92,7 @@
               nil
             ]
             ++ aotToolchain
+            ++ lib.optionals pkgs.stdenv.isLinux [pkgs.bubblewrap]
             ++ lib.optionals (system == "x86_64-linux") [muslToolchain muslLinker];
 
           env = {
