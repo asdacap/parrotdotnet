@@ -9,7 +9,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Draw_and_clear_emit_exact_frame_and_caret_bytes(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 12, static () => 24, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
         var frame = new TerminalFrame(
             ["live\u001b[2J"],
             new SpinnerValue("thinking", 0),
@@ -24,13 +24,13 @@ internal sealed class TerminalFrameRendererTests
         var draw = rendered[..boundary];
         var clear = rendered[boundary..];
 
-        _ = await Assert.That(Count(draw, "\u001b[2K")).IsEqualTo(24);
+        _ = await Assert.That(Count(draw, "\u001b[2K")).IsEqualTo(5);
         _ = await Assert.That(draw).Contains("\u001b[2Klive[2J     \r\n");
         _ = await Assert.That(draw).Contains("\u001b[2K⠋ thinking  \r\n");
         _ = await Assert.That(draw).Contains("\u001b[2Kchat   model\r\n");
         _ = await Assert.That(draw).Contains("\u001b[2K> ab        \r\n");
         _ = await Assert.That(draw).Contains("\u001b[2K界x         \u001b[1A");
-        _ = await Assert.That(Count(clear, "\u001b[2K")).IsEqualTo(24);
+        _ = await Assert.That(Count(clear, "\u001b[2K")).IsEqualTo(5);
         _ = await Assert.That(rendered).DoesNotContain("\u001b[?1049");
     }
 
@@ -38,7 +38,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Full_width_modeline_is_drawn_without_terminal_autowrap(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 8, static () => 24, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 10, 12);
 
         await renderer.Draw(
             new TerminalFrame(
@@ -59,7 +59,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Live_rows_have_a_full_width_distinct_background(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 8, static () => 24, new TerminalPalette(true));
+        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(true), 10, 12);
 
         await renderer.Draw(
             new TerminalFrame(
@@ -78,7 +78,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Flushing_activities_redraws_the_live_frame(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 24, static () => 24, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
         var initial = new TerminalFrame(
             ["running"],
             null,
@@ -106,7 +106,7 @@ internal sealed class TerminalFrameRendererTests
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 12, static () => 24, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
         await renderer.Draw(
             new TerminalFrame(
                 ["working"],
@@ -124,14 +124,14 @@ internal sealed class TerminalFrameRendererTests
 
         _ = await Assert.That(user).IsGreaterThan(0);
         _ = await Assert.That(redrawn).IsGreaterThan(user);
-        _ = await Assert.That(Count(committed[..user], "\u001b[2K")).IsEqualTo(24);
+        _ = await Assert.That(Count(committed[..user], "\u001b[2K")).IsEqualTo(4);
     }
 
     [Test]
     public async Task Updating_input_preserves_the_live_frame(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 24, static () => 24, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
         await renderer.Draw(
             new TerminalFrame(
                 ["tool running"],
@@ -159,11 +159,11 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
-    public async Task Height_bounds_the_character_surface_and_clips_oldest_live_rows(
+    public async Task Live_row_budget_clips_oldest_activity_without_reducing_input(
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 8, static () => 4, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 2, 12);
 
         await renderer.Draw(
             new TerminalFrame(
@@ -183,10 +183,35 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
+    public async Task Input_row_budget_is_independent_and_keeps_the_caret_visible(
+        CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 2, 2);
+
+        await renderer.Draw(
+            new TerminalFrame(
+                ["live one", "live two"],
+                null,
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", "one\ntwo\nthree\nfour", 18)),
+            cancellationToken);
+
+        var rendered = output.ToString();
+        _ = await Assert.That(Count(rendered, "\u001b[2K")).IsEqualTo(5);
+        _ = await Assert.That(rendered).Contains("live one");
+        _ = await Assert.That(rendered).Contains("live two");
+        _ = await Assert.That(rendered).DoesNotContain("> one");
+        _ = await Assert.That(rendered).DoesNotContain("two         ");
+        _ = await Assert.That(rendered).Contains("three");
+        _ = await Assert.That(rendered).Contains("four");
+    }
+
+    [Test]
     public async Task Concurrent_draws_are_serialized(CancellationToken cancellationToken)
     {
         using var output = new TrackingTextWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, static () => 24, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
         var frame = new TerminalFrame(
             [],
             null,

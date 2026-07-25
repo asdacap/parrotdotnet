@@ -12,8 +12,6 @@ internal sealed class ConsoleTerminal(TextWriter output, TextWriter error, IRawT
 
     public int GetColumns() => Console.WindowWidth;
 
-    public int GetRows() => Console.WindowHeight;
-
     public ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken) =>
         rawTerminal.Read(buffer, cancellationToken);
 }

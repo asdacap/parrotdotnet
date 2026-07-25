@@ -196,7 +196,7 @@ internal sealed class EnhancedCliTests
     public async Task Finished_shell_tool_flushes_its_command_to_scrollback(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, static () => 24, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
         using var view = new EnhancedCli.RawActivityView(
             renderer,
             static () => new PromptValue("> ", string.Empty, 0),

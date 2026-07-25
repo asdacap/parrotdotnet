@@ -5,9 +5,13 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class TerminalFrameRenderer(
     TextWriter output,
     Func<int> columns,
-    Func<int> rows,
-    TerminalPalette palette)
+    TerminalPalette palette,
+    int maxLiveRows,
+    int maxInputRows)
 {
+    internal const int DefaultInputRows = 12;
+    internal const int DefaultLiveRows = 10;
+
     private const string DisableAutowrap = "\u001b[?7l";
     private const string EnableAutowrap = "\u001b[?7h";
 
@@ -218,34 +222,39 @@ internal sealed class TerminalFrameRenderer(
     private async Task DrawFrame(TerminalFrame frame, CancellationToken cancellationToken)
     {
         var width = Math.Max(1, columns());
-        var height = Math.Max(1, rows());
-        _surface.Resize(width, height);
-        _surface.Clear();
-
         var prompt = frame.Prompt.Sanitize();
         var promptRows = Layout(prompt.Prefix + prompt.Text, width);
         var (cursorRow, cursorCells) = Cursor(prompt, width);
-        var content = frame.Rows
+        var inputLimit = Math.Max(1, maxInputRows);
+        if (promptRows.Count > inputLimit)
+        {
+            var promptStart = Math.Clamp(cursorRow - inputLimit + 1, 0, promptRows.Count - inputLimit);
+            promptRows = promptRows.GetRange(promptStart, inputLimit);
+            cursorRow -= promptStart;
+        }
+
+        var liveRows = frame.Rows
             .SelectMany(value => Layout(TerminalText.Sanitize(value), width))
             .Select(value => new RenderedRow(value, palette.LiveSurface))
             .ToList();
         if (frame.Spinner is { } spinner)
         {
-            content.Add(new RenderedRow(spinner.Render(), palette.Marker));
+            liveRows.Add(new RenderedRow(spinner.Render(), palette.Marker));
         }
 
+        var content = liveRows.TakeLast(Math.Max(1, maxLiveRows)).ToList();
         content.Add(new RenderedRow(frame.Modeline.Render(width), palette.Modeline));
+        var promptStartRow = content.Count;
         content.AddRange(promptRows.Select(value => new RenderedRow(value, palette.Prompt)));
-        var visible = content.TakeLast(height).ToList();
-        var contentStart = height - visible.Count;
-        for (var row = 0; row < visible.Count; row++)
-        {
-            _surface.Write(contentStart + row, 0, visible[row].Text, visible[row].Style);
-        }
 
-        var promptStart = Math.Max(contentStart, height - promptRows.Count);
-        _caretRow = Math.Min(height - 1, promptStart + cursorRow);
-        _renderedHeight = height;
+        _renderedHeight = content.Count;
+        _caretRow = promptStartRow + cursorRow;
+        _surface.Resize(width, _renderedHeight);
+        _surface.Clear();
+        for (var row = 0; row < content.Count; row++)
+        {
+            _surface.Write(row, 0, content[row].Text, content[row].Style);
+        }
 
         await output.WriteAsync($"\u001b[?25l{DisableAutowrap}".AsMemory(), cancellationToken)
             .ConfigureAwait(false);

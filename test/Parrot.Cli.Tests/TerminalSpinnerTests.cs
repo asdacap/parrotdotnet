@@ -13,7 +13,7 @@ internal sealed class TerminalSpinnerTests
         var delays = Channel.CreateUnbounded<int>();
         var delayCount = 0;
         var indices = new ConcurrentQueue<int>();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, static () => 24, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
         var spinner = new TerminalSpinner(renderer, Delay);
 
         TerminalFrame Frame(int index)

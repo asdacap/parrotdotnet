@@ -15,8 +15,6 @@ internal sealed class TestTerminal(TextReader input, TextWriter output, TextWrit
 
     public int GetColumns() => columns;
 
-    public int GetRows() => 24;
-
     public async ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken)
     {
         var line = await Input.ReadLineAsync(cancellationToken).ConfigureAwait(false);

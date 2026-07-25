@@ -89,8 +89,9 @@ internal sealed class EnhancedCli(
         var turnRenderer = renderer ?? new TerminalFrameRenderer(
             terminal.Output,
             terminal.GetColumns,
-            terminal.GetRows,
-            new TerminalPalette(terminal.Color));
+            new TerminalPalette(terminal.Color),
+            TerminalFrameRenderer.DefaultLiveRows,
+            TerminalFrameRenderer.DefaultInputRows);
         var view = new TurnView(
             turnRenderer,
             terminal.Error,
@@ -197,7 +198,11 @@ internal sealed class EnhancedCli(
         var promptSync = new object();
         var currentPrompt = editor.Prompt;
         var renderer = new TerminalFrameRenderer(
-            output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(terminal.Color));
+            output,
+            terminal.GetColumns,
+            new TerminalPalette(terminal.Color),
+            TerminalFrameRenderer.DefaultLiveRows,
+            TerminalFrameRenderer.DefaultInputRows);
         var spinner = new TerminalSpinner(renderer);
         var buffer = new byte[4096];
         var exiting = false;

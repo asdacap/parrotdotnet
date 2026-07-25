@@ -12,7 +12,5 @@ internal interface ITerminal
 
     int GetColumns();
 
-    int GetRows();
-
     ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken);
 }
