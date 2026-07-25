@@ -1,6 +1,6 @@
 namespace Parrot.Cli.Enhanced;
 
-internal sealed class ConsoleTerminal(TextWriter output, TextWriter error) : ITerminal
+internal sealed class ConsoleTerminal(TextWriter output, TextWriter error, IRawTerminal rawTerminal) : ITerminal
 {
     public TextReader Input => Console.In;
 
@@ -8,14 +8,10 @@ internal sealed class ConsoleTerminal(TextWriter output, TextWriter error) : ITe
 
     public TextWriter Error { get; } = error;
 
-    public bool InputRedirected => Console.IsInputRedirected;
-
     public bool Color => Environment.GetEnvironmentVariable("NO_COLOR") is null;
 
     public int GetColumns() => Console.WindowWidth;
 
-    public IRawTerminal? OpenRaw() =>
-        string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
-            ? null
-            : UnixRawTerminal.Open();
+    public ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken) =>
+        rawTerminal.Read(buffer, cancellationToken);
 }

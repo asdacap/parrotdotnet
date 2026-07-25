@@ -61,18 +61,22 @@ internal sealed class CliLifecycleDriver : IDisposable
         var request = new EnhancedChatRequest(
             new() { Model = "provider/model", Mode = "build" },
             string.Empty);
+        var terminal = new TestTerminal(Input, _output, _error);
 
         return _enhanced
             ? new EnhancedCli(
                 client,
                 commands,
                 Interrupts,
-                credentials,
-                oauth,
-                configuration,
-                ["provider"],
                 request,
-                new TestTerminal(Input, _output, _error, static () => null)).Run(cancellationToken)
+                new EnhancedSlashContextFactory(
+                    client,
+                    credentials,
+                    oauth,
+                    configuration,
+                    ["provider"],
+                    terminal),
+                terminal).Run(cancellationToken)
             : new BasicCli(
                 client,
                 commands,

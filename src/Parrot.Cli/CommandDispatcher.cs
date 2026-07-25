@@ -415,6 +415,28 @@ internal static class CommandDispatcher
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
 
+            using var remoteRawTerminal = OpenRawTerminal();
+            if (remoteRawTerminal is null)
+            {
+                var cli = new BasicCli(
+                    remote,
+                    BuildRegistry(model),
+                    interrupts,
+                    remoteCredentials,
+                    OAuthClient(),
+                    configuration,
+                    remoteProviderIds,
+                    model,
+                    mode,
+                    prompt,
+                    Console.IsInputRedirected,
+                    Console.In,
+                    output,
+                    error);
+                return await cli.Run(cancellationToken).ConfigureAwait(false);
+            }
+
+            var remoteTerminal = new ConsoleTerminal(output, error, remoteRawTerminal);
             var remoteChat = new EnhancedComposition(
                 remote,
                 BuildRegistry(model),
@@ -424,8 +446,7 @@ internal static class CommandDispatcher
                 configuration,
                 remoteProviderIds,
                 new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
-                output,
-                error);
+                remoteTerminal);
             return await remoteChat.Cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
@@ -461,6 +482,28 @@ internal static class CommandDispatcher
             return await cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
+        using var rawTerminal = OpenRawTerminal();
+        if (rawTerminal is null)
+        {
+            var cli = new BasicCli(
+                client,
+                BuildRegistry(model),
+                interrupts,
+                credentials,
+                OAuthClient(),
+                configuration,
+                providerIds,
+                model,
+                mode,
+                prompt,
+                Console.IsInputRedirected,
+                Console.In,
+                output,
+                error);
+            return await cli.Run(cancellationToken).ConfigureAwait(false);
+        }
+
+        var terminal = new ConsoleTerminal(output, error, rawTerminal);
         var enhancedChat = new EnhancedComposition(
             client,
             BuildRegistry(model),
@@ -470,8 +513,12 @@ internal static class CommandDispatcher
             configuration,
             providerIds,
             new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
-            output,
-            error);
+            terminal);
         return await enhancedChat.Cli.Run(cancellationToken).ConfigureAwait(false);
     }
+
+    private static UnixRawTerminal? OpenRawTerminal() =>
+        string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
+            ? null
+            : UnixRawTerminal.Open();
 }
