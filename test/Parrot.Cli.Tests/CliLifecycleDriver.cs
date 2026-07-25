@@ -65,7 +65,10 @@ internal sealed class CliLifecycleDriver : IDisposable
                 false,
                 Input,
                 _output,
-                _error).Run(cancellationToken)
+                _error,
+                static () => 80,
+                static () => null,
+                static () => false).Run(cancellationToken)
             : new BasicCli(
                 client,
                 commands,
