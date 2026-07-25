@@ -102,6 +102,61 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
+    public async Task Committing_user_input_clears_the_owned_frame_before_writing_scrollback(
+        CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false));
+        await renderer.Draw(
+            new TerminalFrame(
+                ["working"],
+                null,
+                new ModelineValue("build", "working", "model"),
+                new PromptValue("> ", "first\nsecond", 7)),
+            cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+
+        await renderer.CommitUserMessage("› ", "first\nsecond", cancellationToken);
+
+        var committed = output.ToString()[boundary..];
+        _ = await Assert.That(committed).StartsWith(
+            "\u001b[?25l\u001b[?7l\r\u001b[3A\u001b[2K\r\n\u001b[2K\r\n" +
+            "\u001b[2K\r\n\u001b[2K\u001b[3A\r\u001b[?7h\u001b[?25h\r\n");
+        _ = await Assert.That(committed).EndsWith("› first\r\nsecond\r\n");
+    }
+
+    [Test]
+    public async Task Updating_input_preserves_the_live_frame(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false));
+        await renderer.Draw(
+            new TerminalFrame(
+                ["tool running"],
+                new SpinnerValue("working", 0),
+                new ModelineValue("build", "working", "model"),
+                new PromptValue("> ", string.Empty, 0)),
+            cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+
+        await renderer.UpdatePrompt(new PromptValue("> ", "unmanaged no more", 17), cancellationToken);
+
+        await renderer.Draw(
+            new TerminalFrame(
+                ["next event"],
+                null,
+                new ModelineValue("build", "working", "model"),
+                new PromptValue("> ", string.Empty, 0)),
+            cancellationToken);
+
+        var updated = output.ToString()[boundary..];
+        _ = await Assert.That(updated).Contains("tool running");
+        _ = await Assert.That(updated).Contains("⠋ working");
+        _ = await Assert.That(updated).Contains("next event");
+        _ = await Assert.That(Count(updated, "> unmanaged no more")).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Concurrent_draws_are_serialized(CancellationToken cancellationToken)
     {
         using var output = new TrackingTextWriter();

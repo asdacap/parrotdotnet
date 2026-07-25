@@ -436,6 +436,7 @@ internal sealed class EnhancedCli(
                     {
                         var entered = editor.Apply(key);
                         UpdatePrompt();
+                        await renderer.UpdatePrompt(CurrentPrompt(), cancellationToken).ConfigureAwait(false);
                         if (entered is not null)
                         {
                             if (entered.Length == 0)
@@ -472,8 +473,7 @@ internal sealed class EnhancedCli(
                             else
                             {
                                 _busy = true;
-                                await output.WriteLineAsync(
-                                    $"› {TerminalText.Sanitize(entered)}".AsMemory(), cancellationToken)
+                                await renderer.CommitUserMessage("› ", entered, cancellationToken)
                                     .ConfigureAwait(false);
                                 _ = await client.SendMessageAsync(
                                     Message(context.UserSessionId, entered), cancellationToken: cancellationToken);

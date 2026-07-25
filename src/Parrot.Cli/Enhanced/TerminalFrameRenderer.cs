@@ -9,15 +9,20 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
 
     private readonly Channel<bool> _drawing = CreateDrawingGate();
     private int _caretRow;
+    private TerminalFrame? _frame;
     private int _height;
+    private PromptValue? _prompt;
 
     public async Task Draw(TerminalFrame frame, CancellationToken cancellationToken)
     {
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var current = frame with { Prompt = _prompt ?? frame.Prompt };
+            _prompt = current.Prompt;
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(frame, CancellationToken.None).ConfigureAwait(false);
+            await DrawFrame(current, CancellationToken.None).ConfigureAwait(false);
+            _frame = current;
         }
         finally
         {
@@ -31,6 +36,7 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         try
         {
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
+            _frame = null;
             await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
         finally
@@ -47,6 +53,7 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         try
         {
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
+            _frame = null;
             await WriteActivities(activities, CancellationToken.None).ConfigureAwait(false);
             await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
@@ -69,6 +76,52 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
             await WriteActivities(activities, CancellationToken.None).ConfigureAwait(false);
             await DrawFrame(frame, CancellationToken.None).ConfigureAwait(false);
+            _frame = frame;
+        }
+        finally
+        {
+            await _drawing.Writer.WriteAsync(true, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    public async Task CommitUserMessage(string prefix, string text, CancellationToken cancellationToken)
+    {
+        _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ClearFrame(CancellationToken.None).ConfigureAwait(false);
+            _frame = null;
+            await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
+            var clean = TerminalText.Sanitize(prefix + text).TrimEnd('\r', '\n');
+            foreach (var row in Layout(clean, Math.Max(1, columns())))
+            {
+                await output.WriteAsync(palette.User.Apply(row).AsMemory(), CancellationToken.None).ConfigureAwait(false);
+                await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
+            }
+
+            await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            await _drawing.Writer.WriteAsync(true, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    public async Task UpdatePrompt(PromptValue prompt, CancellationToken cancellationToken)
+    {
+        _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _prompt = prompt;
+            if (_frame is not { } frame)
+            {
+                return;
+            }
+
+            var updated = frame with { Prompt = prompt };
+            await ClearFrame(CancellationToken.None).ConfigureAwait(false);
+            await DrawFrame(updated, CancellationToken.None).ConfigureAwait(false);
+            _frame = updated;
         }
         finally
         {
