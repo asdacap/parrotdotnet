@@ -415,7 +415,7 @@ internal static class CommandDispatcher
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
 
-            var remoteCli = new EnhancedCli(
+            var remoteChat = new EnhancedComposition(
                 remote,
                 BuildRegistry(model),
                 interrupts,
@@ -423,14 +423,10 @@ internal static class CommandDispatcher
                 OAuthClient(),
                 configuration,
                 remoteProviderIds,
-                model,
-                mode,
-                prompt,
-                Console.IsInputRedirected,
-                Console.In,
+                new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
                 output,
                 error);
-            return await remoteCli.Run(cancellationToken).ConfigureAwait(false);
+            return await remoteChat.Cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
@@ -465,7 +461,7 @@ internal static class CommandDispatcher
             return await cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
-        var enhanced = new EnhancedCli(
+        var enhancedChat = new EnhancedComposition(
             client,
             BuildRegistry(model),
             interrupts,
@@ -473,13 +469,9 @@ internal static class CommandDispatcher
             OAuthClient(),
             configuration,
             providerIds,
-            model,
-            mode,
-            prompt,
-            Console.IsInputRedirected,
-            Console.In,
+            new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
             output,
             error);
-        return await enhanced.Run(cancellationToken).ConfigureAwait(false);
+        return await enhancedChat.Cli.Run(cancellationToken).ConfigureAwait(false);
     }
 }

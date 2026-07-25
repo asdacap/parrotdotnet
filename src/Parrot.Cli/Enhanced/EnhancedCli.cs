@@ -17,16 +17,8 @@ internal sealed class EnhancedCli(
     OpenAiOAuthClient oauthClient,
     Configuration configuration,
     IReadOnlyList<string> providerIds,
-    string model,
-    string mode,
-    string prompt,
-    bool inputRedirected,
-    TextReader input,
-    TextWriter output,
-    TextWriter error,
-    Func<int> columns,
-    Func<IRawTerminal?> rawTerminal,
-    Func<bool> color) : IInterruptListener
+    EnhancedChatRequest request,
+    ITerminal terminal) : IInterruptListener
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
     private const string EnableBracketedPaste = "\u001b[?2004h";
@@ -38,52 +30,13 @@ internal sealed class EnhancedCli(
     private volatile bool _busy;
     private volatile bool _interruptRequested;
 
-    public EnhancedCli(
-        GeneratedParrot.ParrotClient client,
-        SlashCommandRegistry commands,
-        Interrupts interrupts,
-        ICredentialStore credentials,
-        OpenAiOAuthClient oauthClient,
-        Configuration configuration,
-        IReadOnlyList<string> providerIds,
-        string model,
-        string mode,
-        string prompt,
-        bool inputRedirected,
-        TextReader input,
-        TextWriter output,
-        TextWriter error)
-        : this(
-            client,
-            commands,
-            interrupts,
-            credentials,
-            oauthClient,
-            configuration,
-            providerIds,
-            model,
-            mode,
-            prompt,
-            inputRedirected,
-            input,
-            output,
-            error,
-            static () => Console.WindowWidth,
-            static () => string.Equals(
-                Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
-                ? null
-                : UnixRawTerminal.Open(),
-            static () => Environment.GetEnvironmentVariable("NO_COLOR") is null)
-    {
-    }
-
     public async Task<int> Run(CancellationToken cancellationToken)
     {
-        var text = prompt;
+        var text = request.Prompt;
 
-        if (text.Length == 0 && inputRedirected)
+        if (text.Length == 0 && terminal.InputRedirected)
         {
-            text = (await input.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+            text = (await terminal.Input.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
 
             if (text.Length == 0)
             {
@@ -95,12 +48,11 @@ internal sealed class EnhancedCli(
 
         try
         {
-            session = await client.CreateSessionAsync(
-                new CreateSessionRequest { Model = model, Mode = mode }, cancellationToken: cancellationToken);
+            session = await client.CreateSessionAsync(request.Session, cancellationToken: cancellationToken);
         }
         catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
         {
-            await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken)
+            await terminal.Error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return CommandDispatcher.ExitFailure;
         }
@@ -114,13 +66,13 @@ internal sealed class EnhancedCli(
             session.Id,
             session.Model,
             session.Mode,
-            input,
-            output,
-            error);
+            terminal.Input,
+            terminal.Output,
+            terminal.Error);
 
         return text.Length > 0
-            ? await Once(context, text, output, cancellationToken).ConfigureAwait(false)
-            : await Loop(context, input, output, cancellationToken).ConfigureAwait(false);
+            ? await Once(context, text, terminal.Output, cancellationToken).ConfigureAwait(false)
+            : await Loop(context, terminal.Input, terminal.Output, cancellationToken).ConfigureAwait(false);
     }
 
     public bool Interrupted()
@@ -256,9 +208,9 @@ internal sealed class EnhancedCli(
             call.ResponseStream,
             output,
             context.Error,
-            columns,
+            terminal.GetColumns,
             listening.Token,
-            color: color())
+            color: terminal.Color)
             .ConfigureAwait(false);
 
         await listening.CancelAsync().ConfigureAwait(false);
@@ -272,10 +224,10 @@ internal sealed class EnhancedCli(
             $"parrot {BuildInfo.Version} — /help for commands, /exit to leave".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
-        using var terminal = rawTerminal();
-        if (terminal is not null)
+        using var rawTerminal = terminal.OpenRaw();
+        if (rawTerminal is not null)
         {
-            return await RawLoop(context, output, terminal, cancellationToken).ConfigureAwait(false);
+            return await RawLoop(context, output, rawTerminal, cancellationToken).ConfigureAwait(false);
         }
 
         return await LineLoop(context, input, output, cancellationToken).ConfigureAwait(false);
@@ -366,7 +318,7 @@ internal sealed class EnhancedCli(
     private async Task<int> RawLoop(
         SlashContext context,
         TextWriter output,
-        IRawTerminal terminal,
+        IRawTerminal rawTerminal,
         CancellationToken cancellationToken)
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -377,7 +329,7 @@ internal sealed class EnhancedCli(
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
         var promptSync = new object();
         var currentPrompt = editor.Prompt;
-        var renderer = new TerminalFrameRenderer(output, columns, new TerminalPalette(color()));
+        var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(terminal.Color));
         var spinner = new TerminalSpinner(renderer);
         var buffer = new byte[4096];
         var exiting = false;
@@ -411,7 +363,7 @@ internal sealed class EnhancedCli(
             await DrawEditor(renderer, CurrentPrompt(), context, cancellationToken).ConfigureAwait(false);
             while (!cancellationToken.IsCancellationRequested && !exiting)
             {
-                var count = await terminal.Read(buffer, cancellationToken).ConfigureAwait(false);
+                var count = await rawTerminal.Read(buffer, cancellationToken).ConfigureAwait(false);
                 var keys = count == 0 ? decoder.Flush() : decoder.Feed(buffer.AsSpan(0, count));
                 foreach (var key in keys)
                 {
@@ -592,12 +544,12 @@ internal sealed class EnhancedCli(
                     stream,
                     output,
                     error,
-                    columns,
+                    terminal.GetColumns,
                     cancellationToken,
                     BeforeRender,
                     false,
                     activity.Render,
-                    color()).ConfigureAwait(false);
+                    terminal.Color).ConfigureAwait(false);
             }
             finally
             {
@@ -629,7 +581,7 @@ internal sealed class EnhancedCli(
                 stream,
                 output,
                 error,
-                columns,
+                terminal.GetColumns,
                 cancellationToken,
                 (published, _) =>
                 {
@@ -644,7 +596,7 @@ internal sealed class EnhancedCli(
 
                     return Task.CompletedTask;
                 },
-                color: color()).ConfigureAwait(false);
+                color: terminal.Color).ConfigureAwait(false);
             if (!completed && !failed)
             {
                 return;

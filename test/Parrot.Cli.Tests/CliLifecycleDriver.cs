@@ -58,6 +58,9 @@ internal sealed class CliLifecycleDriver : IDisposable
         var credentials = new UnusedCredentials();
         var oauth = new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions());
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        var request = new EnhancedChatRequest(
+            new() { Model = "provider/model", Mode = "build" },
+            string.Empty);
 
         return _enhanced
             ? new EnhancedCli(
@@ -68,16 +71,8 @@ internal sealed class CliLifecycleDriver : IDisposable
                 oauth,
                 configuration,
                 ["provider"],
-                "provider/model",
-                "build",
-                string.Empty,
-                false,
-                Input,
-                _output,
-                _error,
-                static () => 80,
-                static () => null,
-                static () => false).Run(cancellationToken)
+                request,
+                new TestTerminal(Input, _output, _error, static () => null)).Run(cancellationToken)
             : new BasicCli(
                 client,
                 commands,
