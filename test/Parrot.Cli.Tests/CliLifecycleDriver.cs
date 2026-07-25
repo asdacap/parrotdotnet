@@ -51,39 +51,42 @@ internal sealed class CliLifecycleDriver : IDisposable
         }
     }
 
+    public EnhancedCli CreateEnhancedCli() =>
+        CreateEnhancedCli(new TestTerminal(Input, _output, _error, 80));
+
+    public EnhancedCli CreateEnhancedCli(ITerminal terminal)
+    {
+        var client = new GeneratedParrot.ParrotClient(Invoker);
+        return new EnhancedCli(
+            client,
+            new SlashCommandRegistry([new ExitCommand()]),
+            Interrupts,
+            new EnhancedChatRequest(
+                new() { Model = "provider/model", Mode = "build" },
+                string.Empty),
+            new EnhancedSlashContextFactory(
+                client,
+                new UnusedCredentials(),
+                new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+                new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+                ["provider"],
+                terminal),
+            terminal);
+    }
+
     public Task<int> Drive(CancellationToken cancellationToken)
     {
         var client = new GeneratedParrot.ParrotClient(Invoker);
-        var commands = new SlashCommandRegistry([new ExitCommand()]);
-        var credentials = new UnusedCredentials();
-        var oauth = new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions());
-        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var request = new EnhancedChatRequest(
-            new() { Model = "provider/model", Mode = "build" },
-            string.Empty);
-        var terminal = new TestTerminal(Input, _output, _error);
 
         return _enhanced
-            ? new EnhancedCli(
-                client,
-                commands,
-                Interrupts,
-                request,
-                new EnhancedSlashContextFactory(
-                    client,
-                    credentials,
-                    oauth,
-                    configuration,
-                    ["provider"],
-                    terminal),
-                terminal).Run(cancellationToken)
+            ? CreateEnhancedCli().Run(cancellationToken)
             : new BasicCli(
                 client,
-                commands,
+                new SlashCommandRegistry([new ExitCommand()]),
                 Interrupts,
-                credentials,
-                oauth,
-                configuration,
+                new UnusedCredentials(),
+                new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+                new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
                 ["provider"],
                 "provider/model",
                 "build",

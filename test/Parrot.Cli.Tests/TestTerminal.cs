@@ -3,7 +3,7 @@ using Parrot.Cli.Enhanced;
 
 namespace Parrot.Cli.Tests;
 
-internal sealed class TestTerminal(TextReader input, TextWriter output, TextWriter error) : ITerminal
+internal sealed class TestTerminal(TextReader input, TextWriter output, TextWriter error, int columns) : ITerminal
 {
     public TextReader Input { get; } = input;
 
@@ -13,7 +13,7 @@ internal sealed class TestTerminal(TextReader input, TextWriter output, TextWrit
 
     public bool Color => false;
 
-    public int GetColumns() => 80;
+    public int GetColumns() => columns;
 
     public async ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken)
     {

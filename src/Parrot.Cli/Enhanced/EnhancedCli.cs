@@ -46,9 +46,7 @@ internal sealed class EnhancedCli(
 
         var context = contexts.Create(session);
 
-        return text.Length > 0
-            ? await Once(context, text, terminal.Output, cancellationToken).ConfigureAwait(false)
-            : await Loop(context, terminal.Output, cancellationToken).ConfigureAwait(false);
+        return await Loop(context, text, terminal.Output, text.Length > 0, cancellationToken).ConfigureAwait(false);
     }
 
     public bool Interrupted()
@@ -62,22 +60,37 @@ internal sealed class EnhancedCli(
         return _interrupts.Writer.TryWrite(true);
     }
 
-    internal static async Task<bool> RenderTurn(
+    internal static async Task SetBracketedPaste(
+        TextWriter output, bool enabled, CancellationToken cancellationToken)
+    {
+        var sequence = enabled ? EnableBracketedPaste : DisableBracketedPaste;
+        await output.WriteAsync(sequence.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task SetKeyboardEnhancement(
+        TextWriter output, bool enabled, CancellationToken cancellationToken)
+    {
+        var sequence = enabled ? EnableKeyboardEnhancement : DisableKeyboardEnhancement;
+        await output.WriteAsync(sequence.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<bool> RenderTurn(
         IAsyncStreamReader<Event> stream,
-        TextWriter output,
-        TextWriter error,
-        Func<int> columns,
         CancellationToken cancellationToken,
         Func<Event, CancellationToken, Task>? beforeRender = null,
         bool renderActivityEvents = true,
-        Func<Event, CancellationToken, Task>? afterRender = null,
-        bool color = false)
+        Func<Event, CancellationToken, Task>? afterRender = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        ArgumentNullException.ThrowIfNull(output);
-        ArgumentNullException.ThrowIfNull(error);
 
-        var view = new TurnView(output, error, columns, renderActivityEvents, color);
+        var view = new TurnView(
+            terminal.Output,
+            terminal.Error,
+            terminal.GetColumns,
+            renderActivityEvents,
+            terminal.Color);
 
         try
         {
@@ -109,22 +122,6 @@ internal sealed class EnhancedCli(
             await view.Cancel(CancellationToken.None).ConfigureAwait(false);
             return false;
         }
-    }
-
-    internal static async Task SetBracketedPaste(
-        TextWriter output, bool enabled, CancellationToken cancellationToken)
-    {
-        var sequence = enabled ? EnableBracketedPaste : DisableBracketedPaste;
-        await output.WriteAsync(sequence.AsMemory(), cancellationToken).ConfigureAwait(false);
-        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    internal static async Task SetKeyboardEnhancement(
-        TextWriter output, bool enabled, CancellationToken cancellationToken)
-    {
-        var sequence = enabled ? EnableKeyboardEnhancement : DisableKeyboardEnhancement;
-        await output.WriteAsync(sequence.AsMemory(), cancellationToken).ConfigureAwait(false);
-        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static SendMessageRequest Message(string userSessionId, string text) =>
@@ -178,31 +175,12 @@ internal sealed class EnhancedCli(
         _ => string.Empty,
     };
 
-    private async Task<int> Once(
-        SlashContext context, string prompt, TextWriter output, CancellationToken cancellationToken)
-    {
-        using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var call = client.Listen(
-            new ListenRequest { UserSessionId = context.UserSessionId }, cancellationToken: listening.Token);
-
-        _ = await client.SendMessageAsync(
-            Message(context.UserSessionId, prompt), cancellationToken: cancellationToken);
-
-        var completed = await RenderTurn(
-            call.ResponseStream,
-            output,
-            context.Error,
-            terminal.GetColumns,
-            listening.Token,
-            color: terminal.Color)
-            .ConfigureAwait(false);
-
-        await listening.CancelAsync().ConfigureAwait(false);
-        return completed ? CommandDispatcher.ExitSuccess : CommandDispatcher.ExitFailure;
-    }
-
     private async Task<int> Loop(
-        SlashContext context, TextWriter output, CancellationToken cancellationToken)
+        SlashContext context,
+        string initialPrompt,
+        TextWriter output,
+        bool exitOnFirstCompletion,
+        CancellationToken cancellationToken)
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var listeningTo = context.UserSessionId;
@@ -216,6 +194,7 @@ internal sealed class EnhancedCli(
         var spinner = new TerminalSpinner(renderer);
         var buffer = new byte[4096];
         var exiting = false;
+        var firstTurnCompleted = false;
         var streaming = (CancellationTokenSource?)null;
         var call = (AsyncServerStreamingCall<Event>?)null;
 
@@ -235,6 +214,34 @@ internal sealed class EnhancedCli(
             }
         }
 
+        async Task StartTurn(string entered, AsyncServerStreamingCall<Event> activeCall)
+        {
+            _busy = true;
+            await renderer.CommitUserMessage("› ", entered, cancellationToken).ConfigureAwait(false);
+            _ = await client.SendMessageAsync(
+                Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
+            if (rendering.IsCompleted)
+            {
+                var model = context.Model;
+                var mode = context.Mode;
+                rendering = spinner.Run(
+                    index => new TerminalFrame(
+                        [],
+                        new SpinnerValue("thinking", index),
+                        new ModelineValue(mode, "working", model),
+                        CurrentPrompt()),
+                    async (stopSpinner, token) => firstTurnCompleted = await RenderRaw(
+                        activeCall.ResponseStream,
+                        renderer,
+                        CurrentPrompt,
+                        context,
+                        stopSpinner,
+                        exitOnFirstCompletion,
+                        token).ConfigureAwait(false),
+                    streaming?.Token ?? cancellationToken);
+            }
+        }
+
         interrupts.Install(this);
 
         try
@@ -245,6 +252,16 @@ internal sealed class EnhancedCli(
             call = client.Listen(
                 new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
             await DrawEditor(renderer, CurrentPrompt(), context, cancellationToken).ConfigureAwait(false);
+            if (initialPrompt.Length > 0)
+            {
+                await StartTurn(initialPrompt, call).ConfigureAwait(false);
+                if (exitOnFirstCompletion)
+                {
+                    await rendering.ConfigureAwait(false);
+                    exiting = true;
+                }
+            }
+
             while (!cancellationToken.IsCancellationRequested && !exiting)
             {
                 var count = await terminal.Read(buffer, cancellationToken).ConfigureAwait(false);
@@ -308,32 +325,7 @@ internal sealed class EnhancedCli(
                             }
                             else
                             {
-                                _busy = true;
-                                await renderer.CommitUserMessage("› ", entered, cancellationToken)
-                                    .ConfigureAwait(false);
-                                _ = await client.SendMessageAsync(
-                                    Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
-                                if (rendering.IsCompleted)
-                                {
-                                    var model = context.Model;
-                                    var mode = context.Mode;
-                                    rendering = spinner.Run(
-                                        index => new TerminalFrame(
-                                            [],
-                                            new SpinnerValue("thinking", index),
-                                            new ModelineValue(mode, "working", model),
-                                            CurrentPrompt()),
-                                        (stopSpinner, token) => RenderRaw(
-                                            call.ResponseStream,
-                                            output,
-                                            context.Error,
-                                            renderer,
-                                            CurrentPrompt,
-                                            context,
-                                            stopSpinner,
-                                            token),
-                                        streaming.Token);
-                                }
+                                await StartTurn(entered, call).ConfigureAwait(false);
                             }
                         }
                     }
@@ -377,17 +369,18 @@ internal sealed class EnhancedCli(
             }
         }
 
-        return CommandDispatcher.ExitSuccess;
+        return exitOnFirstCompletion && !firstTurnCompleted
+            ? CommandDispatcher.ExitFailure
+            : CommandDispatcher.ExitSuccess;
     }
 
-    private async Task RenderRaw(
+    private async Task<bool> RenderRaw(
         IAsyncStreamReader<Event> stream,
-        TextWriter output,
-        TextWriter error,
         TerminalFrameRenderer renderer,
         Func<PromptValue> prompt,
         SlashContext context,
         Func<Task> stopSpinner,
+        bool exitOnFirstCompletion,
         CancellationToken cancellationToken)
     {
         var spinning = true;
@@ -427,14 +420,10 @@ internal sealed class EnhancedCli(
             {
                 completed = await RenderTurn(
                     stream,
-                    output,
-                    error,
-                    terminal.GetColumns,
                     cancellationToken,
                     BeforeRender,
                     false,
-                    activity.Render,
-                    terminal.Color).ConfigureAwait(false);
+                    activity.Render).ConfigureAwait(false);
             }
             finally
             {
@@ -442,9 +431,9 @@ internal sealed class EnhancedCli(
                 await animation.ConfigureAwait(false);
             }
 
-            if (!completed && !failed)
+            if ((!completed && !failed) || exitOnFirstCompletion)
             {
-                return;
+                return completed;
             }
 
             _busy = false;
@@ -454,6 +443,8 @@ internal sealed class EnhancedCli(
                 await DrawEditor(renderer, prompt(), context, cancellationToken).ConfigureAwait(false);
             }
         }
+
+        return false;
     }
 
     private async Task Interrupting(SlashContext context, CancellationToken cancellationToken)

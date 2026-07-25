@@ -131,12 +131,9 @@ internal sealed class EnhancedCliTests
         using var output = new StringWriter();
         using var error = new StringWriter();
 
-        var completed = await EnhancedCli.RenderTurn(
-            stream.Reader,
-            output,
-            error,
-            static () => 80,
-            cancellationToken);
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 80);
+        var completed = await driver.CreateEnhancedCli(terminal).RenderTurn(stream.Reader, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
@@ -178,13 +175,10 @@ internal sealed class EnhancedCliTests
             await output.WriteAsync($"before:{published.Id}|".AsMemory(), token);
         }
 
-        var completed = await EnhancedCli.RenderTurn(
-            stream.Reader,
-            output,
-            error,
-            static () => 80,
-            cancellationToken,
-            BeforeRender);
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 80);
+        var completed = await driver.CreateEnhancedCli(terminal)
+            .RenderTurn(stream.Reader, cancellationToken, BeforeRender);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))
@@ -296,7 +290,9 @@ internal sealed class EnhancedCliTests
 
         using var output = new StringWriter();
         using var error = new StringWriter();
-        var completed = await EnhancedCli.RenderTurn(stream.Reader, output, error, static () => 8, cancellationToken);
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 8);
+        var completed = await driver.CreateEnhancedCli(terminal).RenderTurn(stream.Reader, cancellationToken);
         return (completed, output.ToString(), error.ToString());
     }
 
