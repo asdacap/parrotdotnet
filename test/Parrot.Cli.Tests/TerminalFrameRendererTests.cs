@@ -140,10 +140,19 @@ internal sealed class TerminalFrameRendererTests
 
         await renderer.UpdatePrompt(new PromptValue("> ", "unmanaged no more", 17), cancellationToken);
 
+        await renderer.Draw(
+            new TerminalFrame(
+                ["next event"],
+                null,
+                new ModelineValue("build", "working", "model"),
+                new PromptValue("> ", string.Empty, 0)),
+            cancellationToken);
+
         var updated = output.ToString()[boundary..];
         _ = await Assert.That(updated).Contains("tool running");
         _ = await Assert.That(updated).Contains("⠋ working");
-        _ = await Assert.That(updated).Contains("> unmanaged no more");
+        _ = await Assert.That(updated).Contains("next event");
+        _ = await Assert.That(Count(updated, "> unmanaged no more")).IsEqualTo(2);
     }
 
     [Test]

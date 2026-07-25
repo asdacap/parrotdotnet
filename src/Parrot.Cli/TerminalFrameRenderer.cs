@@ -11,15 +11,18 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
     private int _caretRow;
     private TerminalFrame? _frame;
     private int _height;
+    private PromptValue? _prompt;
 
     public async Task Draw(TerminalFrame frame, CancellationToken cancellationToken)
     {
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var current = frame with { Prompt = _prompt ?? frame.Prompt };
+            _prompt = current.Prompt;
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(frame, CancellationToken.None).ConfigureAwait(false);
-            _frame = frame;
+            await DrawFrame(current, CancellationToken.None).ConfigureAwait(false);
+            _frame = current;
         }
         finally
         {
@@ -109,6 +112,7 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            _prompt = prompt;
             if (_frame is not { } frame)
             {
                 return;
