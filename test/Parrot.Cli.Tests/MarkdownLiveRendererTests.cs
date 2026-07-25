@@ -5,76 +5,45 @@ namespace Parrot.Cli.Tests;
 internal sealed class MarkdownLiveRendererTests
 {
     [Test]
-    public async Task Promotes_complete_source_lines_and_formats_final_markdown_once(
-        CancellationToken cancellationToken)
+    public async Task Promotes_complete_source_lines_and_formats_final_markdown_once()
     {
-        using var output = new StringWriter();
-        var renderer = new MarkdownLiveRenderer(output, static () => 80, false);
+        var renderer = new MarkdownLiveRenderer(static () => 80, false);
 
-        await renderer.Append(new LiveTerminalStreamMessage("answer", "- ", "# Head"), cancellationToken);
-        var beforePromotion = output.GetStringBuilder().Length;
-        await renderer.Append(
-            new LiveTerminalStreamMessage("answer", "- ", "ing\n**bold**"),
-            cancellationToken);
-        var promotion = output.ToString()[beforePromotion..];
-        await renderer.Commit(cancellationToken);
+        var first = renderer.Append(new LiveTerminalStreamMessage("answer", "- ", "# Head"));
+        var promotion = renderer.Append(new LiveTerminalStreamMessage("answer", "- ", "ing\n**bold**"));
+        var committed = renderer.Commit();
 
-        _ = await Assert.That(promotion).Contains("- Heading\n");
-        _ = await Assert.That(output.ToString()).Contains("  bold\n");
-        _ = await Assert.That(Count(output.ToString(), "- Heading\n")).IsEqualTo(1);
+        _ = await Assert.That(first.Scrollback).IsEmpty();
+        _ = await Assert.That(promotion.Scrollback).Contains("- Heading");
+        _ = await Assert.That(committed.Scrollback).Contains("  bold");
     }
 
     [Test]
-    public async Task Keeps_fenced_code_live_until_the_closing_fence(CancellationToken cancellationToken)
+    public async Task Keeps_fenced_code_live_until_the_closing_fence()
     {
-        using var output = new StringWriter();
-        var renderer = new MarkdownLiveRenderer(output, static () => 80, false);
+        var renderer = new MarkdownLiveRenderer(static () => 80, false);
 
-        await renderer.Append(
-            new LiveTerminalStreamMessage("answer", string.Empty, "```csharp\npublic var value = 1;\n"),
-            cancellationToken);
-        var beforeClose = output.ToString();
-        await renderer.Append(
-            new LiveTerminalStreamMessage("answer", string.Empty, "```\n"),
-            cancellationToken);
-        var afterClose = output.ToString()[beforeClose.Length..];
+        var beforeClose = renderer.Append(
+            new LiveTerminalStreamMessage("answer", string.Empty, "```csharp\npublic var value = 1;\n"));
+        var afterClose = renderer.Append(new LiveTerminalStreamMessage("answer", string.Empty, "```\n"));
 
-        _ = await Assert.That(beforeClose).Contains("public var value = 1;");
-        _ = await Assert.That(beforeClose).DoesNotContain("public var value = 1;\n");
-        _ = await Assert.That(afterClose).Contains("public var value = 1;\n");
-        _ = await Assert.That(afterClose).DoesNotContain("```");
+        _ = await Assert.That(beforeClose.Preview).Contains("public var value = 1;");
+        _ = await Assert.That(beforeClose.Scrollback).IsEmpty();
+        _ = await Assert.That(afterClose.Scrollback).Contains("public var value = 1;");
+        _ = await Assert.That(string.Join('\n', afterClose.Scrollback)).DoesNotContain("```");
     }
 
     [Test]
-    public async Task Keeps_table_live_until_its_boundary(CancellationToken cancellationToken)
+    public async Task Keeps_table_live_until_its_boundary()
     {
-        using var output = new StringWriter();
-        var renderer = new MarkdownLiveRenderer(output, static () => 80, false);
+        var renderer = new MarkdownLiveRenderer(static () => 80, false);
 
-        await renderer.Append(
-            new LiveTerminalStreamMessage("answer", string.Empty, "A | B\n--- | ---\nx | y\n"),
-            cancellationToken);
-        var beforeBoundary = output.ToString();
-        await renderer.Append(
-            new LiveTerminalStreamMessage("answer", string.Empty, "after\n"),
-            cancellationToken);
-        var boundary = output.ToString()[beforeBoundary.Length..];
+        var beforeBoundary = renderer.Append(
+            new LiveTerminalStreamMessage("answer", string.Empty, "A | B\n--- | ---\nx | y\n"));
+        var boundary = renderer.Append(new LiveTerminalStreamMessage("answer", string.Empty, "after\n"));
 
-        _ = await Assert.That(beforeBoundary).Contains("┌");
-        _ = await Assert.That(beforeBoundary).DoesNotContain("┌───┬───┐\n");
-        _ = await Assert.That(boundary).Contains("┌───┬───┐\n");
-    }
-
-    private static int Count(string value, string part)
-    {
-        var count = 0;
-        var start = 0;
-        while ((start = value.IndexOf(part, start, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            start += part.Length;
-        }
-
-        return count;
+        _ = await Assert.That(string.Join('\n', beforeBoundary.Preview)).Contains("┌");
+        _ = await Assert.That(beforeBoundary.Scrollback).IsEmpty();
+        _ = await Assert.That(string.Join('\n', boundary.Scrollback)).Contains("┌───┬───┐");
     }
 }

@@ -9,8 +9,8 @@ namespace Parrot.Cli.Tests;
 internal sealed class CliLifecycleDriver : IDisposable
 {
     private readonly bool _enhanced;
-    private readonly StringWriter _output = new();
-    private readonly StringWriter _error = new();
+    private readonly SynchronizedStringWriter _output = new();
+    private readonly SynchronizedStringWriter _error = new();
     private readonly HttpClient _http = new();
 
     public CliLifecycleDriver(bool enhanced)
@@ -29,7 +29,7 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public async Task OutputContains(string text, CancellationToken cancellationToken)
     {
-        while (!_output.ToString().Contains(text, StringComparison.Ordinal))
+        while (!_output.Snapshot().Contains(text, StringComparison.Ordinal))
         {
             await Task.Delay(5, cancellationToken).ConfigureAwait(false);
         }
@@ -37,7 +37,7 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public async Task ErrorContains(string text, CancellationToken cancellationToken)
     {
-        while (!_error.ToString().Contains(text, StringComparison.Ordinal))
+        while (!_error.Snapshot().Contains(text, StringComparison.Ordinal))
         {
             await Task.Delay(5, cancellationToken).ConfigureAwait(false);
         }
@@ -104,5 +104,31 @@ internal sealed class CliLifecycleDriver : IDisposable
         _error.Dispose();
         _http.Dispose();
         Stopping.Dispose();
+    }
+
+    private sealed class SynchronizedStringWriter : StringWriter
+    {
+        private readonly object _sync = new();
+
+        public string Snapshot()
+        {
+            lock (_sync)
+            {
+                return GetStringBuilder().ToString();
+            }
+        }
+
+        public override Task WriteAsync(
+            ReadOnlyMemory<char> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_sync)
+            {
+                Write(buffer.Span);
+            }
+
+            return Task.CompletedTask;
+        }
     }
 }

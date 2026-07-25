@@ -81,12 +81,18 @@ internal sealed class EnhancedCli(
         CancellationToken cancellationToken,
         Func<Event, CancellationToken, Task>? beforeRender = null,
         bool renderActivityEvents = true,
-        Func<Event, CancellationToken, Task>? afterRender = null)
+        Func<Event, CancellationToken, Task>? afterRender = null,
+        TerminalFrameRenderer? renderer = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
-        var view = new TurnView(
+        var turnRenderer = renderer ?? new TerminalFrameRenderer(
             terminal.Output,
+            terminal.GetColumns,
+            terminal.GetRows,
+            new TerminalPalette(terminal.Color));
+        var view = new TurnView(
+            turnRenderer,
             terminal.Error,
             terminal.GetColumns,
             renderActivityEvents,
@@ -190,7 +196,8 @@ internal sealed class EnhancedCli(
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
         var promptSync = new object();
         var currentPrompt = editor.Prompt;
-        var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(terminal.Color));
+        var renderer = new TerminalFrameRenderer(
+            output, terminal.GetColumns, terminal.GetRows, new TerminalPalette(terminal.Color));
         var spinner = new TerminalSpinner(renderer);
         var buffer = new byte[4096];
         var exiting = false;
@@ -423,7 +430,8 @@ internal sealed class EnhancedCli(
                     cancellationToken,
                     BeforeRender,
                     false,
-                    activity.Render).ConfigureAwait(false);
+                    activity.Render,
+                    renderer).ConfigureAwait(false);
             }
             finally
             {
@@ -698,7 +706,7 @@ internal sealed class EnhancedCli(
     }
 
     private sealed class TurnView(
-        TextWriter output,
+        TerminalFrameRenderer renderer,
         TextWriter error,
         Func<int> columns,
         bool renderActivityEvents,
@@ -710,9 +718,8 @@ internal sealed class EnhancedCli(
         private const string Red = "\u001b[31m";
         private const string Reset = "\u001b[0m";
 
-        private readonly MarkdownLiveRenderer _live = new(output, columns, color);
-        private bool _reasoning;
-        private bool _reasoningEndsLine;
+        private readonly MarkdownLiveRenderer _live = new(columns, color);
+        private readonly StringBuilder _reasoning = new();
         private bool _started;
         private bool _textActive;
         private int _textSegment;
@@ -726,7 +733,7 @@ internal sealed class EnhancedCli(
                 await CommitText(cancellationToken).ConfigureAwait(false);
             }
 
-            if (_reasoning && published.PayloadCase != Event.PayloadOneofCase.ReasoningChunk)
+            if (_reasoning.Length > 0 && published.PayloadCase != Event.PayloadOneofCase.ReasoningChunk)
             {
                 await EndReasoning(cancellationToken).ConfigureAwait(false);
             }
@@ -765,8 +772,7 @@ internal sealed class EnhancedCli(
                     break;
 
                 case Event.PayloadOneofCase.StatusInjected:
-                    await output.WriteLineAsync(
-                        $"{Dim}  ↻ Status prompt injected{Reset}".AsMemory(), cancellationToken)
+                    await Commit([$"{Dim}  ↻ Status prompt injected{Reset}"], cancellationToken)
                         .ConfigureAwait(false);
                     break;
 
@@ -781,14 +787,14 @@ internal sealed class EnhancedCli(
 
                 case Event.PayloadOneofCase.TextChunk:
                     _textActive = true;
-                    await _live.Append(
-                        new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment),
+                    await Apply(
+                        _live.Append(
+                            new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment)),
                         cancellationToken).ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.TurnEnded:
-                    await output.WriteLineAsync(
-                        $"{Green}  {Summarise(published.TurnEnded)}{Reset}".AsMemory(), cancellationToken)
+                    await Commit([$"{Green}  {Summarise(published.TurnEnded)}{Reset}"], cancellationToken)
                         .ConfigureAwait(false);
                     return true;
 
@@ -812,7 +818,7 @@ internal sealed class EnhancedCli(
                 await CommitText(cancellationToken).ConfigureAwait(false);
             }
 
-            if (_reasoning)
+            if (_reasoning.Length > 0)
             {
                 await EndReasoning(cancellationToken).ConfigureAwait(false);
             }
@@ -822,12 +828,8 @@ internal sealed class EnhancedCli(
         {
             if (_textActive)
             {
-                await _live.Clear(cancellationToken).ConfigureAwait(false);
-            }
-
-            if (_reasoning)
-            {
-                await output.WriteAsync(Reset.AsMemory(), cancellationToken).ConfigureAwait(false);
+                _live.Clear();
+                await renderer.UpdateRows([], cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -846,41 +848,38 @@ internal sealed class EnhancedCli(
                 Event.PayloadOneofCase.AgentFailed => Red,
                 _ => Dim,
             };
-            return output.WriteLineAsync(
-                $"{style}  {Activity(published, _started)}{Reset}".AsMemory(),
-                cancellationToken);
+            return Commit([$"{style}  {Activity(published, _started)}{Reset}"], cancellationToken);
         }
+
+        private async Task Apply(MarkdownLiveUpdate update, CancellationToken cancellationToken)
+        {
+            await renderer.UpdateRows(update.Preview, cancellationToken).ConfigureAwait(false);
+            if (update.Scrollback.Count > 0)
+            {
+                await renderer.CommitScrollback(update.Scrollback, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private Task Commit(IReadOnlyList<string> lines, CancellationToken cancellationToken) =>
+            renderer.CommitScrollback(lines, cancellationToken);
 
         private async Task CommitText(CancellationToken cancellationToken)
         {
-            await _live.Commit(cancellationToken).ConfigureAwait(false);
+            await Apply(_live.Commit(), cancellationToken).ConfigureAwait(false);
             _textActive = false;
             _textSegment++;
         }
 
-        private async Task RenderReasoning(string fragment, CancellationToken cancellationToken)
+        private Task RenderReasoning(string fragment, CancellationToken cancellationToken)
         {
-            if (!_reasoning)
-            {
-                await output.WriteAsync(Dim.AsMemory(), cancellationToken).ConfigureAwait(false);
-                _reasoning = true;
-            }
-
-            var clean = TerminalText.Sanitize(fragment);
-            await output.WriteAsync(clean.AsMemory(), cancellationToken).ConfigureAwait(false);
-            _reasoningEndsLine = clean.EndsWith('\n');
+            _ = _reasoning.Append(TerminalText.Sanitize(fragment));
+            return renderer.UpdateRows([_reasoning.ToString()], cancellationToken);
         }
 
         private async Task EndReasoning(CancellationToken cancellationToken)
         {
-            await output.WriteAsync(Reset.AsMemory(), cancellationToken).ConfigureAwait(false);
-            if (!_reasoningEndsLine)
-            {
-                await output.WriteLineAsync(ReadOnlyMemory<char>.Empty, cancellationToken).ConfigureAwait(false);
-            }
-
-            _reasoning = false;
-            _reasoningEndsLine = false;
+            await Commit([$"{Dim}{_reasoning}{Reset}"], cancellationToken).ConfigureAwait(false);
+            _ = _reasoning.Clear();
         }
     }
 }

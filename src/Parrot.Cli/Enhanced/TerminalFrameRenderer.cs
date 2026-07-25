@@ -2,15 +2,20 @@ using System.Threading.Channels;
 
 namespace Parrot.Cli.Enhanced;
 
-internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns, TerminalPalette palette)
+internal sealed class TerminalFrameRenderer(
+    TextWriter output,
+    Func<int> columns,
+    Func<int> rows,
+    TerminalPalette palette)
 {
     private const string DisableAutowrap = "\u001b[?7l";
     private const string EnableAutowrap = "\u001b[?7h";
 
     private readonly Channel<bool> _drawing = CreateDrawingGate();
+    private readonly TerminalSurface _surface = new(1, 1);
     private int _caretRow;
     private TerminalFrame? _frame;
-    private int _height;
+    private int _renderedHeight;
     private PromptValue? _prompt;
 
     public async Task Draw(TerminalFrame frame, CancellationToken cancellationToken)
@@ -23,6 +28,29 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
             await DrawFrame(current, CancellationToken.None).ConfigureAwait(false);
             _frame = current;
+        }
+        finally
+        {
+            await _drawing.Writer.WriteAsync(true, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    public async Task UpdateRows(IReadOnlyList<string> rowsToDraw, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(rowsToDraw);
+
+        _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_frame is not { } frame)
+            {
+                return;
+            }
+
+            var updated = frame with { Rows = rowsToDraw };
+            await ClearFrame(CancellationToken.None).ConfigureAwait(false);
+            await DrawFrame(updated, CancellationToken.None).ConfigureAwait(false);
+            _frame = updated;
         }
         finally
         {
@@ -45,23 +73,8 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         }
     }
 
-    public async Task FlushActivities(IReadOnlyList<string> activities, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(activities);
-
-        _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            _frame = null;
-            await WriteActivities(activities, CancellationToken.None).ConfigureAwait(false);
-            await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            await _drawing.Writer.WriteAsync(true, CancellationToken.None).ConfigureAwait(false);
-        }
-    }
+    public Task FlushActivities(IReadOnlyList<string> activities, CancellationToken cancellationToken) =>
+        CommitScrollback([.. activities.Select(value => palette.Muted.Apply(TerminalText.Sanitize(value)))], cancellationToken);
 
     public async Task FlushActivitiesAndDraw(
         IReadOnlyList<string> activities,
@@ -86,20 +99,34 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
 
     public async Task CommitUserMessage(string prefix, string text, CancellationToken cancellationToken)
     {
+        var clean = TerminalText.Sanitize(prefix + text).TrimEnd('\r', '\n');
+        var width = Math.Max(1, columns());
+        var committed = Layout(clean, width).Select(palette.User.Apply).ToList();
+        await CommitScrollback(committed, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task CommitScrollback(IReadOnlyList<string> scrollback, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(scrollback);
+
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            _frame = null;
-            await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
-            var clean = TerminalText.Sanitize(prefix + text).TrimEnd('\r', '\n');
-            foreach (var row in Layout(clean, Math.Max(1, columns())))
+            foreach (var line in scrollback)
             {
-                await output.WriteAsync(palette.User.Apply(row).AsMemory(), CancellationToken.None).ConfigureAwait(false);
+                await output.WriteAsync(line.AsMemory(), CancellationToken.None).ConfigureAwait(false);
                 await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
             }
 
-            await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            if (_frame is { } frame)
+            {
+                await DrawFrame(frame, CancellationToken.None).ConfigureAwait(false);
+            }
+            else
+            {
+                await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            }
         }
         finally
         {
@@ -191,39 +218,49 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
     private async Task DrawFrame(TerminalFrame frame, CancellationToken cancellationToken)
     {
         var width = Math.Max(1, columns());
+        var height = Math.Max(1, rows());
+        _surface.Resize(width, height);
+        _surface.Clear();
+
         var prompt = frame.Prompt.Sanitize();
         var promptRows = Layout(prompt.Prefix + prompt.Text, width);
         var (cursorRow, cursorCells) = Cursor(prompt, width);
-        var rows = frame.Rows
+        var content = frame.Rows
             .SelectMany(value => Layout(TerminalText.Sanitize(value), width))
             .Select(value => new RenderedRow(value, palette.LiveSurface))
             .ToList();
         if (frame.Spinner is { } spinner)
         {
-            rows.Add(new RenderedRow(spinner.Render(), palette.Marker));
+            content.Add(new RenderedRow(spinner.Render(), palette.Marker));
         }
 
-        var rowsBeforePrompt = rows.Count + 1;
-        rows.Add(new RenderedRow(frame.Modeline.Render(width), palette.Modeline));
-        rows.AddRange(promptRows.Select(value => new RenderedRow(value, palette.Prompt)));
+        content.Add(new RenderedRow(frame.Modeline.Render(width), palette.Modeline));
+        content.AddRange(promptRows.Select(value => new RenderedRow(value, palette.Prompt)));
+        var visible = content.TakeLast(height).ToList();
+        var contentStart = height - visible.Count;
+        for (var row = 0; row < visible.Count; row++)
+        {
+            _surface.Write(contentStart + row, 0, visible[row].Text, visible[row].Style);
+        }
+
+        var promptStart = Math.Max(contentStart, height - promptRows.Count);
+        _caretRow = Math.Min(height - 1, promptStart + cursorRow);
+        _renderedHeight = height;
 
         await output.WriteAsync($"\u001b[?25l{DisableAutowrap}".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
-        for (var row = 0; row < rows.Count; row++)
+        for (var row = 0; row < _renderedHeight; row++)
         {
-            await output.WriteAsync(palette.LiveBackground.Apply("\u001b[2K").AsMemory(), cancellationToken)
+            await output.WriteAsync("\u001b[2K".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteAsync(_surface.RenderRow(row, palette.LiveBackground).AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
-            await output.WriteAsync(rows[row].Style.Apply(rows[row].Text).AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            if (row < rows.Count - 1)
+            if (row < _renderedHeight - 1)
             {
                 await output.WriteAsync("\r\n".AsMemory(), cancellationToken).ConfigureAwait(false);
             }
         }
 
-        _height = rows.Count;
-        _caretRow = rowsBeforePrompt + cursorRow;
-        var lastRow = rows.Count - 1;
+        var lastRow = _renderedHeight - 1;
         if (lastRow > _caretRow)
         {
             await output.WriteAsync($"\u001b[{lastRow - _caretRow}A".AsMemory(), cancellationToken)
@@ -233,7 +270,8 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         await output.WriteAsync("\r".AsMemory(), cancellationToken).ConfigureAwait(false);
         if (cursorCells > 0)
         {
-            await output.WriteAsync($"\u001b[{cursorCells}C".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteAsync($"\u001b[{Math.Min(cursorCells, width - 1)}C".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
         }
 
         await output.WriteAsync($"{EnableAutowrap}\u001b[?25h".AsMemory(), cancellationToken)
@@ -243,14 +281,14 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
 
     private async Task ClearFrame(CancellationToken cancellationToken)
     {
-        if (_height == 0)
+        if (_renderedHeight == 0)
         {
             return;
         }
 
         await output.WriteAsync($"\u001b[?25l{DisableAutowrap}".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
-        var rowsBelowCaret = _height - _caretRow - 1;
+        var rowsBelowCaret = _renderedHeight - _caretRow - 1;
         if (rowsBelowCaret > 0)
         {
             await output.WriteAsync($"\u001b[{rowsBelowCaret}B".AsMemory(), cancellationToken)
@@ -258,28 +296,30 @@ internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns
         }
 
         await output.WriteAsync("\r".AsMemory(), cancellationToken).ConfigureAwait(false);
-        if (_height > 1)
+        if (_renderedHeight > 1)
         {
-            await output.WriteAsync($"\u001b[{_height - 1}A".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteAsync($"\u001b[{_renderedHeight - 1}A".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        for (var row = 0; row < _height; row++)
+        for (var row = 0; row < _renderedHeight; row++)
         {
             await output.WriteAsync("\u001b[2K".AsMemory(), cancellationToken).ConfigureAwait(false);
-            if (row < _height - 1)
+            if (row < _renderedHeight - 1)
             {
                 await output.WriteAsync("\r\n".AsMemory(), cancellationToken).ConfigureAwait(false);
             }
         }
 
-        if (_height > 1)
+        if (_renderedHeight > 1)
         {
-            await output.WriteAsync($"\u001b[{_height - 1}A".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteAsync($"\u001b[{_renderedHeight - 1}A".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
         }
 
         await output.WriteAsync($"\r{EnableAutowrap}\u001b[?25h".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
-        _height = 0;
+        _renderedHeight = 0;
         _caretRow = 0;
     }
 

@@ -93,8 +93,8 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(output).Contains("Status prompt injected");
         _ = await Assert.That(output).Contains("  queued: next[2J    line");
         _ = await Assert.That(output).Contains("think]0;title\n");
-        _ = await Assert.That(output).Contains("abcdefgh\n");
-        _ = await Assert.That(output).Contains("ij\n");
+        _ = await Assert.That(output).Contains("abcdefgh\r\n");
+        _ = await Assert.That(output).Contains("ij\r\n");
         _ = await Assert.That(output).Contains("  tool call unrendered:");
         _ = await Assert.That(output).Contains("  * shell[31m started");
         _ = await Assert.That(output).Contains("  + shell[31m finished");
@@ -103,9 +103,9 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(output).Contains("  * agent explorer[31m started");
         _ = await Assert.That(output).Contains("  + agent explorer[31m finished");
         _ = await Assert.That(output).Contains("  ! agent reviewer[31m: boom[2J");
-        _ = await Assert.That(output).Contains("tail\n");
+        _ = await Assert.That(output).Contains("tail\r\n");
         _ = await Assert.That(output).Contains("  stop[2J - 3 in / 4 out");
-        _ = await Assert.That(Count(output, "abcdefgh\n")).IsEqualTo(1);
+        _ = await Assert.That(Count(output, "abcdefgh\r\n")).IsEqualTo(1);
         _ = await Assert.That(UntrustedEscape(output)).IsFalse();
         _ = await Assert.That(output).DoesNotContain("\u001b[?1049");
     }
@@ -137,10 +137,10 @@ internal sealed class EnhancedCliTests
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
-        _ = await Assert.That(output.ToString()).Contains("Heading\n");
-        _ = await Assert.That(output.ToString()).Contains("bold\n");
-        _ = await Assert.That(Count(output.ToString(), "Heading\n")).IsEqualTo(1);
-        _ = await Assert.That(Count(output.ToString(), "bold\n")).IsEqualTo(1);
+        _ = await Assert.That(output.ToString()).Contains("Heading\r\n");
+        _ = await Assert.That(output.ToString()).Contains("bold\r\n");
+        _ = await Assert.That(Count(output.ToString(), "Heading\r\n")).IsEqualTo(1);
+        _ = await Assert.That(Count(output.ToString(), "bold\r\n")).IsEqualTo(1);
     }
 
     [Test]
@@ -196,7 +196,7 @@ internal sealed class EnhancedCliTests
     public async Task Finished_shell_tool_flushes_its_command_to_scrollback(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false));
+        var renderer = new TerminalFrameRenderer(output, static () => 80, static () => 24, new TerminalPalette(false));
         using var view = new EnhancedCli.RawActivityView(
             renderer,
             static () => new PromptValue("> ", string.Empty, 0),
@@ -271,7 +271,7 @@ internal sealed class EnhancedCliTests
             cancellationToken);
 
         _ = await Assert.That(completed).IsFalse();
-        _ = await Assert.That(output).Contains("partial\n");
+        _ = await Assert.That(output).Contains("partial\r\n");
         _ = await Assert.That(error).Contains("  bad[2J    request");
         _ = await Assert.That(error).DoesNotContain("\u001b[2J");
     }

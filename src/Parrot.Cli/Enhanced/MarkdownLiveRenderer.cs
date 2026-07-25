@@ -2,21 +2,16 @@ using System.Text;
 
 namespace Parrot.Cli.Enhanced;
 
-internal sealed class MarkdownLiveRenderer(TextWriter output, Func<int> columns, bool color)
+internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
 {
     private const int DefaultColumns = 80;
-    private const int MaximumPreviewRows = 10;
-    private const string HideCursor = "\u001b[?25l";
-    private const string ShowCursor = "\u001b[?25h";
-    private const string EraseLine = "\u001b[2K";
 
     private readonly StringBuilder _pending = new();
-    private List<string> _liveRows = [];
     private string _id = string.Empty;
     private string _prefix = string.Empty;
     private bool _started;
 
-    public async Task Append(LiveTerminalStreamMessage fragment, CancellationToken cancellationToken)
+    public MarkdownLiveUpdate Append(LiveTerminalStreamMessage fragment)
     {
         var id = TerminalText.Sanitize(fragment.Id);
         var prefix = TerminalText.Sanitize(fragment.Prefix);
@@ -50,51 +45,25 @@ internal sealed class MarkdownLiveRenderer(TextWriter output, Func<int> columns,
             : prefix;
         var preview = pendingSource.Length == 0
             ? []
-            : MarkdownRenderer.Render(previewPrefix, pendingSource, width, color)
-                .TakeLast(MaximumPreviewRows)
-                .ToList();
-        var rendered = Promote(_liveRows, promoted, preview);
-        await output.WriteAsync(rendered.AsMemory(), cancellationToken).ConfigureAwait(false);
+            : MarkdownRenderer.Render(previewPrefix, pendingSource, width, false).ToList();
         _id = id;
         _prefix = prefix;
         _ = _pending.Clear().Append(pendingSource);
         _started |= promoted.Count > 0;
-        _liveRows = preview;
+        return new MarkdownLiveUpdate(promoted, preview);
     }
 
-    public async Task Commit(CancellationToken cancellationToken)
+    public MarkdownLiveUpdate Commit()
     {
         var prefix = _started ? new string(' ', TerminalText.Width(_prefix)) : _prefix;
-        var rows = _pending.Length == 0
+        var scrollback = _pending.Length == 0
             ? []
             : MarkdownRenderer.Render(prefix, _pending.ToString(), Columns(), color);
-        var rendered = new StringBuilder(Redraw(_liveRows, []));
-        foreach (var row in rows)
-        {
-            _ = rendered.Append(row).Append('\n');
-        }
-
-        await output.WriteAsync(rendered.ToString().AsMemory(), cancellationToken).ConfigureAwait(false);
         Reset();
+        return new MarkdownLiveUpdate(scrollback, []);
     }
 
-    public async Task Clear(CancellationToken cancellationToken)
-    {
-        var rendered = Redraw(_liveRows, []);
-        await output.WriteAsync(rendered.AsMemory(), cancellationToken).ConfigureAwait(false);
-        Reset();
-    }
-
-    private static string Promote(List<string> oldRows, List<string> promoted, List<string> liveRows)
-    {
-        var rendered = new StringBuilder(Redraw(oldRows, []));
-        foreach (var row in promoted)
-        {
-            _ = rendered.Append(row).Append('\n');
-        }
-
-        return rendered.Append(Redraw([], liveRows)).ToString();
-    }
+    public void Clear() => Reset();
 
     private static int PromotableBoundary(string source)
     {
@@ -187,50 +156,6 @@ internal sealed class MarkdownLiveRenderer(TextWriter output, Func<int> columns,
         return true;
     }
 
-    private static string Redraw(List<string> oldRows, List<string> newRows)
-    {
-        if (oldRows.Count == 0 && newRows.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var rendered = new StringBuilder(HideCursor);
-        if (oldRows.Count > 0)
-        {
-            _ = rendered.Append('\r');
-            if (oldRows.Count > 1)
-            {
-                _ = rendered.Append("\u001b[").Append(oldRows.Count - 1).Append('A');
-            }
-        }
-
-        var count = Math.Max(oldRows.Count, newRows.Count);
-        for (var index = 0; index < count; index++)
-        {
-            _ = rendered.Append(EraseLine);
-            if (index < newRows.Count)
-            {
-                _ = rendered.Append(newRows[index]);
-            }
-
-            if (index + 1 < count)
-            {
-                _ = rendered.Append("\r\n");
-            }
-        }
-
-        if (count > 0 && newRows.Count == 0)
-        {
-            _ = rendered.Append('\r');
-            if (count > 1)
-            {
-                _ = rendered.Append("\u001b[").Append(count - 1).Append('A');
-            }
-        }
-
-        return rendered.Append(ShowCursor).ToString();
-    }
-
     private int Columns()
     {
         try
@@ -256,7 +181,6 @@ internal sealed class MarkdownLiveRenderer(TextWriter output, Func<int> columns,
         _id = string.Empty;
         _prefix = string.Empty;
         _ = _pending.Clear();
-        _liveRows = [];
         _started = false;
     }
 }
