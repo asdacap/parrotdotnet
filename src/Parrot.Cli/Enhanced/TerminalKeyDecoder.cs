@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 internal sealed class TerminalKeyDecoder
 {

@@ -771,8 +771,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Outbound** the generated gRPC client and a `TextWriter` representing the
   terminal. Provider text crosses this boundary only after control-character
   sanitisation.
-- **Boundary** no. Both sub-components remain private to `EnhancedCli`; neither
-  is shared with `BasicCli` or moved into the domain.
+- **Boundary** no. Both sub-components remain private to the
+  `Parrot.Cli.Enhanced` package; neither is shared with `BasicCli` or moved into
+  the domain.
 - **Note** complete physical assistant rows become immutable scrollback while
   only the unfinished final row remains redrawable. No alternate screen is
   used. On a supported terminal the raw-mode editor provides rune-aware cursor

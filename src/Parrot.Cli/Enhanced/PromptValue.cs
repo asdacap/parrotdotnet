@@ -1,4 +1,4 @@
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 internal readonly record struct PromptValue(string Prefix, string Text, int Cursor)
 {

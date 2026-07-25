@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 internal static class TerminalText
 {

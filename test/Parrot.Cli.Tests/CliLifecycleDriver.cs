@@ -1,5 +1,6 @@
 using Parrot.Auth;
 using Parrot.Cli.Commands;
+using Parrot.Cli.Enhanced;
 using Parrot.Config;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -58,15 +59,6 @@ internal sealed class CliLifecycleDriver : IDisposable
         var oauth = new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions());
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
 
-                new SlashCommandRegistry([new ExitCommand()]),
-                Interrupts,
-                static () => 80,
-                static () => null,
-                static () => false).Run(context, string.Empty, Input, _output, cancellationToken)
-            : new BasicCli(client, new SlashCommandRegistry([new ExitCommand()]), Interrupts)
-                .Run(context, string.Empty, Input, _output, cancellationToken);
->>>>>>> 7725342 (fix enhanced chat recovery after failed turns)
-=======
         return _enhanced
             ? new EnhancedCli(
                 client,
@@ -101,15 +93,6 @@ internal sealed class CliLifecycleDriver : IDisposable
                 Input,
                 _output,
                 _error).Run(cancellationToken);
-=======
-                new SlashCommandRegistry([new ExitCommand()]),
-                Interrupts,
-                static () => 80,
-                static () => null,
-                static () => false).Run(context, string.Empty, Input, _output, cancellationToken)
-            : new BasicCli(client, new SlashCommandRegistry([new ExitCommand()]), Interrupts)
-                .Run(context, string.Empty, Input, _output, cancellationToken);
->>>>>>> 7725342 (fix enhanced chat recovery after failed turns)
     }
 
     public void Dispose()

@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.RegularExpressions;
 
+using Parrot.Cli.Enhanced;
+
 namespace Parrot.Cli.Tests;
 
 internal sealed class LiveTerminalRendererTests

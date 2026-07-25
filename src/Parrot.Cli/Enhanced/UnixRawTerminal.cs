@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 internal sealed partial class UnixRawTerminal : IRawTerminal
 {

@@ -1,6 +1,7 @@
 using Grpc.Net.Client;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
+using Parrot.Cli.Enhanced;
 using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Protocol;

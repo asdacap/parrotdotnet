@@ -1,4 +1,5 @@
 using System.Text;
+using Parrot.Cli.Enhanced;
 
 namespace Parrot.Cli.Tests;
 

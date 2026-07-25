@@ -1,3 +1,5 @@
+using Parrot.Cli.Enhanced;
+
 namespace Parrot.Cli.Tests;
 
 internal sealed class MarkdownLiveRendererTests

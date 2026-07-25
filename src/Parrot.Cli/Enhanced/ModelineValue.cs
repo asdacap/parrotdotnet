@@ -1,4 +1,4 @@
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 internal readonly record struct ModelineValue(string Mode, string Activity, string Model)
 {

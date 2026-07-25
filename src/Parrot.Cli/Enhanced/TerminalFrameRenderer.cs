@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 internal sealed class TerminalFrameRenderer(TextWriter output, Func<int> columns, TerminalPalette palette)
 {

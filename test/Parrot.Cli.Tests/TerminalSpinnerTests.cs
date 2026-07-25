@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using Parrot.Cli.Enhanced;
 
 namespace Parrot.Cli.Tests;
 

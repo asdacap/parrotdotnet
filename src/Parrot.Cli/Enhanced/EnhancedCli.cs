@@ -7,7 +7,7 @@ using Parrot.Config;
 using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedCli(
     GeneratedParrot.ParrotClient client,

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct DarwinTermios

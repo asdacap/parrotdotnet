@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace Parrot.Cli;
+namespace Parrot.Cli.Enhanced;
 
 // Owns the one mutable row at the bottom of normal terminal scrollback. The
 // input is cumulative: once a physical row is followed by another, that stable

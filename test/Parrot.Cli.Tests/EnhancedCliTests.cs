@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Parrot.Cli.Enhanced;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
