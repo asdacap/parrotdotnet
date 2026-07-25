@@ -215,6 +215,8 @@ internal sealed class ProcessRunner(string bubblewrapPath)
             "--proc", "/proc",
             "--tmpfs", "/tmp",
         };
+        AddWritableUserDirectory(arguments, ".cache");
+
         var repositoryRoot = FindGitRepositoryRoot(workingDirectory);
 
         if (repositoryRoot is not null
@@ -230,6 +232,20 @@ internal sealed class ProcessRunner(string bubblewrapPath)
             "--", "/bin/sh", "-c", command,
         ]);
         return arguments;
+    }
+
+    private static void AddWritableUserDirectory(List<string> arguments, string name)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        if (home.Length == 0)
+        {
+            return;
+        }
+
+        var directory = Path.Combine(home, name);
+        _ = Directory.CreateDirectory(directory);
+        arguments.AddRange(["--bind", directory, directory]);
     }
 
     private static string? FindGitRepositoryRoot(string workingDirectory)

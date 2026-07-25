@@ -165,6 +165,24 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task User_cache_directory_is_writable(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+
+        _ = await runner.Run("true", _workspace, Path.Combine(_workspace, "blob"), cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        await AssertWritableBind(arguments, Path.Combine(home, ".cache"));
+    }
+
+    [Test]
     public async Task The_workspace_is_writable_and_the_host_is_read_only(CancellationToken cancellationToken)
     {
         var runner = ProcessRunner.Locate();
@@ -187,8 +205,21 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(File.Exists("/host-write")).IsFalse();
     }
 
+    private static async Task AssertWritableBind(string[] arguments, string directory)
+    {
+        var bind = Array.FindIndex(arguments, argument => string.Equals(argument, directory, StringComparison.Ordinal));
+        _ = await Assert.That(bind).IsGreaterThan(0);
+        _ = await Assert.That(arguments[bind - 1]).IsEqualTo("--bind");
+        _ = await Assert.That(arguments[bind + 1]).IsEqualTo(directory);
+    }
+
     private static string CreateArgumentCapturingSandbox(string workspace, string argumentsPath)
     {
+        if (!OperatingSystem.IsLinux())
+        {
+            throw new PlatformNotSupportedException();
+        }
+
         var path = Path.Combine(workspace, "capturing-sandbox");
         var script = $"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{argumentsPath}'\n"
             + "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n";
