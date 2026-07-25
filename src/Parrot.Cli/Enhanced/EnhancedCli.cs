@@ -29,7 +29,9 @@ internal sealed class EnhancedCli(
     Func<bool> color) : IInterruptListener
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
+    private const string DisableKeyboardEnhancement = "\u001b[<u";
     private const string EnableBracketedPaste = "\u001b[?2004h";
+    private const string EnableKeyboardEnhancement = "\u001b[>1u";
     private const string Prompt = "> ";
 
     private readonly Channel<bool> _interrupts =
@@ -187,6 +189,14 @@ internal sealed class EnhancedCli(
         TextWriter output, bool enabled, CancellationToken cancellationToken)
     {
         var sequence = enabled ? EnableBracketedPaste : DisableBracketedPaste;
+        await output.WriteAsync(sequence.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task SetKeyboardEnhancement(
+        TextWriter output, bool enabled, CancellationToken cancellationToken)
+    {
+        var sequence = enabled ? EnableKeyboardEnhancement : DisableKeyboardEnhancement;
         await output.WriteAsync(sequence.AsMemory(), cancellationToken).ConfigureAwait(false);
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -405,6 +415,7 @@ internal sealed class EnhancedCli(
         try
         {
             await SetBracketedPaste(output, true, cancellationToken).ConfigureAwait(false);
+            await SetKeyboardEnhancement(output, true, cancellationToken).ConfigureAwait(false);
             streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
             call = client.Listen(
                 new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
@@ -536,6 +547,7 @@ internal sealed class EnhancedCli(
             {
                 streaming?.Dispose();
                 call?.Dispose();
+                await SetKeyboardEnhancement(output, false, CancellationToken.None).ConfigureAwait(false);
                 await SetBracketedPaste(output, false, CancellationToken.None).ConfigureAwait(false);
             }
         }
