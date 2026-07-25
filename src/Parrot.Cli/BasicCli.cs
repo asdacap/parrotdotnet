@@ -3,9 +3,7 @@ using Grpc.Core;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
-using Parrot.Llm;
 using Parrot.Protocol;
-using Parrot.State;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
@@ -13,7 +11,18 @@ namespace Parrot.Cli;
 internal sealed class BasicCli(
     GeneratedParrot.ParrotClient client,
     SlashCommandRegistry commands,
-    Interrupts interrupts) : IInterruptListener
+    Interrupts interrupts,
+    ICredentialStore credentials,
+    OpenAiOAuthClient oauthClient,
+    Configuration configuration,
+    IReadOnlyList<string> providerIds,
+    string model,
+    string mode,
+    string prompt,
+    bool inputRedirected,
+    TextReader input,
+    TextWriter output,
+    TextWriter error) : IInterruptListener
 {
     private const string Prompt = "> ";
 
@@ -23,25 +32,12 @@ internal sealed class BasicCli(
     private volatile bool _busy;
     private volatile bool _interruptRequested;
 
-    public static async Task<int> Drive(
-        GeneratedParrot.ParrotClient client,
-        SlashCommandRegistry commands,
-        Interrupts interrupts,
-        StatePaths paths,
-        Configuration configuration,
-        OpenAiOAuthClient oauthClient,
-        string model,
-        string mode,
-        string prompt,
-        TextReader input,
-        TextWriter output,
-        TextWriter error,
-        CancellationToken cancellationToken)
+    public async Task<int> Run(CancellationToken cancellationToken)
     {
         var text = prompt;
 
         // Piped stdin is one answer, not a session. Scripts and CI depend on it.
-        if (text.Length == 0 && Console.IsInputRedirected)
+        if (text.Length == 0 && inputRedirected)
         {
             text = (await input.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
 
@@ -50,8 +46,6 @@ internal sealed class BasicCli(
                 return CommandDispatcher.ExitUsage;
             }
         }
-
-        using var credentials = new FileCredentialStore(paths.CredentialsFile);
 
         UserSession session;
 
@@ -73,7 +67,7 @@ internal sealed class BasicCli(
             credentials,
             oauthClient,
             configuration,
-            ProviderRegistryBuilder.BuildableProviderIds(configuration),
+            providerIds,
             session.Id,
             session.Model,
             session.Mode,
@@ -81,21 +75,8 @@ internal sealed class BasicCli(
             output,
             error);
 
-        var cli = new BasicCli(client, commands, interrupts);
-        return await cli.Run(context, text, input, output, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task<int> Run(
-        SlashContext context,
-        string prompt,
-        TextReader input,
-        TextWriter output,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-
-        return prompt.Length > 0
-            ? await Once(context, prompt, output, cancellationToken).ConfigureAwait(false)
+        return text.Length > 0
+            ? await Once(context, text, output, cancellationToken).ConfigureAwait(false)
             : await Loop(context, input, output, cancellationToken).ConfigureAwait(false);
     }
 
