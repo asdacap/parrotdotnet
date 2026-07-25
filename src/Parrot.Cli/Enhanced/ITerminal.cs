@@ -8,11 +8,9 @@ internal interface ITerminal
 
     TextWriter Error { get; }
 
-    bool InputRedirected { get; }
-
     bool Color { get; }
 
     int GetColumns();
 
-    IRawTerminal? OpenRaw();
+    ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken);
 }

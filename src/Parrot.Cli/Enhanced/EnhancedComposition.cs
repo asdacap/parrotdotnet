@@ -19,13 +19,6 @@ internal partial class EnhancedComposition
             .Arg<Configuration>("configuration")
             .Arg<IReadOnlyList<string>>("providerIds")
             .Arg<EnhancedChatRequest>("request")
-            .Arg<TextWriter>("output", "output")
-            .Arg<TextWriter>("error", "error")
-            .Bind<ITerminal>().To(ctx =>
-            {
-                ctx.Inject<TextWriter>("output", out var output);
-                ctx.Inject<TextWriter>("error", out var error);
-                return new ConsoleTerminal(output, error);
-            })
+            .Arg<ITerminal>("terminal")
             .Root<EnhancedCli>("Cli");
 }

@@ -1,12 +1,9 @@
+using System.Text;
 using Parrot.Cli.Enhanced;
 
 namespace Parrot.Cli.Tests;
 
-internal sealed class TestTerminal(
-    TextReader input,
-    TextWriter output,
-    TextWriter error,
-    Func<IRawTerminal?> openRaw) : ITerminal
+internal sealed class TestTerminal(TextReader input, TextWriter output, TextWriter error) : ITerminal
 {
     public TextReader Input { get; } = input;
 
@@ -14,11 +11,21 @@ internal sealed class TestTerminal(
 
     public TextWriter Error { get; } = error;
 
-    public bool InputRedirected => false;
-
     public bool Color => false;
 
     public int GetColumns() => 80;
 
-    public IRawTerminal? OpenRaw() => openRaw();
+    public async ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken)
+    {
+        var line = await Input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+        if (line is null)
+        {
+            buffer[0] = 0x04;
+            return 1;
+        }
+
+        var encoded = Encoding.UTF8.GetBytes(line + "\r");
+        encoded.CopyTo(buffer, 0);
+        return encoded.Length;
+    }
 }
