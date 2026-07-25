@@ -189,6 +189,11 @@ internal sealed class ProcessRunnerTests : IDisposable
 
     private static string CreateArgumentCapturingSandbox(string workspace, string argumentsPath)
     {
+        if (!OperatingSystem.IsLinux())
+        {
+            throw new PlatformNotSupportedException();
+        }
+
         var path = Path.Combine(workspace, "capturing-sandbox");
         var script = $"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{argumentsPath}'\n"
             + "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n";

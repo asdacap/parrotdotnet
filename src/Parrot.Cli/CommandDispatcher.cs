@@ -391,35 +391,45 @@ internal static class CommandDispatcher
             using var channel = GrpcChannel.ForAddress(RemoteAddress(connect));
             var remote = new GeneratedParrot.ParrotClient(channel);
 
-            return basic || Console.IsOutputRedirected
-                ? await BasicCli.Drive(
+            using var remoteCredentials = new FileCredentialStore(paths.CredentialsFile);
+            var remoteProviderIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
+
+            if (basic || Console.IsOutputRedirected)
+            {
+                var cli = new BasicCli(
                     remote,
                     BuildRegistry(model),
                     interrupts,
-                    paths,
-                    configuration,
+                    remoteCredentials,
                     OAuthClient(),
+                    configuration,
+                    remoteProviderIds,
                     model,
                     mode,
                     prompt,
+                    Console.IsInputRedirected,
                     Console.In,
                     output,
-                    error,
-                    cancellationToken).ConfigureAwait(false)
-                : await EnhancedCli.Drive(
-                    remote,
-                    BuildRegistry(model),
-                    interrupts,
-                    paths,
-                    configuration,
-                    OAuthClient(),
-                    model,
-                    mode,
-                    prompt,
-                    Console.In,
-                    output,
-                    error,
-                    cancellationToken).ConfigureAwait(false);
+                    error);
+                return await cli.Run(cancellationToken).ConfigureAwait(false);
+            }
+
+            var remoteCli = new EnhancedCli(
+                remote,
+                BuildRegistry(model),
+                interrupts,
+                remoteCredentials,
+                OAuthClient(),
+                configuration,
+                remoteProviderIds,
+                model,
+                mode,
+                prompt,
+                Console.IsInputRedirected,
+                Console.In,
+                output,
+                error);
+            return await remoteCli.Run(cancellationToken).ConfigureAwait(false);
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
@@ -432,34 +442,43 @@ internal static class CommandDispatcher
         }
 
         var client = ClientFor(composition.Service);
-        return basic || Console.IsOutputRedirected
-            ? await BasicCli.Drive(
+        var providerIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
+
+        if (basic || Console.IsOutputRedirected)
+        {
+            var cli = new BasicCli(
                 client,
                 BuildRegistry(model),
                 interrupts,
-                paths,
-                configuration,
+                credentials,
                 OAuthClient(),
+                configuration,
+                providerIds,
                 model,
                 mode,
                 prompt,
+                Console.IsInputRedirected,
                 Console.In,
                 output,
-                error,
-                cancellationToken).ConfigureAwait(false)
-            : await EnhancedCli.Drive(
-                client,
-                BuildRegistry(model),
-                interrupts,
-                paths,
-                configuration,
-                OAuthClient(),
-                model,
-                mode,
-                prompt,
-                Console.In,
-                output,
-                error,
-                cancellationToken).ConfigureAwait(false);
+                error);
+            return await cli.Run(cancellationToken).ConfigureAwait(false);
+        }
+
+        var enhanced = new EnhancedCli(
+            client,
+            BuildRegistry(model),
+            interrupts,
+            credentials,
+            OAuthClient(),
+            configuration,
+            providerIds,
+            model,
+            mode,
+            prompt,
+            Console.IsInputRedirected,
+            Console.In,
+            output,
+            error);
+        return await enhanced.Run(cancellationToken).ConfigureAwait(false);
     }
 }

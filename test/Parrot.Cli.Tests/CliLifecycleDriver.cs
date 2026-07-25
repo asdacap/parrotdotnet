@@ -45,25 +45,42 @@ internal sealed class CliLifecycleDriver : IDisposable
     public Task<int> Drive(CancellationToken cancellationToken)
     {
         var client = new GeneratedParrot.ParrotClient(Invoker);
-
-        var context = new SlashContext(
-            client,
-            new UnusedCredentials(),
-            new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
-            ["provider"],
-            "user-session",
-            "provider/model",
-            "build",
-            Input,
-            _output,
-            _error);
+        var commands = new SlashCommandRegistry([new ExitCommand()]);
+        var credentials = new UnusedCredentials();
+        var oauth = new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions());
+        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
 
         return _enhanced
-            ? new EnhancedCli(client, new SlashCommandRegistry([new ExitCommand()]), Interrupts)
-                .Run(context, string.Empty, Input, _output, cancellationToken)
-            : new BasicCli(client, new SlashCommandRegistry([new ExitCommand()]), Interrupts)
-                .Run(context, string.Empty, Input, _output, cancellationToken);
+            ? new EnhancedCli(
+                client,
+                commands,
+                Interrupts,
+                credentials,
+                oauth,
+                configuration,
+                ["provider"],
+                "provider/model",
+                "build",
+                string.Empty,
+                false,
+                Input,
+                _output,
+                _error).Run(cancellationToken)
+            : new BasicCli(
+                client,
+                commands,
+                Interrupts,
+                credentials,
+                oauth,
+                configuration,
+                ["provider"],
+                "provider/model",
+                "build",
+                string.Empty,
+                false,
+                Input,
+                _output,
+                _error).Run(cancellationToken);
     }
 
     public void Dispose()
