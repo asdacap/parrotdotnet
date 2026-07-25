@@ -6,14 +6,16 @@ namespace Parrot.Cli.Tests;
 internal sealed class TerminalInputTests
 {
     [Test]
-    public async Task Enhanced_terminal_enables_and_disables_bracketed_paste(CancellationToken cancellationToken)
+    public async Task Enhanced_terminal_enables_and_disables_input_protocols(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
 
         await EnhancedCli.SetBracketedPaste(output, true, cancellationToken);
+        await EnhancedCli.SetKeyboardEnhancement(output, true, cancellationToken);
+        await EnhancedCli.SetKeyboardEnhancement(output, false, cancellationToken);
         await EnhancedCli.SetBracketedPaste(output, false, cancellationToken);
 
-        _ = await Assert.That(output.ToString()).IsEqualTo("\u001b[?2004h\u001b[?2004l");
+        _ = await Assert.That(output.ToString()).IsEqualTo("\u001b[?2004h\u001b[>1u\u001b[<u\u001b[?2004l");
     }
 
     [Test]
@@ -54,6 +56,24 @@ internal sealed class TerminalInputTests
 
         _ = await Assert.That(decoded.Count).IsEqualTo(1);
         _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.Submit));
+    }
+
+    [Test]
+    [Arguments("\u001b[13;2u")]
+    [Arguments("\u001b[27;2;13~")]
+    public async Task Shift_enter_inserts_a_newline_and_enter_submits(string shiftEnter)
+    {
+        var decoder = new TerminalKeyDecoder();
+        var editor = new IncrementalEditor("> ", 64 * 1024);
+        var decoded = decoder.Feed(Encoding.UTF8.GetBytes($"first{shiftEnter}second\r"));
+        string? submitted = null;
+
+        foreach (var key in decoded)
+        {
+            submitted = editor.Apply(key) ?? submitted;
+        }
+
+        _ = await Assert.That(submitted).IsEqualTo("first\nsecond");
     }
 
     [Test]
