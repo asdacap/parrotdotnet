@@ -472,8 +472,7 @@ internal sealed class EnhancedCli(
                             else
                             {
                                 _busy = true;
-                                await output.WriteLineAsync(
-                                    $"› {TerminalText.Sanitize(entered)}".AsMemory(), cancellationToken)
+                                await renderer.CommitUserMessage("› ", entered, cancellationToken)
                                     .ConfigureAwait(false);
                                 _ = await client.SendMessageAsync(
                                     Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
@@ -502,9 +501,17 @@ internal sealed class EnhancedCli(
                         }
                     }
 
-                    if (!_busy && !exiting)
+                    if (!exiting)
                     {
-                        await DrawEditor(renderer, CurrentPrompt(), context, cancellationToken).ConfigureAwait(false);
+                        if (_busy)
+                        {
+                            await renderer.UpdatePrompt(CurrentPrompt(), cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await DrawEditor(renderer, CurrentPrompt(), context, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
                     }
                 }
             }
