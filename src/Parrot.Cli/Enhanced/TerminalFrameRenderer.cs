@@ -29,8 +29,9 @@ internal sealed class TerminalFrameRenderer(
         {
             var current = frame with { Prompt = _prompt ?? frame.Prompt };
             _prompt = current.Prompt;
+            var availableRows = Math.Max(1, _renderedHeight);
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(current, CancellationToken.None).ConfigureAwait(false);
+            await DrawFrame(current, availableRows, CancellationToken.None).ConfigureAwait(false);
             _frame = current;
         }
         finally
@@ -52,8 +53,9 @@ internal sealed class TerminalFrameRenderer(
             }
 
             var updated = frame with { Rows = rowsToDraw };
+            var availableRows = Math.Max(1, _renderedHeight);
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(updated, CancellationToken.None).ConfigureAwait(false);
+            await DrawFrame(updated, availableRows, CancellationToken.None).ConfigureAwait(false);
             _frame = updated;
         }
         finally
@@ -90,9 +92,10 @@ internal sealed class TerminalFrameRenderer(
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var availableRows = activities.Count == 0 ? Math.Max(1, _renderedHeight) : 1;
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
             await WriteActivities(activities, CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(frame, CancellationToken.None).ConfigureAwait(false);
+            await DrawFrame(frame, availableRows, CancellationToken.None).ConfigureAwait(false);
             _frame = frame;
         }
         finally
@@ -116,6 +119,7 @@ internal sealed class TerminalFrameRenderer(
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var availableRows = scrollback.Count == 0 ? Math.Max(1, _renderedHeight) : 1;
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
             foreach (var line in scrollback)
             {
@@ -125,7 +129,7 @@ internal sealed class TerminalFrameRenderer(
 
             if (_frame is { } frame)
             {
-                await DrawFrame(frame, CancellationToken.None).ConfigureAwait(false);
+                await DrawFrame(frame, availableRows, CancellationToken.None).ConfigureAwait(false);
             }
             else
             {
@@ -150,8 +154,9 @@ internal sealed class TerminalFrameRenderer(
             }
 
             var updated = frame with { Prompt = prompt };
+            var availableRows = Math.Max(1, _renderedHeight);
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(updated, CancellationToken.None).ConfigureAwait(false);
+            await DrawFrame(updated, availableRows, CancellationToken.None).ConfigureAwait(false);
             _frame = updated;
         }
         finally
@@ -219,7 +224,7 @@ internal sealed class TerminalFrameRenderer(
         }
     }
 
-    private async Task DrawFrame(TerminalFrame frame, CancellationToken cancellationToken)
+    private async Task DrawFrame(TerminalFrame frame, int availableRows, CancellationToken cancellationToken)
     {
         var width = Math.Max(1, columns());
         var prompt = frame.Prompt.Sanitize();
@@ -258,6 +263,18 @@ internal sealed class TerminalFrameRenderer(
 
         await output.WriteAsync($"\u001b[?25l{DisableAutowrap}".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
+        var rowsToReserve = Math.Max(0, _renderedHeight - availableRows);
+        for (var row = 0; row < rowsToReserve; row++)
+        {
+            await output.WriteAsync("\r\n".AsMemory(), cancellationToken).ConfigureAwait(false);
+        }
+
+        if (rowsToReserve > 0)
+        {
+            await output.WriteAsync($"\u001b[{rowsToReserve}A\r".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         for (var row = 0; row < _renderedHeight; row++)
         {
             await output.WriteAsync("\u001b[2K".AsMemory(), cancellationToken).ConfigureAwait(false);

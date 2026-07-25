@@ -197,7 +197,7 @@ internal sealed class EnhancedCliTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
-        using var view = new EnhancedCli.RawActivityView(
+        using var view = new RawActivityView(
             renderer,
             static () => new PromptValue("> ", string.Empty, 0),
             static () => new ModelineValue("build", "working", "provider/model"));
@@ -224,6 +224,24 @@ internal sealed class EnhancedCliTests
         var command = "tool call exec_command: {\"command\":\"dotnet test\"}";
         _ = await Assert.That(Count(rendered, "+ " + command + "\r\n")).IsEqualTo(1);
         _ = await Assert.That(rendered).DoesNotContain("exec_command finished");
+    }
+
+    [Test]
+    public async Task Interactive_chat_updates_the_prompt_while_a_turn_is_busy(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("first prompt");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event { Id = "start", TurnStarted = new TurnStarted { Model = "model" } });
+
+        driver.Input.Type("steer while busy");
+        await driver.OutputContains("steer while busy", cancellationToken);
+        await driver.Sent(2, cancellationToken);
+
+        driver.Input.End();
+        _ = await driving;
     }
 
     [Test]

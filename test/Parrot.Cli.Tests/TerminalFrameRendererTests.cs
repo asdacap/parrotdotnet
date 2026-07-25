@@ -35,6 +35,25 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
+    public async Task First_draw_reserves_rows_before_rendering_the_modeline(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
+
+        await renderer.Draw(
+            new TerminalFrame(
+                [],
+                null,
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", string.Empty, 0)),
+            cancellationToken);
+
+        var rendered = output.ToString();
+        var firstErase = rendered.IndexOf("\u001b[2K", StringComparison.Ordinal);
+        _ = await Assert.That(rendered[..firstErase]).Contains("\r\n\u001b[1A\r");
+    }
+
+    [Test]
     public async Task Full_width_modeline_is_drawn_without_terminal_autowrap(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();

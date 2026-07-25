@@ -1,4 +1,3 @@
-using System.Text;
 using System.Threading.Channels;
 using Grpc.Core;
 using Parrot.Cli.Commands;
@@ -92,7 +91,7 @@ internal sealed class EnhancedCli(
             new TerminalPalette(terminal.Color),
             TerminalFrameRenderer.DefaultLiveRows,
             TerminalFrameRenderer.DefaultInputRows);
-        var view = new TurnView(
+        var view = new EnhancedTurnView(
             turnRenderer,
             terminal.Error,
             terminal.GetColumns,
@@ -138,49 +137,6 @@ internal sealed class EnhancedCli(
             Text = text,
             Delivery = Delivery.Steer,
         };
-
-    private static Task DrawEditor(
-        TerminalFrameRenderer renderer,
-        PromptValue prompt,
-        SlashContext context,
-        CancellationToken cancellationToken) =>
-        renderer.Draw(
-            new TerminalFrame([], null, new ModelineValue(context.Mode, "ready", context.Model), prompt),
-            cancellationToken);
-
-    private static string Activity(Event published, bool started) => published.PayloadCase switch
-    {
-        Event.PayloadOneofCase.None => $"event {TerminalText.Sanitize(published.Id)} has no payload",
-        Event.PayloadOneofCase.TurnStarted =>
-            $"turn started: {TerminalText.Sanitize(published.TurnStarted.Model)}",
-        Event.PayloadOneofCase.InputAdmitted =>
-            $"{(started ? "queued" : "input admitted")}: {TerminalText.Sanitize(published.InputAdmitted.Content)}",
-        Event.PayloadOneofCase.InputPromoted =>
-            $"input promoted: {TerminalText.Sanitize(published.InputPromoted.InputId)}",
-        Event.PayloadOneofCase.ToolCallChunk =>
-            $"tool call {TerminalText.Sanitize(published.ToolCallChunk.ToolName)}: " +
-            TerminalText.Sanitize(published.ToolCallChunk.ArgumentsFragment),
-        Event.PayloadOneofCase.RetryNotice =>
-            $"retry {published.RetryNotice.Attempt} in {published.RetryNotice.RetryAfterMs} ms: " +
-            TerminalText.Sanitize(published.RetryNotice.Reason),
-        Event.PayloadOneofCase.ToolStarted =>
-            $"* {TerminalText.Sanitize(published.ToolStarted.ToolName)} started",
-        Event.PayloadOneofCase.ToolFinished =>
-            $"+ {TerminalText.Sanitize(published.ToolFinished.ToolName)} finished",
-        Event.PayloadOneofCase.ToolCancelled =>
-            $"- {TerminalText.Sanitize(published.ToolCancelled.ToolName)} cancelled",
-        Event.PayloadOneofCase.ToolError =>
-            $"! {TerminalText.Sanitize(published.ToolError.ToolName)}: " +
-            TerminalText.Sanitize(published.ToolError.Message),
-        Event.PayloadOneofCase.AgentStarted =>
-            $"* agent {TerminalText.Sanitize(published.AgentStarted.Name)} started",
-        Event.PayloadOneofCase.AgentFinished =>
-            $"+ agent {TerminalText.Sanitize(published.AgentFinished.Name)} finished",
-        Event.PayloadOneofCase.AgentFailed =>
-            $"! agent {TerminalText.Sanitize(published.AgentFailed.Name)}: " +
-            TerminalText.Sanitize(published.AgentFailed.Message),
-        _ => string.Empty,
-    };
 
     private async Task<int> Loop(
         SlashContext context,
@@ -263,7 +219,13 @@ internal sealed class EnhancedCli(
             streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
             call = client.Listen(
                 new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
-            await DrawEditor(renderer, CurrentPrompt(), context, cancellationToken).ConfigureAwait(false);
+            await renderer.Draw(
+                new TerminalFrame(
+                    [],
+                    null,
+                    new ModelineValue(context.Mode, "ready", context.Model),
+                    CurrentPrompt()),
+                cancellationToken).ConfigureAwait(false);
             if (initialPrompt.Length > 0)
             {
                 await StartTurn(initialPrompt, call).ConfigureAwait(false);
@@ -344,7 +306,13 @@ internal sealed class EnhancedCli(
 
                     if (!_busy && !exiting)
                     {
-                        await DrawEditor(renderer, CurrentPrompt(), context, cancellationToken).ConfigureAwait(false);
+                        await renderer.Draw(
+                            new TerminalFrame(
+                                [],
+                                null,
+                                new ModelineValue(context.Mode, "ready", context.Model),
+                                CurrentPrompt()),
+                            cancellationToken).ConfigureAwait(false);
                     }
                 }
             }
@@ -453,7 +421,13 @@ internal sealed class EnhancedCli(
             _interruptRequested = false;
             if (!cancellationToken.IsCancellationRequested)
             {
-                await DrawEditor(renderer, prompt(), context, cancellationToken).ConfigureAwait(false);
+                await renderer.Draw(
+                    new TerminalFrame(
+                        [],
+                        null,
+                        new ModelineValue(context.Mode, "ready", context.Model),
+                        prompt()),
+                    cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -496,395 +470,5 @@ internal sealed class EnhancedCli(
         }
 
         return await command.Run(context, arguments, cancellationToken).ConfigureAwait(false);
-    }
-
-    internal sealed class RawActivityView(
-        TerminalFrameRenderer renderer,
-        Func<PromptValue> prompt,
-        Func<ModelineValue> modeline) : IDisposable
-    {
-        private const int SpinnerIntervalMilliseconds = 80;
-
-        private readonly StringBuilder _reasoning = new();
-        private readonly Dictionary<string, (string Name, StringBuilder Arguments)> _toolCalls = [];
-        private readonly SemaphoreSlim _rendering = new(1, 1);
-        private IReadOnlyList<string> _rows = [];
-        private string? _activeToolCallId;
-        private bool _started;
-
-        public void Dispose() => _rendering.Dispose();
-
-        public async Task Run(CancellationToken cancellationToken)
-        {
-            try
-            {
-                for (var frame = 0; ; frame++)
-                {
-                    await Task.Delay(SpinnerIntervalMilliseconds, cancellationToken).ConfigureAwait(false);
-                    await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    try
-                    {
-                        if (_activeToolCallId is not null
-                            && _toolCalls.TryGetValue(_activeToolCallId, out var toolCall))
-                        {
-                            await renderer.Draw(
-                                new TerminalFrame(
-                                    [],
-                                    new SpinnerValue(FormatToolCall(toolCall), frame),
-                                    modeline(),
-                                    prompt()),
-                                cancellationToken).ConfigureAwait(false);
-                        }
-                    }
-                    finally
-                    {
-                        _ = _rendering.Release();
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-            }
-        }
-
-        public async Task Prepare(Event published, CancellationToken cancellationToken)
-        {
-            if (published.PayloadCase is not (Event.PayloadOneofCase.TextChunk or
-                Event.PayloadOneofCase.TurnEnded or
-                Event.PayloadOneofCase.TurnFailed))
-            {
-                return;
-            }
-
-            await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                await Flush(false, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = _rendering.Release();
-            }
-        }
-
-        public async Task Render(Event published, CancellationToken cancellationToken)
-        {
-            await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                _started |= published.PayloadCase == Event.PayloadOneofCase.TurnStarted;
-                if (published.PayloadCase is
-                    Event.PayloadOneofCase.TextChunk or
-                    Event.PayloadOneofCase.TurnEnded or
-                    Event.PayloadOneofCase.TurnFailed)
-                {
-                    return;
-                }
-
-                var activity = published.PayloadCase switch
-                {
-                    Event.PayloadOneofCase.ReasoningChunk => Reasoning(published.ReasoningChunk.Fragment),
-                    Event.PayloadOneofCase.ToolCallChunk => ToolCall(published.ToolCallChunk),
-                    _ => Activity(published, _started),
-                };
-                _rows = Rows(published, activity);
-                if (IsTerminalToolEvent(published))
-                {
-                    await Flush(true, cancellationToken).ConfigureAwait(false);
-                    RemoveToolCall(published);
-                    return;
-                }
-
-                SpinnerValue? spinner = published.PayloadCase == Event.PayloadOneofCase.ToolCallChunk
-                    ? new SpinnerValue(activity, 0)
-                    : null;
-                if (spinner is not null)
-                {
-                    _rows = [];
-                }
-
-                await renderer.Draw(
-                    new TerminalFrame(
-                        _rows,
-                        spinner,
-                        modeline(),
-                        prompt()),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = _rendering.Release();
-            }
-        }
-
-        private static string FormatToolCall((string Name, StringBuilder Arguments) toolCall) =>
-            $"tool call {TerminalText.Sanitize(toolCall.Name)}: {TerminalText.Sanitize(toolCall.Arguments.ToString())}";
-
-        private static bool IsTerminalToolEvent(Event published) =>
-            published.PayloadCase is Event.PayloadOneofCase.ToolFinished or
-                Event.PayloadOneofCase.ToolCancelled or
-                Event.PayloadOneofCase.ToolError;
-
-        private static string? TerminalToolCallId(Event published) => published.PayloadCase switch
-        {
-            Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
-            Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
-            Event.PayloadOneofCase.ToolError => published.ToolError.ToolCallId,
-            _ => null,
-        };
-
-        private string Reasoning(string fragment)
-        {
-            _ = _reasoning.Append(TerminalText.Sanitize(fragment));
-            return _reasoning.ToString();
-        }
-
-        private IReadOnlyList<string> Rows(Event published, string activity)
-        {
-            var toolCallId = TerminalToolCallId(published);
-            if (toolCallId is not null && _toolCalls.TryGetValue(toolCallId, out var toolCall))
-            {
-                return published.PayloadCase switch
-                {
-                    Event.PayloadOneofCase.ToolFinished => [$"+ {FormatToolCall(toolCall)}"],
-                    Event.PayloadOneofCase.ToolCancelled => [$"- {FormatToolCall(toolCall)} cancelled"],
-                    Event.PayloadOneofCase.ToolError =>
-                        [$"! {FormatToolCall(toolCall)}: {TerminalText.Sanitize(published.ToolError.Message)}"],
-                    _ => [FormatToolCall(toolCall)],
-                };
-            }
-
-            return activity.Length == 0 ? [] : [activity];
-        }
-
-        private string ToolCall(ToolCallChunk chunk)
-        {
-            if (!_toolCalls.TryGetValue(chunk.ToolCallId, out var toolCall))
-            {
-                toolCall = (chunk.ToolName, new StringBuilder());
-            }
-            else if (chunk.ToolName.Length > 0)
-            {
-                toolCall.Name = chunk.ToolName;
-            }
-
-            _ = toolCall.Arguments.Append(chunk.ArgumentsFragment);
-            _toolCalls[chunk.ToolCallId] = toolCall;
-            _activeToolCallId = chunk.ToolCallId;
-            return FormatToolCall(toolCall);
-        }
-
-        private void RemoveToolCall(Event published)
-        {
-            var toolCallId = TerminalToolCallId(published);
-            if (toolCallId is null)
-            {
-                return;
-            }
-
-            _ = _toolCalls.Remove(toolCallId);
-            if (string.Equals(_activeToolCallId, toolCallId, StringComparison.Ordinal))
-            {
-                _activeToolCallId = null;
-            }
-        }
-
-        private async Task Flush(bool redraw, CancellationToken cancellationToken)
-        {
-            var activities = _rows;
-            _rows = [];
-            if (redraw)
-            {
-                await renderer.FlushActivitiesAndDraw(
-                    activities,
-                    new TerminalFrame(
-                        _rows,
-                        null,
-                        modeline(),
-                        prompt()),
-                    cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            await renderer.FlushActivities(activities, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private sealed class TurnView(
-        TerminalFrameRenderer renderer,
-        TextWriter error,
-        Func<int> columns,
-        bool renderActivityEvents,
-        bool color)
-    {
-        private const string Dim = "\u001b[2m";
-        private const string Cyan = "\u001b[36m";
-        private const string Green = "\u001b[32m";
-        private const string Red = "\u001b[31m";
-        private const string Reset = "\u001b[0m";
-
-        private readonly MarkdownLiveRenderer _live = new(columns, color);
-        private readonly StringBuilder _reasoning = new();
-        private bool _started;
-        private bool _textActive;
-        private int _textSegment;
-
-        private string TextId => $"assistant-{_textSegment}";
-
-        public async Task Prepare(Event published, CancellationToken cancellationToken)
-        {
-            if (_textActive && published.PayloadCase != Event.PayloadOneofCase.TextChunk)
-            {
-                await CommitText(cancellationToken).ConfigureAwait(false);
-            }
-
-            if (_reasoning.Length > 0 && published.PayloadCase != Event.PayloadOneofCase.ReasoningChunk)
-            {
-                await EndReasoning(cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        public async Task<bool?> Render(Event published, CancellationToken cancellationToken)
-        {
-            switch (published.PayloadCase)
-            {
-                case Event.PayloadOneofCase.TurnStarted:
-                    _started = true;
-                    if (renderActivityEvents)
-                    {
-                        await RenderActivity(published, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    break;
-
-                case Event.PayloadOneofCase.None:
-                case Event.PayloadOneofCase.InputAdmitted:
-                case Event.PayloadOneofCase.InputPromoted:
-                case Event.PayloadOneofCase.ToolCallChunk:
-                case Event.PayloadOneofCase.RetryNotice:
-                case Event.PayloadOneofCase.ToolStarted:
-                case Event.PayloadOneofCase.ToolFinished:
-                case Event.PayloadOneofCase.ToolCancelled:
-                case Event.PayloadOneofCase.ToolError:
-                case Event.PayloadOneofCase.AgentStarted:
-                case Event.PayloadOneofCase.AgentFinished:
-                case Event.PayloadOneofCase.AgentFailed:
-                    if (renderActivityEvents)
-                    {
-                        await RenderActivity(published, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    break;
-
-                case Event.PayloadOneofCase.StatusInjected:
-                    await Commit([$"{Dim}  ↻ Status prompt injected{Reset}"], cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.ReasoningChunk:
-                    if (renderActivityEvents)
-                    {
-                        await RenderReasoning(published.ReasoningChunk.Fragment, cancellationToken)
-                            .ConfigureAwait(false);
-                    }
-
-                    break;
-
-                case Event.PayloadOneofCase.TextChunk:
-                    _textActive = true;
-                    await Apply(
-                        _live.Append(
-                            new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment)),
-                        cancellationToken).ConfigureAwait(false);
-                    break;
-
-                case Event.PayloadOneofCase.TurnEnded:
-                    await Commit([$"{Green}  {Summarise(published.TurnEnded)}{Reset}"], cancellationToken)
-                        .ConfigureAwait(false);
-                    return true;
-
-                case Event.PayloadOneofCase.TurnFailed:
-                    await error.WriteLineAsync(
-                        $"{Red}  {TerminalText.Sanitize(published.TurnFailed.Message)}{Reset}".AsMemory(),
-                        cancellationToken).ConfigureAwait(false);
-                    return false;
-
-                default:
-                    break;
-            }
-
-            return null;
-        }
-
-        public async Task End(CancellationToken cancellationToken)
-        {
-            if (_textActive)
-            {
-                await CommitText(cancellationToken).ConfigureAwait(false);
-            }
-
-            if (_reasoning.Length > 0)
-            {
-                await EndReasoning(cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        public async Task Cancel(CancellationToken cancellationToken)
-        {
-            if (_textActive)
-            {
-                _live.Clear();
-                await renderer.UpdateRows([], cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        private static string Summarise(TurnEnded ended) =>
-            $"{TerminalText.Sanitize(ended.FinishReason)} - {ended.InputTokens} in / {ended.OutputTokens} out";
-
-        private Task RenderActivity(Event published, CancellationToken cancellationToken)
-        {
-            var style = published.PayloadCase switch
-            {
-                Event.PayloadOneofCase.ToolStarted or
-                Event.PayloadOneofCase.AgentStarted => Cyan,
-                Event.PayloadOneofCase.ToolFinished or
-                Event.PayloadOneofCase.AgentFinished => Green,
-                Event.PayloadOneofCase.ToolError or
-                Event.PayloadOneofCase.AgentFailed => Red,
-                _ => Dim,
-            };
-            return Commit([$"{style}  {Activity(published, _started)}{Reset}"], cancellationToken);
-        }
-
-        private async Task Apply(MarkdownLiveUpdate update, CancellationToken cancellationToken)
-        {
-            await renderer.UpdateRows(update.Preview, cancellationToken).ConfigureAwait(false);
-            if (update.Scrollback.Count > 0)
-            {
-                await renderer.CommitScrollback(update.Scrollback, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        private Task Commit(IReadOnlyList<string> lines, CancellationToken cancellationToken) =>
-            renderer.CommitScrollback(lines, cancellationToken);
-
-        private async Task CommitText(CancellationToken cancellationToken)
-        {
-            await Apply(_live.Commit(), cancellationToken).ConfigureAwait(false);
-            _textActive = false;
-            _textSegment++;
-        }
-
-        private Task RenderReasoning(string fragment, CancellationToken cancellationToken)
-        {
-            _ = _reasoning.Append(TerminalText.Sanitize(fragment));
-            return renderer.UpdateRows([_reasoning.ToString()], cancellationToken);
-        }
-
-        private async Task EndReasoning(CancellationToken cancellationToken)
-        {
-            await Commit([$"{Dim}{_reasoning}{Reset}"], cancellationToken).ConfigureAwait(false);
-            _ = _reasoning.Clear();
-        }
     }
 }
