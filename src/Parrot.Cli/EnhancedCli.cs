@@ -557,6 +557,7 @@ internal sealed class EnhancedCli(
 
         while (!cancellationToken.IsCancellationRequested)
         {
+            var failed = false;
             using var activity = new RawActivityView(
                 renderer,
                 prompt,
@@ -569,6 +570,10 @@ internal sealed class EnhancedCli(
                 if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
                 {
                     _busy = true;
+                }
+                else if (published.PayloadCase == Event.PayloadOneofCase.TurnFailed)
+                {
+                    failed = true;
                 }
 
                 if (spinning)
@@ -600,7 +605,7 @@ internal sealed class EnhancedCli(
                 await animation.ConfigureAwait(false);
             }
 
-            if (!completed)
+            if (!completed && !failed)
             {
                 return;
             }
@@ -619,6 +624,7 @@ internal sealed class EnhancedCli(
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            var failed = false;
             var completed = await RenderTurn(
                 stream,
                 output,
@@ -631,11 +637,15 @@ internal sealed class EnhancedCli(
                     {
                         _busy = true;
                     }
+                    else if (published.PayloadCase == Event.PayloadOneofCase.TurnFailed)
+                    {
+                        failed = true;
+                    }
 
                     return Task.CompletedTask;
                 },
                 color: color()).ConfigureAwait(false);
-            if (!completed)
+            if (!completed && !failed)
             {
                 return;
             }

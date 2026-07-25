@@ -232,6 +232,34 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Interactive_chat_accepts_another_turn_after_a_failure(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("first prompt");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event { Id = "start-1", TurnStarted = new TurnStarted { Model = "model" } });
+        await driver.Invoker.Publish(
+            new Event { Id = "failed-1", TurnFailed = new TurnFailed { Message = "tool-call limit" } });
+        await driver.ErrorContains("tool-call limit", cancellationToken);
+
+        driver.Input.Type("second prompt");
+        await driver.Sent(2, cancellationToken);
+        await driver.Invoker.Publish(new Event { Id = "start-2", TurnStarted = new TurnStarted { Model = "model" } });
+        await driver.Invoker.Publish(
+            new Event { Id = "text-2", TextChunk = new TextChunk { Fragment = "recovered answer" } });
+        await driver.Invoker.Publish(
+            new Event { Id = "ended-2", TurnEnded = new TurnEnded { FinishReason = "stop" } });
+
+        await driver.OutputContains("recovered answer", cancellationToken);
+        driver.Input.End();
+        _ = await driving;
+
+        _ = await Assert.That(driver.Invoker.Sent.Count).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Failure_commits_the_live_suffix_and_reports_sanitized_error(
         CancellationToken cancellationToken)
     {

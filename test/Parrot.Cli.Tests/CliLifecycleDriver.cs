@@ -34,6 +34,14 @@ internal sealed class CliLifecycleDriver : IDisposable
         }
     }
 
+    public async Task ErrorContains(string text, CancellationToken cancellationToken)
+    {
+        while (!_error.ToString().Contains(text, StringComparison.Ordinal))
+        {
+            await Task.Delay(5, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async Task Sent(int count, CancellationToken cancellationToken)
     {
         while (Invoker.Sent.Count < count)
@@ -50,6 +58,15 @@ internal sealed class CliLifecycleDriver : IDisposable
         var oauth = new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions());
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
 
+                new SlashCommandRegistry([new ExitCommand()]),
+                Interrupts,
+                static () => 80,
+                static () => null,
+                static () => false).Run(context, string.Empty, Input, _output, cancellationToken)
+            : new BasicCli(client, new SlashCommandRegistry([new ExitCommand()]), Interrupts)
+                .Run(context, string.Empty, Input, _output, cancellationToken);
+>>>>>>> 7725342 (fix enhanced chat recovery after failed turns)
+=======
         return _enhanced
             ? new EnhancedCli(
                 client,
@@ -65,7 +82,10 @@ internal sealed class CliLifecycleDriver : IDisposable
                 false,
                 Input,
                 _output,
-                _error).Run(cancellationToken)
+                _error,
+                static () => 80,
+                static () => null,
+                static () => false).Run(cancellationToken)
             : new BasicCli(
                 client,
                 commands,
@@ -81,6 +101,15 @@ internal sealed class CliLifecycleDriver : IDisposable
                 Input,
                 _output,
                 _error).Run(cancellationToken);
+=======
+                new SlashCommandRegistry([new ExitCommand()]),
+                Interrupts,
+                static () => 80,
+                static () => null,
+                static () => false).Run(context, string.Empty, Input, _output, cancellationToken)
+            : new BasicCli(client, new SlashCommandRegistry([new ExitCommand()]), Interrupts)
+                .Run(context, string.Empty, Input, _output, cancellationToken);
+>>>>>>> 7725342 (fix enhanced chat recovery after failed turns)
     }
 
     public void Dispose()
