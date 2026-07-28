@@ -92,15 +92,24 @@ internal sealed class EnhancedCli(
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    internal Task<bool> RenderTurn(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken) =>
+        RenderTurn(stream, null, true, null, null, null, new ForegroundTurn(), cancellationToken);
+
+    internal Task<bool> RenderTurn(
+        IAsyncStreamReader<Event> stream,
+        Func<Event, CancellationToken, Task> beforeRender,
+        CancellationToken cancellationToken) =>
+        RenderTurn(stream, beforeRender, true, null, null, null, new ForegroundTurn(), cancellationToken);
+
     internal async Task<bool> RenderTurn(
         IAsyncStreamReader<Event> stream,
-        CancellationToken cancellationToken,
-        Func<Event, CancellationToken, Task>? beforeRender = null,
-        bool renderActivityEvents = true,
-        Func<Event, CancellationToken, Task>? afterRender = null,
-        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? draw = null,
-        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? commit = null,
-        ForegroundTurn? foreground = null)
+        Func<Event, CancellationToken, Task>? beforeRender,
+        bool renderActivityEvents,
+        Func<Event, CancellationToken, Task>? afterRender,
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? draw,
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? commit,
+        ForegroundTurn foreground,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
@@ -129,7 +138,7 @@ internal sealed class EnhancedCli(
             terminal.GetColumns,
             renderActivityEvents,
             terminal.Color,
-            foreground ?? new ForegroundTurn());
+            foreground);
 
         try
         {
@@ -526,13 +535,13 @@ internal sealed class EnhancedCli(
 
                 var completed = await RenderTurn(
                     stream,
-                    cancellationToken,
                     BeforeRender,
                     false,
                     activity.Render,
                     activity.DrawContent,
                     activity.CommitContent,
-                    foreground).ConfigureAwait(false);
+                    foreground,
+                    cancellationToken).ConfigureAwait(false);
 
                 if ((!completed && !failed) || exitOnFirstCompletion)
                 {

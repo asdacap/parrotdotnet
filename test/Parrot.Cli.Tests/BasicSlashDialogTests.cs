@@ -5,7 +5,14 @@ namespace Parrot.Cli.Tests;
 internal sealed class BasicSlashDialogTests
 {
     [Test]
+    [Arguments("wrong\nbuild\n", "build", true)]
+    [Arguments("2\n", "review", false)]
+    [Arguments("\n", null, false)]
+    [Arguments("", null, false)]
     public async Task Selects_by_number_or_id_retries_invalid_input_and_dismisses_blank_or_end_of_input(
+        string input,
+        string? expected,
+        bool reportsInvalidInput,
         CancellationToken cancellationToken)
     {
         var options = new[]
@@ -13,28 +20,42 @@ internal sealed class BasicSlashDialogTests
             new SlashDialogOption("build", "Build", "Implement a change"),
             new SlashDialogOption("review", "Review", "Inspect a change"),
         };
+        using var reader = new StringReader(input);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var dialog = new BasicSlashDialog(reader, output, error);
 
-        foreach (var (input, expected) in new[]
-        {
-            ("wrong\nbuild\n", "build"),
-            ("2\n", "review"),
-            ("\n", (string?)null),
-            (string.Empty, (string?)null),
-        })
-        {
-            using var reader = new StringReader(input);
-            using var output = new StringWriter();
-            using var error = new StringWriter();
-            var dialog = new BasicSlashDialog(reader, output, error);
+        var selected = await dialog.Select("Choose a mode", options, cancellationToken);
 
-            var selected = await dialog.Select("Choose a mode", options, cancellationToken);
+        _ = await Assert.That(selected?.Id).IsEqualTo(expected);
+        _ = await Assert.That(output.ToString()).Contains("Choose a mode");
+        _ = await Assert.That(output.ToString()).Contains("1. Build — Implement a change");
+        _ = await Assert.That(error.ToString()).IsEqualTo(reportsInvalidInput
+            ? $"Choose a listed number or id.{Environment.NewLine}"
+            : string.Empty);
+    }
 
-            _ = await Assert.That(selected?.Id).IsEqualTo(expected);
-            _ = await Assert.That(output.ToString()).Contains("Choose a mode");
-            _ = await Assert.That(output.ToString()).Contains("1. Build — Implement a change");
-            _ = await Assert.That(error.ToString()).IsEqualTo(
-                expected == "build" ? $"Choose a listed number or id.{Environment.NewLine}" : string.Empty);
-        }
+    [Test]
+    [Arguments("y\n", true)]
+    [Arguments(" YES \n", true)]
+    [Arguments("n\n", false)]
+    [Arguments("\n", false)]
+    [Arguments("", false)]
+    public async Task Confirmation_shows_message_and_accepts_only_yes(
+        string input,
+        bool expected,
+        CancellationToken cancellationToken)
+    {
+        using var reader = new StringReader(input);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var dialog = new BasicSlashDialog(reader, output, error);
+
+        var confirmed = await dialog.Confirm(["Continue"], cancellationToken);
+
+        _ = await Assert.That(confirmed).IsEqualTo(expected);
+        _ = await Assert.That(output.ToString()).IsEqualTo($"Continue{Environment.NewLine}Continue? [y/N] ");
+        _ = await Assert.That(error.ToString()).IsEmpty();
     }
 
     [Test]

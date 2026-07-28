@@ -1,7 +1,5 @@
 namespace Parrot.Cli.Commands;
 
-// The registry is passed in rather than looked up, so /help cannot fall out of
-// date with what is actually registered.
 internal sealed class HelpCommand(SlashCommandRegistry registry, ISlashDialog dialog) : ISlashCommand
 {
     public string Name => "/help";

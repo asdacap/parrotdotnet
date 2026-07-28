@@ -385,7 +385,7 @@ internal sealed class TerminalFrameRendererTests
 
         public override async Task WriteAsync(
             ReadOnlyMemory<char> buffer,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken)
         {
             var active = Interlocked.Increment(ref _activeWrites);
             _ = InterlockedExtensions.Max(ref _maximumConcurrentWrites, active);

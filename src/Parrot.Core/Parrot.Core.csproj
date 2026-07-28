@@ -8,6 +8,15 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.Generated.cs"
+                      Lines="namespace Parrot%3B%0A%0Ainternal static partial class BuildInfo%0A{%0A    public const string Version = &quot;$(Version)&quot;%3B%0A}"
+                      Overwrite="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)BuildInfo.Generated.cs" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Haikunator" />

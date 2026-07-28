@@ -74,7 +74,10 @@ internal sealed class BasicSlashDialog(TextReader input, TextWriter output, Text
     public async Task<bool> Confirm(IReadOnlyList<string> lines, CancellationToken cancellationToken)
     {
         await Show(lines, cancellationToken).ConfigureAwait(false);
-        return true;
+        await output.WriteAsync("Continue? [y/N] ".AsMemory(), cancellationToken).ConfigureAwait(false);
+        var answer = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+        return string.Equals(answer?.Trim(), "y", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(answer?.Trim(), "yes", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task ShowError(string message, CancellationToken cancellationToken)
@@ -91,7 +94,7 @@ internal sealed class BasicSlashDialog(TextReader input, TextWriter output, Text
             return options[number - 1];
         }
 
-        return options.FirstOrDefault(option => string.Equals(option.Id, answer, StringComparison.Ordinal));
+        return options.FirstOrDefault(option => option.Match(answer));
     }
 
     private async Task<string?> ReadSecretFromConsole(string prompt, CancellationToken cancellationToken)

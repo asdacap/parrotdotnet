@@ -19,7 +19,9 @@ internal sealed class SessionStore(
 
     public SessionIndex Index { get; } = new(stateDirectory);
 
-    public UserSession Open(ProviderModel model, string mode = ModeRegistry.Build)
+    public UserSession Open(ProviderModel model) => Open(model, ModeRegistry.Build);
+
+    public UserSession Open(ProviderModel model, string mode)
     {
         var claim = new WorkingDirectoryClaim(stateDirectory, hostKey);
         var claimed = claim.Claim(workingDirectory, Identifier.UserSession(), ProcessIsAlive);

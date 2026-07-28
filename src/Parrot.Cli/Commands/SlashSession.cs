@@ -36,7 +36,7 @@ internal sealed class SlashSession(
         var session = await client.CreateSessionAsync(
             new CreateSessionRequest { Model = model, Mode = mode },
             cancellationToken: cancellationToken);
-        await binding.Replace(session, CancellationToken.None).ConfigureAwait(false);
+        await binding.Replace(session, cancellationToken).ConfigureAwait(false);
         _current = session;
     }
 }

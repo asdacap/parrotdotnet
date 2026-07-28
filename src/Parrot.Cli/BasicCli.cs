@@ -79,16 +79,24 @@ internal sealed class BasicCli(
         return _interrupts.Writer.TryWrite(true);
     }
 
+    internal static Task<bool> RenderTurn(
+        IAsyncStreamReader<Event> stream,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken) =>
+        RenderTurn(stream, output, error, static (_, _) => Task.CompletedTask, cancellationToken);
+
     internal static async Task<bool> RenderTurn(
         IAsyncStreamReader<Event> stream,
         TextWriter output,
         TextWriter error,
-        CancellationToken cancellationToken,
-        Func<Event, CancellationToken, Task>? beforeRender = null)
+        Func<Event, CancellationToken, Task> beforeRender,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(error);
+        ArgumentNullException.ThrowIfNull(beforeRender);
 
         // Whether the prompt this call is rendering has started. Before it has,
         // an admission is the prompt the user just typed and is already on
@@ -100,10 +108,7 @@ internal sealed class BasicCli(
         while (await MoveNext(stream, cancellationToken).ConfigureAwait(false))
         {
             var published = stream.Current;
-            if (beforeRender is { } before)
-            {
-                await before(published, cancellationToken).ConfigureAwait(false);
-            }
+            await beforeRender(published, cancellationToken).ConfigureAwait(false);
 
             if (!textEndsLine && published.PayloadCase is
                 Event.PayloadOneofCase.ToolStarted or
@@ -336,7 +341,6 @@ internal sealed class BasicCli(
                 stream,
                 output,
                 error,
-                cancellationToken,
                 (published, _) =>
                 {
                     if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
@@ -345,7 +349,8 @@ internal sealed class BasicCli(
                     }
 
                     return Task.CompletedTask;
-                }).ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
             if (!completed)
             {
                 _busy = false;

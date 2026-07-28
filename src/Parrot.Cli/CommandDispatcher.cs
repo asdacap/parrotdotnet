@@ -81,19 +81,19 @@ internal static class CommandDispatcher
                 return ExitSuccess;
 
             case "auth":
-                return await Login(arguments, output, error, cancellationToken).ConfigureAwait(false);
+                return await Authenticate(arguments, output, error, cancellationToken).ConfigureAwait(false);
 
             case "models":
-                return await Models(output, error, cancellationToken).ConfigureAwait(false);
+                return await ListModels(output, error, cancellationToken).ConfigureAwait(false);
 
             case "sessions":
-                return await Sessions(output, cancellationToken).ConfigureAwait(false);
+                return await ListSessions(output, cancellationToken).ConfigureAwait(false);
 
             case "chat":
-                return await Chat(arguments, interrupts, output, error, cancellationToken).ConfigureAwait(false);
+                return await RunChat(arguments, interrupts, output, error, cancellationToken).ConfigureAwait(false);
 
             case "serve":
-                return await Serve(arguments, output, error, cancellationToken).ConfigureAwait(false);
+                return await RunServer(arguments, output, error, cancellationToken).ConfigureAwait(false);
 
             default:
                 await error.WriteLineAsync($"parrot: unknown command \"{command}\"".AsMemory(), cancellationToken)
@@ -132,7 +132,7 @@ internal static class CommandDispatcher
         return replacement.Selector;
     }
 
-    private static async Task<int> Login(
+    private static async Task<int> Authenticate(
         IReadOnlyList<string> arguments,
         TextWriter output,
         TextWriter error,
@@ -195,7 +195,7 @@ internal static class CommandDispatcher
         return ExitSuccess;
     }
 
-    private static async Task<int> Sessions(TextWriter output, CancellationToken cancellationToken)
+    private static async Task<int> ListSessions(TextWriter output, CancellationToken cancellationToken)
     {
         var paths = StatePaths.ResolveFromEnvironment();
         var listed = new SessionIndex(paths.State).List();
@@ -215,13 +215,13 @@ internal static class CommandDispatcher
         return ExitSuccess;
     }
 
-    private static async Task<int> Models(
+    private static async Task<int> ListModels(
         TextWriter output,
         TextWriter error,
         CancellationToken cancellationToken)
     {
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await Compose(credentials, error, cancellationToken)
+        await using var composition = await BuildComposition(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -251,7 +251,7 @@ internal static class CommandDispatcher
     // composition around the selected one. Null when the selection cannot be
     // resolved. The credential store must outlive the composition, because the
     // OAuth providers refresh through it, so the caller owns both.
-    private static async Task<Composition?> Compose(
+    private static async Task<Composition?> BuildComposition(
         ICredentialStore credentials,
         TextWriter error,
         CancellationToken cancellationToken)
@@ -273,7 +273,7 @@ internal static class CommandDispatcher
         }
     }
 
-    private static async Task<int> Serve(
+    private static async Task<int> RunServer(
         IReadOnlyList<string> arguments,
         TextWriter output,
         TextWriter error,
@@ -293,7 +293,7 @@ internal static class CommandDispatcher
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await Compose(credentials, error, cancellationToken)
+        await using var composition = await BuildComposition(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -307,10 +307,10 @@ internal static class CommandDispatcher
         return await GrpcServer.Run(composition.Service, port, cancellationToken).ConfigureAwait(false);
     }
 
-    private static string RemoteAddress(string target) =>
+    private static string NormalizeRemoteAddress(string target) =>
         target.StartsWith("http", StringComparison.Ordinal) ? target : $"http://{target}";
 
-    private static async Task<int> Chat(
+    private static async Task<int> RunChat(
         IReadOnlyList<string> arguments,
         Interrupts interrupts,
         TextWriter output,
@@ -372,7 +372,7 @@ internal static class CommandDispatcher
         // process is only a client of the same contract (principle 11).
         if (connect.Length > 0)
         {
-            using var channel = GrpcChannel.ForAddress(RemoteAddress(connect));
+            using var channel = GrpcChannel.ForAddress(NormalizeRemoteAddress(connect));
             var remote = new GeneratedParrot.ParrotClient(channel);
             if (variant is not null)
             {
@@ -442,7 +442,7 @@ internal static class CommandDispatcher
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await Compose(credentials, error, cancellationToken)
+        await using var composition = await BuildComposition(credentials, error, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)

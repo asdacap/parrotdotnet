@@ -198,7 +198,7 @@ internal sealed class EnhancedCliTests
             new OpenAiOAuthClient(driver.Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
-            terminal).RenderTurn(stream.Reader, cancellationToken, BeforeRender);
+            terminal).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))

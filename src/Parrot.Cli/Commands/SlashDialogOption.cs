@@ -7,4 +7,6 @@ internal sealed class SlashDialogOption(string id, string label, string descript
     public string Label { get; } = label;
 
     public string Description { get; } = description;
+
+    public bool Match(string answer) => string.Equals(Id, answer, StringComparison.Ordinal);
 }

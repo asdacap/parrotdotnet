@@ -108,7 +108,7 @@ internal sealed class CliLifecycleDriver : IDisposable
 
         public override Task WriteAsync(
             ReadOnlyMemory<char> buffer,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             lock (_sync)

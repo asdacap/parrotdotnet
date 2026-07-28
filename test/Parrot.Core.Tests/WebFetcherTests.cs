@@ -23,9 +23,10 @@ internal sealed class WebFetcherTests
                     "text/html; charset=utf-8",
                     Encoding.UTF8.GetBytes(
                         "<html><style>secret</style><body><h1>Hello &amp; bye</h1>"
-                        + "<script>alert(1)</script><p>Text\u0001</p></body></html>")),
+                        + "<script>alert(1)</script><p>Text\u0001</p></body></html>"),
+                    string.Empty),
                 Response("200 OK", "text/plain", Gzip(new string('a', 300)), "Content-Encoding: gzip\r\n"),
-                Response("200 OK", "text/plain", Encoding.UTF8.GetBytes("fetched")),
+                Response("200 OK", "text/plain", Encoding.UTF8.GetBytes("fetched"), string.Empty),
             ],
             serveCts.Token);
         var privateFetcher = new WebFetcher(
@@ -174,7 +175,7 @@ internal sealed class WebFetcherTests
         return result.ToArray();
     }
 
-    private static byte[] Response(string status, string contentType, byte[] body, string headers = "")
+    private static byte[] Response(string status, string contentType, byte[] body, string headers)
     {
         var head = Encoding.ASCII.GetBytes(
             $"HTTP/1.1 {status}\r\nContent-Type: {contentType}\r\n{headers}"

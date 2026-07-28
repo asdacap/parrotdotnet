@@ -72,14 +72,14 @@ internal sealed class ProviderRegistryTests
     [Arguments("p//m")]
     public async Task Resolve_rejects_unknown_and_malformed_selectors(string selector)
     {
-        var registry = Build([("p", ["m"])]);
+        var registry = Build([("p", ["m"])], null);
 
         _ = await Assert.That(() => registry.Resolve(selector)).Throws<LLMProviderException>();
     }
 
     [Test]
     public async Task Duplicate_ids_are_rejected_at_construction() =>
-        _ = await Assert.That(() => Build([("p", []), ("p", [])])).Throws<LLMProviderException>();
+        _ = await Assert.That(() => Build([("p", []), ("p", [])], null)).Throws<LLMProviderException>();
 
     [Test]
     public async Task Available_models_skips_uncredentialed_providers_and_keeps_seed_on_refresh_failure(
@@ -116,7 +116,7 @@ internal sealed class ProviderRegistryTests
 
     private static ProviderRegistry Build(
         IReadOnlyList<(string Id, string[] Models)> providers,
-        ProviderModel? defaultModel = null)
+        ProviderModel? defaultModel)
     {
         var builtProviders = providers.Select(entry => (ILLMProvider)new FakeProvider(entry.Id, true, null)).ToList();
         var catalogues = new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal);

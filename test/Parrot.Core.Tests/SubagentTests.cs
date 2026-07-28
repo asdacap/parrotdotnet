@@ -32,7 +32,7 @@ internal sealed class SubagentTests : IDisposable
         var sessions = new TestAgentSessions();
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
-        var parent = Session(provider, depth: 0, cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
         var wait = new WaitAgentTool(registry);
 
@@ -96,7 +96,7 @@ internal sealed class SubagentTests : IDisposable
         var sessions = new TestAgentSessions();
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
-        var parent = Session(provider, depth: 0, cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
         parent.UpdateSelection(parent.Selection().ResolvedModel, ModeProfile.Build());
         var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
         parent.UpdateSelection(
@@ -121,7 +121,7 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 1, "followed up", []));
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
-        var parent = Session(provider, depth: 0, cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
         var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry);
@@ -172,7 +172,7 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 1, "second", []));
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
-        var parent = Session(provider, depth: 0, cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
         var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
 
@@ -198,8 +198,8 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "done", []));
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
-        var parent = Session(provider, depth: 0, cancellationToken, "parent");
-        var stranger = Session(provider, depth: 0, cancellationToken, "stranger");
+        var parent = Session(provider, 0, "parent", cancellationToken);
+        var stranger = Session(provider, 0, "stranger", cancellationToken);
         var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry);
@@ -235,7 +235,7 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 1, "four", []));
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
-        var parent = Session(provider, depth: 0, cancellationToken, "parent");
+        var parent = Session(provider, 0, "parent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
         var idle = registry.Spawn(parent, parent.Selection().ResolvedModel, "idle");
         _ = await idle.Send("become idle", cancellationToken);
@@ -243,7 +243,7 @@ internal sealed class SubagentTests : IDisposable
         provider.Release();
         _ = await idle.Wait(0, cancellationToken);
 
-        var deepParent = Session(provider, depth: 4, cancellationToken, "deep-parent");
+        var deepParent = Session(provider, 4, "deep-parent", cancellationToken);
         var tooDeep = await new AgentSpawnTool(registry, deepParent, deepParent.Selection()).Execute(
             """{"prompt":"too deep"}""", cancellationToken);
 
@@ -262,7 +262,7 @@ internal sealed class SubagentTests : IDisposable
             _broker,
             _repository,
             cancellationToken);
-        var parent = Session(provider, depth: 0, cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
         var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
         _ = await spawned.Send("first", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -294,8 +294,8 @@ internal sealed class SubagentTests : IDisposable
     private AgentSession Session(
         SteppedProvider provider,
         int depth,
-        CancellationToken cancellationToken,
-        string sessionId = "agent") =>
+        string sessionId,
+        CancellationToken cancellationToken) =>
         new(
             depth == 0
                 ? AgentIdentity.Main(sessionId)
