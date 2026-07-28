@@ -17,8 +17,9 @@ internal static class Program
         // claim SIGTERM, which is not a keystroke and does mean stop.
         using var interrupt = Register(PosixSignal.SIGINT, interrupts.Signal);
         using var terminate = Register(PosixSignal.SIGTERM, cancellation.Cancel);
+        using var composition = new CommandComposition(interrupts, Console.Out, Console.Error);
 
-        return await CommandDispatcher.Run(arguments, interrupts, Console.Out, Console.Error, cancellation.Token);
+        return await composition.Dispatcher.Run(arguments, cancellation.Token);
     }
 
     // Action rather than a declared delegate type: PARROT0002 bans the latter,

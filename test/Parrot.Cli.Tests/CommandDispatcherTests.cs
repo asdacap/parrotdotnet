@@ -15,11 +15,10 @@ internal sealed class CommandDispatcherTests
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
-
         using var stopping = new CancellationTokenSource();
+        using var composition = new CommandComposition(new Interrupts(stopping), output, error);
 
-        var exitCode = await CommandDispatcher.Run(
-            ArgumentVector(argument), new Interrupts(stopping), output, error, cancellationToken);
+        var exitCode = await composition.Dispatcher.Run(ArgumentVector(argument), cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(expectedExitCode);
         _ = await Assert.That(output.ToString()).Contains(expectedFragment);
@@ -35,10 +34,10 @@ internal sealed class CommandDispatcherTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         using var stopping = new CancellationTokenSource();
+        using var composition = new CommandComposition(new Interrupts(stopping), output, error);
         var arguments = followedByFlag ? new[] { "chat", "--variant", "--basic" } : ["chat", "--variant"];
 
-        var exitCode = await CommandDispatcher.Run(
-            arguments, new Interrupts(stopping), output, error, cancellationToken);
+        var exitCode = await composition.Dispatcher.Run(arguments, cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
         _ = await Assert.That(output.ToString()).IsEmpty();
@@ -52,11 +51,10 @@ internal sealed class CommandDispatcherTests
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
-
         using var stopping = new CancellationTokenSource();
+        using var composition = new CommandComposition(new Interrupts(stopping), output, error);
 
-        var exitCode = await CommandDispatcher.Run(
-            ArgumentVector(argument), new Interrupts(stopping), output, error, cancellationToken);
+        var exitCode = await composition.Dispatcher.Run(ArgumentVector(argument), cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
         _ = await Assert.That(output.ToString()).IsEmpty();
