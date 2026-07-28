@@ -9,12 +9,21 @@ namespace Parrot.Cli.Tests;
 internal sealed class CliLifecycleDriver : IDisposable
 {
     private readonly bool _enhanced;
+    private readonly EnhancedChatRequest _enhancedRequest;
     private readonly SynchronizedStringWriter _output = new();
     private readonly SynchronizedStringWriter _error = new();
 
     public CliLifecycleDriver(bool enhanced)
+        : this(
+            enhanced,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty))
+    {
+    }
+
+    public CliLifecycleDriver(bool enhanced, EnhancedChatRequest enhancedRequest)
     {
         _enhanced = enhanced;
+        _enhancedRequest = enhancedRequest;
         Interrupts = new Interrupts(Stopping);
     }
 
@@ -62,9 +71,7 @@ internal sealed class CliLifecycleDriver : IDisposable
             ? new EnhancedCli(
                 client,
                 Interrupts,
-                new EnhancedChatRequest(
-                    new() { Model = "provider/model", Mode = "build" },
-                    string.Empty),
+                _enhancedRequest,
                 new UnusedCredentials(),
                 new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
                 new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
