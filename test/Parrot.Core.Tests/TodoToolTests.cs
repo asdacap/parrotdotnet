@@ -113,6 +113,7 @@ internal sealed class TodoToolTests : IDisposable
             repository,
             [],
             new SystemContextBuilder("/workspace", "/workspace", "2026-07-24", string.Empty),
+            new TodoCollection(sessionId, repository, _events),
             new Compactor(120_000),
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),

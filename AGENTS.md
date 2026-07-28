@@ -2,14 +2,10 @@
 
 - No comment unless necessary
 - Change in design to clean original code is allowed.
+- Dependency injection.
 - Prefer rich domain object rather than anemic domain model.
-- Dependency injection, but not IoC container.
-  - Exception, granted deliberately: Pure.DI, a compile-time generator. It emits
-    plain constructor calls, so there is no container and no reflection at
-    runtime. Bounded two ways: `Hint.Resolve` is `Off`, so no service-locator
-    `Resolve<T>()` exists and a missing binding is a build error; and it is
-    referenced only by `Parrot.Cli`, so the domain takes factory interfaces it
-    declares itself and gains no codegen dependency.
+  - For example, if something is agent session specific, create an instance per agent session and store in the same DI
+  scope as the agent session.
 - No dotnet events.
 - No subclass unless necessary.
 - No subinterface unless necessary.

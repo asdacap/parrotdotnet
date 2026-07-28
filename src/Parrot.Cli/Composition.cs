@@ -92,12 +92,15 @@ internal partial class Composition
                 ctx.Inject<string>("date", out var date);
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<WebFetcher>(out var webFetcher);
+                ctx.Inject<IAgentSessionScopeFactory>(out var scopes);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<StatePaths>(out var paths);
 
                 return new AgentSessionFactorySource(
-                    workingDirectory, paths.Config, sessionIndex, processes, date, compactor, webFetcher);
+                    workingDirectory, paths.Config, sessionIndex, processes, date, compactor, webFetcher, scopes);
             })
+
+            .Bind().As(Lifetime.Singleton).To<IAgentSessionScopeFactory>(_ => new AgentSessionScopeFactory())
 
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>
             {

@@ -30,6 +30,7 @@ internal sealed class AgentSession(
     EventRepository eventRepository,
     IReadOnlyList<IToolFactory> toolFactories,
     SystemContextBuilder systemContext,
+    TodoCollection todos,
     Compactor compactor,
     ModeProfile? mode,
     SecurityProfile securityProfile,
@@ -91,7 +92,7 @@ internal sealed class AgentSession(
 
     public string ParentSessionId => identity.ParentSessionId;
 
-    public TodoCollection Todos { get; } = new(identity.SessionId, eventRepository, eventBroker);
+    public TodoCollection Todos { get; } = todos;
 
     // Selection is session state: an UpdateSession changes it, a prompt does
     // not. One immutable snapshot is used for a whole turn because a running

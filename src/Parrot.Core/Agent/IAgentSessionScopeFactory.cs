@@ -1,22 +1,25 @@
+using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
+using Parrot.Tools;
 
 namespace Parrot.Agent;
 
-// The static half of an agent session -- provider, tools, sandbox, context,
-// compactor -- belongs to the factory. Only what is genuinely per-session
-// crosses this seam, which is what lets UserSession stop relaying five
-// parameters it never uses.
-internal interface IAgentSessionFactory
+internal interface IAgentSessionScopeFactory
 {
     IAgentSessionLease Create(
         AgentIdentity identity,
         ProviderModel model,
         EventBroker eventBroker,
         EventRepository eventRepository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        string workingDirectory,
+        string configDirectory,
+        string date,
+        Compactor compactor,
         ModeProfile? mode,
         SecurityProfile securityProfile,
         RuntimeStatus? status,

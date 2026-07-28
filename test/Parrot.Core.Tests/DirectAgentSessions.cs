@@ -24,7 +24,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
         new(".", ".", new ProcessRunner(string.Empty), owner.Lifetime);
 
-    public AgentSession Create(
+    public IAgentSessionLease Create(
         AgentIdentity identity,
         ProviderModel model,
         EventBroker eventBroker,
@@ -35,17 +35,18 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         CancellationToken lifetime)
     {
         _identities.Add(identity);
-        return new AgentSession(
+        return new AgentSessionLease(new AgentSession(
             identity,
             model,
             eventBroker,
             eventRepository,
             [],
             new SystemContextBuilder(".", ".", "2026-07-24", identity.Context),
+            new TodoCollection(identity.SessionId, eventRepository, eventBroker),
             new Compactor(120_000),
             mode,
             securityProfile,
             status,
-            lifetime);
+            lifetime));
     }
 }

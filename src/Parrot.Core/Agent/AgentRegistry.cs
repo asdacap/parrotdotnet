@@ -15,7 +15,7 @@ internal sealed class AgentRegistry(
 {
     private const int MaxDepth = 4;
     private const int MaxRetained = 1024;
-    private readonly Dictionary<string, AgentSession> _entries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IAgentSessionLease> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Lock _gate = new();
@@ -50,7 +50,7 @@ internal sealed class AgentRegistry(
             var sessionId = Identifier.AgentSession();
             var name = UniqueName(requestedName, sessionId);
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
-            var child = agentSessions.Create(
+            var lease = agentSessions.Create(
                 identity,
                 selection.ResolvedModel,
                 eventBroker,
@@ -60,9 +60,9 @@ internal sealed class AgentRegistry(
                 status: null,
                 _lifetime.Token);
 
-            _entries.Add(sessionId, child);
+            _entries.Add(sessionId, lease);
             _names.Add(name, sessionId);
-            return child;
+            return lease.Session;
         }
     }
 
@@ -79,6 +79,7 @@ internal sealed class AgentRegistry(
         lock (_gate)
         {
             return [.. _entries.Values
+                .Select(static entry => entry.Session)
                 .Where(agent => agent.State != DrainState.Idle)
                 .Select(agent => new ActiveWorkObservation(
                     agent.SessionId,
@@ -134,11 +135,17 @@ internal sealed class AgentRegistry(
         return sanitized.ToString().TrimEnd('-');
     }
 
-    private async Task Shutdown(AgentSession[] children)
+    private async Task Shutdown(IAgentSessionLease[] children)
     {
         await Task.Yield();
         await _lifetime.CancelAsync().ConfigureAwait(false);
-        await Task.WhenAll(children.Select(child => child.Settled())).ConfigureAwait(false);
+        await Task.WhenAll(children.Select(child => child.Session.Settled())).ConfigureAwait(false);
+
+        foreach (var child in children)
+        {
+            await child.DisposeAsync().ConfigureAwait(false);
+        }
+
         _lifetime.Dispose();
     }
 
@@ -153,7 +160,7 @@ internal sealed class AgentRegistry(
             throw new AgentRegistryException($"child agent not found: {sessionIdOrName}");
         }
 
-        return child;
+        return child.Session;
     }
 
     private string UniqueName(string requestedName, string sessionId)
