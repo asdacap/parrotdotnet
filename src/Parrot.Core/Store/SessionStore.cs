@@ -30,23 +30,49 @@ internal sealed class SessionStore(
         // process takes its own session rather than joining or stealing.
         var id = claimed.Disposition == ClaimDisposition.Live ? Identifier.UserSession() : claimed.SessionId;
 
-        var database = SessionDatabase.Open(Index.DatabaseFor(id));
-        _open.Add(database);
+        var existing = Index.Find(id);
+        var rootAgentName = existing?.RootAgentName;
 
-        var session = userSessions.Create(id, model, mode, new EventRepository(database));
-        Index.Publish(new SessionMeta
+        if (string.IsNullOrEmpty(rootAgentName))
         {
-            Id = id,
-            WorkingDirectory = workingDirectory,
-            HostKey = hostKey,
-            ProviderId = session.ProviderId,
-            Model = session.Model,
-            Mode = session.Mode.Id,
-            ProcessId = Environment.ProcessId,
-            CreatedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
-        });
+            var names = Index.List()
+                .Select(meta => meta.RootAgentName)
+                .ToHashSet(StringComparer.Ordinal);
+            rootAgentName = "main";
 
-        return session;
+            for (var suffix = 2; !names.Add(rootAgentName); suffix++)
+            {
+                rootAgentName = $"main-{suffix}";
+            }
+        }
+
+        SessionDatabase? database = null;
+
+        try
+        {
+            database = SessionDatabase.Open(Index.DatabaseFor(id));
+            var session = userSessions.Create(id, rootAgentName, model, mode, new EventRepository(database));
+            Index.Publish(new SessionMeta
+            {
+                Id = id,
+                WorkingDirectory = workingDirectory,
+                HostKey = hostKey,
+                RootAgentName = rootAgentName,
+                ProviderId = session.ProviderId,
+                Model = session.Model,
+                Mode = session.Mode.Id,
+                ProcessId = Environment.ProcessId,
+                CreatedAt = existing?.CreatedAt
+                    ?? DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            });
+            _open.Add(database);
+            return session;
+        }
+        catch
+        {
+            database?.Dispose();
+            throw;
+        }
     }
 
     public void Publish(UserSession session)

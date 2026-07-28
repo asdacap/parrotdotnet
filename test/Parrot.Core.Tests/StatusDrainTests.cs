@@ -165,6 +165,7 @@ internal sealed class StatusDrainTests : IDisposable
         string model) =>
         new(
             "user",
+            "main-agent",
             new ProviderModel(provider, new LLMModel(model, provider.Id)),
             ModeRegistry.Build,
             repository,

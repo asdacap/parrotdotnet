@@ -34,11 +34,13 @@ internal sealed class UserSession : IAsyncDisposable
     // prompt instead; its id is settled now so History has something to ask
     // about before then.
     private readonly string _mainSessionId;
+    private readonly string _rootAgentName;
     private ProviderModel _model;
     private AgentSession? _main;
 
     public UserSession(
         string id,
+        string rootAgentName,
         ProviderModel model,
         string mode,
         EventRepository eventRepository,
@@ -49,6 +51,7 @@ internal sealed class UserSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
 
         Id = id;
+        _rootAgentName = rootAgentName;
         _model = model;
         _eventRepository = eventRepository;
         _modes = modes;
@@ -185,7 +188,7 @@ internal sealed class UserSession : IAsyncDisposable
             if (_main is null)
             {
                 _main = _agentSessions.Create(
-                    AgentIdentity.Main(_mainSessionId),
+                    AgentIdentity.Main(_mainSessionId, _rootAgentName),
                     _model,
                     _eventBroker,
                     _eventRepository,

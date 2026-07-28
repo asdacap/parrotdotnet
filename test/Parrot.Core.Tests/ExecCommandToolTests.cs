@@ -35,7 +35,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var session = new AgentSession(
-            AgentIdentity.Main("session"),
+            AgentIdentity.Main("session", string.Empty),
             new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
             events,
             new EventRepository(database),

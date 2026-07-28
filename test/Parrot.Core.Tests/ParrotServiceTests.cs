@@ -27,13 +27,15 @@ internal sealed class ParrotServiceTests : IDisposable
     [Test]
     public async Task A_prompt_is_answered_with_the_admission_it_made(CancellationToken cancellationToken)
     {
-        using var store = Store();
+        var sessions = new DirectAgentSessions();
+        using var store = Store(sessions);
         await using var service = new ParrotService(Registry(), store, Modes());
         var context = new InProcessServerCallContext(cancellationToken);
 
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
         var admitted = await service.SendMessage(Send(session.Id, "hello", "msg-1"), context);
 
+        _ = await Assert.That(sessions.Identities.Single().Name).IsEqualTo("main");
         _ = await Assert.That(admitted.Created).IsTrue();
         _ = await Assert.That(admitted.MessageId).IsEqualTo("msg-1");
         _ = await Assert.That(admitted.InputId).IsNotEmpty();
@@ -102,6 +104,7 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(updated.Model).IsEqualTo(Selection);
         _ = await Assert.That(unlisted.Model).IsEqualTo("scripted/model/missing");
         _ = await Assert.That(meta.Model).IsEqualTo("scripted/model/missing");
+        _ = await Assert.That(meta.RootAgentName).IsEqualTo("main");
     }
 
     [Test]
@@ -174,10 +177,12 @@ internal sealed class ParrotServiceTests : IDisposable
 
     private ModeRegistry Modes() => new(Path.Combine(_root, "plans"));
 
-    private SessionStore Store() =>
+    private SessionStore Store() => Store(new DirectAgentSessions());
+
+    private SessionStore Store(DirectAgentSessions sessions) =>
         new(
             _root,
             Path.Combine(_root, "work"),
             "host",
-            new UserSessionFactory(new DirectAgentSessions(), Modes()));
+            new UserSessionFactory(sessions, Modes()));
 }
