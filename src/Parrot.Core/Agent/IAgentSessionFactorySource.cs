@@ -1,4 +1,3 @@
-using Parrot.Llm;
 using Parrot.Process;
 
 namespace Parrot.Agent;
@@ -8,7 +7,7 @@ namespace Parrot.Agent;
 // is scoped to only exists inside that user session's own constructor.
 internal interface IAgentSessionFactorySource
 {
-    IAgentSessionFactory Create(UserSession owner, ILLMProvider provider);
+    IAgentSessionFactory Create(UserSession owner);
 
     ShellProcessOwner CreateShellProcesses(UserSession owner);
 }

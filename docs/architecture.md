@@ -411,6 +411,44 @@ else:
 8. execute the returned tool requests, all settling before step 1 repeats
 ```
 
+## Model selection and provider requests
+
+A session owns one canonical model selector:
+`provider/model[/effort-variant]`. The provider is the first segment, while the
+model portion may contain slashes. Resolution tries the full model portion as an
+exact catalog ID before interpreting its final segment as a variant. The result
+is one immutable selection containing the provider, base model, and optional
+variant; the complete selector is retained in session/configuration/UI state,
+while provider calls receive only the base model ID.
+
+A model variant's catalog `name` is stable user-facing selection state. Its
+`reasoning_effort` is the provider-facing mapping and need not be the same
+string. A selected variant supplies `ReasoningOptions` with that mapped effort
+and summary `auto`; a bare `provider/model` supplies no reasoning options and
+therefore keeps the provider default. When interactive model selection is
+unqualified, it preserves a compatible current variant, otherwise chooses the
+new model's first listed variant, and clears it if the model exposes none.
+`/model` and `/effort` persist the complete selector; `--model` is an
+invocation-only selector, and deprecated `--variant` is a validated,
+invocation-only override that replaces its suffix.
+
+The model-list gRPC contract exposes variants additively, in provider order,
+with each variant's stable `name` and mapped `reasoning_effort`. This is model
+metadata only: there is no separate session-level variant field.
+
+The two supported provider request dialects use their native reasoning shapes:
+
+```json
+// Responses
+{"model":"provider-model","reasoning":{"effort":"xhigh","summary":"auto"}}
+
+// Chat Completions
+{"model":"provider-model","reasoning_effort":"xhigh"}
+```
+
+Both encoders omit the shown effort field for a bare selection. The Responses
+summary is sent only with selected reasoning, nested beside its effort.
+
 ## ILLMProvider
 
 Stateless, by rule. It holds no conversation, no session, no accumulated

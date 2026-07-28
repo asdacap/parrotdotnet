@@ -34,40 +34,36 @@ internal sealed class UserSession : IAsyncDisposable
     // prompt instead; its id is settled now so History has something to ask
     // about before then.
     private readonly string _mainSessionId;
-    private ILLMProvider _provider;
+    private ProviderModel _model;
     private AgentSession? _main;
 
     public UserSession(
         string id,
-        ILLMProvider provider,
-        string providerId,
-        string model,
+        ProviderModel model,
         string mode,
         EventRepository eventRepository,
         IAgentSessionFactorySource agentSessionFactories,
         ModeRegistry modes)
     {
-        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
 
         Id = id;
-        ProviderId = providerId;
-        Model = model;
+        _model = model;
         _eventRepository = eventRepository;
         _modes = modes;
         var state = eventRepository.SessionState(id, modes.Resolve(mode, id).Id);
         _mainSessionId = state.AgentSessionId;
         Mode = modes.Resolve(state.Mode, id);
-        _provider = provider;
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
-        _agentSessions = agentSessionFactories.Create(this, provider);
+        _agentSessions = agentSessionFactories.Create(this);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, _lifetime.Token);
         _status = new RuntimeStatus(this);
     }
 
     public string Id { get; }
 
-    public string ProviderId { get; private set; }
+    public string ProviderId => _model.Provider.Id;
 
     // Session state, and owned here rather than on the main agent session:
     // CreateSession reports it and UpdateSession changes it, both of which can
@@ -75,7 +71,7 @@ internal sealed class UserSession : IAsyncDisposable
     // Under the same lock as Main: an UpdateSession racing the first prompt
     // would otherwise be free to see a null _main, skip, and lose the selection
     // the turn is about to run with.
-    public string Model { get; private set; }
+    public string Model => _model.Selector;
 
     public ModeProfile Mode { get; private set; }
 
@@ -103,46 +99,28 @@ internal sealed class UserSession : IAsyncDisposable
             _eventRepository.UpdateMode(Id, _mainSessionId, selected.Id);
             Mode = selected;
 
-            _main?.UpdateSelection(_provider, Model, selected);
+            _main?.UpdateSelection(_model, selected);
         }
     }
 
-    public void UpdateSelection(ILLMProvider provider, string providerId, string model) =>
-        Update(provider, providerId, model, null);
+    public void UpdateSelection(ProviderModel model) => Update(model, null);
 
-    public void Update(
-        ILLMProvider? provider,
-        string? providerId,
-        string? model,
-        ModeProfile? mode)
+    public void Update(ProviderModel? model, ModeProfile? mode)
     {
         lock (_mainGate)
         {
-            if (provider is not null && providerId is not { Length: > 0 })
-            {
-                throw new ArgumentException("A provider ID is required with a provider.", nameof(providerId));
-            }
-
-            if (provider is not null && model is not { Length: > 0 })
-            {
-                throw new ArgumentException("A model is required with a provider.", nameof(model));
-            }
-
             if (mode is not null && !string.Equals(Mode.Id, mode.Id, StringComparison.Ordinal))
             {
                 _eventRepository.UpdateMode(Id, _mainSessionId, mode.Id);
                 Mode = mode;
             }
 
-            if (provider is not null && providerId is { Length: > 0 } selectedProviderId &&
-                model is { Length: > 0 } selectedModel)
+            if (model is not null)
             {
-                _provider = provider;
-                ProviderId = selectedProviderId;
-                Model = selectedModel;
+                _model = model;
             }
 
-            _main?.UpdateSelection(_provider, Model, Mode);
+            _main?.UpdateSelection(_model, Mode);
         }
     }
 
@@ -208,8 +186,7 @@ internal sealed class UserSession : IAsyncDisposable
             {
                 _main = _agentSessions.Create(
                     AgentIdentity.Main(_mainSessionId),
-                    _provider,
-                    Model,
+                    _model,
                     _eventBroker,
                     _eventRepository,
                     Mode,

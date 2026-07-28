@@ -255,13 +255,13 @@ internal sealed class DrainTests : IDisposable
             }).Where(value => value is not null));
 
     private AgentSession Session(
-        ILLMProvider provider,
+        SteppedProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         CancellationToken lifetime) =>
         new(
             AgentIdentity.Main("agent"),
-            provider,
+            new ProviderModel(provider, new LLMModel("model", provider.Id)),
             _broker,
             repository,
             toolFactories,
@@ -269,8 +269,5 @@ internal sealed class DrainTests : IDisposable
             new Compactor(120_000),
             mode: null,
             status: null,
-            lifetime)
-        {
-            Model = "model",
-        };
+            lifetime);
 }

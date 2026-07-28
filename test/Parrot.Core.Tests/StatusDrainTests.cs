@@ -47,7 +47,7 @@ internal sealed class StatusDrainTests : IDisposable
             await Settled(session);
 
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();
-            session.UpdateSelection(provider, provider.Id, "model-2");
+            session.UpdateSelection(new ProviderModel(provider, new LLMModel("model-2", provider.Id)));
             session.UpdateMode(ModeRegistry.Build);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();
 
@@ -101,7 +101,7 @@ internal sealed class StatusDrainTests : IDisposable
 
         _ = await session.Send("prompt", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
-        session.UpdateSelection(provider, provider.Id, "next-model");
+        session.UpdateSelection(new ProviderModel(provider, new LLMModel("next-model", provider.Id)));
         session.UpdateMode(ModeRegistry.Plan);
         provider.Release();
         await provider.Arrived(cancellationToken);
@@ -165,9 +165,7 @@ internal sealed class StatusDrainTests : IDisposable
         string model) =>
         new(
             "user",
-            provider,
-            provider.Id,
-            model,
+            new ProviderModel(provider, new LLMModel(model, provider.Id)),
             ModeRegistry.Build,
             repository,
             new DirectAgentSessions(),

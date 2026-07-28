@@ -31,7 +31,10 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 
         foreach (var model in listed)
         {
-            response.Models.Add(new Model { Id = model.Model.Id, ProviderId = model.Model.ProviderId });
+            var listedModel = new Model { Id = model.Model.Id, ProviderId = model.Model.ProviderId };
+            listedModel.Variants.AddRange(model.Model.Capabilities.Variants.Select(variant =>
+                new ModelVariant { Name = variant.Name, ReasoningEffort = variant.ReasoningEffort }));
+            response.Models.Add(listedModel);
         }
 
         return response;
@@ -51,13 +54,11 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var (providerId, modelId) = SplitModel(request.Model);
-        ILLMProvider resolved;
-        LLMModel model;
+        ProviderModel model;
 
         try
         {
-            (resolved, model) = registry.Resolve(providerId, modelId);
+            model = registry.Resolve(request.Model);
         }
         catch (LLMProviderException failure)
         {
@@ -69,7 +70,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
         try
         {
             _ = modes.Resolve(request.Mode, string.Empty);
-            created = store.Open(resolved, model.ProviderId, model.Id, request.Mode);
+            created = store.Open(model, request.Mode);
         }
         catch (ModeRegistryException failure)
         {
@@ -88,8 +89,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
         var found = Find(request.UserSessionId);
 
         ModeProfile? selectedMode = null;
-        ILLMProvider? selectedProvider = null;
-        LLMModel? selectedModel = null;
+        ProviderModel? selectedModel = null;
 
         try
         {
@@ -100,8 +100,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 
             if (request.Model.Length > 0)
             {
-                var (providerId, modelId) = SplitModel(request.Model);
-                (selectedProvider, selectedModel) = registry.Resolve(providerId, modelId);
+                selectedModel = registry.Resolve(request.Model);
             }
         }
         catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
@@ -109,11 +108,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
             throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
 
-        found.Update(
-            selectedProvider,
-            selectedModel?.ProviderId,
-            selectedModel?.Id,
-            selectedMode);
+        found.Update(selectedModel, selectedMode);
         store.Publish(found);
 
         return Task.FromResult(UserSession.From(found));
@@ -203,14 +198,6 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
             .ConfigureAwait(false);
 
         _userSessions.Clear();
-    }
-
-    // Selection is "provider/model"; the model portion keeps any vendor prefix,
-    // so the split is on the first slash only.
-    private static (string ProviderId, string ModelId) SplitModel(string selection)
-    {
-        var slash = selection.IndexOf('/', StringComparison.Ordinal);
-        return slash < 0 ? (string.Empty, selection) : (selection[..slash], selection[(slash + 1)..]);
     }
 
     private Agent.UserSession Find(string userSessionId) =>

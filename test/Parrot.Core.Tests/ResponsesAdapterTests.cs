@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Parrot.Llm;
 using Parrot.Llm.Wire;
 
@@ -6,6 +7,31 @@ namespace Parrot.Core.Tests;
 
 internal sealed class ResponsesAdapterTests
 {
+    [Test]
+    [Arguments("xhigh", true)]
+    [Arguments("", false)]
+    public async Task Encode_writes_or_omits_nested_reasoning(string effort, bool hasReasoning, CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "gpt-5.6-sol",
+            Messages = [LLMMessage.User("hello")],
+            Reasoning = hasReasoning ? new ReasoningOptions(effort, "auto") : null,
+        };
+        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+        var root = document.RootElement;
+
+        _ = await Assert.That(root.TryGetProperty("reasoning", out var reasoning)).IsEqualTo(hasReasoning);
+
+        if (hasReasoning)
+        {
+            _ = await Assert.That(reasoning.GetProperty("effort").GetString()).IsEqualTo(effort);
+            _ = await Assert.That(reasoning.GetProperty("summary").GetString()).IsEqualTo("auto");
+        }
+
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
     [Test]
     public async Task Text_and_reasoning_deltas_fold_and_complete_with_usage(CancellationToken cancellationToken)
     {

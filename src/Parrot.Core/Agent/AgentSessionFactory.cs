@@ -11,7 +11,7 @@ namespace Parrot.Agent;
 
 // Per user session, which is what lets it hold that session's tool factories:
 // a factory is constructed with the owner it belongs to, and yields one tool
-// instance per agent session from there.
+// instance per agent turn from there.
 internal sealed class AgentSessionFactory(
     UserSession owner,
     string workingDirectory,
@@ -42,8 +42,7 @@ internal sealed class AgentSessionFactory(
 
     public AgentSession Create(
         AgentIdentity identity,
-        ILLMProvider provider,
-        string model,
+        ProviderModel model,
         EventBroker eventBroker,
         EventRepository eventRepository,
         ModeProfile? mode,
@@ -51,7 +50,7 @@ internal sealed class AgentSessionFactory(
         CancellationToken lifetime) =>
         new(
             identity,
-            provider,
+            model,
             eventBroker,
             eventRepository,
             ToolFactories,
@@ -59,8 +58,5 @@ internal sealed class AgentSessionFactory(
             compactor,
             mode,
             status,
-            lifetime)
-        {
-            Model = model,
-        };
+            lifetime);
 }

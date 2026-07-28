@@ -14,6 +14,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<string> _sent = [];
     private readonly List<CreateSessionRequest> _created = [];
     private readonly List<UpdateSessionRequest> _updated = [];
+    private readonly List<Model> _models = [];
     private readonly Lock _gate = new();
 
     public IReadOnlyList<string> Sent
@@ -51,6 +52,14 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     public int Interrupts { get; private set; }
 
+    public void AddModel(Model model)
+    {
+        lock (_gate)
+        {
+            _models.Add(model);
+        }
+    }
+
     public Task Publish(Event published) => _events.WriteAsync(published);
 
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
@@ -85,6 +94,13 @@ internal sealed class ScriptedInvoker : CallInvoker
                     Model = update.Model,
                     Mode = update.Mode,
                 };
+                break;
+            case ListModelsRequest:
+                lock (_gate)
+                {
+                    answered = new ListModelsResponse { Models = { _models } };
+                }
+
                 break;
             case ListModesRequest:
                 answered = new ListModesResponse

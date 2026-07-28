@@ -54,8 +54,14 @@ message ListModelsResponse {
 }
 
 message Model {
-  string id          = 1;
-  string provider_id = 2;
+  string id                    = 1;
+  string provider_id           = 2;
+  repeated ModelVariant variants = 3;
+}
+
+message ModelVariant {
+  string name             = 1;
+  string reasoning_effort = 2;
 }
 
 message ListModesRequest {}

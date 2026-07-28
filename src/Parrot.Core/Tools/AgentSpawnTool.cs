@@ -3,7 +3,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session) : ITool
+internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session, AgentSelection selection) : ITool
 {
     public string Name => "agent_spawn";
 
@@ -33,7 +33,7 @@ internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session)
 
         try
         {
-            var agent = agents.Spawn(session, requestedName);
+            var agent = agents.Spawn(session, selection.ResolvedModel, requestedName);
             _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
             var result = new AgentTaskResult(
                 agent.SessionId,

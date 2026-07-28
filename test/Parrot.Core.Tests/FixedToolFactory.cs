@@ -7,5 +7,5 @@ namespace Parrot.Core.Tests;
 // session, so the factory that production needs is a pass-through here.
 internal sealed record FixedToolFactory(ITool Tool) : IToolFactory
 {
-    public ITool Create(AgentSession session) => Tool;
+    public ITool Create(AgentSession session, AgentSelection selection) => Tool;
 }

@@ -14,15 +14,14 @@ namespace Parrot.Core.Tests;
 // what the contract is a contract over.
 internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSessionFactory
 {
-    public IAgentSessionFactory Create(UserSession owner, ILLMProvider provider) => this;
+    public IAgentSessionFactory Create(UserSession owner) => this;
 
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
         new(".", ".", new ProcessRunner(string.Empty), owner.Lifetime);
 
     public AgentSession Create(
         AgentIdentity identity,
-        ILLMProvider provider,
-        string model,
+        ProviderModel model,
         EventBroker eventBroker,
         EventRepository eventRepository,
         ModeProfile? mode,
@@ -30,7 +29,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         CancellationToken lifetime) =>
         new(
             identity,
-            provider,
+            model,
             eventBroker,
             eventRepository,
             [],
@@ -38,8 +37,5 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             new Compactor(120_000),
             mode,
             status,
-            lifetime)
-        {
-            Model = model,
-        };
+            lifetime);
 }

@@ -17,9 +17,9 @@ internal sealed class RuntimeStatus(UserSession owner)
             new StatusQuery(
                 session.SessionId,
                 mode.Id,
-                selection.Provider.Id,
-                selection.Model,
-                string.Empty),
+                selection.ResolvedModel.Provider.Id,
+                selection.ResolvedModel.ModelId,
+                selection.ResolvedModel.Variant?.Name ?? string.Empty),
             new ProfileStatusProvider(
                 $"profile:{mode.Id}-mode",
                 mode.Prompt,

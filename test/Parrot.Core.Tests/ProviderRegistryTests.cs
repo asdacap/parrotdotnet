@@ -11,9 +11,9 @@ internal sealed class ProviderRegistryTests
             [("openrouter", ["openai/gpt-4o", "z"]), ("opencode-go", ["glm-5.2"])],
             new ProviderModel(new FakeProvider("openrouter", true, null), new LLMModel("openai/gpt-4o", "openrouter")));
 
-        var explicitModel = registry.Resolve("openrouter", "openai/gpt-4o");
-        var defaultModel = registry.Resolve("openrouter", string.Empty);
-        var defaultProvider = registry.Resolve(string.Empty, string.Empty);
+        var explicitModel = registry.Resolve("openrouter/openai/gpt-4o");
+        var defaultModel = registry.Resolve(string.Empty);
+        var defaultProvider = registry.Resolve(string.Empty);
 
         _ = await Assert.That(explicitModel.Model.Id).IsEqualTo("openai/gpt-4o");
         _ = await Assert.That(defaultModel.Model.Id).IsEqualTo("openai/gpt-4o");
@@ -21,12 +21,60 @@ internal sealed class ProviderRegistryTests
     }
 
     [Test]
-    public async Task Resolve_rejects_unknown_providers_and_models()
+    public async Task Resolve_handles_variants_slash_models_exact_precedence_and_ambiguity()
+    {
+        var provider = new FakeProvider("p", true, null);
+        var high = new ModelVariant("high", "xhigh");
+        var models = new LLMModel[]
+        {
+            new("plain", "p")
+            {
+                Capabilities = new ModelCapabilities(true, true, ["text"], [high]),
+            },
+            new("vendor/model", "p")
+            {
+                Capabilities = new ModelCapabilities(true, true, ["text"], [high]),
+            },
+            new("plain/high", "p"),
+            new("ambiguous", "p")
+            {
+                Capabilities = new ModelCapabilities(true, true, ["text"], [new ModelVariant("path/high", "one")]),
+            },
+            new("ambiguous/path", "p")
+            {
+                Capabilities = new ModelCapabilities(true, true, ["text"], [new ModelVariant("high", "two")]),
+            },
+        };
+        var registry = new ProviderRegistry(
+            [provider],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { ["p"] = models },
+            null);
+
+        var selected = registry.Resolve("p/vendor/model/high");
+        var exact = registry.Resolve("p/plain/high");
+
+        _ = await Assert.That(selected.ModelId).IsEqualTo("vendor/model");
+        _ = await Assert.That(selected.Variant?.Name).IsEqualTo("high");
+        _ = await Assert.That(selected.Reasoning?.Effort).IsEqualTo("xhigh");
+        _ = await Assert.That(selected.Reasoning?.Summary).IsEqualTo("auto");
+        _ = await Assert.That(selected.Selector).IsEqualTo("p/vendor/model/high");
+        _ = await Assert.That(exact.ModelId).IsEqualTo("plain/high");
+        _ = await Assert.That(exact.Variant).IsNull();
+        _ = await Assert.That(() => registry.Resolve("p/ambiguous/path/high")).Throws<LLMProviderException>();
+    }
+
+    [Test]
+    [Arguments("nope/m")]
+    [Arguments("p/missing")]
+    [Arguments("p")]
+    [Arguments("p/")]
+    [Arguments("/m")]
+    [Arguments("p//m")]
+    public async Task Resolve_rejects_unknown_and_malformed_selectors(string selector)
     {
         var registry = Build([("p", ["m"])]);
 
-        _ = await Assert.That(() => registry.Resolve("nope", "m")).Throws<LLMProviderException>();
-        _ = await Assert.That(() => registry.Resolve("p", "missing")).Throws<LLMProviderException>();
+        _ = await Assert.That(() => registry.Resolve(selector)).Throws<LLMProviderException>();
     }
 
     [Test]

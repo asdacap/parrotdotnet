@@ -13,8 +13,7 @@ internal interface IAgentSessionFactory
 {
     AgentSession Create(
         AgentIdentity identity,
-        ILLMProvider provider,
-        string model,
+        ProviderModel model,
         EventBroker eventBroker,
         EventRepository eventRepository,
         ModeProfile? mode,

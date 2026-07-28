@@ -10,9 +10,7 @@ internal interface IUserSessionFactory
 {
     UserSession Create(
         string id,
-        ILLMProvider provider,
-        string providerId,
-        string model,
+        ProviderModel model,
         string mode,
         EventRepository eventRepository);
 }
