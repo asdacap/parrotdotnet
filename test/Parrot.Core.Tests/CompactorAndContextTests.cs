@@ -10,29 +10,42 @@ namespace Parrot.Core.Tests;
 
 internal sealed class CompactorAndContextTests : IDisposable
 {
-    private readonly string _workspace = Path.Combine(
+    private readonly string _temporaryDirectory = Path.Combine(
         Path.GetTempPath(), "parrot-context-tests", Guid.NewGuid().ToString("n"));
 
-    public CompactorAndContextTests() => Directory.CreateDirectory(_workspace);
+    private readonly string _workspace;
+    private readonly string _configDirectory;
+
+    public CompactorAndContextTests()
+    {
+        _workspace = Path.Combine(_temporaryDirectory, "workspace");
+        _configDirectory = Path.Combine(_temporaryDirectory, "config");
+        _ = Directory.CreateDirectory(_workspace);
+        _ = Directory.CreateDirectory(_configDirectory);
+    }
 
     public void Dispose()
     {
-        if (Directory.Exists(_workspace))
+        if (Directory.Exists(_temporaryDirectory))
         {
-            Directory.Delete(_workspace, recursive: true);
+            Directory.Delete(_temporaryDirectory, recursive: true);
         }
     }
 
     [Test]
-    public async Task System_context_includes_platform_cwd_and_an_agents_file()
+    public async Task System_context_includes_platform_cwd_and_agents_files()
     {
+        await File.WriteAllTextAsync(Path.Combine(_configDirectory, "AGENTS.md"), "GLOBAL RULE: be concise.");
         await File.WriteAllTextAsync(Path.Combine(_workspace, "AGENTS.md"), "PROJECT RULE: be terse.");
 
-        var built = new SystemContextBuilder(_workspace, "2026-07-24", string.Empty).Build();
+        var built = new SystemContextBuilder(_workspace, _configDirectory, "2026-07-24", string.Empty).Build();
 
         _ = await Assert.That(built).Contains("2026-07-24");
         _ = await Assert.That(built).Contains(_workspace);
+        _ = await Assert.That(built).Contains("GLOBAL RULE: be concise.");
         _ = await Assert.That(built).Contains("PROJECT RULE: be terse.");
+        _ = await Assert.That(built.IndexOf("GLOBAL RULE: be concise.", StringComparison.Ordinal))
+            .IsLessThan(built.IndexOf("PROJECT RULE: be terse.", StringComparison.Ordinal));
     }
 
     [Test]
@@ -50,7 +63,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             broker,
             new EventRepository(database),
             [],
-            new SystemContextBuilder(_workspace, "2026-07-24", string.Empty),
+            new SystemContextBuilder(_workspace, _workspace, "2026-07-24", string.Empty),
             new Compactor(tokenBudget: 0),
             mode: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),

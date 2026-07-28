@@ -6,9 +6,13 @@ namespace Parrot.Context;
 // not per turn, so the baseline is immutable within an epoch (principle 4).
 //
 // M4 sources: a base prompt, the date, the platform, the working directory, and
-// the AGENTS.md files found from the working directory upward. Skills and richer
-// project metadata arrive with the milestones that own them.
-internal sealed class SystemContextBuilder(string workingDirectory, string date, string sessionContext)
+// the global AGENTS.md file and the files found from the working directory upward.
+// Skills and richer project metadata arrive with the milestones that own them.
+internal sealed class SystemContextBuilder(
+    string workingDirectory,
+    string configDirectory,
+    string date,
+    string sessionContext)
 {
     private const string BasePrompt =
         "You are parrot, a coding agent. You work in the user's project directory. "
@@ -41,22 +45,29 @@ internal sealed class SystemContextBuilder(string workingDirectory, string date,
     // the most specific instructions win by appearing closest to the prompt.
     private List<(string Path, string Content)> AgentsFiles()
     {
-        var found = new List<(string, string)>();
+        var found = new List<(string Path, string Content)>();
         var directory = new DirectoryInfo(Path.GetFullPath(workingDirectory));
 
         while (directory is not null)
         {
-            var candidate = Path.Combine(directory.FullName, "AGENTS.md");
+            var path = Path.Combine(directory.FullName, "AGENTS.md");
 
-            if (File.Exists(candidate))
+            if (File.Exists(path))
             {
-                found.Add((candidate, File.ReadAllText(candidate)));
+                found.Add((path, File.ReadAllText(path)));
             }
 
             directory = directory.Parent;
         }
 
         found.Reverse();
+        var globalPath = Path.Combine(configDirectory, "AGENTS.md");
+
+        if (File.Exists(globalPath) && !found.Exists(file => string.Equals(file.Path, globalPath, StringComparison.Ordinal)))
+        {
+            found.Insert(0, (globalPath, File.ReadAllText(globalPath)));
+        }
+
         return found;
     }
 }

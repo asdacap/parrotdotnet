@@ -40,7 +40,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             events,
             new EventRepository(database),
             [],
-            new SystemContextBuilder(_workspace, "2026-07-24", string.Empty),
+            new SystemContextBuilder(_workspace, _workspace, "2026-07-24", string.Empty),
             new Compactor(120_000),
             mode: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),

@@ -41,7 +41,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             eventBroker,
             eventRepository,
             [],
-            new SystemContextBuilder(".", "2026-07-24", identity.Context),
+            new SystemContextBuilder(".", ".", "2026-07-24", identity.Context),
             new Compactor(120_000),
             mode,
             securityProfile,

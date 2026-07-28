@@ -16,6 +16,7 @@ namespace Parrot.Agent;
 internal sealed class AgentSessionFactory(
     UserSession owner,
     string workingDirectory,
+    string configDirectory,
     string date,
     Compactor compactor,
     WebFetcher webFetcher) : IAgentSessionFactory
@@ -56,7 +57,7 @@ internal sealed class AgentSessionFactory(
             eventBroker,
             eventRepository,
             ToolFactories,
-            new SystemContextBuilder(workingDirectory, date, identity.Context),
+            new SystemContextBuilder(workingDirectory, configDirectory, date, identity.Context),
             compactor,
             mode,
             securityProfile,
