@@ -8,5 +8,5 @@ internal interface ISlashCommand
 
     string Summary { get; }
 
-    Task<SlashOutcome> Run(SlashContext context, string arguments, CancellationToken cancellationToken);
+    Task Run(CancellationToken cancellationToken);
 }

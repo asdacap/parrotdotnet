@@ -4,20 +4,21 @@ using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
 using Parrot.Protocol;
+using Parrot.State;
+using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedCli(
     GeneratedParrot.ParrotClient client,
-    SlashCommandRegistry commands,
     Interrupts interrupts,
     EnhancedChatRequest request,
     ICredentialStore credentials,
     OpenAiOAuthClient oauthClient,
     Configuration configuration,
     IReadOnlyList<string> providerIds,
-    ITerminal terminal) : IInterruptListener
+    ITerminal terminal) : IInterruptListener, ISlashSessionBinding
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
     private const string DisableKeyboardEnhancement = "\u001b[<u";
@@ -30,6 +31,7 @@ internal sealed class EnhancedCli(
 
     private volatile bool _busy;
     private volatile bool _interruptRequested;
+    private Func<UserSession, CancellationToken, Task>? _replaceSession;
 
     public async Task<int> Run(CancellationToken cancellationToken)
     {
@@ -48,18 +50,14 @@ internal sealed class EnhancedCli(
             return CommandDispatcher.ExitFailure;
         }
 
-        var context = SlashContext.Create(
-            client,
-            credentials,
-            oauthClient,
-            configuration,
-            providerIds,
+        using var applicationExit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        return await Loop(
             session,
-            new TerminalPromptReader(terminal),
+            text,
             terminal.Output,
-            terminal.Error);
-
-        return await Loop(context, text, terminal.Output, text.Length > 0, cancellationToken).ConfigureAwait(false);
+            text.Length > 0,
+            applicationExit,
+            applicationExit.Token).ConfigureAwait(false);
     }
 
     public bool Interrupted()
@@ -72,6 +70,11 @@ internal sealed class EnhancedCli(
         _interruptRequested = true;
         return _interrupts.Writer.TryWrite(true);
     }
+
+    Task ISlashSessionBinding.Replace(UserSession session, CancellationToken cancellationToken) =>
+        _replaceSession is { } replace
+            ? replace(session, cancellationToken)
+            : throw new InvalidOperationException("the enhanced session is not running");
 
     internal static async Task SetBracketedPaste(
         TextWriter output, bool enabled, CancellationToken cancellationToken)
@@ -177,21 +180,21 @@ internal sealed class EnhancedCli(
         };
 
     private async Task<int> Loop(
-        SlashContext context,
+        UserSession initialSession,
         string initialPrompt,
         TextWriter output,
         bool exitOnFirstCompletion,
+        CancellationTokenSource applicationExit,
         CancellationToken cancellationToken)
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var listeningTo = context.UserSessionId;
+        var session = new SlashSession(client, initialSession, configuration, this);
         var rendering = Task.CompletedTask;
-        var interrupting = Interrupting(context, listening.Token);
-        var decoder = new TerminalKeyDecoder();
+        var interrupting = Interrupting(session, listening.Token);
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
-        var currentPrompt = editor.Prompt;
+        var currentInput = (IReadOnlyList<ILiveBufferItem>)[editor.Prompt];
         var currentBody = (IReadOnlyList<ILiveBufferItem>)[];
-        var currentModeline = new ModelineValue(context.Mode, "ready", context.Model);
+        var currentModeline = new ModelineValue(session.Mode, "ready", session.Model);
         using var composing = new SemaphoreSlim(1, 1);
         var palette = new TerminalPalette(terminal.Color);
         var renderer = new TerminalFrameRenderer(
@@ -201,13 +204,12 @@ internal sealed class EnhancedCli(
             TerminalFrameRenderer.DefaultLiveRows,
             TerminalFrameRenderer.DefaultInputRows);
         var spinner = new TerminalSpinner(DrawBody);
-        var buffer = new byte[4096];
         var exiting = false;
         var firstTurnCompleted = false;
         var streaming = (CancellationTokenSource?)null;
         var call = (AsyncServerStreamingCall<Event>?)null;
 
-        IReadOnlyList<ILiveBufferItem> Snapshot() => [.. currentBody, currentModeline, currentPrompt];
+        IReadOnlyList<ILiveBufferItem> Snapshot() => [.. currentBody, currentModeline, .. currentInput];
 
         async Task DrawBody(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
@@ -240,12 +242,12 @@ internal sealed class EnhancedCli(
             }
         }
 
-        async Task DrawPrompt(CancellationToken token)
+        async Task ReplaceInput(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             await composing.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                currentPrompt = editor.Prompt;
+                currentInput = [.. items];
                 await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
             }
             finally
@@ -254,6 +256,8 @@ internal sealed class EnhancedCli(
             }
         }
 
+        Task DrawPrompt(CancellationToken token) => ReplaceInput([editor.Prompt], token);
+
         async Task DrawState(ModelineValue modeline, CancellationToken token)
         {
             await composing.WaitAsync(token).ConfigureAwait(false);
@@ -261,7 +265,6 @@ internal sealed class EnhancedCli(
             {
                 currentBody = [];
                 currentModeline = modeline;
-                currentPrompt = editor.Prompt;
                 await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
             }
             finally
@@ -290,8 +293,8 @@ internal sealed class EnhancedCli(
             await composing.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                currentModeline = new ModelineValue(context.Mode, "working", context.Model);
-                currentPrompt = editor.Prompt;
+                currentModeline = new ModelineValue(session.Mode, "working", session.Model);
+                currentInput = [editor.Prompt];
                 await renderer.Commit(committed, Snapshot(), CancellationToken.None).ConfigureAwait(false);
             }
             finally
@@ -300,7 +303,7 @@ internal sealed class EnhancedCli(
             }
 
             _ = await client.SendMessageAsync(
-                Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
+                Message(session.Id, entered), cancellationToken: cancellationToken);
             if (rendering.IsCompleted)
             {
                 rendering = spinner.Run(
@@ -309,13 +312,50 @@ internal sealed class EnhancedCli(
                         activeCall.ResponseStream,
                         DrawBody,
                         CommitBody,
-                        token => DrawState(new ModelineValue(context.Mode, "ready", context.Model), token),
+                        token => DrawState(new ModelineValue(session.Mode, "ready", session.Model), token),
                         stopSpinner,
                         exitOnFirstCompletion,
                         token).ConfigureAwait(false),
                     streaming?.Token ?? cancellationToken);
             }
         }
+
+        async Task ReplaceSession(UserSession replacement, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            if (streaming is null || call is null)
+            {
+                throw new InvalidOperationException("the enhanced session stream is not running");
+            }
+
+            var replacementStreaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
+            var replacementCall = client.Listen(
+                new ListenRequest { UserSessionId = replacement.Id },
+                cancellationToken: replacementStreaming.Token);
+            await streaming.CancelAsync().ConfigureAwait(false);
+            await rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            streaming.Dispose();
+            call.Dispose();
+            streaming = replacementStreaming;
+            call = replacementCall;
+            rendering = Task.CompletedTask;
+            _busy = false;
+            _interruptRequested = false;
+        }
+
+        _replaceSession = ReplaceSession;
+        var liveInput = new EnhancedLiveInputHost(terminal, ReplaceInput);
+        var dialog = new EnhancedSlashDialog(liveInput);
+        var commands = SlashCommands.Create(
+            client,
+            dialog,
+            session,
+            new SlashActivity(() => _busy),
+            new ApplicationExit(applicationExit),
+            credentials,
+            oauthClient,
+            providerIds,
+            new SessionIndex(StatePaths.ResolveFromEnvironment().State));
 
         interrupts.Install(this);
 
@@ -325,9 +365,9 @@ internal sealed class EnhancedCli(
             await SetKeyboardEnhancement(output, true, cancellationToken).ConfigureAwait(false);
             streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
             call = client.Listen(
-                new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
+                new ListenRequest { UserSessionId = session.Id }, cancellationToken: streaming.Token);
             await DrawState(
-                new ModelineValue(context.Mode, "ready", context.Model),
+                new ModelineValue(session.Mode, "ready", session.Model),
                 cancellationToken).ConfigureAwait(false);
             if (initialPrompt.Length > 0)
             {
@@ -341,77 +381,64 @@ internal sealed class EnhancedCli(
 
             while (!cancellationToken.IsCancellationRequested && !exiting)
             {
-                var count = await terminal.Read(buffer, cancellationToken).ConfigureAwait(false);
-                var keys = count == 0 ? decoder.Flush() : decoder.Feed(buffer.AsSpan(0, count));
-                foreach (var key in keys)
+                var key = await liveInput.ReadKey(cancellationToken).ConfigureAwait(false);
+                if (key.Kind == TerminalKeyKind.Interrupt)
                 {
-                    if (key.Kind == TerminalKeyKind.Interrupt)
+                    if (!editor.IsEmpty)
                     {
-                        if (!editor.IsEmpty)
-                        {
-                            editor.Clear();
-                            await DrawPrompt(cancellationToken).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            _ = Interrupted();
-                        }
-                    }
-                    else if (key.Kind == TerminalKeyKind.EndOfFile && editor.IsEmpty)
-                    {
-                        exiting = true;
-                        break;
+                        editor.Clear();
+                        await DrawPrompt(cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
-                        var entered = editor.Apply(key);
-                        await DrawPrompt(cancellationToken).ConfigureAwait(false);
-                        if (entered is not null)
+                        _ = Interrupted();
+                    }
+                }
+                else if (key.Kind == TerminalKeyKind.EndOfFile && editor.IsEmpty)
+                {
+                    exiting = true;
+                    break;
+                }
+                else
+                {
+                    var entered = editor.Apply(key);
+                    await DrawPrompt(cancellationToken).ConfigureAwait(false);
+                    if (entered is not null)
+                    {
+                        if (entered.Length == 0)
                         {
-                            if (entered.Length == 0)
+                            continue;
+                        }
+
+                        if (entered.StartsWith('/'))
+                        {
+                            try
                             {
-                                continue;
+                                await commands.Dispatch(entered, cancellationToken).ConfigureAwait(false);
+                            }
+                            finally
+                            {
+                                await ReplaceInput([editor.Prompt], CancellationToken.None).ConfigureAwait(false);
                             }
 
-                            await Clear(cancellationToken).ConfigureAwait(false);
-                            if (entered.StartsWith('/'))
+                            if (applicationExit.IsCancellationRequested)
                             {
-                                if (await Dispatch(context, entered, cancellationToken).ConfigureAwait(false)
-                                    == SlashOutcome.Exit)
-                                {
-                                    exiting = true;
-                                    break;
-                                }
-
-                                if (!string.Equals(context.UserSessionId, listeningTo, StringComparison.Ordinal))
-                                {
-                                    await streaming.CancelAsync().ConfigureAwait(false);
-                                    await rendering.ConfigureAwait(false);
-                                    streaming.Dispose();
-                                    streaming = null;
-                                    call.Dispose();
-                                    call = null;
-                                    streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
-                                    listeningTo = context.UserSessionId;
-                                    call = client.Listen(
-                                        new ListenRequest { UserSessionId = listeningTo },
-                                        cancellationToken: streaming.Token);
-                                    _busy = false;
-                                }
-                            }
-                            else
-                            {
-                                await StartTurn(entered, call).ConfigureAwait(false);
+                                exiting = true;
+                                break;
                             }
                         }
+                        else
+                        {
+                            await StartTurn(entered, call).ConfigureAwait(false);
+                        }
                     }
+                }
 
-                    if (!_busy && !exiting)
-                    {
-                        await DrawState(
-                            new ModelineValue(context.Mode, "ready", context.Model),
-                            cancellationToken).ConfigureAwait(false);
-                    }
+                if (!_busy && !exiting)
+                {
+                    await DrawState(
+                        new ModelineValue(session.Mode, "ready", session.Model),
+                        cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -419,6 +446,7 @@ internal sealed class EnhancedCli(
         {
             try
             {
+                _replaceSession = null;
                 interrupts.Remove();
                 _ = _interrupts.Writer.TryComplete();
                 await listening.CancelAsync().ConfigureAwait(false);
@@ -529,7 +557,7 @@ internal sealed class EnhancedCli(
         }
     }
 
-    private async Task Interrupting(SlashContext context, CancellationToken cancellationToken)
+    private async Task Interrupting(SlashSession session, CancellationToken cancellationToken)
     {
         try
         {
@@ -538,7 +566,7 @@ internal sealed class EnhancedCli(
                 if (_interrupts.Reader.TryRead(out _))
                 {
                     _ = await client.InterruptAsync(
-                        new InterruptRequest { UserSessionId = context.UserSessionId },
+                        new InterruptRequest { UserSessionId = session.Id },
                         cancellationToken: cancellationToken);
                 }
             }
@@ -546,24 +574,5 @@ internal sealed class EnhancedCli(
         catch (OperationCanceledException)
         {
         }
-    }
-
-    private async Task<SlashOutcome> Dispatch(
-        SlashContext context, string entered, CancellationToken cancellationToken)
-    {
-        var split = entered.IndexOf(' ', StringComparison.Ordinal);
-        var name = split < 0 ? entered : entered[..split];
-        var arguments = split < 0 ? string.Empty : entered[(split + 1)..].Trim();
-        var command = commands.Find(name);
-
-        if (command is null)
-        {
-            await context.Error
-                .WriteLineAsync($"  unknown command {name}, try /help".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return SlashOutcome.Continue;
-        }
-
-        return await command.Run(context, arguments, cancellationToken).ConfigureAwait(false);
     }
 }

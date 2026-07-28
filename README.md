@@ -11,7 +11,7 @@ specification; this repository is the implementation.
 
 The whole product is a gRPC server. The two CLIs — a deliberately minimal one
 and a full terminal UI — sit entirely behind it as clients, consuming one flat
-event stream. They share no code with each other; see
+event stream. They share command workflows but no presentation code; see
 [docs/architecture.md](docs/architecture.md).
 
 **MCP and transactional file edits are out of scope.** Upstream's
@@ -97,6 +97,19 @@ nix run . -- chat "hello"
 That builds the portable, framework-dependent binary. Development and the
 Native AOT publish both happen inside the dev shell; there is no supported way
 to build this repository against an ambient SDK.
+
+## Interactive slash commands
+
+Slash commands are interactive wizards. Enter `/model` to select a provider and
+then a model, `/mode` to select a mode, `/clear` to configure a fresh session,
+or `/auth` to manage credentials. Text after the command name is ignored; the
+wizard always asks for the complete selection. Escape or Ctrl-C dismisses an
+enhanced wizard without applying partial changes.
+
+The basic CLI prints choices and reads them as lines. The enhanced CLI replaces
+only its live input area with a filterable picker, so an active turn's output,
+activity, and modeline remain visible. Use Up/Down to navigate, type to filter,
+Enter to accept, and Escape or Ctrl-C to dismiss.
 
 > **`git add` new files before `nix build`/`nix run`.** A flake sees only
 > git-tracked files, so an untracked `.cs` file is silently dropped from the

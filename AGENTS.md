@@ -22,6 +22,7 @@
   method name MUST have action please, come on man...
 - Reduce coupling, as in the public method count.
 - Dont share or deduplicate unnecessarily especially at the expense of coupling and code indirection
+- Prefer async workflow over manual state machine.
 
 ## Async lifecycle
 

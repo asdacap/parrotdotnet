@@ -12,9 +12,10 @@ internal sealed class ScriptedInvoker : CallInvoker
     // an in-process stream are what ChannelStreamWriter already is.
     private readonly ChannelStreamWriter<Event> _events = new();
     private readonly List<string> _sent = [];
+    private readonly List<string> _sentTo = [];
+    private readonly List<string> _listenedTo = [];
     private readonly List<CreateSessionRequest> _created = [];
     private readonly List<UpdateSessionRequest> _updated = [];
-    private readonly List<Model> _models = [];
     private readonly Lock _gate = new();
 
     public IReadOnlyList<string> Sent
@@ -24,6 +25,28 @@ internal sealed class ScriptedInvoker : CallInvoker
             lock (_gate)
             {
                 return [.. _sent];
+            }
+        }
+    }
+
+    public IReadOnlyList<string> SentTo
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _sentTo];
+            }
+        }
+    }
+
+    public IReadOnlyList<string> ListenedTo
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _listenedTo];
             }
         }
     }
@@ -52,11 +75,24 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     public int Interrupts { get; private set; }
 
+    public List<Model> Models { get; } =
+    [
+        new() { ProviderId = "provider", Id = "model" },
+        new() { ProviderId = "provider", Id = "other" },
+    ];
+
+    public List<Mode> Modes { get; } =
+    [
+        new() { Id = "build" },
+        new() { Id = "plan" },
+        new() { Id = "query" },
+    ];
+
     public void AddModel(Model model)
     {
         lock (_gate)
         {
-            _models.Add(model);
+            Models.Add(model);
         }
     }
 
@@ -96,22 +132,20 @@ internal sealed class ScriptedInvoker : CallInvoker
                 };
                 break;
             case ListModelsRequest:
-                lock (_gate)
-                {
-                    answered = new ListModelsResponse { Models = { _models } };
-                }
-
+                var listedModels = new ListModelsResponse();
+                listedModels.Models.Add(Models);
+                answered = listedModels;
                 break;
             case ListModesRequest:
-                answered = new ListModesResponse
-                {
-                    Modes = { new Mode { Id = "build" }, new Mode { Id = "plan" }, new Mode { Id = "query" } },
-                };
+                var listedModes = new ListModesResponse();
+                listedModes.Modes.Add(Modes);
+                answered = listedModes;
                 break;
             case SendMessageRequest send:
                 lock (_gate)
                 {
                     _sent.Add(send.Text);
+                    _sentTo.Add(send.UserSessionId);
                 }
 
                 answered = new SendMessageResponse
@@ -142,6 +176,16 @@ internal sealed class ScriptedInvoker : CallInvoker
     public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
         Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
     {
+        if (request is not ListenRequest listen)
+        {
+            throw new NotSupportedException($"no scripted stream for {typeof(TRequest).Name}");
+        }
+
+        lock (_gate)
+        {
+            _listenedTo.Add(listen.UserSessionId);
+        }
+
         if (_events.Reader is not IAsyncStreamReader<TResponse> stream)
         {
             throw new NotSupportedException($"no scripted stream for {typeof(TResponse).Name}");

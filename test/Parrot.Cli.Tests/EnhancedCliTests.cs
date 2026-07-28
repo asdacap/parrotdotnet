@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Parrot.Auth;
-using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
 using Parrot.Config;
 using Parrot.Protocol;
@@ -141,7 +140,6 @@ internal sealed class EnhancedCliTests
         var terminal = new TestTerminal(driver.Input, output, error, 80);
         var completed = await new EnhancedCli(
             new GeneratedParrot.ParrotClient(driver.Invoker),
-            new SlashCommandRegistry([new ExitCommand()]),
             driver.Interrupts,
             new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
             new UnusedCredentials(),
@@ -194,7 +192,6 @@ internal sealed class EnhancedCliTests
         var terminal = new TestTerminal(driver.Input, output, error, 80);
         var completed = await new EnhancedCli(
             new GeneratedParrot.ParrotClient(driver.Invoker),
-            new SlashCommandRegistry([new ExitCommand()]),
             driver.Interrupts,
             new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
             new UnusedCredentials(),
@@ -537,6 +534,40 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Slash_dialog_restores_input_rebinds_the_stream_and_exit_unwinds_terminal_cleanup(
+        bool enhanced,
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced);
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("/clear");
+        driver.Input.Type("provider");
+        driver.Input.Type("model");
+        driver.Input.Type("query");
+        driver.Input.Type(string.Empty);
+        driver.Input.Type("new prompt");
+        await driver.Sent(1, cancellationToken);
+        driver.Input.Type("/exit");
+
+        var exitCode = await driving.WaitAsync(cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitSuccess);
+        _ = await Assert.That(driver.Invoker.Created.Count).IsEqualTo(2);
+        _ = await Assert.That(driver.Invoker.Created[1].Model).IsEqualTo("provider/model");
+        _ = await Assert.That(driver.Invoker.Created[1].Mode).IsEqualTo("query");
+        _ = await Assert.That(string.Join('|', driver.Invoker.ListenedTo)).IsEqualTo("session-1|session-2");
+        _ = await Assert.That(string.Join('|', driver.Invoker.Sent)).IsEqualTo("new prompt");
+        _ = await Assert.That(string.Join('|', driver.Invoker.SentTo)).IsEqualTo("session-2");
+        if (enhanced)
+        {
+            _ = await Assert.That(driver.Output).EndsWith("\u001b[<u\u001b[?2004l");
+        }
+    }
+
+    [Test]
     public async Task Failure_commits_the_live_suffix_and_reports_sanitized_error(
         CancellationToken cancellationToken)
     {
@@ -576,7 +607,6 @@ internal sealed class EnhancedCliTests
         var terminal = new TestTerminal(driver.Input, output, error, 8);
         var completed = await new EnhancedCli(
             new GeneratedParrot.ParrotClient(driver.Invoker),
-            new SlashCommandRegistry([new ExitCommand()]),
             driver.Interrupts,
             new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
             new UnusedCredentials(),

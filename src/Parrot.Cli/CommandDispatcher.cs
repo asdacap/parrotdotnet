@@ -310,30 +310,6 @@ internal static class CommandDispatcher
     private static string RemoteAddress(string target) =>
         target.StartsWith("http", StringComparison.Ordinal) ? target : $"http://{target}";
 
-    // Composed by hand, per AGENTS.md: no container, and the registry is the
-    // one place that knows which commands exist.
-    private static SlashCommandRegistry BuildRegistry(string defaultModel)
-    {
-        var commands = new List<ISlashCommand>
-        {
-            new ExitCommand(),
-            new VersionCommand(),
-            new ModelCommand(),
-            new ModelsCommand(),
-            new EffortCommand(),
-            new ModeCommand(),
-            new ModesCommand(),
-            new SessionsCommand(),
-            new ClearCommand(defaultModel),
-            new AuthCommand(),
-        };
-
-        var registry = new SlashCommandRegistry(commands);
-        commands.Add(new HelpCommand(registry));
-
-        return registry;
-    }
-
     private static async Task<int> Chat(
         IReadOnlyList<string> arguments,
         Interrupts interrupts,
@@ -417,7 +393,6 @@ internal static class CommandDispatcher
             {
                 var cli = new BasicCli(
                     remote,
-                    BuildRegistry(model),
                     interrupts,
                     remoteCredentials,
                     new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
@@ -438,7 +413,6 @@ internal static class CommandDispatcher
             {
                 var cli = new BasicCli(
                     remote,
-                    BuildRegistry(model),
                     interrupts,
                     remoteCredentials,
                     new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
@@ -457,7 +431,6 @@ internal static class CommandDispatcher
             var remoteTerminal = new ConsoleTerminal(output, error, remoteRawTerminal);
             var remoteChat = new EnhancedComposition(
                 remote,
-                BuildRegistry(model),
                 interrupts,
                 remoteCredentials,
                 new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
@@ -496,7 +469,6 @@ internal static class CommandDispatcher
         {
             var cli = new BasicCli(
                 client,
-                BuildRegistry(model),
                 interrupts,
                 credentials,
                 new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
@@ -517,7 +489,6 @@ internal static class CommandDispatcher
         {
             var cli = new BasicCli(
                 client,
-                BuildRegistry(model),
                 interrupts,
                 credentials,
                 new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
@@ -536,7 +507,6 @@ internal static class CommandDispatcher
         var terminal = new ConsoleTerminal(output, error, rawTerminal);
         var enhancedChat = new EnhancedComposition(
             client,
-            BuildRegistry(model),
             interrupts,
             credentials,
             new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),

@@ -1,55 +1,53 @@
-using Parrot.Auth;
 using Parrot.Cli.Commands;
-using Parrot.Config;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Tests;
 
-internal sealed class ModeCommandTests : IDisposable
+internal sealed class ModeCommandTests
 {
-    private readonly StringReader _input = new(string.Empty);
-    private readonly StringWriter _output = new();
-    private readonly StringWriter _error = new();
-    private readonly HttpClient _http = new();
-
     [Test]
-    public async Task Mode_commands_and_clear_use_the_protocol_contract(CancellationToken cancellationToken)
+    public async Task Mode_and_clear_follow_the_dialog_selection(CancellationToken cancellationToken)
     {
         var invoker = new ScriptedInvoker();
-        var context = new SlashContext(
-            new GeneratedParrot.ParrotClient(invoker),
-            new UnusedCredentials(),
-            new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-mode-command-tests.yaml")),
-            [],
-            "user-session",
-            "provider/model",
-            "query",
-            new ConsolePromptReader(_input),
-            _output,
-            _error);
+        var client = new GeneratedParrot.ParrotClient(invoker);
+        var session = new TestSlashSession("provider/old");
+        var activity = new TestSlashActivity();
+        var modeDialog = new TestSlashDialog().Select("plan");
+        var clearDialog = new TestSlashDialog().Select("provider", "model", "query");
 
-        _ = await new ModeCommand().Run(context, "plan", cancellationToken);
-        _ = await Assert.That(context.Mode).IsEqualTo("plan");
-        _ = await new ModesCommand().Run(context, string.Empty, cancellationToken);
-        _ = await new ClearCommand("default-model").Run(context, "selected-model", cancellationToken);
+        await new ModeCommand(new ModeSelection(client, modeDialog), session, activity, modeDialog)
+            .Run(cancellationToken);
+        await new ClearCommand(
+            new ModelWizard(client, clearDialog),
+            new ModeSelection(client, clearDialog),
+            session,
+            activity,
+            clearDialog).Run(cancellationToken);
+        await new ModesCommand(client, modeDialog).Run(cancellationToken);
 
-        _ = await Assert.That(invoker.Updated).HasSingleItem();
-        _ = await Assert.That(invoker.Updated[0].UserSessionId).IsEqualTo("user-session");
-        _ = await Assert.That(invoker.Updated[0].Mode).IsEqualTo("plan");
-        _ = await Assert.That(invoker.Created).HasSingleItem();
-        _ = await Assert.That(invoker.Created[0].Model).IsEqualTo("selected-model");
-        _ = await Assert.That(invoker.Created[0].Mode).IsEqualTo("build");
-        _ = await Assert.That(context.UserSessionId).IsEqualTo("session-1");
-        _ = await Assert.That(context.Mode).IsEqualTo("build");
-        _ = await Assert.That(_output.ToString()).Contains("  build").And.Contains("  plan").And.Contains("  query");
+        _ = await Assert.That(session.Id).IsEqualTo("session-1");
+        _ = await Assert.That(session.Model).IsEqualTo("provider/model");
+        _ = await Assert.That(session.Mode).IsEqualTo("query");
+        _ = await Assert.That(activity.Waits).IsEqualTo(2);
+        _ = await Assert.That(modeDialog.Shown)
+            .Contains("mode is now plan").And.Contains("build").And.Contains("query");
+        _ = await Assert.That(clearDialog.Shown).Contains("new session session-1");
     }
 
-    public void Dispose()
+    [Test]
+    public async Task Empty_model_and_mode_catalogs_report_errors_without_opening_a_picker(
+        CancellationToken cancellationToken)
     {
-        _input.Dispose();
-        _output.Dispose();
-        _error.Dispose();
-        _http.Dispose();
+        var invoker = new ScriptedInvoker();
+        invoker.Models.Clear();
+        invoker.Modes.Clear();
+        var client = new GeneratedParrot.ParrotClient(invoker);
+        var dialog = new TestSlashDialog();
+
+        _ = await new ModelWizard(client, dialog).Select(null, cancellationToken);
+        _ = await new ModeSelection(client, dialog).Select(cancellationToken);
+
+        _ = await Assert.That(string.Join('|', dialog.Errors))
+            .IsEqualTo("no providers are configured|no modes are available");
     }
 }

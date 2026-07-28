@@ -4,13 +4,14 @@ using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
 using Parrot.Protocol;
+using Parrot.State;
+using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
 
 internal sealed class BasicCli(
     GeneratedParrot.ParrotClient client,
-    SlashCommandRegistry commands,
     Interrupts interrupts,
     ICredentialStore credentials,
     OpenAiOAuthClient oauthClient,
@@ -62,22 +63,9 @@ internal sealed class BasicCli(
             return CommandDispatcher.ExitFailure;
         }
 
-        var context = new SlashContext(
-            client,
-            credentials,
-            oauthClient,
-            configuration,
-            providerIds,
-            session.Id,
-            session.Model,
-            session.Mode,
-            new ConsolePromptReader(input),
-            output,
-            error);
-
         return text.Length > 0
-            ? await Once(context, text, output, cancellationToken).ConfigureAwait(false)
-            : await Loop(context, input, output, cancellationToken).ConfigureAwait(false);
+            ? await Once(session.Id, text, output, error, cancellationToken).ConfigureAwait(false)
+            : await Loop(session, input, output, error, cancellationToken).ConfigureAwait(false);
     }
 
     public bool Interrupted()
@@ -242,46 +230,62 @@ internal sealed class BasicCli(
         };
 
     private async Task<int> Once(
-        SlashContext context, string prompt, TextWriter output, CancellationToken cancellationToken)
+        string userSessionId,
+        string prompt,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var call = client.Listen(
-            new ListenRequest { UserSessionId = context.UserSessionId }, cancellationToken: listening.Token);
+            new ListenRequest { UserSessionId = userSessionId }, cancellationToken: listening.Token);
 
         _ = await client.SendMessageAsync(
-            Message(context.UserSessionId, prompt), cancellationToken: cancellationToken);
+            Message(userSessionId, prompt), cancellationToken: cancellationToken);
 
-        var completed = await RenderTurn(call.ResponseStream, output, context.Error, listening.Token)
-            .ConfigureAwait(false);
+        var completed = await RenderTurn(call.ResponseStream, output, error, listening.Token).ConfigureAwait(false);
 
         await listening.CancelAsync().ConfigureAwait(false);
         return completed ? CommandDispatcher.ExitSuccess : CommandDispatcher.ExitFailure;
     }
 
     private async Task<int> Loop(
-        SlashContext context, TextReader input, TextWriter output, CancellationToken cancellationToken)
+        UserSession initialSession,
+        TextReader input,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
     {
         await output.WriteLineAsync(
             $"parrot {BuildInfo.Version} — /help for commands, /exit to leave".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
-        using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
-        var listeningTo = context.UserSessionId;
-        var call = client.Listen(
-            new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
-        var rendering = Task.CompletedTask;
-        var interrupting = Interrupting(context, listening.Token);
+        using var application = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await using var binding = new BasicSlashSessionBinding(
+            client, initialSession.Id, this, output, error, application.Token);
+        var session = new SlashSession(client, initialSession, configuration, binding);
+        var dialog = new BasicSlashDialog(input, output, error);
+        var commands = SlashCommands.Create(
+            client,
+            dialog,
+            session,
+            new SlashActivity(() => _busy),
+            new ApplicationExit(application),
+            credentials,
+            oauthClient,
+            providerIds,
+            new SessionIndex(StatePaths.ResolveFromEnvironment().State));
+        var interrupting = Interrupting(session, application.Token);
 
         interrupts.Install(this);
 
         try
         {
-            await Ready(output, cancellationToken).ConfigureAwait(false);
+            await Ready(output, application.Token).ConfigureAwait(false);
 
-            while (!cancellationToken.IsCancellationRequested)
+            while (!application.IsCancellationRequested)
             {
-                var line = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                var line = await input.ReadLineAsync(application.Token).ConfigureAwait(false);
                 if (line is null)
                 {
                     break;
@@ -290,55 +294,34 @@ internal sealed class BasicCli(
                 var entered = line.Trim();
                 if (entered.Length == 0)
                 {
-                    await Ready(output, cancellationToken).ConfigureAwait(false);
+                    await Ready(output, application.Token).ConfigureAwait(false);
                     continue;
                 }
 
                 if (entered.StartsWith('/'))
                 {
-                    if (await Dispatch(context, entered, cancellationToken).ConfigureAwait(false) == SlashOutcome.Exit)
+                    await commands.Dispatch(entered, application.Token).ConfigureAwait(false);
+                    if (application.IsCancellationRequested)
                     {
                         break;
                     }
 
-                    if (!string.Equals(context.UserSessionId, listeningTo, StringComparison.Ordinal))
-                    {
-                        await streaming.CancelAsync().ConfigureAwait(false);
-                        await rendering.ConfigureAwait(false);
-                        streaming.Dispose();
-                        call.Dispose();
-
-                        streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
-                        listeningTo = context.UserSessionId;
-                        call = client.Listen(
-                            new ListenRequest { UserSessionId = listeningTo },
-                            cancellationToken: streaming.Token);
-                        _busy = false;
-                    }
-
-                    await Ready(output, cancellationToken).ConfigureAwait(false);
+                    await Ready(output, application.Token).ConfigureAwait(false);
                     continue;
                 }
 
                 _busy = true;
                 _ = await client.SendMessageAsync(
-                    Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
-
-                if (rendering.IsCompleted)
-                {
-                    rendering = Render(call.ResponseStream, output, context.Error, streaming.Token);
-                }
+                    Message(session.Id, entered), cancellationToken: application.Token);
+                binding.RenderIfCompleted();
             }
         }
         finally
         {
             interrupts.Remove();
             _ = _interrupts.Writer.TryComplete();
-            await listening.CancelAsync().ConfigureAwait(false);
-            await rendering.ConfigureAwait(false);
+            await application.CancelAsync().ConfigureAwait(false);
             await interrupting.ConfigureAwait(false);
-            streaming.Dispose();
-            call.Dispose();
         }
 
         return CommandDispatcher.ExitSuccess;
@@ -365,6 +348,9 @@ internal sealed class BasicCli(
                 }).ConfigureAwait(false);
             if (!completed)
             {
+                _busy = false;
+                _interruptRequested = false;
+                await Ready(output, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -374,7 +360,7 @@ internal sealed class BasicCli(
         }
     }
 
-    private async Task Interrupting(SlashContext context, CancellationToken cancellationToken)
+    private async Task Interrupting(SlashSession session, CancellationToken cancellationToken)
     {
         try
         {
@@ -383,7 +369,7 @@ internal sealed class BasicCli(
                 if (_interrupts.Reader.TryRead(out _))
                 {
                     _ = await client.InterruptAsync(
-                        new InterruptRequest { UserSessionId = context.UserSessionId },
+                        new InterruptRequest { UserSessionId = session.Id },
                         cancellationToken: cancellationToken);
                 }
             }
@@ -404,22 +390,58 @@ internal sealed class BasicCli(
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<SlashOutcome> Dispatch(
-        SlashContext context, string entered, CancellationToken cancellationToken)
+    private sealed class BasicSlashSessionBinding(
+        GeneratedParrot.ParrotClient client,
+        string initialSessionId,
+        BasicCli cli,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken lifetimeToken) : ISlashSessionBinding, IAsyncDisposable
     {
-        var split = entered.IndexOf(' ', StringComparison.Ordinal);
-        var name = split < 0 ? entered : entered[..split];
-        var arguments = split < 0 ? string.Empty : entered[(split + 1)..].Trim();
-        var command = commands.Find(name);
+        private (CancellationTokenSource Cancellation, AsyncServerStreamingCall<Event> Call) _stream =
+            Open(client, initialSessionId, lifetimeToken);
 
-        if (command is null)
+        private Task _rendering = Task.CompletedTask;
+
+        public async Task Replace(UserSession session, CancellationToken cancellationToken)
         {
-            await context.Error
-                .WriteLineAsync($"  unknown command {name}, try /help".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return SlashOutcome.Continue;
+            ArgumentNullException.ThrowIfNull(session);
+            cancellationToken.ThrowIfCancellationRequested();
+            var replacement = Open(client, session.Id, lifetimeToken);
+            await CloseStream().ConfigureAwait(false);
+            _stream = replacement;
+            _rendering = Task.CompletedTask;
+            cli._busy = false;
         }
 
-        return await command.Run(context, arguments, cancellationToken).ConfigureAwait(false);
+        public void RenderIfCompleted()
+        {
+            if (_rendering.IsCompleted)
+            {
+                _rendering = cli.Render(_stream.Call.ResponseStream, output, error, _stream.Cancellation.Token);
+            }
+        }
+
+        public async ValueTask DisposeAsync() => await CloseStream().ConfigureAwait(false);
+
+        private static (CancellationTokenSource Cancellation, AsyncServerStreamingCall<Event> Call) Open(
+            GeneratedParrot.ParrotClient client,
+            string userSessionId,
+            CancellationToken cancellationToken)
+        {
+            var streaming = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var call = client.Listen(
+                new ListenRequest { UserSessionId = userSessionId },
+                cancellationToken: streaming.Token);
+            return (streaming, call);
+        }
+
+        private async Task CloseStream()
+        {
+            await _stream.Cancellation.CancelAsync().ConfigureAwait(false);
+            await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            _stream.Cancellation.Dispose();
+            _stream.Call.Dispose();
+        }
     }
 }

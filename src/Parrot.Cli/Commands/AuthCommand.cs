@@ -3,113 +3,163 @@ using Parrot.Llm;
 
 namespace Parrot.Cli.Commands;
 
-// Authenticating without leaving the session is the point: a fresh install can
-// reach a working prompt without knowing the subcommand form exists. A provider
-// argument selects which one; chatgpt runs the OAuth flow, everything else takes
-// a key.
-internal sealed class AuthCommand : ISlashCommand
+internal sealed class AuthCommand(
+    ICredentialStore credentials,
+    OpenAiOAuthClient oauth,
+    IReadOnlyList<string> providerIds,
+    ISlashDialog dialog) : ISlashCommand
 {
     public string Name => "/auth";
 
-    public string Summary => "Store a provider key or run OAuth (login)";
+    public string Summary => "Manage provider credentials";
 
-    public async Task<SlashOutcome> Run(
-        SlashContext context, string arguments, CancellationToken cancellationToken)
+    public async Task Run(CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(context);
+        var action = await dialog.Select(
+            "Authentication",
+            [
+                new("login", "Login", "Store a provider credential"),
+                new("list", "List", "List stored credentials"),
+                new("logout", "Logout", "Remove a stored credential"),
+            ],
+            cancellationToken).ConfigureAwait(false);
 
-        var tokens = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-        if (tokens.Length == 0 || tokens[0] != "login")
+        if (action is null)
         {
-            await context.Output.WriteLineAsync("usage: /auth login [provider] [--device]".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return SlashOutcome.Continue;
+            return;
         }
 
-        var provider = tokens.Skip(1).FirstOrDefault(token => !token.StartsWith('-'));
-        var device = tokens.Skip(1).Contains("--device", StringComparer.Ordinal);
+        if (action.Id == "list")
+        {
+            await List(cancellationToken).ConfigureAwait(false);
+        }
+        else if (action.Id == "logout")
+        {
+            await Logout(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await Login(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task Login(CancellationToken cancellationToken)
+    {
+        if (providerIds.Count == 0)
+        {
+            await dialog.ShowError("no providers are configured", cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var provider = await dialog.Select(
+            "Select a provider",
+            [.. providerIds.Select(id => new SlashDialogOption(id, id, "Provider credential"))],
+            cancellationToken).ConfigureAwait(false);
 
         if (provider is null)
         {
-            provider = await SelectProvider(context, cancellationToken).ConfigureAwait(false);
-
-            if (provider is null)
-            {
-                return SlashOutcome.Continue;
-            }
+            return;
         }
 
-        if (!context.ProviderIds.Contains(provider, StringComparer.Ordinal))
+        if (provider.Id == ChatGptProvider.ProviderId)
         {
-            await WriteValidProviders(context, cancellationToken).ConfigureAwait(false);
-            return SlashOutcome.Continue;
+            await OAuth(cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        if (provider == ChatGptProvider.ProviderId)
+        var key = await dialog.ReadSecret($"API key for {provider.Id}", cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(key))
         {
-            try
-            {
-                await AuthFlows.OAuthLogin(context.OAuth, context.Credentials, device, context.Output, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (AuthException failure)
-            {
-                await context.Error.WriteLineAsync($"  {failure.Message}".AsMemory(), cancellationToken)
-                    .ConfigureAwait(false);
-                return SlashOutcome.Continue;
-            }
-
-            await context.Output.WriteLineAsync($"  stored a credential for {provider}".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return SlashOutcome.Continue;
+            await dialog.ShowError("nothing entered", cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        await context.Output
-            .WriteAsync($"  key for {provider}: ".AsMemory(), cancellationToken)
-            .ConfigureAwait(false);
-
-        var key = (await context.Input.ReadSecret(cancellationToken).ConfigureAwait(false)).Trim();
-        await context.Output.WriteLineAsync().ConfigureAwait(false);
-
-        if (key.Length == 0)
-        {
-            await context.Error.WriteLineAsync("  nothing entered".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return SlashOutcome.Continue;
-        }
-
-        await AuthFlows.StoreApiKey(context.Credentials, provider, key, cancellationToken).ConfigureAwait(false);
-
-        await context.Output
-            .WriteLineAsync($"  stored a credential for {provider}".AsMemory(), cancellationToken)
-            .ConfigureAwait(false);
-
-        return SlashOutcome.Continue;
+        await credentials.Set(provider.Id, Credential.ForApiKey(key.Trim()), cancellationToken).ConfigureAwait(false);
+        await dialog.Show([$"stored a credential for {provider.Id}"], cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<string?> SelectProvider(SlashContext context, CancellationToken cancellationToken)
+    private async Task OAuth(CancellationToken cancellationToken)
     {
-        await context.Output.WriteLineAsync("  providers:".AsMemory(), cancellationToken).ConfigureAwait(false);
+        var method = await dialog.Select(
+            "Sign in to ChatGPT",
+            [
+                new("browser", "Browser", "Open a browser to authorize"),
+                new("device", "Device code", "Authorize on another device"),
+            ],
+            cancellationToken).ConfigureAwait(false);
 
-        foreach (var providerId in context.ProviderIds)
+        if (method is null)
         {
-            await context.Output.WriteLineAsync($"    {providerId}".AsMemory(), cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        await context.Output.WriteAsync("  provider: ".AsMemory(), cancellationToken).ConfigureAwait(false);
-        var selected = await context.Input.ReadLine(cancellationToken).ConfigureAwait(false);
-
-        if (selected is not null && context.ProviderIds.Contains(selected.Trim(), StringComparer.Ordinal))
+        try
         {
-            return selected.Trim();
-        }
+            OAuthCredential credential;
+            if (method.Id == "device")
+            {
+                var authorization = await oauth.StartDeviceAuthorization(cancellationToken).ConfigureAwait(false);
+                var proceed = await dialog.Confirm(
+                    [$"Visit {authorization.VerificationUrl} and enter code {authorization.UserCode.Value}"],
+                    cancellationToken).ConfigureAwait(false);
+                if (!proceed)
+                {
+                    return;
+                }
 
-        await WriteValidProviders(context, cancellationToken).ConfigureAwait(false);
-        return null;
+                credential = await oauth.AwaitDeviceAuthorization(authorization, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                var proceed = await dialog.Confirm(
+                    ["Opening your browser to authorize..."], cancellationToken).ConfigureAwait(false);
+                if (!proceed)
+                {
+                    return;
+                }
+
+                credential = await oauth.BrowserLogin(cancellationToken).ConfigureAwait(false);
+            }
+
+            await credentials.Set(ChatGptProvider.ProviderId, Credential.ForOAuth(credential), cancellationToken)
+                .ConfigureAwait(false);
+            await dialog.Show(
+                [$"stored a credential for {ChatGptProvider.ProviderId}"], cancellationToken).ConfigureAwait(false);
+        }
+        catch (AuthException failure)
+        {
+            await dialog.ShowError(failure.Message, cancellationToken).ConfigureAwait(false);
+        }
     }
 
-    private static Task WriteValidProviders(SlashContext context, CancellationToken cancellationToken) =>
-        context.Error.WriteLineAsync(
-            $"  choose one of: {string.Join(", ", context.ProviderIds)}".AsMemory(), cancellationToken);
+    private async Task List(CancellationToken cancellationToken)
+    {
+        var stored = await credentials.List(cancellationToken).ConfigureAwait(false);
+        await dialog.Show(stored.Count == 0 ? ["no credentials are stored"] : stored, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task Logout(CancellationToken cancellationToken)
+    {
+        var stored = await credentials.List(cancellationToken).ConfigureAwait(false);
+        if (stored.Count == 0)
+        {
+            await dialog.Show(["no credentials are stored"], cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var selected = await dialog.Select(
+            "Remove a credential",
+            [.. stored.Select(id => new SlashDialogOption(id, id, "Stored credential"))],
+            cancellationToken).ConfigureAwait(false);
+
+        if (selected is null)
+        {
+            return;
+        }
+
+        await credentials.Delete(selected.Id, cancellationToken).ConfigureAwait(false);
+        await dialog.Show([$"removed the credential for {selected.Id}"], cancellationToken).ConfigureAwait(false);
+    }
 }

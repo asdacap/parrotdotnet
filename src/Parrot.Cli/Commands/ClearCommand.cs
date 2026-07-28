@@ -1,36 +1,34 @@
-using Parrot.Protocol;
-
 namespace Parrot.Cli.Commands;
 
 // A fresh session rather than a wiped one: the old session keeps its history
 // and stays listed, which is what upstream's /clear does too.
-internal sealed class ClearCommand(string defaultModel) : ISlashCommand
+internal sealed class ClearCommand(
+    ModelWizard models,
+    ModeSelection modes,
+    ISlashSession session,
+    ISlashActivity activity,
+    ISlashDialog dialog) : ISlashCommand
 {
     public string Name => "/clear";
 
     public string Summary => "Start a fresh session, keeping the old one";
 
-    public async Task<SlashOutcome> Run(
-        SlashContext context, string arguments, CancellationToken cancellationToken)
+    public async Task Run(CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(context);
+        var model = await models.Select(null, cancellationToken).ConfigureAwait(false);
+        if (model is null)
+        {
+            return;
+        }
 
-        var model = arguments.Length > 0
-            ? arguments
-            : context.Model.Length > 0
-                ? context.Model
-                : defaultModel;
+        var mode = await modes.Select(cancellationToken).ConfigureAwait(false);
+        if (mode is null)
+        {
+            return;
+        }
 
-        var created = await context.Client.CreateSessionAsync(
-            new CreateSessionRequest { Model = model, Mode = "build" }, cancellationToken: cancellationToken);
-
-        context.UserSessionId = created.Id;
-        context.Model = created.Model;
-        context.Mode = created.Mode;
-
-        await context.Output.WriteLineAsync($"  new session {created.Id}".AsMemory(), cancellationToken)
-            .ConfigureAwait(false);
-
-        return SlashOutcome.Continue;
+        await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
+        await session.StartNew(model, mode, cancellationToken).ConfigureAwait(false);
+        await dialog.Show([$"new session {session.Id}"], cancellationToken).ConfigureAwait(false);
     }
 }

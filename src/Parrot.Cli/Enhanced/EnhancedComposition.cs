@@ -1,5 +1,4 @@
 using Parrot.Auth;
-using Parrot.Cli.Commands;
 using Parrot.Config;
 using Pure.DI;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -12,7 +11,6 @@ internal partial class EnhancedComposition
         DI.Setup(nameof(EnhancedComposition))
             .Hint(Hint.Resolve, "Off")
             .Arg<GeneratedParrot.ParrotClient>("client")
-            .Arg<SlashCommandRegistry>("commands")
             .Arg<Interrupts>("interrupts")
             .Arg<ICredentialStore>("credentials")
             .Arg<OpenAiOAuthClient>("oauthClient")

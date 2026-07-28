@@ -1,11 +1,10 @@
 namespace Parrot.Cli.Commands;
 
-internal sealed class ExitCommand : ISlashCommand
+internal sealed class ExitCommand(IApplicationExit application) : ISlashCommand
 {
     public string Name => "/exit";
 
     public string Summary => "Leave the session";
 
-    public Task<SlashOutcome> Run(SlashContext context, string arguments, CancellationToken cancellationToken) =>
-        Task.FromResult(SlashOutcome.Exit);
+    public Task Run(CancellationToken cancellationToken) => application.Exit(cancellationToken);
 }

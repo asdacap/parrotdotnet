@@ -1,78 +1,55 @@
 using Parrot.Protocol;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Commands;
 
-internal sealed class EffortCommand : ISlashCommand
+internal sealed class EffortCommand(
+    GeneratedParrot.ParrotClient client,
+    ISlashSession session,
+    ISlashActivity activity,
+    ISlashDialog dialog) : ISlashCommand
 {
     public string Name => "/effort";
 
     public string Summary => "Switch the model effort for this session";
 
-    public async Task<SlashOutcome> Run(
-        SlashContext context, string arguments, CancellationToken cancellationToken)
+    public async Task Run(CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(context);
-
-        if (context.Model.Length == 0)
-        {
-            await context.Error.WriteLineAsync("  no model is selected".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return SlashOutcome.Continue;
-        }
-
-        var listed = await context.Client.ListModelsAsync(
-            new ListModelsRequest(), cancellationToken: cancellationToken);
-        var current = ModelSelection.Resolve(listed.Models, context.Model);
+        var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
+        var current = ModelSelection.Resolve(listed.Models, session.Model);
         if (current is null)
         {
-            await context.Error.WriteLineAsync(
-                $"  unknown selected model: {context.Model}".AsMemory(), cancellationToken).ConfigureAwait(false);
-            return SlashOutcome.Continue;
+            await dialog.ShowError($"unknown selected model: {session.Model}", cancellationToken).ConfigureAwait(false);
+            return;
         }
 
         if (current.Model.Variants.Count == 0)
         {
-            await context.Error.WriteLineAsync(
-                $"  {current.BaseSelector} exposes no model efforts".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return SlashOutcome.Continue;
+            await dialog.ShowError(
+                $"{current.BaseSelector} exposes no model efforts", cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        var selected = arguments.Trim();
-        if (selected.Length == 0)
+        var selected = await dialog.Select(
+            "Select model effort",
+            [.. current.Model.Variants.Select(variant =>
+                new SlashDialogOption(variant.Name, variant.Name, variant.ReasoningEffort))],
+            cancellationToken).ConfigureAwait(false);
+        if (selected is null)
         {
-            foreach (var variant in current.Model.Variants)
-            {
-                await context.Output.WriteLineAsync($"  {variant.Name}".AsMemory(), cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            await context.Output.WriteAsync("effort> ".AsMemory(), cancellationToken).ConfigureAwait(false);
-            selected = (await context.Input.ReadLine(cancellationToken).ConfigureAwait(false))?.Trim() ?? string.Empty;
-            if (selected.Length == 0)
-            {
-                return SlashOutcome.Continue;
-            }
+            return;
         }
 
-        var replacement = current.WithVariant(selected);
+        var replacement = current.WithVariant(selected.Id);
         if (replacement is null)
         {
-            var message = $"  unknown model effort {selected}; choose one of: "
-                + string.Join(", ", current.Model.Variants.Select(variant => variant.Name));
-            await context.Error.WriteLineAsync(message.AsMemory(), cancellationToken).ConfigureAwait(false);
-            return SlashOutcome.Continue;
+            await dialog.ShowError($"unknown model effort {selected.Id}", cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        var updated = await context.Client.UpdateSessionAsync(
-            new UpdateSessionRequest { UserSessionId = context.UserSessionId, Model = replacement.Selector },
-            cancellationToken: cancellationToken);
-        context.Model = updated.Model;
-        context.Configuration.SetModel(updated.Model);
-
-        await context.Output.WriteLineAsync(
-            $"  Model effort selected: {replacement.Variant?.Name}".AsMemory(), cancellationToken)
+        await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
+        await session.SelectModel(replacement.Selector, cancellationToken).ConfigureAwait(false);
+        await dialog.Show([$"Model effort selected: {replacement.Variant?.Name}"], cancellationToken)
             .ConfigureAwait(false);
-        return SlashOutcome.Continue;
     }
 }

@@ -1,33 +1,25 @@
-using Parrot.Protocol;
-
 namespace Parrot.Cli.Commands;
 
-internal sealed class ModeCommand : ISlashCommand
+internal sealed class ModeCommand(
+    ModeSelection selection,
+    ISlashSession session,
+    ISlashActivity activity,
+    ISlashDialog dialog) : ISlashCommand
 {
     public string Name => "/mode";
 
     public string Summary => "Switch the mode for this session";
 
-    public async Task<SlashOutcome> Run(
-        SlashContext context, string arguments, CancellationToken cancellationToken)
+    public async Task Run(CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(context);
-
-        if (arguments.Length == 0)
+        var selected = await selection.Select(cancellationToken).ConfigureAwait(false);
+        if (selected is null)
         {
-            await context.Output.WriteLineAsync("usage: /mode <id>".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            return SlashOutcome.Continue;
+            return;
         }
 
-        var updated = await context.Client.UpdateSessionAsync(
-            new UpdateSessionRequest { UserSessionId = context.UserSessionId, Mode = arguments },
-            cancellationToken: cancellationToken);
-
-        context.Mode = updated.Mode;
-        await context.Output.WriteLineAsync($"  mode is now {updated.Mode}".AsMemory(), cancellationToken)
-            .ConfigureAwait(false);
-
-        return SlashOutcome.Continue;
+        await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
+        await session.SelectMode(selected, cancellationToken).ConfigureAwait(false);
+        await dialog.Show([$"mode is now {selected}"], cancellationToken).ConfigureAwait(false);
     }
 }

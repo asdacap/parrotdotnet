@@ -1,5 +1,4 @@
 using Parrot.Auth;
-using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
 using Parrot.Config;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -27,6 +26,8 @@ internal sealed class CliLifecycleDriver : IDisposable
     public Interrupts Interrupts { get; }
 
     public HttpClient Http { get; } = new();
+
+    public string Output => _output.Snapshot();
 
     public async Task OutputContains(string text, CancellationToken cancellationToken)
     {
@@ -59,7 +60,6 @@ internal sealed class CliLifecycleDriver : IDisposable
         return _enhanced
             ? new EnhancedCli(
                 client,
-                new SlashCommandRegistry([new ExitCommand()]),
                 Interrupts,
                 new EnhancedChatRequest(
                     new() { Model = "provider/model", Mode = "build" },
@@ -71,7 +71,6 @@ internal sealed class CliLifecycleDriver : IDisposable
                 new TestTerminal(Input, _output, _error, 80)).Run(cancellationToken)
             : new BasicCli(
                 client,
-                new SlashCommandRegistry([new ExitCommand()]),
                 Interrupts,
                 new UnusedCredentials(),
                 new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),

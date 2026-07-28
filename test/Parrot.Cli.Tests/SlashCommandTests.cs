@@ -1,76 +1,47 @@
+using Parrot.Auth;
 using Parrot.Cli.Commands;
+using Parrot.Store;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Tests;
 
 internal sealed class SlashCommandTests
 {
-    private readonly SlashCommandRegistry _registry;
-
-    public SlashCommandTests()
+    [Test]
+    public async Task Factory_registers_every_command()
     {
-        var commands = new List<ISlashCommand>
-        {
-            new ExitCommand(),
-            new VersionCommand(),
-            new ModelCommand(),
-            new ModelsCommand(),
-            new EffortCommand(),
-            new ModeCommand(),
-            new ModesCommand(),
-            new SessionsCommand(),
-            new ClearCommand("model"),
-            new AuthCommand(),
-        };
+        using var application = new CancellationTokenSource();
+        using var http = new HttpClient();
+        var registry = SlashCommands.Create(
+            new GeneratedParrot.ParrotClient(new ScriptedInvoker()),
+            new TestSlashDialog(),
+            new TestSlashSession("provider/old"),
+            new TestSlashActivity(),
+            new ApplicationExit(application),
+            new UnusedCredentials(),
+            new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            ["provider"],
+            new SessionIndex(Path.Combine(Path.GetTempPath(), $"parrot-sessions-{Guid.NewGuid():N}")));
 
-        _registry = new SlashCommandRegistry(commands);
-        commands.Add(new HelpCommand(_registry));
+        _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
+            .IsEqualTo("/auth|/clear|/effort|/exit|/help|/mode|/model|/models|/modes|/sessions|/version");
+        _ = await Assert.That(registry.Commands.All(command => command.Summary.Length > 0)).IsTrue();
     }
 
     [Test]
-    [Arguments("/help")]
-    [Arguments("/exit")]
-    [Arguments("/version")]
-    [Arguments("/model")]
-    [Arguments("/models")]
-    [Arguments("/effort")]
-    [Arguments("/mode")]
-    [Arguments("/modes")]
-    [Arguments("/sessions")]
-    [Arguments("/clear")]
-    [Arguments("/auth")]
-    public async Task Every_registered_command_resolves_by_name(string name)
+    public async Task Registry_dispatches_by_name_while_ignoring_arguments(CancellationToken cancellationToken)
     {
-        var registry = _registry;
+        var dialog = new TestSlashDialog();
+        var command = new TestSlashCommand();
+        var registry = new SlashCommandRegistry([command], dialog);
 
-        _ = await Assert.That(registry.Find(name)).IsNotNull();
-    }
+        await registry.Dispatch("/test arguments are ignored", cancellationToken);
+        await registry.Dispatch("/test\targuments are ignored", cancellationToken);
+        await registry.Dispatch("/unknown arguments", cancellationToken);
 
-    [Test]
-    [Arguments("/nope")]
-    [Arguments("/mdoel")]
-    [Arguments("/")]
-
-    // It must resolve to nothing rather than fall through to the model: a
-    // mistyped command is a mistake, not a prompt worth paying for.
-    public async Task An_unknown_command_resolves_to_nothing(string name) =>
-        _ = await Assert.That(_registry.Find(name)).IsNull();
-
-    [Test]
-    public async Task Every_command_carries_a_summary_for_help()
-    {
-        foreach (var command in _registry.Commands)
-        {
-            _ = await Assert.That(command.Summary).IsNotEmpty();
-            _ = await Assert.That(command.Name).StartsWith("/");
-        }
-    }
-
-    [Test]
-    public async Task Exit_is_the_only_command_that_ends_the_loop()
-    {
-        var ending = _registry.Commands.Where(command => command is ExitCommand).ToList();
-
-        _ = await Assert.That(ending).HasSingleItem();
-        _ = await Assert.That(ending[0].Name).IsEqualTo("/exit");
+        _ = await Assert.That(command.Runs).IsEqualTo(2);
+        _ = await Assert.That(registry.Find("/test")).IsSameReferenceAs(command);
+        _ = await Assert.That(registry.Find("/unknown")).IsNull();
+        _ = await Assert.That(string.Join('|', dialog.Errors)).IsEqualTo("unknown command /unknown, try /help");
     }
 }

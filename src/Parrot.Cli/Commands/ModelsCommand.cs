@@ -1,34 +1,24 @@
 using Parrot.Protocol;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Commands;
 
-internal sealed class ModelsCommand : ISlashCommand
+internal sealed class ModelsCommand(GeneratedParrot.ParrotClient client, ISlashDialog dialog) : ISlashCommand
 {
     public string Name => "/models";
 
     public string Summary => "List the models the provider serves";
 
-    public async Task<SlashOutcome> Run(
-        SlashContext context, string arguments, CancellationToken cancellationToken)
+    public async Task Run(CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(context);
+        var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
+        var lines = listed.Models.Select(model => $"{model.ProviderId}/{model.Id}").ToList();
 
-        var listed = await context.Client
-            .ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
-
-        foreach (var model in listed.Models)
+        if (lines.Count == 0)
         {
-            await context.Output
-                .WriteLineAsync($"  {model.ProviderId}/{model.Id}".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
+            lines.Add("no providers are configured");
         }
 
-        if (listed.Models.Count == 0)
-        {
-            await context.Output.WriteLineAsync("  no providers are configured".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        return SlashOutcome.Continue;
+        await dialog.Show(lines, cancellationToken).ConfigureAwait(false);
     }
 }
