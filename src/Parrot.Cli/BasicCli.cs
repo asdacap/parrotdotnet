@@ -32,6 +32,7 @@ internal sealed class BasicCli(
 
     private volatile bool _busy;
     private volatile bool _interruptRequested;
+    private SlashSession? _session;
 
     public async Task<int> Run(CancellationToken cancellationToken)
     {
@@ -267,6 +268,7 @@ internal sealed class BasicCli(
         await using var binding = new BasicSlashSessionBinding(
             client, initialSession.Id, this, output, error, application.Token);
         var session = new SlashSession(client, initialSession, configuration, binding);
+        _session = session;
         var dialog = new BasicSlashDialog(input, output, error);
         var commands = SlashCommands.Create(
             client,
@@ -333,6 +335,8 @@ internal sealed class BasicCli(
     private async Task Render(
         IAsyncStreamReader<Event> stream, TextWriter output, TextWriter error, CancellationToken cancellationToken)
     {
+        PlanCompleted? plan = null;
+
         while (!cancellationToken.IsCancellationRequested)
         {
             var completed = await RenderTurn(
@@ -344,6 +348,10 @@ internal sealed class BasicCli(
                     if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
                     {
                         _busy = true;
+                    }
+                    else if (published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)
+                    {
+                        plan = published.PlanCompleted;
                     }
 
                     return Task.CompletedTask;
@@ -359,8 +367,58 @@ internal sealed class BasicCli(
 
             _busy = false;
             _interruptRequested = false;
+
+            if (plan is not null)
+            {
+                await CompletePlan(plan, output, error, cancellationToken).ConfigureAwait(false);
+                plan = null;
+            }
+
             await Ready(output, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private async Task CompletePlan(
+        PlanCompleted completed, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        if (completed.Dialog is null || _session is null)
+        {
+            return;
+        }
+
+        await output.WriteLineAsync(completed.Markdown.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteAsync(completed.Dialog.Prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+        var answer = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+        var selected = answer?.Trim() ?? string.Empty;
+        var normalized = selected.ToLowerInvariant();
+        var choice = completed.Dialog.Choices.FirstOrDefault(item =>
+            normalized == item.Value || item.Aliases.Contains(normalized));
+
+        if (choice is not null)
+        {
+            if (choice.Action?.Mode.Length > 0)
+            {
+                await _session.SelectMode(choice.Action.Mode, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (choice.Action?.Prompt.Length > 0)
+            {
+                _busy = true;
+                _ = await client.SendMessageAsync(Message(_session.Id, choice.Action.Prompt), cancellationToken: cancellationToken);
+            }
+
+            return;
+        }
+
+        if (selected.Length == 0)
+        {
+            await error.WriteLineAsync(completed.Dialog.EmptyMessage.AsMemory(), cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        _busy = true;
+        _ = await client.SendMessageAsync(Message(_session.Id, selected), cancellationToken: cancellationToken);
     }
 
     private async Task Interrupting(SlashSession session, CancellationToken cancellationToken)

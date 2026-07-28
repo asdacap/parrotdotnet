@@ -32,6 +32,7 @@ internal sealed class ModeRegistryTests : IDisposable
     {
         var profile = Registry().Resolve(ModeRegistry.Plan, "session");
 
+        _ = await Assert.That(profile.PlanArtifact).IsEmpty();
         profile.Prepare();
         await File.WriteAllTextAsync(profile.PlanArtifact, "stale plan");
 
@@ -71,7 +72,7 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.Prompt).Contains(promptFragment);
         _ = await Assert.That(profile.HardRule).Contains(ruleFragment);
         _ = await Assert.That(profile.Status).IsNotEmpty();
-        _ = await Assert.That(profile.PlanArtifact.Length > 0).IsEqualTo(id == ModeRegistry.Plan);
+        _ = await Assert.That(profile.PlanArtifact).IsEmpty();
     }
 
     [Test]
@@ -98,12 +99,46 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(build.SecurityProfile.AllowsWrite(allowed)).IsTrue();
         _ = await Assert.That(build.SecurityProfile.AllowsWrite(denied)).IsFalse();
         var planDirectory = Path.Combine(_root, "plans");
+        plan.Prepare();
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(plan.PlanArtifact)).IsTrue();
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
             Path.Combine(planDirectory, "supporting.md"))).IsTrue();
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
             Path.Combine(planDirectory, "..", "outside.md"))).IsFalse();
         _ = await Assert.That(plan.SecurityProfile.WithoutRuntimeCapabilities().AllowsWrite(plan.PlanArtifact)).IsFalse();
+    }
+
+    [Test]
+    public async Task Plan_completion_trims_artifact_and_declares_approval_policy()
+    {
+        var profile = Registry().Resolve(ModeRegistry.Plan, "session");
+        profile.Prepare();
+        await File.WriteAllTextAsync(profile.PlanArtifact, "  # Plan\n\n- change code\n");
+
+        var completed = profile.Complete("session", "message");
+
+        if (completed is not { } emitted)
+        {
+            throw new InvalidOperationException("plan completion was not emitted");
+        }
+
+        _ = await Assert.That(emitted.SessionId).IsEqualTo("session");
+        _ = await Assert.That(emitted.MessageId).IsEqualTo("message");
+        _ = await Assert.That(emitted.Markdown).IsEqualTo("# Plan\n\n- change code");
+        _ = await Assert.That(emitted.Dialog.Prompt).IsEqualTo("Plan complete: ");
+        _ = await Assert.That(emitted.Dialog.Choices[0].Action.Mode).IsEqualTo(ModeRegistry.Build);
+        _ = await Assert.That(emitted.Dialog.Choices[0].Action.Prompt).IsEqualTo("Implement the approved plan.");
+        _ = await Assert.That(emitted.Dialog.EmptyMessage).IsEqualTo("enter yes, no, or feedback");
+    }
+
+    [Test]
+    public async Task Plan_completion_omits_a_blank_artifact()
+    {
+        var profile = Registry().Resolve(ModeRegistry.Plan, "session");
+        profile.Prepare();
+        await File.WriteAllTextAsync(profile.PlanArtifact, " \n\t ");
+
+        _ = await Assert.That(profile.Complete("session", "message")).IsNull();
     }
 
     [Test]
@@ -114,6 +149,12 @@ internal sealed class ModeRegistryTests : IDisposable
         var firstAgain = registry.Resolve(ModeRegistry.Plan, "first");
         var second = registry.Resolve(ModeRegistry.Plan, "second");
 
+        _ = await Assert.That(first.PlanArtifact).IsEmpty();
+        _ = await Assert.That(firstAgain.PlanArtifact).IsEmpty();
+        _ = await Assert.That(second.PlanArtifact).IsEmpty();
+        first.Prepare();
+        firstAgain.Prepare();
+        second.Prepare();
         _ = await Assert.That(first.PlanArtifact).IsEqualTo(firstAgain.PlanArtifact);
         _ = await Assert.That(first.PlanArtifact).IsNotEqualTo(second.PlanArtifact);
         _ = await Assert.That(Path.GetFileName(first.PlanArtifact)).StartsWith("plan-").And.EndsWith(".md");

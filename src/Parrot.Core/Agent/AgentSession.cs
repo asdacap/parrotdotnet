@@ -68,6 +68,8 @@ internal sealed class AgentSession(
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
         ?? new AgentStatistics(0, 0, 0, 0, model.Model.ContextWindow, 0, 0);
 
+    private string _messageId = string.Empty;
+
     private AgentSelection _selection = new(model, mode, securityProfile);
     private string _epochContext = string.Empty;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
@@ -658,6 +660,7 @@ internal sealed class AgentSession(
                 }
 
                 _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                _messageId = Identifier.MessageId();
                 answer = completed.AssistantText;
 
                 var ended = new Event
@@ -671,6 +674,17 @@ internal sealed class AgentSession(
                         OutputTokens = _statistics.OutputTokens,
                     },
                 };
+                if (activeSelection.Mode?.Complete(SessionId, _messageId) is { } planCompleted)
+                {
+                    var plan = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        PlanCompleted = planCompleted,
+                    };
+                    await EmitEvent(plan, null, null, cancellationToken).ConfigureAwait(false);
+                }
+
                 await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
                     .ConfigureAwait(false);
 
