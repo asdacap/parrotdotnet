@@ -292,6 +292,9 @@ internal sealed class EnhancedCliTests
         var animation = view.Run(animating.Token);
 
         await view.Render(
+            new Event { AgentSessionId = "stale-session", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+        await view.Render(
             new Event { AgentSessionId = "main-session", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
         await view.Render(

@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 using Parrot.Protocol;
 
@@ -10,18 +9,11 @@ internal sealed class RawActivityView(
     Func<CancellationToken, Task> delay) : IDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
-    private const string AgentActivity = "agent";
-    private const string ToolActivityPrefix = "tool:";
 
-    private readonly List<(string AgentSessionId, string ActivityId)> _activities = [];
-    private readonly Dictionary<(string AgentSessionId, string ActivityId), string> _activityLabels = [];
-    private readonly HashSet<string> _completedTurns = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, AgentStatisticsUpdatedEvent> _statistics = new(StringComparer.Ordinal);
+    private readonly List<(AgentSessionState State, string ActivityId)> _activities = [];
+    private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
     private readonly StringBuilder _reasoning = new();
     private readonly SemaphoreSlim _rendering = new(1, 1);
-    private readonly Dictionary<(string AgentSessionId, string ToolCallId), (string Name, StringBuilder Arguments)>
-        _toolCalls = [];
 
     private IReadOnlyList<ILiveBufferItem> _content = [];
     private int _frame;
@@ -155,12 +147,10 @@ internal sealed class RawActivityView(
             switch (published.PayloadCase)
             {
                 case Event.PayloadOneofCase.AgentStarted:
-                    _names[published.AgentSessionId] = published.AgentStarted.Name;
-                    UpdateAgentLabel(published.AgentSessionId);
+                    GetAgentSession(published.AgentSessionId).UpdateName(published.AgentStarted.Name);
                     break;
                 case Event.PayloadOneofCase.AgentStatisticsUpdated:
-                    _statistics[published.AgentSessionId] = published.AgentStatisticsUpdated;
-                    UpdateAgentLabel(published.AgentSessionId);
+                    GetAgentSession(published.AgentSessionId).UpdateStatistics(published.AgentStatisticsUpdated);
                     await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.AgentFinished:
@@ -205,35 +195,6 @@ internal sealed class RawActivityView(
         }
     }
 
-    private static string ActivityId(string toolCallId) => ToolActivityPrefix + toolCallId;
-
-    private static string ToolCallDescription((string Name, StringBuilder Arguments) toolCall)
-    {
-        var name = TerminalText.Sanitize(toolCall.Name);
-        var arguments = TerminalText.Sanitize(toolCall.Arguments.ToString());
-        return arguments.Length == 0 ? name : $"tool call {name}: {arguments}";
-    }
-
-    private static (string ToolCallId, string ToolName) TerminalTool(Event published) => published.PayloadCase switch
-    {
-        Event.PayloadOneofCase.ToolFinished =>
-            (published.ToolFinished.ToolCallId, published.ToolFinished.ToolName),
-        Event.PayloadOneofCase.ToolCancelled =>
-            (published.ToolCancelled.ToolCallId, published.ToolCancelled.ToolName),
-        Event.PayloadOneofCase.ToolError =>
-            (published.ToolError.ToolCallId, published.ToolError.ToolName),
-        _ => (string.Empty, string.Empty),
-    };
-
-    private static string TokenCount(long count) => count switch
-    {
-        >= 1_000_000 => $"{(count / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture)}m",
-        >= 1_000 => $"{(count / 1_000d).ToString("0.#", CultureInfo.InvariantCulture)}k",
-        _ => count.ToString(CultureInfo.InvariantCulture),
-    };
-
-    private static string ContextLimit(long limit) => limit == 0 ? "?" : TokenCount(limit);
-
     private List<ILiveBufferItem> Snapshot()
     {
         var items = new List<ILiveBufferItem>(_content.Count + _activities.Count + 1);
@@ -244,153 +205,96 @@ internal sealed class RawActivityView(
         }
 
         items.AddRange(_activities.Select(activity =>
-            (ILiveBufferItem)new SpinnerValue(_activityLabels[activity], _frame)));
+            activity.State.CreateLiveBufferItem(activity.ActivityId, _frame)));
         return items;
     }
 
-    private string Name(string agentSessionId)
+    private AgentSessionState GetAgentSession(string agentSessionId)
     {
-        if (_names.TryGetValue(agentSessionId, out var name))
+        if (_agentSessions.TryGetValue(agentSessionId, out var state))
         {
-            return name;
+            return state;
+        }
+
+        state = new AgentSessionState(agentSessionId);
+        _agentSessions.Add(agentSessionId, state);
+        return state;
+    }
+
+    private AgentSessionState GetNamedAgentSession(string agentSessionId)
+    {
+        var state = GetAgentSession(agentSessionId);
+        if (state.HasName)
+        {
+            return state;
         }
 
         _mainSessionId ??= agentSessionId;
-
-        return string.Equals(_mainSessionId, agentSessionId, StringComparison.Ordinal)
+        state.UpdateName(string.Equals(_mainSessionId, agentSessionId, StringComparison.Ordinal)
             ? "main"
-            : agentSessionId;
+            : agentSessionId);
+        return state;
     }
 
     private void StartTurn(string agentSessionId)
     {
-        var identity = (agentSessionId, AgentActivity);
-        if (_activityLabels.ContainsKey(identity))
+        var state = GetNamedAgentSession(agentSessionId);
+        if (state.StartTurn() is { } activityId)
         {
-            return;
-        }
-
-        _activities.Add(identity);
-        _activityLabels.Add(identity, AgentLabel(agentSessionId));
-    }
-
-    private string AgentLabel(string agentSessionId) =>
-        _statistics.TryGetValue(agentSessionId, out var statistics)
-            ? $"agent {Name(agentSessionId)} ({TokenCount(statistics.InputTokens)} in / " +
-              $"{TokenCount(statistics.CachedInputTokens)} cached / {TokenCount(statistics.OutputTokens)} out, " +
-              $"{TokenCount(statistics.ContextSize)}/{ContextLimit(statistics.ContextLimit)} ctx)"
-            : $"agent {Name(agentSessionId)}";
-
-    private void UpdateAgentLabel(string agentSessionId)
-    {
-        var identity = (agentSessionId, AgentActivity);
-        if (_activityLabels.ContainsKey(identity))
-        {
-            _activityLabels[identity] = AgentLabel(agentSessionId);
+            _activities.Add((state, activityId));
         }
     }
 
     private async Task FinishTurn(Event published, bool failed, CancellationToken cancellationToken)
     {
-        var identity = (published.AgentSessionId, AgentActivity);
-        if (!_activityLabels.Remove(identity))
+        var state = GetAgentSession(published.AgentSessionId);
+        if (state.FinishTurn(published, failed) is not { } completion)
         {
             return;
         }
 
-        _ = _activities.Remove(identity);
-        _ = _completedTurns.Add(published.AgentSessionId);
-        var name = Name(published.AgentSessionId);
-        var interrupted = !failed
-            && string.Equals(published.TurnEnded.FinishReason, "interrupted", StringComparison.Ordinal);
-        var line = failed
-            ? $"! agent {name}: {TerminalText.Sanitize(published.TurnFailed.Message)}"
-            : interrupted
-                ? $"- agent {name} interrupted"
-                : $"+ agent {name} finished";
-        await commit(ImmediateScrollbackValue.Muted([line]), Snapshot(), cancellationToken).ConfigureAwait(false);
+        _ = _activities.Remove((state, completion.ActivityId));
+        await commit(
+            ImmediateScrollbackValue.Muted([completion.Line]),
+            Snapshot(),
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async Task FinishAgent(Event published, bool failed, CancellationToken cancellationToken)
     {
-        if (_completedTurns.Remove(published.AgentSessionId))
+        var state = GetAgentSession(published.AgentSessionId);
+        if (state.FinishAgent(published, failed) is not { } completion)
         {
             return;
         }
 
-        var identity = (published.AgentSessionId, AgentActivity);
-        _ = _activityLabels.Remove(identity);
-        _ = _activities.Remove(identity);
-        var name = failed ? published.AgentFailed.Name : published.AgentFinished.Name;
-        var line = failed
-            ? $"! agent {name}: {TerminalText.Sanitize(published.AgentFailed.Message)}"
-            : $"+ agent {name} finished";
-        await commit(ImmediateScrollbackValue.Muted([line]), Snapshot(), cancellationToken).ConfigureAwait(false);
+        _ = _activities.Remove((state, completion.ActivityId));
+        await commit(
+            ImmediateScrollbackValue.Muted([completion.Line]),
+            Snapshot(),
+            cancellationToken).ConfigureAwait(false);
     }
 
-    private void ToolCall(string agentSessionId, ToolCallChunk chunk)
-    {
-        var identity = (agentSessionId, chunk.ToolCallId);
-        if (!_toolCalls.TryGetValue(identity, out var toolCall))
-        {
-            toolCall = (chunk.ToolName, new StringBuilder());
-        }
-        else if (chunk.ToolName.Length > 0)
-        {
-            toolCall.Name = chunk.ToolName;
-        }
-
-        _ = toolCall.Arguments.Append(chunk.ArgumentsFragment);
-        _toolCalls[identity] = toolCall;
-    }
+    private void ToolCall(string agentSessionId, ToolCallChunk chunk) =>
+        GetAgentSession(agentSessionId).CollectToolCall(chunk);
 
     private void StartTool(Event published)
     {
-        var tool = published.ToolStarted;
-        var toolIdentity = (published.AgentSessionId, tool.ToolCallId);
-        if (!_toolCalls.TryGetValue(toolIdentity, out var toolCall))
+        var state = GetNamedAgentSession(published.AgentSessionId);
+        if (state.StartTool(published.ToolStarted) is { } activityId)
         {
-            toolCall = (tool.ToolName, new StringBuilder());
-            _toolCalls.Add(toolIdentity, toolCall);
+            _activities.Add((state, activityId));
         }
-        else if (tool.ToolName.Length > 0)
-        {
-            toolCall.Name = tool.ToolName;
-            _toolCalls[toolIdentity] = toolCall;
-        }
-
-        var identity = (published.AgentSessionId, ActivityId(tool.ToolCallId));
-        if (_activityLabels.ContainsKey(identity))
-        {
-            return;
-        }
-
-        _activities.Add(identity);
-        _activityLabels.Add(identity, $"{Name(published.AgentSessionId)}: {toolCall.Name}");
     }
 
     private async Task FinishTool(Event published, CancellationToken cancellationToken)
     {
-        var (toolCallId, toolName) = TerminalTool(published);
-        var toolIdentity = (published.AgentSessionId, toolCallId);
-        if (!_toolCalls.Remove(toolIdentity, out var toolCall))
-        {
-            toolCall = (toolName, new StringBuilder());
-        }
-
-        var identity = (published.AgentSessionId, ActivityId(toolCallId));
-        _ = _activityLabels.Remove(identity);
-        _ = _activities.Remove(identity);
-        var description = ToolCallDescription(toolCall);
-        var owner = Name(published.AgentSessionId);
-        var line = published.PayloadCase switch
-        {
-            Event.PayloadOneofCase.ToolFinished => $"+ {owner}: {description}",
-            Event.PayloadOneofCase.ToolCancelled => $"- {owner}: {description} cancelled",
-            Event.PayloadOneofCase.ToolError =>
-                $"! {owner}: {description}: {TerminalText.Sanitize(published.ToolError.Message)}",
-            _ => string.Empty,
-        };
-        await commit(ImmediateScrollbackValue.Muted([line]), Snapshot(), cancellationToken).ConfigureAwait(false);
+        var state = GetNamedAgentSession(published.AgentSessionId);
+        var (activityId, line) = state.FinishTool(published);
+        _ = _activities.Remove((state, activityId));
+        await commit(
+            ImmediateScrollbackValue.Muted([line]),
+            Snapshot(),
+            cancellationToken).ConfigureAwait(false);
     }
 }
