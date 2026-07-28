@@ -28,7 +28,7 @@ internal sealed class SubagentTests : IDisposable
     public async Task Spawn_returns_immediately_and_wait_retains_the_terminal_result(
         CancellationToken cancellationToken)
     {
-        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "child says hi", []));
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "child says hi", []));
         var sessions = new TestAgentSessions();
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
@@ -91,7 +91,7 @@ internal sealed class SubagentTests : IDisposable
     public async Task Spawn_uses_the_selection_captured_before_parent_selection_changes(
         CancellationToken cancellationToken)
     {
-        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "done", []));
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         using var replacement = new SteppedProvider();
         var sessions = new TestAgentSessions();
         await using var registry = new AgentRegistry(
@@ -116,9 +116,9 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
-            LLMEvent.Completed("stop", 1, 1, "first", []),
-            LLMEvent.Completed("stop", 1, 1, "steered", []),
-            LLMEvent.Completed("stop", 1, 1, "followed up", []));
+            LLMEvent.Completed("stop", 1, 0, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "steered", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "followed up", []));
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
@@ -168,8 +168,8 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
-            LLMEvent.Completed("stop", 1, 1, "first", []),
-            LLMEvent.Completed("stop", 1, 1, "second", []));
+            LLMEvent.Completed("stop", 1, 0, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "second", []));
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
@@ -195,7 +195,7 @@ internal sealed class SubagentTests : IDisposable
     public async Task Send_validates_arguments_size_and_allows_any_agent(
         CancellationToken cancellationToken)
     {
-        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "done", []));
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
@@ -228,11 +228,11 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
-            LLMEvent.Completed("stop", 1, 1, "idle", []),
-            LLMEvent.Completed("stop", 1, 1, "one", []),
-            LLMEvent.Completed("stop", 1, 1, "two", []),
-            LLMEvent.Completed("stop", 1, 1, "three", []),
-            LLMEvent.Completed("stop", 1, 1, "four", []));
+            LLMEvent.Completed("stop", 1, 0, 1, "idle", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "one", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "two", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "three", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "four", []));
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
@@ -255,8 +255,8 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
-            LLMEvent.Completed("stop", 1, 1, "first", []),
-            LLMEvent.Completed("stop", 1, 1, "unreachable", []));
+            LLMEvent.Completed("stop", 1, 0, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "unreachable", []));
         var registry = new AgentRegistry(
             new TestAgentSessions(),
             _broker,

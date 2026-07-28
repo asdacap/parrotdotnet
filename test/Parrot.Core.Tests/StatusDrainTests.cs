@@ -120,7 +120,7 @@ internal sealed class StatusDrainTests : IDisposable
     }
 
     private static LLMEvent Answer(string text, params LLMToolCall[] toolCalls) =>
-        LLMEvent.Completed("stop", 1, 1, text, toolCalls);
+        LLMEvent.Completed("stop", 1, 0, 1, text, toolCalls);
 
     private static string Roles(LLMRequest request) =>
         string.Join(" | ", request.Messages.Select(message => message.Role));

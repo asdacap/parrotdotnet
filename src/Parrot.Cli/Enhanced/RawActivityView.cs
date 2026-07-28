@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Parrot.Protocol;
 
@@ -16,6 +17,7 @@ internal sealed class RawActivityView(
     private readonly Dictionary<(string AgentSessionId, string ActivityId), string> _activityLabels = [];
     private readonly HashSet<string> _completedTurns = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AgentStatisticsUpdatedEvent> _statistics = new(StringComparer.Ordinal);
     private readonly StringBuilder _reasoning = new();
     private readonly SemaphoreSlim _rendering = new(1, 1);
     private readonly Dictionary<(string AgentSessionId, string ToolCallId), (string Name, StringBuilder Arguments)>
@@ -154,6 +156,12 @@ internal sealed class RawActivityView(
             {
                 case Event.PayloadOneofCase.AgentStarted:
                     _names[published.AgentSessionId] = published.AgentStarted.Name;
+                    UpdateAgentLabel(published.AgentSessionId);
+                    break;
+                case Event.PayloadOneofCase.AgentStatisticsUpdated:
+                    _statistics[published.AgentSessionId] = published.AgentStatisticsUpdated;
+                    UpdateAgentLabel(published.AgentSessionId);
+                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.AgentFinished:
                     await FinishAgent(published, failed: false, cancellationToken).ConfigureAwait(false);
@@ -217,6 +225,15 @@ internal sealed class RawActivityView(
         _ => (string.Empty, string.Empty),
     };
 
+    private static string TokenCount(long count) => count switch
+    {
+        >= 1_000_000 => $"{(count / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture)}m",
+        >= 1_000 => $"{(count / 1_000d).ToString("0.#", CultureInfo.InvariantCulture)}k",
+        _ => count.ToString(CultureInfo.InvariantCulture),
+    };
+
+    private static string ContextLimit(long limit) => limit == 0 ? "?" : TokenCount(limit);
+
     private List<ILiveBufferItem> Snapshot()
     {
         var items = new List<ILiveBufferItem>(_content.Count + _activities.Count + 1);
@@ -254,7 +271,23 @@ internal sealed class RawActivityView(
         }
 
         _activities.Add(identity);
-        _activityLabels.Add(identity, $"agent {Name(agentSessionId)}");
+        _activityLabels.Add(identity, AgentLabel(agentSessionId));
+    }
+
+    private string AgentLabel(string agentSessionId) =>
+        _statistics.TryGetValue(agentSessionId, out var statistics)
+            ? $"agent {Name(agentSessionId)} ({TokenCount(statistics.InputTokens)} in / " +
+              $"{TokenCount(statistics.CachedInputTokens)} cached / {TokenCount(statistics.OutputTokens)} out, " +
+              $"{TokenCount(statistics.ContextSize)}/{ContextLimit(statistics.ContextLimit)} ctx)"
+            : $"agent {Name(agentSessionId)}";
+
+    private void UpdateAgentLabel(string agentSessionId)
+    {
+        var identity = (agentSessionId, AgentActivity);
+        if (_activityLabels.ContainsKey(identity))
+        {
+            _activityLabels[identity] = AgentLabel(agentSessionId);
+        }
     }
 
     private async Task FinishTurn(Event published, bool failed, CancellationToken cancellationToken)

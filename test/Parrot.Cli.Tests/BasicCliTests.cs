@@ -50,6 +50,45 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    public async Task Turn_completion_reports_cumulative_token_totals(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event
+            {
+                TurnEnded = new TurnEnded { FinishReason = "stop", InputTokens = 1234, OutputTokens = 567 },
+            },
+            cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(output.ToString()).Contains("stop, 1234 total in / 567 total out");
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Length_completion_reports_cumulative_token_totals(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event { TurnEnded = new TurnEnded { FinishReason = "length", InputTokens = 100, OutputTokens = 1 } },
+            cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(output.ToString()).Contains("length, 100 total in / 1 total out");
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
     public async Task Status_injection_renders_as_its_own_notification(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();

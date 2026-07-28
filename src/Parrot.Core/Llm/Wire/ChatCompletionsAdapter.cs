@@ -133,6 +133,7 @@ internal static class ChatCompletionsAdapter
         if (root.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object)
         {
             state.InputTokens = ReadInt(usage, "prompt_tokens");
+            state.CachedInputTokens = ReadCachedInputTokens(usage);
             state.OutputTokens = ReadInt(usage, "completion_tokens");
         }
     }
@@ -254,6 +255,12 @@ internal static class ChatCompletionsAdapter
             ? value.GetInt32()
             : 0;
 
+    private static int ReadCachedInputTokens(JsonElement usage) =>
+        usage.TryGetProperty("prompt_tokens_details", out var details)
+            && details.ValueKind == JsonValueKind.Object
+            ? ReadInt(details, "cached_tokens")
+            : 0;
+
     internal sealed class Body
     {
         [JsonPropertyName("model")]
@@ -366,6 +373,8 @@ internal static class ChatCompletionsAdapter
 
         public int InputTokens { get; set; }
 
+        public int CachedInputTokens { get; set; }
+
         public int OutputTokens { get; set; }
 
         public StringBuilder AssistantText { get; } = new();
@@ -389,6 +398,7 @@ internal static class ChatCompletionsAdapter
             LLMEvent.Completed(
                 FinishReason,
                 InputTokens,
+                CachedInputTokens,
                 OutputTokens,
                 AssistantText.ToString(),
                 [.. _tools.Values.Select(call => new LLMToolCall(call.Id, call.Name, call.Arguments.ToString()))]);

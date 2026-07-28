@@ -63,6 +63,9 @@ internal sealed class AgentSession(
     private readonly Lock _drainGate = new();
     private readonly Lock _selectionGate = new();
 
+    private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
+        ?? new AgentStatistics(0, 0, 0, 0, model.Model.ContextWindow);
+
     private AgentSelection _selection = new(model, mode);
     private string _epochContext = string.Empty;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
@@ -649,8 +652,8 @@ internal sealed class AgentSession(
                     TurnEnded = new TurnEnded
                     {
                         FinishReason = completed.FinishReason,
-                        InputTokens = completed.InputTokens,
-                        OutputTokens = completed.OutputTokens,
+                        InputTokens = _statistics.InputTokens,
+                        OutputTokens = _statistics.OutputTokens,
                     },
                 };
                 await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
@@ -676,7 +679,12 @@ internal sealed class AgentSession(
                 {
                     Id = Identifier.EventId(),
                     AgentSessionId = SessionId,
-                    TurnEnded = new TurnEnded { FinishReason = InterruptedFinish },
+                    TurnEnded = new TurnEnded
+                    {
+                        FinishReason = InterruptedFinish,
+                        InputTokens = _statistics.InputTokens,
+                        OutputTokens = _statistics.OutputTokens,
+                    },
                 };
                 await EmitEvent(ended, "assistant", InterruptedNote, CancellationToken.None)
                     .ConfigureAwait(false);
@@ -862,13 +870,22 @@ internal sealed class AgentSession(
             Reasoning = selectedModel.Reasoning,
         };
 
-        var completed = LLMEvent.Completed(string.Empty, 0, 0, string.Empty, []);
+        var completed = LLMEvent.Completed(string.Empty, 0, 0, 0, string.Empty, []);
 
         await foreach (var llmEvent in selectedModel.Provider
             .Call(request, cancellationToken).ConfigureAwait(false))
         {
             if (llmEvent.Kind == LLMEventKind.Completed)
             {
+                var statistics = _statistics.Add(llmEvent, selectedModel.Model.ContextWindow);
+                var published = new Event
+                {
+                    Id = Identifier.EventId(),
+                    AgentSessionId = SessionId,
+                    AgentStatisticsUpdated = statistics.ConvertToPayload(),
+                };
+                await EmitEvent(published, null, null, CancellationToken.None).ConfigureAwait(false);
+                _statistics = statistics;
                 completed = llmEvent;
                 continue;
             }

@@ -42,7 +42,7 @@ internal sealed class ResponsesAdapterTests
 
             data: {"type":"response.output_text.delta","delta":" world"}
 
-            data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":7,"output_tokens":3}}}
+            data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":7,"input_tokens_details":{"cached_tokens":4},"output_tokens":3}}}
 
             """;
 
@@ -55,6 +55,7 @@ internal sealed class ResponsesAdapterTests
         _ = await Assert.That(completed.FinishReason).IsEqualTo("stop");
         _ = await Assert.That(completed.AssistantText).IsEqualTo("hello world");
         _ = await Assert.That(completed.InputTokens).IsEqualTo(7);
+        _ = await Assert.That(completed.CachedInputTokens).IsEqualTo(4);
         _ = await Assert.That(completed.OutputTokens).IsEqualTo(3);
     }
 

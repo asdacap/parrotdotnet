@@ -26,6 +26,6 @@ internal sealed class ScriptedProvider(string reply) : ILLMProvider
         _requests.Add(request);
         await Task.Yield();
         yield return LLMEvent.TextDelta(reply);
-        yield return LLMEvent.Completed("stop", 1, 1, reply, []);
+        yield return LLMEvent.Completed("stop", 1, 0, 1, reply, []);
     }
 }

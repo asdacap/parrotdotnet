@@ -24,6 +24,8 @@ internal sealed record LLMEvent
 
     public int InputTokens { get; init; }
 
+    public int CachedInputTokens { get; init; }
+
     public int OutputTokens { get; init; }
 
     // Completed only: the fully assembled tool calls, if the model asked for
@@ -54,6 +56,7 @@ internal sealed record LLMEvent
     public static LLMEvent Completed(
         string finishReason,
         int inputTokens,
+        int cachedInputTokens,
         int outputTokens,
         string assistantText,
         IReadOnlyList<LLMToolCall> toolCalls) =>
@@ -62,6 +65,7 @@ internal sealed record LLMEvent
             Kind = LLMEventKind.Completed,
             FinishReason = finishReason,
             InputTokens = inputTokens,
+            CachedInputTokens = cachedInputTokens,
             OutputTokens = outputTokens,
             AssistantText = assistantText,
             ToolCalls = toolCalls,

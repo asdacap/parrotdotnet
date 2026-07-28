@@ -75,6 +75,9 @@ internal sealed class EnhancedTurnView(
 
                 break;
 
+            case Event.PayloadOneofCase.AgentStatisticsUpdated:
+                break;
+
             case Event.PayloadOneofCase.StatusInjected:
                 await Commit(
                     ImmediateScrollbackValue.Trusted([$"{Dim}  ↻ Status prompt injected{Reset}"]),
@@ -155,7 +158,7 @@ internal sealed class EnhancedTurnView(
     }
 
     private static string Summarise(TurnEnded ended) =>
-        $"{TerminalText.Sanitize(ended.FinishReason)} - {ended.InputTokens} in / {ended.OutputTokens} out";
+        $"{TerminalText.Sanitize(ended.FinishReason)} - {ended.InputTokens} total in / {ended.OutputTokens} total out";
 
     private Task RenderActivity(Event published, CancellationToken cancellationToken)
     {

@@ -134,6 +134,60 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Statistics_include_tool_rounds_are_durable_and_restored(
+        CancellationToken cancellationToken)
+    {
+        var repository = new EventRepository(_database);
+        using (var firstProvider = new SteppedProvider(
+            LLMEvent.Completed(
+                "tool_calls", 10, 3, 4, string.Empty, [new LLMToolCall("call-1", "settled", "{}")]),
+            LLMEvent.Completed("stop", 7, 2, 5, "first", [])))
+        {
+            var firstSession = Session(
+                firstProvider, repository, [new FixedToolFactory(new SettledTool())], 128, cancellationToken);
+            _ = await firstSession.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
+            await firstProvider.Arrived(cancellationToken);
+            firstProvider.Release();
+            await firstProvider.Arrived(cancellationToken);
+            firstProvider.Release();
+            await firstSession.Settled();
+        }
+
+        using (var secondProvider = new SteppedProvider(
+            LLMEvent.Completed("stop", 6, 1, 2, "second", [])))
+        {
+            var restoredSession = Session(secondProvider, repository, [], 128, cancellationToken);
+            _ = await restoredSession.Admit("second prompt", "msg-2", Delivery.Steer, cancellationToken);
+            await secondProvider.Arrived(cancellationToken);
+            secondProvider.Release();
+            await restoredSession.Settled();
+        }
+
+        var replay = repository.Replay().ToList();
+        var statistics = replay
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
+            .Select(published => published.AgentStatisticsUpdated)
+            .ToArray();
+        var endings = replay
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.TurnEnded)
+            .Select(published => published.TurnEnded)
+            .ToArray();
+
+        _ = await Assert.That(statistics.Length).IsEqualTo(3);
+        _ = await Assert.That(
+            string.Join(" | ", statistics.Select(updated =>
+                $"{updated.InputTokens}:{updated.CachedInputTokens}:{updated.OutputTokens}:"
+                + $"{updated.ContextSize}:{updated.ContextLimit}")))
+            .IsEqualTo("10:3:4:10:128 | 17:5:9:7:128 | 23:6:11:6:128");
+        _ = await Assert.That(
+            string.Join(" | ", endings.Select(ended => $"{ended.InputTokens}:{ended.OutputTokens}")))
+            .IsEqualTo("17:9 | 23:11");
+        _ = await Assert.That(replay.FindIndex(
+            published => published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated))
+            .IsLessThan(replay.FindIndex(published => published.PayloadCase == Event.PayloadOneofCase.ToolStarted));
+    }
+
+    [Test]
     public async Task An_unknown_tool_emits_an_error_before_the_turn_continues(
         CancellationToken cancellationToken)
     {
@@ -216,7 +270,7 @@ internal sealed class DrainTests : IDisposable
     }
 
     private static LLMEvent Answer(string text, params LLMToolCall[] toolCalls) =>
-        LLMEvent.Completed("stop", 1, 1, text, toolCalls);
+        LLMEvent.Completed("stop", 1, 0, 1, text, toolCalls);
 
     // Joined rather than compared item by item: order is what these assert,
     // and one string says so without a structural comparison.
@@ -259,9 +313,17 @@ internal sealed class DrainTests : IDisposable
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         CancellationToken lifetime) =>
+        Session(provider, repository, toolFactories, 0, lifetime);
+
+    private AgentSession Session(
+        SteppedProvider provider,
+        EventRepository repository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        int contextWindow,
+        CancellationToken lifetime) =>
         new(
             AgentIdentity.Main("agent"),
-            new ProviderModel(provider, new LLMModel("model", provider.Id)),
+            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = contextWindow }),
             _broker,
             repository,
             toolFactories,
