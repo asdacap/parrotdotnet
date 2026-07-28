@@ -39,6 +39,14 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public string Output => _output.Snapshot();
 
+    public async Task OutputContainsAfter(int start, string text, CancellationToken cancellationToken)
+    {
+        while (_output.Snapshot()[start..].Contains(text, StringComparison.Ordinal) is false)
+        {
+            await Task.Delay(5, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async Task OutputContains(string text, CancellationToken cancellationToken)
     {
         while (!_output.Snapshot().Contains(text, StringComparison.Ordinal))

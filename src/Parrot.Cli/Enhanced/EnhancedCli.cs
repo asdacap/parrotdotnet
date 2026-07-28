@@ -521,6 +521,7 @@ internal sealed class EnhancedCli(
                 if (planRequests.Reader.TryRead(out var planRequest))
                 {
                     await CompletePlan(planRequest, dialog, session, cancellationToken).ConfigureAwait(false);
+                    await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
                     continue;
                 }
 
