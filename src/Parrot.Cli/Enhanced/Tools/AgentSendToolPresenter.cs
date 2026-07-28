@@ -19,10 +19,11 @@ internal sealed class AgentSendToolPresenter : IToolPresenter
     {
         using var arguments = JsonDocument.Parse(call.ArgumentsJson);
         var sessionId = arguments.RootElement.GetProperty("session_id").GetString() ?? string.Empty;
+        var message = arguments.RootElement.GetProperty("message").GetString() ?? string.Empty;
         var status = terminal.ResolveStatus();
         return new ToolScrollbackValue(
             $"{call.Owner}: Send to {sessionId}",
-            status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
+            status == ToolTerminalStatus.Succeeded ? ToolBlock.FromText(message) : terminal.DescribeBlock(ToolBlockKind.None),
             status,
             Metadata);
     }

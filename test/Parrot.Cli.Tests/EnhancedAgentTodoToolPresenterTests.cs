@@ -16,7 +16,7 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
             new ToolCallPresentation("main", "agent_send", "{\"session_id\":\"scout\",\"message\":\"inspect logs\"}"),
             "{\"status\":\"running\"}",
             "main: Send to scout",
-            "✓ main: Send to scout",
+            "✓ main: Send to scout|  inspect logs",
         ];
         yield return () =>
         [
@@ -70,6 +70,26 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
 
         _ = await Assert.That(string.Join('|', live)).Contains(expectedLive);
         _ = await Assert.That(string.Join('|', completed)).Contains(expectedTerminal);
+    }
+
+    [Test]
+    public async Task Agent_send_flushes_a_bounded_message()
+    {
+        var presenter = new AgentSendToolPresenter();
+        var message = string.Join("\\n", Enumerable.Range(1, 12).Select(static line => $"line {line}"));
+        var call = new ToolCallPresentation(
+            "main",
+            "agent_send",
+            $"{{\"session_id\":\"scout\",\"message\":\"{message}\"}}");
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty);
+
+        var completed = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+
+        _ = await Assert.That(completed[0]).IsEqualTo("✓ main: Send to scout");
+        _ = await Assert.That(completed).Count().IsLessThanOrEqualTo(10);
+        _ = await Assert.That(string.Join('|', completed)).Contains("  line 1");
+        _ = await Assert.That(completed[^1]).Contains("lines truncated.");
+        _ = await Assert.That(string.Join('|', completed)).DoesNotContain("line 12");
     }
 
     [Test]
