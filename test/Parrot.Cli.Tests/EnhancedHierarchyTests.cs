@@ -112,6 +112,50 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Failed_parent_turn_flushes_while_a_child_is_running(CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var context = new ScrollbackRenderContext(120, new TerminalPalette(false));
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token) => Task.CompletedTask;
+
+        Task Commit(
+            IScrollbackItem item,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(context)));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(Draw, Commit, new ToolPresenterRegistry([], new GenericToolPresenter()));
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                TurnFailed = new TurnFailed { Message = "the turn exceeded its tool-call limit" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(committed.Count).IsEqualTo(1);
+        _ = await Assert.That(committed[0]).IsEqualTo("✗ agent: the turn exceeded its tool-call limit");
+    }
+
+    [Test]
     public async Task Hierarchy_resolves_depth_orphans_cycles_and_post_order()
     {
         var hierarchy = new AgentSessionHierarchy();

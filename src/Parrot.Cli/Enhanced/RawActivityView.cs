@@ -15,8 +15,7 @@ internal sealed class RawActivityView(
     private readonly List<(AgentSessionState State, string ActivityId)> _activities = [];
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
     private readonly AgentSessionHierarchy _hierarchy = new();
-    private readonly Dictionary<string, (string ActivityId, string Response, string Line)> _pendingCompletions =
-        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AgentCompletion> _pendingCompletions = new(StringComparer.Ordinal);
 
     private readonly StringBuilder _reasoning = new();
     private readonly SemaphoreSlim _rendering = new(1, 1);
@@ -277,7 +276,11 @@ internal sealed class RawActivityView(
             return;
         }
 
-        _ = _pendingCompletions.TryAdd(state.AgentSessionId, completion);
+        _ = _pendingCompletions.TryAdd(state.AgentSessionId, new AgentCompletion(
+            completion.ActivityId,
+            completion.Response,
+            completion.Line,
+            failed));
         await FlushCompletions(cancellationToken).ConfigureAwait(false);
         if (_pendingCompletions.ContainsKey(state.AgentSessionId))
         {
@@ -293,7 +296,11 @@ internal sealed class RawActivityView(
             return;
         }
 
-        _ = _pendingCompletions.TryAdd(state.AgentSessionId, completion);
+        _ = _pendingCompletions.TryAdd(state.AgentSessionId, new AgentCompletion(
+            completion.ActivityId,
+            completion.Response,
+            completion.Line,
+            failed));
         await FlushCompletions(cancellationToken).ConfigureAwait(false);
         if (_pendingCompletions.ContainsKey(state.AgentSessionId))
         {
@@ -369,7 +376,8 @@ internal sealed class RawActivityView(
                             activity.ActivityId,
                             _pendingCompletions[sessionId].ActivityId,
                             StringComparison.Ordinal)
-                        : _hierarchy.IsDescendant(activity.State.AgentSessionId, sessionId)))
+                        : !_pendingCompletions[sessionId].Failed
+                            && _hierarchy.IsDescendant(activity.State.AgentSessionId, sessionId)))
                 .OrderByDescending(_hierarchy.GetDepth)
                 .ThenBy(static sessionId => sessionId, StringComparer.Ordinal)
                 .FirstOrDefault();
@@ -383,8 +391,9 @@ internal sealed class RawActivityView(
                 return;
             }
 
-            var (activityId, response, line) = _pendingCompletions[ready];
+            var completion = _pendingCompletions[ready];
             _ = _pendingCompletions.Remove(ready);
+            var (activityId, response, line, _) = completion;
             var state = _agentSessions[ready];
             _ = _activities.Remove((state, activityId));
             if (response.Length > 0)
@@ -403,4 +412,6 @@ internal sealed class RawActivityView(
                 cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private sealed record AgentCompletion(string ActivityId, string Response, string Line, bool Failed);
 }
