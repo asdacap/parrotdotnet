@@ -408,9 +408,10 @@ internal sealed class EnhancedCli(
                     exiting = true;
                     break;
                 }
-                else if (key.Kind == TerminalKeyKind.Plan)
+                else if (key.Kind == TerminalKeyKind.Mode)
                 {
-                    await session.SelectMode("plan", cancellationToken).ConfigureAwait(false);
+                    var mode = session.Mode == "plan" ? "build" : "plan";
+                    await session.SelectMode(mode, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {

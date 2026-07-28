@@ -506,13 +506,19 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
-    public async Task Shift_tab_switches_to_plan_mode(CancellationToken cancellationToken)
+    public async Task Shift_tab_toggles_between_build_and_plan_modes(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
         var driving = driver.Drive(cancellationToken);
 
         driver.Input.Type("\u001b[Z");
-        while (driver.Invoker.Updated.Count == 0)
+        while (driver.Invoker.Updated.Count < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        driver.Input.Type("\u001b[Z");
+        while (driver.Invoker.Updated.Count < 2)
         {
             await Task.Delay(5, cancellationToken);
         }
@@ -520,8 +526,9 @@ internal sealed class EnhancedCliTests
         driver.Input.End();
         _ = await driving;
 
-        _ = await Assert.That(driver.Invoker.Updated).HasSingleItem();
+        _ = await Assert.That(driver.Invoker.Updated.Count).IsEqualTo(2);
         _ = await Assert.That(driver.Invoker.Updated[0].Mode).IsEqualTo("plan");
+        _ = await Assert.That(driver.Invoker.Updated[1].Mode).IsEqualTo("build");
     }
 
     [Test]
