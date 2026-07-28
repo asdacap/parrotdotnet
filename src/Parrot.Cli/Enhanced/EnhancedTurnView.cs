@@ -9,7 +9,8 @@ internal sealed class EnhancedTurnView(
     TextWriter error,
     Func<int> columns,
     bool renderActivityEvents,
-    bool color)
+    bool color,
+    ForegroundTurn foreground)
 {
     private const string Dim = "\u001b[2m";
     private const string Cyan = "\u001b[36m";
@@ -42,6 +43,8 @@ internal sealed class EnhancedTurnView(
 
     public async Task<bool?> Render(Event published, CancellationToken cancellationToken)
     {
+        foreground.Observe(published);
+
         switch (published.PayloadCase)
         {
             case Event.PayloadOneofCase.TurnStarted:
@@ -96,16 +99,25 @@ internal sealed class EnhancedTurnView(
                 break;
 
             case Event.PayloadOneofCase.TurnEnded:
-                await Commit(
-                    ImmediateScrollbackValue.Trusted([$"{Green}  {Summarise(published.TurnEnded)}{Reset}"]),
-                    cancellationToken).ConfigureAwait(false);
-                return true;
+                if (renderActivityEvents)
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Green}  {Summarise(published.TurnEnded)}{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                return foreground.IsTerminal(published) ? true : null;
 
             case Event.PayloadOneofCase.TurnFailed:
-                await error.WriteLineAsync(
-                    $"{Red}  {TerminalText.Sanitize(published.TurnFailed.Message)}{Reset}".AsMemory(),
-                    cancellationToken).ConfigureAwait(false);
-                return false;
+                if (foreground.IsTerminal(published))
+                {
+                    await error.WriteLineAsync(
+                        $"{Red}  {TerminalText.Sanitize(published.TurnFailed.Message)}{Reset}".AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                    return false;
+                }
+
+                return null;
 
             default:
                 break;

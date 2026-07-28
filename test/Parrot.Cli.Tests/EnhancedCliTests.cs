@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
@@ -251,8 +253,204 @@ internal sealed class EnhancedCliTests
 
         var rendered = output.ToString();
         var command = "tool call exec_command: {\"command\":\"dotnet test\"}";
-        _ = await Assert.That(Count(rendered, "+ " + command + "\r\n")).IsEqualTo(1);
+        _ = await Assert.That(Count(rendered, "+ main: " + command + "\r\n")).IsEqualTo(1);
         _ = await Assert.That(rendered).DoesNotContain("exec_command finished");
+    }
+
+    [Test]
+    public async Task Live_status_tracks_concurrent_agent_turns_and_owner_qualified_tools(
+        CancellationToken cancellationToken)
+    {
+        var draws = new ConcurrentQueue<string>();
+        var committed = new ConcurrentQueue<string>();
+        var ticks = Channel.CreateUnbounded<bool>();
+        var context = new LiveBufferRenderContext(120, new TerminalPalette(false));
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            draws.Enqueue(RenderItems(items));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(
+            IScrollbackItem scrollback,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Enqueue(string.Join('|', scrollback.Render(new ScrollbackRenderContext(120, context.Palette))));
+            draws.Enqueue(RenderItems(items));
+            return Task.CompletedTask;
+        }
+
+        async Task Delay(CancellationToken token) =>
+            _ = await ticks.Reader.ReadAsync(token);
+
+        string RenderItems(IReadOnlyList<ILiveBufferItem> items) =>
+            string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(line => line.Text));
+
+        using var view = new RawActivityView(Draw, Commit, Delay);
+        using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var animation = view.Run(animating.Token);
+
+        await view.Render(
+            new Event { AgentSessionId = "main-session", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child-session",
+                AgentStarted = new AgentStarted { Name = "explorer\u001b[31m" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child-session", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "main-session",
+                ToolCallChunk = new ToolCallChunk
+                {
+                    ToolCallId = "shared-call",
+                    ToolName = "exec_command",
+                    ArgumentsFragment = "dotnet test",
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "main-session",
+                ToolStarted = new ToolStarted { ToolCallId = "shared-call", ToolName = "exec_command" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child-session",
+                ToolStarted = new ToolStarted { ToolCallId = "shared-call", ToolName = "read\u001b[2J" },
+            },
+            cancellationToken);
+        await view.DrawContent([new LiveTextValue("answer")], cancellationToken);
+
+        var live = draws.Last();
+        _ = await Assert.That(live).Contains("answer");
+        _ = await Assert.That(live).Contains("⠋ agent main");
+        _ = await Assert.That(live).Contains("⠋ agent explorer[31m");
+        _ = await Assert.That(live).Contains("⠋ main: exec_command");
+        _ = await Assert.That(live).Contains("⠋ explorer[31m: read[2J");
+
+        await ticks.Writer.WriteAsync(true, cancellationToken);
+        while (!draws.Any(value => value.Contains("⠙ agent main", StringComparison.Ordinal)))
+        {
+            await Task.Delay(1, cancellationToken);
+        }
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "main-session",
+                ToolFinished = new ToolFinished { ToolCallId = "shared-call", ToolName = "exec_command" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child-session",
+                ToolError = new ToolError
+                {
+                    ToolCallId = "shared-call",
+                    ToolName = "read",
+                    Message = "denied\u001b[2J",
+                },
+            },
+            cancellationToken);
+        await view.CommitContent(ImmediateScrollbackValue.Muted(["answer"]), [], cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "main-session", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+        await view.Redraw(cancellationToken);
+        _ = await Assert.That(draws.Last()).Contains("agent explorer[31m");
+        _ = await Assert.That(draws.Last()).DoesNotContain("agent main");
+
+        await view.Render(
+            new Event { AgentSessionId = "child-session", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+        var beforeAgentFinished = committed.Count;
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child-session",
+                AgentFinished = new AgentFinished { Name = "explorer" },
+            },
+            cancellationToken);
+
+        await animating.CancelAsync();
+        await animation;
+
+        _ = await Assert.That(beforeAgentFinished).IsEqualTo(5);
+        _ = await Assert.That(committed.Count).IsEqualTo(5);
+        _ = await Assert.That(string.Join('|', committed)).Contains("+ main: tool call exec_command: dotnet test");
+        _ = await Assert.That(string.Join('|', committed)).Contains("! explorer[31m: read[2J: denied[2J");
+        _ = await Assert.That(string.Join('|', committed)).Contains("+ agent explorer[31m finished");
+        _ = await Assert.That(draws.Last()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Child_turn_completion_does_not_complete_the_foreground_turn(
+        CancellationToken cancellationToken)
+    {
+        var (completed, output, error) = await Render(
+            [
+                new Event
+                {
+                    Id = "main-start",
+                    AgentSessionId = "main-session",
+                    TurnStarted = new TurnStarted { Model = "model" },
+                },
+                new Event
+                {
+                    Id = "child-started",
+                    AgentSessionId = "child-session",
+                    AgentStarted = new AgentStarted { Name = "explorer" },
+                },
+                new Event
+                {
+                    Id = "child-turn",
+                    AgentSessionId = "child-session",
+                    TurnStarted = new TurnStarted { Model = "model" },
+                },
+                new Event
+                {
+                    Id = "child-ended",
+                    AgentSessionId = "child-session",
+                    TurnEnded = new TurnEnded { FinishReason = "child-stop" },
+                },
+                new Event
+                {
+                    Id = "main-text",
+                    AgentSessionId = "main-session",
+                    TextChunk = new TextChunk { Fragment = "main continues" },
+                },
+                new Event
+                {
+                    Id = "main-ended",
+                    AgentSessionId = "main-session",
+                    TurnEnded = new TurnEnded { FinishReason = "main-stop" },
+                },
+            ],
+            cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(error).IsEmpty();
+        var childEnded = output.IndexOf("child-stop", StringComparison.Ordinal);
+        var mainContinued = output.IndexOf("main con", StringComparison.Ordinal);
+        var mainEnded = output.IndexOf("main-stop", StringComparison.Ordinal);
+        _ = await Assert.That(childEnded).IsGreaterThanOrEqualTo(0);
+        _ = await Assert.That(mainContinued).IsGreaterThan(childEnded);
+        _ = await Assert.That(mainEnded).IsGreaterThan(mainContinued);
     }
 
     [Test]
@@ -277,7 +475,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false);
+        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn());
         _ = await view.Render(
             new Event { TextChunk = new TextChunk { Fragment = "complete line\nsuffix" } },
             cancellationToken);
