@@ -99,7 +99,7 @@ internal sealed class TerminalFrameRendererTests
 
         await renderer.Draw(initial, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
-        await renderer.Commit(["+ shell finished"], redrawn, cancellationToken);
+        await renderer.Commit(ImmediateScrollbackValue.Trusted(["+ shell finished"]), redrawn, cancellationToken);
         var flushed = output.ToString()[boundary..];
 
         _ = await Assert.That(flushed).Contains("+ shell finished\r\n");
@@ -124,7 +124,7 @@ internal sealed class TerminalFrameRendererTests
         var boundary = output.GetStringBuilder().Length;
 
         await renderer.Commit(
-            ["› first", "second"],
+            ImmediateScrollbackValue.Trusted(["› first", "second"]),
             Items(
                 [new LiveTextValue("working")],
                 new ModelineValue("build", "working", "model"),
@@ -138,6 +138,77 @@ internal sealed class TerminalFrameRendererTests
         _ = await Assert.That(user).IsGreaterThan(0);
         _ = await Assert.That(redrawn).IsGreaterThan(user);
         _ = await Assert.That(Count(committed[..user], "\u001b[2K")).IsEqualTo(4);
+    }
+
+    [Test]
+    public async Task Scrollback_values_render_and_express_sequence_lifecycle()
+    {
+        var context = new ScrollbackRenderContext(4, new TerminalPalette(false));
+        var immediate = ImmediateScrollbackValue.User("› ab界");
+        var sequence = new StreamingScrollbackSequenceValue();
+        var otherSequence = new StreamingScrollbackSequenceValue();
+        var first = sequence.Append(["first"]);
+        var final = sequence.Complete([]);
+        var other = otherSequence.Append(["other"]);
+
+        _ = await Assert.That(string.Join('|', immediate.Render(context))).IsEqualTo("› ab|界");
+        _ = await Assert.That(immediate.IsCompleted).IsTrue();
+        _ = await Assert.That(immediate.Continues(first)).IsFalse();
+        _ = await Assert.That(first.IsCompleted).IsFalse();
+        _ = await Assert.That(final.IsCompleted).IsTrue();
+        _ = await Assert.That(final.Render(context)).IsEmpty();
+        _ = await Assert.That(final.Continues(first)).IsTrue();
+        _ = await Assert.That(other.Continues(first)).IsFalse();
+    }
+
+    [Test]
+    public async Task Sequences_bypass_unrelated_items_and_drain_queued_sequences_recursively(
+        CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12);
+        var frame = Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0));
+        var sequenceA = new object();
+        var sequenceB = new object();
+
+        await renderer.Commit(new TestScrollbackItem("A1", sequenceA, false), frame, cancellationToken);
+        await renderer.Commit(new TestScrollbackItem("B1", sequenceB, false), frame, cancellationToken);
+        await renderer.Commit(new TestScrollbackItem("C", null, true), frame, cancellationToken);
+        await renderer.Commit(new TestScrollbackItem("B2", sequenceB, true), frame, cancellationToken);
+        var beforeCompletion = output.ToString();
+        await renderer.Commit(new TestScrollbackItem("A2", sequenceA, true), frame, cancellationToken);
+        var rendered = output.ToString();
+
+        _ = await Assert.That(beforeCompletion).Contains("A1\r\n");
+        _ = await Assert.That(beforeCompletion).DoesNotContain("B1\r\n");
+        var a2 = rendered.IndexOf("A2\r\n", StringComparison.Ordinal);
+        var b1 = rendered.IndexOf("B1\r\n", StringComparison.Ordinal);
+        var b2 = rendered.IndexOf("B2\r\n", StringComparison.Ordinal);
+        var c = rendered.IndexOf("C\r\n", StringComparison.Ordinal);
+        _ = await Assert.That(a2).IsLessThan(b1);
+        _ = await Assert.That(b1).IsLessThan(b2);
+        _ = await Assert.That(b2).IsLessThan(c);
+    }
+
+    [Test]
+    public async Task Empty_completion_and_clear_retain_and_release_pending_scrollback(
+        CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12);
+        var frame = Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0));
+        var sequence = new object();
+
+        await renderer.Commit(new TestScrollbackItem("open", sequence, false), frame, cancellationToken);
+        await renderer.Commit(new TestScrollbackItem("pending", null, true), frame, cancellationToken);
+        await renderer.Clear(cancellationToken);
+        var beforeCompletion = output.ToString();
+        await renderer.Commit(new TestScrollbackItem(string.Empty, sequence, true), frame, cancellationToken);
+        var completed = output.ToString()[beforeCompletion.Length..];
+
+        _ = await Assert.That(beforeCompletion).DoesNotContain("pending\r\n");
+        _ = await Assert.That(completed).Contains("pending\r\n");
+        _ = await Assert.That(completed).DoesNotContain("\r\n\r\n");
     }
 
     [Test]
@@ -286,6 +357,21 @@ internal sealed class TerminalFrameRendererTests
 
             return current;
         }
+    }
+
+    private sealed class TestScrollbackItem(string line, object? sequence, bool completed) : IScrollbackItem
+    {
+        private readonly object? _sequence = sequence;
+
+        public bool IsCompleted => completed;
+
+        public bool Continues(IScrollbackItem previous) =>
+            _sequence is not null
+            && previous is TestScrollbackItem item
+            && ReferenceEquals(_sequence, item._sequence);
+
+        public IReadOnlyList<string> Render(ScrollbackRenderContext context) =>
+            line.Length == 0 ? [] : [line];
     }
 
     private sealed class TrackingTextWriter : TextWriter

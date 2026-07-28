@@ -5,8 +5,7 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class RawActivityView(
     Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
-    Func<IReadOnlyList<string>, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
-    TerminalStyle muted) : IDisposable
+    Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit) : IDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
 
@@ -191,12 +190,15 @@ internal sealed class RawActivityView(
     {
         var activities = _rows;
         _rows = [];
-        var scrollback = activities
-            .Select(value => muted.Apply(TerminalText.Sanitize(value)))
-            .ToList();
         var items = redraw
             ? _rows.Select(value => (ILiveBufferItem)new LiveTextValue(value)).ToList()
             : [];
-        await commit(scrollback, items, cancellationToken).ConfigureAwait(false);
+        if (activities.Count == 0)
+        {
+            await draw(items, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await commit(ImmediateScrollbackValue.Muted(activities), items, cancellationToken).ConfigureAwait(false);
     }
 }

@@ -17,8 +17,10 @@ internal sealed class TerminalFrameRenderer(
 
     private readonly Channel<bool> _drawing = CreateDrawingGate();
     private readonly TerminalSurface _surface = new(1, 1);
+    private IScrollbackItem? _activeScrollback;
     private int _caretRow;
     private TerminalFrame? _frame;
+    private List<IScrollbackItem> _pendingScrollback = [];
     private int _renderedHeight;
 
     public async Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken cancellationToken)
@@ -28,7 +30,8 @@ internal sealed class TerminalFrameRenderer(
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var (frame, width) = Render(items);
+            var width = Math.Max(1, columns());
+            var frame = Render(items, width);
             var availableRows = Math.Max(1, _frame?.Lines.Count ?? 0);
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
             await DrawFrame(frame, width, availableRows, CancellationToken.None).ConfigureAwait(false);
@@ -56,7 +59,7 @@ internal sealed class TerminalFrameRenderer(
     }
 
     public async Task Commit(
-        IReadOnlyList<string> scrollback,
+        IScrollbackItem scrollback,
         IReadOnlyList<ILiveBufferItem> items,
         CancellationToken cancellationToken)
     {
@@ -66,10 +69,28 @@ internal sealed class TerminalFrameRenderer(
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var (frame, width) = Render(items);
-            var availableRows = scrollback.Count == 0 ? Math.Max(1, _renderedHeight) : 1;
+            var width = Math.Max(1, columns());
+            var frame = Render(items, width);
+            var context = new ScrollbackRenderContext(width, palette);
+            var active = _activeScrollback;
+            var pending = new List<IScrollbackItem>(_pendingScrollback);
+            var emitted = new List<IScrollbackItem>();
+
+            if (active is null || scrollback.Continues(active))
+            {
+                Emit(scrollback, emitted, pending, ref active);
+            }
+            else
+            {
+                pending.Add(scrollback);
+            }
+
+            var lines = emitted.SelectMany(item => item.Render(context)).ToList();
+            var availableRows = lines.Count == 0 ? Math.Max(1, _renderedHeight) : 1;
+            _activeScrollback = active;
+            _pendingScrollback = pending;
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            foreach (var line in scrollback)
+            foreach (var line in lines)
             {
                 await output.WriteAsync(line.AsMemory(), CancellationToken.None).ConfigureAwait(false);
                 await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
@@ -84,6 +105,44 @@ internal sealed class TerminalFrameRenderer(
         }
     }
 
+    private static void Emit(
+        IScrollbackItem item,
+        List<IScrollbackItem> emitted,
+        List<IScrollbackItem> pending,
+        ref IScrollbackItem? active)
+    {
+        emitted.Add(item);
+        active = item.IsCompleted ? null : item;
+        while (true)
+        {
+            if (active is null)
+            {
+                if (pending.Count == 0)
+                {
+                    return;
+                }
+
+                var next = pending[0];
+                pending.RemoveAt(0);
+                emitted.Add(next);
+                active = next.IsCompleted ? null : next;
+                continue;
+            }
+
+            var current = active;
+            var continuation = pending.FindIndex(value => value.Continues(current));
+            if (continuation < 0)
+            {
+                return;
+            }
+
+            var nextContinuation = pending[continuation];
+            pending.RemoveAt(continuation);
+            emitted.Add(nextContinuation);
+            active = nextContinuation.IsCompleted ? null : nextContinuation;
+        }
+    }
+
     private static Channel<bool> CreateDrawingGate()
     {
         var gate = Channel.CreateBounded<bool>(1);
@@ -95,9 +154,8 @@ internal sealed class TerminalFrameRenderer(
         return gate;
     }
 
-    private (TerminalFrame Frame, int Width) Render(IReadOnlyList<ILiveBufferItem> items)
+    private TerminalFrame Render(IReadOnlyList<ILiveBufferItem> items, int width)
     {
-        var width = Math.Max(1, columns());
         var context = new LiveBufferRenderContext(width, palette);
         var rendered = items.Select(item => item.Render(context)).ToList();
         var carets = rendered.Where(value => value.Caret is not null).ToList();
@@ -163,9 +221,9 @@ internal sealed class TerminalFrameRenderer(
             }
         }
 
-        return (new TerminalFrame(
+        return new TerminalFrame(
             lines,
-            caret ?? throw new InvalidOperationException("The live buffer has no caret.")), width);
+            caret ?? throw new InvalidOperationException("The live buffer has no caret."));
     }
 
     private async Task DrawFrame(

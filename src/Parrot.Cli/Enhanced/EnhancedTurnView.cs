@@ -5,7 +5,7 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedTurnView(
     Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
-    Func<IReadOnlyList<string>, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+    Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
     TextWriter error,
     Func<int> columns,
     bool renderActivityEvents,
@@ -19,6 +19,8 @@ internal sealed class EnhancedTurnView(
 
     private readonly MarkdownLiveRenderer _live = new(columns, color);
     private readonly StringBuilder _reasoning = new();
+    private MarkdownLiveUpdate? _pendingTextCompletion;
+    private MarkdownLiveUpdate? _pendingTextUpdate;
     private bool _started;
     private bool _textActive;
     private int _textSegment;
@@ -71,8 +73,9 @@ internal sealed class EnhancedTurnView(
                 break;
 
             case Event.PayloadOneofCase.StatusInjected:
-                await Commit([$"{Dim}  ↻ Status prompt injected{Reset}"], cancellationToken)
-                    .ConfigureAwait(false);
+                await Commit(
+                    ImmediateScrollbackValue.Trusted([$"{Dim}  ↻ Status prompt injected{Reset}"]),
+                    cancellationToken).ConfigureAwait(false);
                 break;
 
             case Event.PayloadOneofCase.ReasoningChunk:
@@ -86,15 +89,16 @@ internal sealed class EnhancedTurnView(
 
             case Event.PayloadOneofCase.TextChunk:
                 _textActive = true;
-                await Apply(
-                    _live.Append(
-                        new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment)),
-                    cancellationToken).ConfigureAwait(false);
+                _pendingTextUpdate = _live.Append(
+                    new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment));
+                await Apply(_pendingTextUpdate.Value, cancellationToken).ConfigureAwait(false);
+                _pendingTextUpdate = null;
                 break;
 
             case Event.PayloadOneofCase.TurnEnded:
-                await Commit([$"{Green}  {Summarise(published.TurnEnded)}{Reset}"], cancellationToken)
-                    .ConfigureAwait(false);
+                await Commit(
+                    ImmediateScrollbackValue.Trusted([$"{Green}  {Summarise(published.TurnEnded)}{Reset}"]),
+                    cancellationToken).ConfigureAwait(false);
                 return true;
 
             case Event.PayloadOneofCase.TurnFailed:
@@ -127,7 +131,13 @@ internal sealed class EnhancedTurnView(
     {
         if (_textActive)
         {
-            _live.Clear();
+            if (_pendingTextUpdate is { } update)
+            {
+                await Apply(update, CancellationToken.None).ConfigureAwait(false);
+                _pendingTextUpdate = null;
+            }
+
+            await CommitText(CancellationToken.None).ConfigureAwait(false);
             await draw([], cancellationToken).ConfigureAwait(false);
         }
     }
@@ -147,23 +157,27 @@ internal sealed class EnhancedTurnView(
             Event.PayloadOneofCase.AgentFailed => Red,
             _ => Dim,
         };
-        return Commit([$"{style}  {EnhancedActivity.Format(published, _started)}{Reset}"], cancellationToken);
+        return Commit(
+            ImmediateScrollbackValue.Trusted([$"{style}  {EnhancedActivity.Format(published, _started)}{Reset}"]),
+            cancellationToken);
     }
 
     private Task Apply(MarkdownLiveUpdate update, CancellationToken cancellationToken)
     {
         var items = update.Preview.Select(value => (ILiveBufferItem)new LiveTextValue(value)).ToList();
-        return update.Scrollback.Count > 0
-            ? commit(update.Scrollback, items, cancellationToken)
+        return update.Scrollback is { } scrollback
+            ? commit(scrollback, items, cancellationToken)
             : draw(items, cancellationToken);
     }
 
-    private Task Commit(IReadOnlyList<string> lines, CancellationToken cancellationToken) =>
-        commit(lines, [], cancellationToken);
+    private Task Commit(IScrollbackItem item, CancellationToken cancellationToken) =>
+        commit(item, [], cancellationToken);
 
     private async Task CommitText(CancellationToken cancellationToken)
     {
-        await Apply(_live.Commit(), cancellationToken).ConfigureAwait(false);
+        _pendingTextCompletion ??= _live.Commit();
+        await Apply(_pendingTextCompletion.Value, cancellationToken).ConfigureAwait(false);
+        _pendingTextCompletion = null;
         _textActive = false;
         _textSegment++;
     }
@@ -176,7 +190,9 @@ internal sealed class EnhancedTurnView(
 
     private async Task EndReasoning(CancellationToken cancellationToken)
     {
-        await Commit([$"{Dim}{_reasoning}{Reset}"], cancellationToken).ConfigureAwait(false);
+        await Commit(
+            ImmediateScrollbackValue.Trusted([$"{Dim}{_reasoning}{Reset}"]),
+            cancellationToken).ConfigureAwait(false);
         _ = _reasoning.Clear();
     }
 }

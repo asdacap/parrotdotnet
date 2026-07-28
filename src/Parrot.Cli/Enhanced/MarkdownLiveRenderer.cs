@@ -9,6 +9,7 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
     private readonly StringBuilder _pending = new();
     private string _id = string.Empty;
     private string _prefix = string.Empty;
+    private StreamingScrollbackSequenceValue _sequence = new();
     private bool _started;
 
     public MarkdownLiveUpdate Append(LiveTerminalStreamMessage fragment)
@@ -50,7 +51,9 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
         _prefix = prefix;
         _ = _pending.Clear().Append(pendingSource);
         _started |= promoted.Count > 0;
-        return new MarkdownLiveUpdate(promoted, preview);
+        return new MarkdownLiveUpdate(
+            promoted.Count == 0 ? null : _sequence.Append(promoted),
+            preview);
     }
 
     public MarkdownLiveUpdate Commit()
@@ -59,11 +62,10 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
         var scrollback = _pending.Length == 0
             ? []
             : MarkdownRenderer.Render(prefix, _pending.ToString(), Columns(), color);
+        var completed = _sequence.Complete(scrollback);
         Reset();
-        return new MarkdownLiveUpdate(scrollback, []);
+        return new MarkdownLiveUpdate(completed, []);
     }
-
-    public void Clear() => Reset();
 
     private static int PromotableBoundary(string source)
     {
@@ -181,6 +183,7 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
         _id = string.Empty;
         _prefix = string.Empty;
         _ = _pending.Clear();
+        _sequence = new StreamingScrollbackSequenceValue();
         _started = false;
     }
 }

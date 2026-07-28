@@ -226,10 +226,10 @@ internal sealed class EnhancedCliTests
         Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token) =>
             renderer.Draw([.. items, .. fixedItems], token);
         Task Commit(
-            IReadOnlyList<string> scrollback,
+            IScrollbackItem scrollback,
             IReadOnlyList<ILiveBufferItem> items,
             CancellationToken token) => renderer.Commit(scrollback, [.. items, .. fixedItems], token);
-        using var view = new RawActivityView(Draw, Commit, new TerminalPalette(false).Muted);
+        using var view = new RawActivityView(Draw, Commit);
 
         await view.Render(
             new Event
@@ -253,6 +253,43 @@ internal sealed class EnhancedCliTests
         var command = "tool call exec_command: {\"command\":\"dotnet test\"}";
         _ = await Assert.That(Count(rendered, "+ " + command + "\r\n")).IsEqualTo(1);
         _ = await Assert.That(rendered).DoesNotContain("exec_command finished");
+    }
+
+    [Test]
+    public async Task Cancel_retries_the_same_stream_completion_after_commit_cancellation(
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<IScrollbackItem>();
+        var attempts = 0;
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token) => Task.CompletedTask;
+
+        Task Commit(
+            IScrollbackItem item,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            committed.Add(item);
+            attempts++;
+            return attempts == 2
+                ? Task.FromException(new OperationCanceledException())
+                : Task.CompletedTask;
+        }
+
+        using var error = new StringWriter();
+        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false);
+        _ = await view.Render(
+            new Event { TextChunk = new TextChunk { Fragment = "complete line\nsuffix" } },
+            cancellationToken);
+
+        _ = await Assert.That(async () => await view.Prepare(
+            new Event { TurnEnded = new TurnEnded() },
+            cancellationToken)).Throws<OperationCanceledException>();
+        await view.Cancel(CancellationToken.None);
+
+        _ = await Assert.That(committed.Count).IsEqualTo(3);
+        _ = await Assert.That(ReferenceEquals(committed[1], committed[2])).IsTrue();
+        _ = await Assert.That(committed[2].Continues(committed[0])).IsTrue();
     }
 
     [Test]
