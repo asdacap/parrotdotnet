@@ -49,21 +49,6 @@ await cls.Run(cancellation);
 - Interface Segregation: Eh...
 - Dependency Inversion: Decent...
 
-## Reading order
-
-This repository is a Go-to-.NET rewrite of parrot-coder. Before writing any
-code, read, in order:
-
-3. [docs/architecture.md](docs/architecture.md) — the level-1 block diagram,
-   the decisions already made, and the six still open.
-4. [docs/plan.md](docs/plan.md) — the milestones, ordered by risk.
-5. [docs/style.md](docs/style.md) — what the analyzers enforce and how to add an
-   exception.
-
-The upstream Go tree is at `~/repo/parrot-coder`. It is the specification: its
-`docs/architecture.md` states twelve architecture principles that survive the
-port unchanged, and its 24k lines of tests are the conformance oracle.
-
 ## Environment
 
 Everything runs inside the flake's dev shell. There is no supported way to build
