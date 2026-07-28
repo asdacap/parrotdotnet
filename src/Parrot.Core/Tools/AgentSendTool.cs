@@ -11,11 +11,12 @@ internal sealed class AgentSendTool(
     public string Name => "agent_send";
 
     public string Description =>
-        "Send a message to a child agent session. Running agents are steered; idle agents start a follow-up turn.";
+        "Send a message to an agent session, including this agent's parent. Running agents are steered; "
+        + "idle agents start a follow-up turn.";
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"session_id":{"type":"string","minLength":1,"description":"Child agent session ID or friendly name."},"message":{"type":"string","minLength":1,"description":"Message to send."}},"required":["session_id","message"],"additionalProperties":false}
+        {"type":"object","properties":{"session_id":{"type":"string","minLength":1,"description":"Agent session ID or friendly name. A child can use the parent session ID or name from its context."},"message":{"type":"string","minLength":1,"description":"Message to send."}},"required":["session_id","message"],"additionalProperties":false}
         """;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
@@ -36,7 +37,7 @@ internal sealed class AgentSendTool(
 
         try
         {
-            var target = agents.Get(sessionId);
+            var target = agents.GetRecipient(session, sessionId);
 
             if (!string.Equals(target.SessionId, session.ParentSessionId, StringComparison.Ordinal)
                 && !caller.SecurityProfile.AllowsDelegationTo(target.Selection().SecurityProfile))

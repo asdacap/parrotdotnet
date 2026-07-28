@@ -217,6 +217,38 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Send_delivers_a_child_message_to_its_parent(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "acknowledged", []));
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider)), _broker, _repository, cancellationToken);
+        var parent = Session(provider, 0, "parent", cancellationToken);
+        _ = await parent.Send("initial", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        _ = await parent.Wait(0, cancellationToken);
+        var child = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "worker");
+        var send = new AgentSendTool(registry, child, Turn(child, Router(provider)));
+
+        var sent = await send.Execute(
+            $$"""{"session_id":"{{parent.SessionId}}","message":"task completed"}""",
+            cancellationToken);
+        using var result = JsonDocument.Parse(sent);
+
+        _ = await Assert.That(result.RootElement.GetProperty("session_id").GetString()).IsEqualTo(parent.SessionId);
+        _ = await Assert.That(result.RootElement.GetProperty("status").GetString()).IsEqualTo("running");
+        await provider.Arrived(cancellationToken);
+        var conversation = string.Join('\n', provider.Requests[1].Messages.Select(message => message.Content));
+        _ = await Assert.That(conversation).Contains("task completed");
+        provider.Release();
+        var completed = await parent.Wait(0, cancellationToken);
+
+        _ = await Assert.That(completed.Output).IsEqualTo("acknowledged");
+    }
+
+    [Test]
     public async Task Send_at_completion_boundary_is_delivered_once(
         CancellationToken cancellationToken)
     {
