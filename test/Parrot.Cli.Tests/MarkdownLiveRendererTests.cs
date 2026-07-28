@@ -36,6 +36,21 @@ internal sealed class MarkdownLiveRendererTests
     }
 
     [Test]
+    public async Task Keeps_only_the_last_three_visual_rows_live_until_commit()
+    {
+        var renderer = new MarkdownLiveRenderer(static () => 8, false);
+
+        var update = renderer.Append(
+            new LiveTerminalStreamMessage("answer", string.Empty, "```text\none\ntwo\nthree\nfour\nfive"));
+        var committed = renderer.Commit();
+
+        _ = await Assert.That(string.Join('|', update.Preview)).IsEqualTo("three|four|five");
+        var context = new ScrollbackRenderContext(8, new TerminalPalette(false));
+        _ = await Assert.That(string.Join('\n', committed.Scrollback?.Render(context) ?? []))
+            .Contains("one\ntwo\nthree\nfour\nfive");
+    }
+
+    [Test]
     public async Task Keeps_table_live_until_its_boundary()
     {
         var renderer = new MarkdownLiveRenderer(static () => 80, false);
@@ -44,7 +59,7 @@ internal sealed class MarkdownLiveRendererTests
             new LiveTerminalStreamMessage("answer", string.Empty, "A | B\n--- | ---\nx | y\n"));
         var boundary = renderer.Append(new LiveTerminalStreamMessage("answer", string.Empty, "after\n"));
 
-        _ = await Assert.That(string.Join('\n', beforeBoundary.Preview)).Contains("┌");
+        _ = await Assert.That(string.Join('\n', beforeBoundary.Preview)).Contains("└");
         var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
         _ = await Assert.That(beforeBoundary.Scrollback).IsNull();
         _ = await Assert.That(string.Join('\n', boundary.Scrollback?.Render(context) ?? [])).Contains("┌───┬───┐");

@@ -736,7 +736,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn());
+        await using var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn());
         _ = await view.Render(
             new Event { TextChunk = new TextChunk { Fragment = "complete line\nsuffix" } },
             cancellationToken);

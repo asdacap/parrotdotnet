@@ -10,7 +10,7 @@ internal sealed class EnhancedTurnView(
     Func<int> columns,
     bool renderActivityEvents,
     bool color,
-    ForegroundTurn foreground)
+    ForegroundTurn foreground) : IAsyncDisposable
 {
     private const string Dim = "\u001b[2m";
     private const string Cyan = "\u001b[36m";
@@ -19,14 +19,16 @@ internal sealed class EnhancedTurnView(
     private const string Reset = "\u001b[0m";
 
     private readonly MarkdownLiveRenderer _live = new(columns, color);
+    private readonly LiveUpdateScheduler _updates = new(draw, commit);
     private readonly StringBuilder _reasoning = new();
     private MarkdownLiveUpdate? _pendingTextCompletion;
-    private MarkdownLiveUpdate? _pendingTextUpdate;
     private bool _started;
     private bool _textActive;
     private int _textSegment;
 
     private string TextId => $"assistant-{_textSegment}";
+
+    public ValueTask DisposeAsync() => _updates.DisposeAsync();
 
     public async Task Prepare(Event published, CancellationToken cancellationToken)
     {
@@ -101,13 +103,12 @@ internal sealed class EnhancedTurnView(
                 if (!foreground.IsChild(published.AgentSessionId))
                 {
                     _textActive = true;
-                    _pendingTextUpdate = _live.Append(
+                    var update = _live.Append(
                         new LiveTerminalStreamMessage(
                             TextId,
                             TerminalIcons.AssistantMessage + " ",
                             published.TextChunk.Fragment));
-                    await Apply(_pendingTextUpdate.Value, cancellationToken).ConfigureAwait(false);
-                    _pendingTextUpdate = null;
+                    await Apply(update, cancellationToken).ConfigureAwait(false);
                 }
 
                 break;
@@ -154,12 +155,6 @@ internal sealed class EnhancedTurnView(
     {
         if (_textActive)
         {
-            if (_pendingTextUpdate is { } update)
-            {
-                await Apply(update, CancellationToken.None).ConfigureAwait(false);
-                _pendingTextUpdate = null;
-            }
-
             await CommitText(CancellationToken.None).ConfigureAwait(false);
             await draw([], cancellationToken).ConfigureAwait(false);
         }
@@ -185,19 +180,15 @@ internal sealed class EnhancedTurnView(
             cancellationToken);
     }
 
-    private Task Apply(MarkdownLiveUpdate update, CancellationToken cancellationToken)
-    {
-        var items = update.Preview.Select(value => (ILiveBufferItem)new LiveTextValue(value)).ToList();
-        return update.Scrollback is { } scrollback
-            ? commit(scrollback, items, cancellationToken)
-            : draw(items, cancellationToken);
-    }
+    private Task Apply(MarkdownLiveUpdate update, CancellationToken cancellationToken) =>
+        _updates.Publish(update, cancellationToken);
 
     private Task Commit(IScrollbackItem item, CancellationToken cancellationToken) =>
         commit(item, [], cancellationToken);
 
     private async Task CommitText(CancellationToken cancellationToken)
     {
+        await _updates.Flush(cancellationToken).ConfigureAwait(false);
         _pendingTextCompletion ??= _live.Commit();
         await Apply(_pendingTextCompletion.Value, cancellationToken).ConfigureAwait(false);
         _pendingTextCompletion = null;
