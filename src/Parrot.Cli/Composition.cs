@@ -74,7 +74,7 @@ internal partial class Composition
                 ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<Configuration>(out var configuration);
                 return new ModeRegistry(
-                    Path.Combine(paths.State, "plans"),
+                    Path.Combine(paths.State, "plan"),
                     configuration.SandboxRules,
                     configuration.Profiles);
             })

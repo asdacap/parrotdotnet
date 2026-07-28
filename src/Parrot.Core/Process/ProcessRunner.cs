@@ -10,7 +10,6 @@ namespace Parrot.Process;
 internal sealed class ProcessRunner(string bubblewrapPath)
 {
     private const int MaxOutputCharacters = 64 << 10;
-    private const string HostRoot = "/tmp/.parrot-host-root";
 
     // An empty path means bubblewrap was not found. Kept as a value rather than
     // a null so the fail-closed check is explicit.
@@ -224,7 +223,6 @@ internal sealed class ProcessRunner(string bubblewrapPath)
             "--dev", "/dev",
             "--proc", "/proc",
             "--tmpfs", "/tmp",
-            "--bind", "/", HostRoot,
         };
 
         if (!securityProfile.ReadOnly)
@@ -236,8 +234,6 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         AddSecurityRules(arguments, securityProfile);
         arguments.AddRange(
         [
-            "--tmpfs", HostRoot,
-            "--chmod", "000", HostRoot,
             "--chdir", workingDirectory,
             "--", "/bin/sh", "-c", command,
         ]);
@@ -273,7 +269,7 @@ internal sealed class ProcessRunner(string bubblewrapPath)
             }
             else
             {
-                arguments.AddRange([write ? "--bind" : "--ro-bind", HostPath(path), path]);
+                arguments.AddRange([write ? "--bind" : "--ro-bind", path, path]);
             }
         }
     }
@@ -286,11 +282,6 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         var profile = SecurityProfile.Compose(readOnly, rules, [], []);
         return (profile.AllowsRead(path), profile.AllowsWrite(path));
     }
-
-    private static string HostPath(string path) =>
-        path == Path.DirectorySeparatorChar.ToString()
-            ? HostRoot
-            : HostRoot + path;
 
     private static void AddReadMask(List<string> arguments, string path)
     {

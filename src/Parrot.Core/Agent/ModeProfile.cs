@@ -60,6 +60,7 @@ internal sealed class ModeProfile(
             static () => { });
 
     public static ModeProfile Plan(
+        string directory,
         string artifact,
         bool readOnly,
         IReadOnlyList<SandboxRule> modeRules,
@@ -67,8 +68,8 @@ internal sealed class ModeProfile(
         Action prepare) =>
         new(
             ModeRegistry.Plan,
-            $"You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown to this exact file: {artifact}. Do not include the plan in your assistant response.",
-            "The designated plan artifact is the only writable path; do not modify other workspace files.",
+            $"You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown to this exact file: {artifact}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {directory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
+            "The plan directory is the only writable location; do not modify workspace files.",
             "Plan mode: inspect the project and write the designated plan artifact without changing other files.",
             24,
             readOnly,
@@ -77,7 +78,7 @@ internal sealed class ModeProfile(
                 readOnly,
                 modeRules,
                 globalRules,
-                [new SandboxRule(artifact, SandboxRuleAction.AllowWrite)]),
+                [new SandboxRule(directory, SandboxRuleAction.AllowWrite)]),
             prepare);
 
     public void Prepare() => prepare();

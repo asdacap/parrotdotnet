@@ -255,6 +255,8 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(string.Join(',', hiddenRules)).IsEqualTo("--tmpfs,--ro-bind");
         _ = await Assert.That(Array.IndexOf(arguments, _workspace))
             .IsLessThan(Array.LastIndexOf(arguments, _workspace));
+        _ = await Assert.That(FindSources(arguments, nested)).Contains("--bind");
+        _ = await Assert.That(FindSources(arguments, hidden)).Contains("--ro-bind");
         _ = await Assert.That(arguments).DoesNotContain(Path.Combine(home, ".cache"));
     }
 
@@ -298,6 +300,22 @@ internal sealed class ProcessRunnerTests : IDisposable
             else if (index < arguments.Length - 2
                 && (arguments[index] == "--bind" || arguments[index] == "--ro-bind")
                 && string.Equals(arguments[index + 2], path, StringComparison.Ordinal))
+            {
+                mounts.Add(arguments[index]);
+            }
+        }
+
+        return [.. mounts];
+    }
+
+    private static string[] FindSources(string[] arguments, string path)
+    {
+        var mounts = new List<string>();
+
+        for (var index = 0; index < arguments.Length - 2; index++)
+        {
+            if ((arguments[index] == "--bind" || arguments[index] == "--ro-bind")
+                && string.Equals(arguments[index + 1], path, StringComparison.Ordinal))
             {
                 mounts.Add(arguments[index]);
             }

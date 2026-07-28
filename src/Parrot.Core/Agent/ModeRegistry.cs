@@ -13,6 +13,8 @@ internal sealed class ModeRegistry(
     public const string Query = "query";
 
     private readonly IReadOnlyList<string> _modeIds = [Build, Plan, Query];
+    private readonly Lock _planGate = new();
+    private readonly Dictionary<string, string> _planArtifacts = new(StringComparer.Ordinal);
 
     public ModeRegistry(string planDirectory)
         : this(planDirectory, [], new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal))
@@ -27,9 +29,10 @@ internal sealed class ModeRegistry(
 
         if (selected == Plan)
         {
-            var artifact = Path.Combine(planDirectory, $"{sessionId}.md");
+            var artifact = PlanArtifact(sessionId);
             var configured = Profile(Plan);
             return ModeProfile.Plan(
+                planDirectory,
                 artifact,
                 configured?.ReadOnly ?? true,
                 configured?.SandboxRules ?? [],
@@ -65,20 +68,44 @@ internal sealed class ModeRegistry(
 
     private ProfileSecurityConfig? Profile(string id) => profiles.GetValueOrDefault(id);
 
+    private string PlanArtifact(string sessionId)
+    {
+        lock (_planGate)
+        {
+            if (_planArtifacts.TryGetValue(sessionId, out var existing))
+            {
+                return existing;
+            }
+
+            _ = Directory.CreateDirectory(planDirectory);
+            SecureDirectory();
+            var artifact = Path.Combine(planDirectory, $"plan-{Guid.NewGuid():n}.md");
+
+            using (var stream = new FileStream(artifact, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+            {
+            }
+
+            PreparePlan(artifact);
+            _planArtifacts.Add(sessionId, artifact);
+            return artifact;
+        }
+    }
+
     private void PreparePlan(string artifact)
     {
-        _ = Directory.CreateDirectory(planDirectory);
-        if ((OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()) &&
-            File.Exists(artifact))
-        {
-            File.SetUnixFileMode(artifact, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        }
-
-        using var stream = new FileStream(artifact, FileMode.Create, FileAccess.Write, FileShare.Read);
+        SecureDirectory();
 
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD())
         {
             File.SetUnixFileMode(artifact, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    private void SecureDirectory()
+    {
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD())
+        {
+            File.SetUnixFileMode(planDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
     }
 }

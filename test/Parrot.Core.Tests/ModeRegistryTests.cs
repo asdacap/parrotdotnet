@@ -28,7 +28,7 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    public async Task Plan_prepare_creates_private_artifact_and_truncates_existing_content()
+    public async Task Plan_prepare_creates_private_artifact_and_preserves_existing_content()
     {
         var profile = Registry().Resolve(ModeRegistry.Plan, "session");
 
@@ -43,7 +43,7 @@ internal sealed class ModeRegistryTests : IDisposable
         profile.Prepare();
 
         _ = await Assert.That(File.Exists(profile.PlanArtifact)).IsTrue();
-        _ = await Assert.That(new FileInfo(profile.PlanArtifact).Length).IsEqualTo(0L);
+        _ = await Assert.That(await File.ReadAllTextAsync(profile.PlanArtifact)).IsEqualTo("stale plan");
 
         if (!OperatingSystem.IsWindows())
         {
@@ -54,7 +54,7 @@ internal sealed class ModeRegistryTests : IDisposable
 
     [Test]
     [Arguments(ModeRegistry.Build, false, 64, "build mode", "authorized workspace")]
-    [Arguments(ModeRegistry.Plan, true, 24, "plan mode", "only writable path")]
+    [Arguments(ModeRegistry.Plan, true, 24, "plan mode", "only writable location")]
     [Arguments(ModeRegistry.Query, true, 24, "query mode", "Read-only mode")]
     public async Task Foreground_modes_expose_their_policy(
         string id,
@@ -75,7 +75,7 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    public async Task Configured_profiles_compose_defaults_and_plan_keeps_an_exact_runtime_capability()
+    public async Task Configured_profiles_compose_defaults_and_plan_keeps_a_directory_runtime_capability()
     {
         var denied = Path.Combine(_root, "denied");
         var allowed = Path.Combine(_root, "allowed");
@@ -97,10 +97,28 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(build.ReadOnly).IsTrue();
         _ = await Assert.That(build.SecurityProfile.AllowsWrite(allowed)).IsTrue();
         _ = await Assert.That(build.SecurityProfile.AllowsWrite(denied)).IsFalse();
+        var planDirectory = Path.Combine(_root, "plans");
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(plan.PlanArtifact)).IsTrue();
-        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(plan.PlanArtifact + ".other")).IsFalse();
+        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
+            Path.Combine(planDirectory, "supporting.md"))).IsTrue();
+        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
+            Path.Combine(planDirectory, "..", "outside.md"))).IsFalse();
         _ = await Assert.That(plan.SecurityProfile.WithoutRuntimeCapabilities().AllowsWrite(plan.PlanArtifact)).IsFalse();
     }
 
-    private ModeRegistry Registry() => new(Path.Combine(_root, "plans"));
+    [Test]
+    public async Task Plan_artifacts_are_private_random_files_in_the_state_plan_directory()
+    {
+        var registry = Registry();
+        var first = registry.Resolve(ModeRegistry.Plan, "first");
+        var firstAgain = registry.Resolve(ModeRegistry.Plan, "first");
+        var second = registry.Resolve(ModeRegistry.Plan, "second");
+
+        _ = await Assert.That(first.PlanArtifact).IsEqualTo(firstAgain.PlanArtifact);
+        _ = await Assert.That(first.PlanArtifact).IsNotEqualTo(second.PlanArtifact);
+        _ = await Assert.That(Path.GetFileName(first.PlanArtifact)).StartsWith("plan-").And.EndsWith(".md");
+        _ = await Assert.That(Path.GetDirectoryName(first.PlanArtifact)).IsEqualTo(Path.Combine(_root, "plan"));
+    }
+
+    private ModeRegistry Registry() => new(Path.Combine(_root, "plan"));
 }
