@@ -88,6 +88,35 @@ selected effort and automatic summary under
 place it at top level as `"reasoning_effort":"…"`. Both omit their effort field
 for a bare model selection.
 
+## Configuration
+
+Parrot writes an agent-readable `predefined_config.yaml` alongside the
+user-owned `config.yaml`. The user file is recursively layered over the
+predefined defaults and is never rewritten except by an interactive setting.
+
+The three foreground profiles, `build`, `plan`, and `query`, are configured
+under `profiles`. Each has a required `prompt`, `hard_rule`, `status`,
+`max_tool_rounds`, and `read_only`; it may also have ordered `sandbox_rules`.
+A user configuration can override individual fields while retaining the other
+predefined values. Profile sandbox rules replace that profile's default list;
+top-level `sandbox_rules` apply to every profile.
+
+```yaml
+profiles:
+  build:
+    prompt: Implement the requested change and run the relevant checks.
+    max_tool_rounds: 32
+    sandbox_rules:
+      - path: /workspace/generated
+        rule: allow_write
+```
+
+`prompt`, `hard_rule`, and `status` must be nonempty strings.
+`max_tool_rounds` must be a positive integer, `read_only` must be `true` or
+`false`, and sandbox-rule paths must be absolute. The plan profile also receives
+its private plan-artifact location and its runtime-only write permission from
+Parrot; these are not user-configurable profile fields.
+
 ## Model Aliases
 
 Model aliases give stable names to model selectors. The effective configuration
