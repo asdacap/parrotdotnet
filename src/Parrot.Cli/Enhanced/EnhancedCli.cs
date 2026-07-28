@@ -96,22 +96,26 @@ internal sealed class EnhancedCli(
         bool renderActivityEvents = true,
         Func<Event, CancellationToken, Task>? afterRender = null,
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? draw = null,
-        Func<IReadOnlyList<string>, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? commit = null)
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? commit = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
         async Task CommitStandalone(
-            IReadOnlyList<string> scrollback,
+            IScrollbackItem scrollback,
             IReadOnlyList<ILiveBufferItem> items,
             CancellationToken token)
         {
-            foreach (var line in scrollback)
+            token.ThrowIfCancellationRequested();
+            var context = new ScrollbackRenderContext(
+                Math.Max(1, terminal.GetColumns()),
+                new TerminalPalette(terminal.Color));
+            foreach (var line in scrollback.Render(context))
             {
-                await terminal.Output.WriteAsync(line.AsMemory(), token).ConfigureAwait(false);
-                await terminal.Output.WriteAsync("\r\n".AsMemory(), token).ConfigureAwait(false);
+                await terminal.Output.WriteAsync(line.AsMemory(), CancellationToken.None).ConfigureAwait(false);
+                await terminal.Output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
             }
 
-            await terminal.Output.FlushAsync(token).ConfigureAwait(false);
+            await terminal.Output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         var view = new EnhancedTurnView(
@@ -151,6 +155,11 @@ internal sealed class EnhancedCli(
         {
             await view.Cancel(CancellationToken.None).ConfigureAwait(false);
             return false;
+        }
+        catch
+        {
+            await view.Cancel(CancellationToken.None).ConfigureAwait(false);
+            throw;
         }
     }
 
@@ -213,7 +222,7 @@ internal sealed class EnhancedCli(
         }
 
         async Task CommitBody(
-            IReadOnlyList<string> scrollback,
+            IScrollbackItem scrollback,
             IReadOnlyList<ILiveBufferItem> items,
             CancellationToken token)
         {
@@ -275,10 +284,7 @@ internal sealed class EnhancedCli(
         async Task StartTurn(string entered, AsyncServerStreamingCall<Event> activeCall)
         {
             _busy = true;
-            var clean = TerminalText.Sanitize("› " + entered).TrimEnd('\r', '\n');
-            var committed = TerminalText.Layout(clean, Math.Max(1, terminal.GetColumns()))
-                .Select(palette.User.Apply)
-                .ToList();
+            var committed = ImmediateScrollbackValue.User("› " + entered);
             await composing.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -300,7 +306,6 @@ internal sealed class EnhancedCli(
                     index => new SpinnerValue("thinking", index),
                     async (stopSpinner, token) => firstTurnCompleted = await RenderRaw(
                         activeCall.ResponseStream,
-                        palette.Muted,
                         DrawBody,
                         CommitBody,
                         token => DrawState(new ModelineValue(context.Mode, "ready", context.Model), token),
@@ -448,9 +453,8 @@ internal sealed class EnhancedCli(
 
     private async Task<bool> RenderRaw(
         IAsyncStreamReader<Event> stream,
-        TerminalStyle muted,
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
-        Func<IReadOnlyList<string>, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
         Func<CancellationToken, Task> ready,
         Func<Task> stopSpinner,
         bool exitOnFirstCompletion,
@@ -461,7 +465,7 @@ internal sealed class EnhancedCli(
         while (!cancellationToken.IsCancellationRequested)
         {
             var failed = false;
-            using var activity = new RawActivityView(draw, commit, muted);
+            using var activity = new RawActivityView(draw, commit);
             using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var animation = activity.Run(animating.Token);
 

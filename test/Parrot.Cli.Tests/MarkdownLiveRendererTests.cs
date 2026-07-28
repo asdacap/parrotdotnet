@@ -13,9 +13,10 @@ internal sealed class MarkdownLiveRendererTests
         var promotion = renderer.Append(new LiveTerminalStreamMessage("answer", "- ", "ing\n**bold**"));
         var committed = renderer.Commit();
 
-        _ = await Assert.That(first.Scrollback).IsEmpty();
-        _ = await Assert.That(promotion.Scrollback).Contains("- Heading");
-        _ = await Assert.That(committed.Scrollback).Contains("  bold");
+        var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
+        _ = await Assert.That(first.Scrollback).IsNull();
+        _ = await Assert.That(promotion.Scrollback?.Render(context)).Contains("- Heading");
+        _ = await Assert.That(committed.Scrollback?.Render(context)).Contains("  bold");
     }
 
     [Test]
@@ -28,9 +29,10 @@ internal sealed class MarkdownLiveRendererTests
         var afterClose = renderer.Append(new LiveTerminalStreamMessage("answer", string.Empty, "```\n"));
 
         _ = await Assert.That(beforeClose.Preview).Contains("public var value = 1;");
-        _ = await Assert.That(beforeClose.Scrollback).IsEmpty();
-        _ = await Assert.That(afterClose.Scrollback).Contains("public var value = 1;");
-        _ = await Assert.That(string.Join('\n', afterClose.Scrollback)).DoesNotContain("```");
+        var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
+        _ = await Assert.That(beforeClose.Scrollback).IsNull();
+        _ = await Assert.That(afterClose.Scrollback?.Render(context)).Contains("public var value = 1;");
+        _ = await Assert.That(string.Join('\n', afterClose.Scrollback?.Render(context) ?? [])).DoesNotContain("```");
     }
 
     [Test]
@@ -43,7 +45,8 @@ internal sealed class MarkdownLiveRendererTests
         var boundary = renderer.Append(new LiveTerminalStreamMessage("answer", string.Empty, "after\n"));
 
         _ = await Assert.That(string.Join('\n', beforeBoundary.Preview)).Contains("┌");
-        _ = await Assert.That(beforeBoundary.Scrollback).IsEmpty();
-        _ = await Assert.That(string.Join('\n', boundary.Scrollback)).Contains("┌───┬───┐");
+        var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
+        _ = await Assert.That(beforeBoundary.Scrollback).IsNull();
+        _ = await Assert.That(string.Join('\n', boundary.Scrollback?.Render(context) ?? [])).Contains("┌───┬───┐");
     }
 }
