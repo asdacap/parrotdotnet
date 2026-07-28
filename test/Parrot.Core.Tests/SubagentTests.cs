@@ -332,6 +332,7 @@ internal sealed class SubagentTests : IDisposable
             _repository,
             [],
             new SystemContextBuilder(".", ".", "2026-07-24", string.Empty),
+            new TodoCollection("agent", _repository, _broker),
             new Compactor(120_000),
             mode: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -352,7 +353,7 @@ internal sealed class SubagentTests : IDisposable
 
         public List<SecurityProfile> SecurityProfiles { get; } = [];
 
-        public AgentSession Create(
+        public IAgentSessionLease Create(
             AgentIdentity identity,
             ProviderModel model,
             EventBroker eventBroker,
@@ -367,18 +368,19 @@ internal sealed class SubagentTests : IDisposable
             _modes.Add(mode);
             SecurityProfiles.Add(securityProfile);
 
-            return new AgentSession(
+            return new AgentSessionLease(new AgentSession(
                 identity,
                 model,
                 eventBroker,
                 eventRepository,
                 [],
                 new SystemContextBuilder(".", ".", "2026-07-24", identity.Context),
+                new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new Compactor(120_000),
                 mode,
                 securityProfile,
                 status,
-                lifetime);
+                lifetime));
         }
     }
 }

@@ -14,7 +14,7 @@ namespace Parrot.Agent;
 // however deep the recursion goes.
 internal sealed class UserSession : IAsyncDisposable
 {
-    private readonly List<AgentSession> _agents = [];
+    private readonly List<IAgentSessionLease> _agents = [];
     private readonly EventBroker _eventBroker = new();
     private readonly EventRepository _eventRepository;
     private readonly IAgentSessionFactory _agentSessions;
@@ -166,7 +166,8 @@ internal sealed class UserSession : IAsyncDisposable
 
         foreach (var agent in _agents)
         {
-            await agent.Settled().ConfigureAwait(false);
+            await agent.Session.Settled().ConfigureAwait(false);
+            await agent.DisposeAsync().ConfigureAwait(false);
         }
 
         // Ends every subscription on this session's stream. A listener blocked
@@ -187,7 +188,7 @@ internal sealed class UserSession : IAsyncDisposable
         {
             if (_main is null)
             {
-                _main = _agentSessions.Create(
+                var lease = _agentSessions.Create(
                     AgentIdentity.Main(_mainSessionId, _rootAgentName),
                     _model,
                     _eventBroker,
@@ -196,7 +197,8 @@ internal sealed class UserSession : IAsyncDisposable
                     Mode.SecurityProfile,
                     _status,
                     _lifetime.Token);
-                _agents.Add(_main);
+                _main = lease.Session;
+                _agents.Add(lease);
             }
 
             return _main;

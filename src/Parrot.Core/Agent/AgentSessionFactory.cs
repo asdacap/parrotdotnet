@@ -19,7 +19,8 @@ internal sealed class AgentSessionFactory(
     string configDirectory,
     string date,
     Compactor compactor,
-    WebFetcher webFetcher) : IAgentSessionFactory
+    WebFetcher webFetcher,
+    IAgentSessionScopeFactory scopes) : IAgentSessionFactory
 {
     private readonly ToolWorkspace _workspace = new(workingDirectory);
 
@@ -42,7 +43,7 @@ internal sealed class AgentSessionFactory(
             new TodoWriteToolFactory(),
         ];
 
-    public AgentSession Create(
+    public IAgentSessionLease Create(
         AgentIdentity identity,
         ProviderModel model,
         EventBroker eventBroker,
@@ -51,13 +52,15 @@ internal sealed class AgentSessionFactory(
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime) =>
-        new(
+        scopes.Create(
             identity,
             model,
             eventBroker,
             eventRepository,
             ToolFactories,
-            new SystemContextBuilder(workingDirectory, configDirectory, date, identity.Context),
+            workingDirectory,
+            configDirectory,
+            date,
             compactor,
             mode,
             securityProfile,
