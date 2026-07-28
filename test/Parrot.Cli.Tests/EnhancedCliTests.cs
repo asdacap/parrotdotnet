@@ -13,6 +13,64 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedCliTests
 {
     [Test]
+    public async Task Plan_completion_renders_markdown_and_approves_with_picker(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("draft plan");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnStarted = new TurnStarted { Model = "model" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            PlanCompleted = new PlanCompleted
+            {
+                Markdown = "# Written plan\n\n- change code",
+                Dialog = new TurnCompleteDialog
+                {
+                    Prompt = "Plan complete: ",
+                    CustomChoice = "feedback",
+                    CustomPrompt = "Feedback: ",
+                    CustomDescription = "Revise the plan",
+                    Choices =
+                    {
+                        new DialogChoice
+                        {
+                            Value = "yes",
+                            Description = "Implement it",
+                            Action = new ChoiceAction { Mode = "build", Prompt = "Implement the approved plan." },
+                        },
+                        new DialogChoice { Value = "no", Description = "Keep planning" },
+                    },
+                },
+            },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
+        });
+
+        await driver.OutputContains("Written plan", cancellationToken);
+        await driver.OutputContains("Plan complete:", cancellationToken);
+        driver.Input.Type("yes");
+        await driver.Sent(2, cancellationToken);
+
+        _ = await Assert.That(driver.Invoker.Sent.Count).IsEqualTo(2);
+        _ = await Assert.That(driver.Invoker.Sent[0]).IsEqualTo("draft plan");
+        _ = await Assert.That(driver.Invoker.Sent[1]).IsEqualTo("Implement the approved plan.");
+        _ = await Assert.That(driver.Invoker.Updated).Count().IsEqualTo(1);
+        _ = await Assert.That(driver.Invoker.Updated[0].Mode).IsEqualTo("build");
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
     public async Task Typed_turn_events_render_cumulative_text_and_sanitize_terminal_content(
         CancellationToken cancellationToken)
     {
