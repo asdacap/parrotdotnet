@@ -12,6 +12,8 @@ internal sealed record SessionMeta
 
     public required string HostKey { get; init; }
 
+    public string Name { get; init; } = string.Empty;
+
     public required string ProviderId { get; init; }
 
     public required string Model { get; init; }

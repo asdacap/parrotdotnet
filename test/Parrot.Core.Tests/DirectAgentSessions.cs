@@ -14,6 +14,10 @@ namespace Parrot.Core.Tests;
 // what the contract is a contract over.
 internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSessionFactory
 {
+    private readonly List<AgentIdentity> _identities = [];
+
+    public IReadOnlyList<AgentIdentity> Identities => _identities;
+
     public IAgentSessionFactory Create(UserSession owner) => this;
 
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
@@ -26,8 +30,10 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         EventRepository eventRepository,
         ModeProfile? mode,
         RuntimeStatus? status,
-        CancellationToken lifetime) =>
-        new(
+        CancellationToken lifetime)
+    {
+        _identities.Add(identity);
+        return new AgentSession(
             identity,
             model,
             eventBroker,
@@ -38,4 +44,5 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             mode,
             status,
             lifetime);
+    }
 }

@@ -18,6 +18,15 @@ internal sealed class SessionIndex(string stateDirectory)
     public string BlobDirectoryFor(string userSessionId) =>
         Path.Combine(DirectoryFor(userSessionId), "blob");
 
+    public SessionMeta? Find(string userSessionId)
+    {
+        var path = Path.Combine(DirectoryFor(userSessionId), "meta.json");
+
+        return File.Exists(path)
+            ? JsonSerializer.Deserialize(File.ReadAllText(path), StoreJsonContext.Default.SessionMeta)
+            : null;
+    }
+
     public void Publish(SessionMeta meta)
     {
         ArgumentNullException.ThrowIfNull(meta);

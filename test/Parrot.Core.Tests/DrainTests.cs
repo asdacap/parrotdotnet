@@ -322,7 +322,7 @@ internal sealed class DrainTests : IDisposable
         int contextWindow,
         CancellationToken lifetime) =>
         new(
-            AgentIdentity.Main("agent"),
+            AgentIdentity.Main("agent", string.Empty),
             new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = contextWindow }),
             _broker,
             repository,

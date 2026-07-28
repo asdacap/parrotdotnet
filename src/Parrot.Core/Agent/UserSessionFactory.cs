@@ -9,11 +9,13 @@ internal sealed class UserSessionFactory(
 {
     public UserSession Create(
         string id,
+        string name,
         ProviderModel model,
         string mode,
         EventRepository eventRepository) =>
         new(
             id,
+            name,
             model,
             mode,
             eventRepository,

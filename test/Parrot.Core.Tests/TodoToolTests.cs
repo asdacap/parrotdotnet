@@ -106,7 +106,7 @@ internal sealed class TodoToolTests : IDisposable
 
     private AgentSession Session(EventRepository repository, string sessionId) =>
         new(
-            AgentIdentity.Main(sessionId),
+            AgentIdentity.Main(sessionId, string.Empty),
             new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
             _events,
             repository,

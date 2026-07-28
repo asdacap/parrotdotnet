@@ -39,6 +39,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     public UserSession(
         string id,
+        string name,
         ProviderModel model,
         string mode,
         EventRepository eventRepository,
@@ -49,6 +50,7 @@ internal sealed class UserSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
 
         Id = id;
+        Name = name;
         _model = model;
         _eventRepository = eventRepository;
         _modes = modes;
@@ -62,6 +64,8 @@ internal sealed class UserSession : IAsyncDisposable
     }
 
     public string Id { get; }
+
+    public string Name { get; }
 
     public string ProviderId => _model.Provider.Id;
 
@@ -185,7 +189,7 @@ internal sealed class UserSession : IAsyncDisposable
             if (_main is null)
             {
                 _main = _agentSessions.Create(
-                    AgentIdentity.Main(_mainSessionId),
+                    AgentIdentity.Main(_mainSessionId, Name),
                     _model,
                     _eventBroker,
                     _eventRepository,

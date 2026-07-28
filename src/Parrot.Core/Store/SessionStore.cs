@@ -30,23 +30,42 @@ internal sealed class SessionStore(
         // process takes its own session rather than joining or stealing.
         var id = claimed.Disposition == ClaimDisposition.Live ? Identifier.UserSession() : claimed.SessionId;
 
-        var database = SessionDatabase.Open(Index.DatabaseFor(id));
-        _open.Add(database);
+        var existing = Index.Find(id);
+        var names = new RootAgentNameStore(
+            stateDirectory,
+            hostKey,
+            Environment.ProcessId,
+            ProcessIsAlive,
+            Index);
+        var reserved = names.Reserve(id, existing?.Name ?? string.Empty);
+        SessionDatabase? database = null;
 
-        var session = userSessions.Create(id, model, mode, new EventRepository(database));
-        Index.Publish(new SessionMeta
+        try
         {
-            Id = id,
-            WorkingDirectory = workingDirectory,
-            HostKey = hostKey,
-            ProviderId = session.ProviderId,
-            Model = session.Model,
-            Mode = session.Mode.Id,
-            ProcessId = Environment.ProcessId,
-            CreatedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
-        });
-
-        return session;
+            database = SessionDatabase.Open(Index.DatabaseFor(id));
+            var session = userSessions.Create(id, reserved.Name, model, mode, new EventRepository(database));
+            Index.Publish(new SessionMeta
+            {
+                Id = id,
+                WorkingDirectory = workingDirectory,
+                HostKey = hostKey,
+                Name = session.Name,
+                ProviderId = session.ProviderId,
+                Model = session.Model,
+                Mode = session.Mode.Id,
+                ProcessId = Environment.ProcessId,
+                CreatedAt = existing?.CreatedAt
+                    ?? DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            });
+            _open.Add(database);
+            return session;
+        }
+        catch
+        {
+            database?.Dispose();
+            names.Release(reserved);
+            throw;
+        }
     }
 
     public void Publish(UserSession session)
@@ -54,6 +73,7 @@ internal sealed class SessionStore(
         var current = Index.List().Single(meta => string.Equals(meta.Id, session.Id, StringComparison.Ordinal));
         Index.Publish(current with
         {
+            Name = session.Name,
             ProviderId = session.ProviderId,
             Model = session.Model,
             Mode = session.Mode.Id,

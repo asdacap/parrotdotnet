@@ -41,7 +41,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var broker = new EventBroker();
         var provider = new ScriptedProvider("reply");
         var session = new AgentSession(
-            AgentIdentity.Main("agent"),
+            AgentIdentity.Main("agent", string.Empty),
             new ProviderModel(
                 provider,
                 new LLMModel("model", provider.Id),

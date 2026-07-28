@@ -298,7 +298,7 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken) =>
         new(
             depth == 0
-                ? AgentIdentity.Main(sessionId)
+                ? AgentIdentity.Main(sessionId, string.Empty)
                 : AgentIdentity.Child(sessionId, "ancestor", "parent", depth),
             new ProviderModel(provider, new LLMModel("model", provider.Id)),
             _broker,

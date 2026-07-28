@@ -72,7 +72,7 @@ internal sealed class EventPayloadTests
         // under test should take the same path production does.
         using var database = SessionDatabase.Open(":memory:");
         var session = new AgentSession(
-            AgentIdentity.Main("session"),
+            AgentIdentity.Main("session", string.Empty),
             new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
             events,
             new EventRepository(database),
