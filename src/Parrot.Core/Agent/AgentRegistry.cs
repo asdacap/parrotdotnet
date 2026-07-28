@@ -17,6 +17,7 @@ internal sealed class AgentRegistry(
     private const int MaxRetained = 1024;
     private readonly Dictionary<string, IAgentSessionLease> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AgentSession> _parents = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Lock _gate = new();
 
@@ -64,6 +65,8 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent depth limit reached");
             }
 
+            _parents[parent.SessionId] = parent;
+
             var sessionId = Identifier.AgentSession();
             var name = UniqueName(requestedName, sessionId);
             var childSecurityProfile = selection.SecurityProfile.WithoutRuntimeCapabilities();
@@ -88,6 +91,23 @@ internal sealed class AgentRegistry(
     {
         lock (_gate)
         {
+            return Resolve(sessionIdOrName);
+        }
+    }
+
+    public AgentSession GetRecipient(AgentSession sender, string sessionIdOrName)
+    {
+        ArgumentNullException.ThrowIfNull(sender);
+
+        lock (_gate)
+        {
+            if ((string.Equals(sessionIdOrName, sender.ParentSessionId, StringComparison.Ordinal)
+                    || string.Equals(sessionIdOrName, sender.ParentSessionName, StringComparison.Ordinal))
+                && _parents.TryGetValue(sender.ParentSessionId, out var parent))
+            {
+                return parent;
+            }
+
             return Resolve(sessionIdOrName);
         }
     }
