@@ -141,6 +141,30 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
+    public async Task Completed_block_commits_its_trailing_gap_before_following_scrollback(
+        CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
+        var frame = Items(
+            [],
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", string.Empty, 0));
+
+        await renderer.Draw(frame, cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Commit(BlockScrollbackValue.Text("shell output"), frame, cancellationToken);
+        var block = output.ToString()[boundary..];
+        boundary = output.GetStringBuilder().Length;
+        await renderer.Commit(ImmediateScrollbackValue.Muted(["after output"]), frame, cancellationToken);
+        var following = output.ToString()[boundary..];
+
+        _ = await Assert.That(block).Contains("shell output\r\n\r\n");
+        _ = await Assert.That(following).Contains("after output\r\n");
+        _ = await Assert.That(following).DoesNotContain("\r\n\r\nafter output\r\n");
+    }
+
+    [Test]
     public async Task Scrollback_values_render_and_express_sequence_lifecycle()
     {
         var context = new ScrollbackRenderContext(4, new TerminalPalette(false));
