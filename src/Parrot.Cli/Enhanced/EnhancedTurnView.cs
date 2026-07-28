@@ -22,7 +22,6 @@ internal sealed class EnhancedTurnView(
     private readonly StringBuilder _reasoning = new();
     private MarkdownLiveUpdate? _pendingTextCompletion;
     private MarkdownLiveUpdate? _pendingTextUpdate;
-    private bool _reasoningSummary;
     private bool _started;
     private bool _textActive;
     private int _textSegment;
@@ -43,7 +42,7 @@ internal sealed class EnhancedTurnView(
 
         if (_reasoning.Length > 0 && published.PayloadCase != Event.PayloadOneofCase.ReasoningChunk)
         {
-            await EndReasoning(cancellationToken).ConfigureAwait(false);
+            EndReasoning();
         }
     }
 
@@ -148,10 +147,7 @@ internal sealed class EnhancedTurnView(
             await CommitText(cancellationToken).ConfigureAwait(false);
         }
 
-        if (_reasoning.Length > 0)
-        {
-            await EndReasoning(cancellationToken).ConfigureAwait(false);
-        }
+        EndReasoning();
     }
 
     public async Task Cancel(CancellationToken cancellationToken)
@@ -211,31 +207,32 @@ internal sealed class EnhancedTurnView(
 
     private async Task RenderReasoning(ReasoningChunk chunk, CancellationToken cancellationToken)
     {
-        _ = _reasoning.Append(TerminalText.Sanitize(chunk.Fragment));
-        _reasoningSummary |= chunk.Kind == ReasoningKind.Summary;
-        var prefix = _reasoningSummary ? "✦ " : string.Empty;
-        await draw([new SpinnerValue(prefix + _reasoning, 0)], cancellationToken).ConfigureAwait(false);
-        if (chunk.Completed)
+        var fragment = TerminalText.Sanitize(chunk.Fragment);
+        if (chunk.Kind == ReasoningKind.Summary)
         {
-            await EndReasoning(cancellationToken).ConfigureAwait(false);
-        }
-    }
+            EndReasoning();
+            if (fragment.Length > 0)
+            {
+                await Commit(ImmediateScrollbackValue.Muted([$"✦ {fragment}"]), cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
-    private async Task EndReasoning(CancellationToken cancellationToken)
-    {
-        if (_reasoning.Length == 0)
-        {
             return;
         }
 
-        if (_reasoningSummary)
+        _ = _reasoning.Append(fragment);
+        await draw([new SpinnerValue(_reasoning.ToString(), 0)], cancellationToken).ConfigureAwait(false);
+        if (chunk.Completed)
         {
-            await Commit(
-                ImmediateScrollbackValue.Muted([$"✦ {_reasoning}"]),
-                cancellationToken).ConfigureAwait(false);
+            EndReasoning();
         }
+    }
 
-        _ = _reasoning.Clear();
-        _reasoningSummary = false;
+    private void EndReasoning()
+    {
+        if (_reasoning.Length > 0)
+        {
+            _ = _reasoning.Clear();
+        }
     }
 }
