@@ -525,6 +525,19 @@ internal sealed class EnhancedCli(
                     continue;
                 }
 
+                if (_busy)
+                {
+                    var pending = await client.ListPendingQuestionsAsync(
+                        new ListPendingQuestionsRequest { UserSessionId = session.Id },
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    if (pending.Questions.Count > 0)
+                    {
+                        await CompleteQuestion(pending.Questions[0], dialog, session, cancellationToken).ConfigureAwait(false);
+                        await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
+                        continue;
+                    }
+                }
+
                 using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var keyTask = liveInput.ReadKey(reading.Token).AsTask();
                 var planTask = planRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
@@ -641,6 +654,73 @@ internal sealed class EnhancedCli(
         return exitOnFirstCompletion && !firstTurnCompleted
             ? CommandDispatcher.ExitFailure
             : CommandDispatcher.ExitSuccess;
+    }
+
+    private async Task CompleteQuestion(
+        PendingQuestion pending,
+        EnhancedSlashDialog dialog,
+        SlashSession session,
+        CancellationToken cancellationToken)
+    {
+        var reply = new ReplyQuestionRequest
+        {
+            UserSessionId = session.Id,
+            QuestionRequestId = pending.Id,
+        };
+
+        foreach (var question in pending.Questions)
+        {
+            var choices = question.Options
+                .Select(option => new SlashDialogOption(option.Id, option.Label, option.Id))
+                .ToList();
+            const string customId = "__custom__";
+            if (question.Custom)
+            {
+                choices.Add(new SlashDialogOption(customId, "Custom answer", "Write an answer"));
+            }
+
+            var selected = await dialog.Select(
+                $"{question.Header} {question.Prompt}".Trim(),
+                choices,
+                cancellationToken).ConfigureAwait(false);
+            if (selected is null)
+            {
+                _ = await client.RejectQuestionAsync(
+                    new RejectQuestionRequest { UserSessionId = session.Id, QuestionRequestId = pending.Id },
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var answer = new QuestionAnswer { QuestionId = question.Id };
+            if (selected.Id == customId)
+            {
+                var custom = await dialog.ReadText(question.Prompt, cancellationToken).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(custom))
+                {
+                    _ = await client.RejectQuestionAsync(
+                        new RejectQuestionRequest { UserSessionId = session.Id, QuestionRequestId = pending.Id },
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                answer.Custom = custom.Trim();
+            }
+            else
+            {
+                answer.OptionIds.Add(selected.Id);
+            }
+
+            reply.Answers.Add(answer);
+        }
+
+        try
+        {
+            _ = await client.ReplyQuestionAsync(reply, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
+        {
+            await dialog.ShowError(failure.Status.Detail, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task CompletePlan(

@@ -2,6 +2,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Questions;
 using Parrot.Statuses;
 using Parrot.Store;
 
@@ -92,6 +93,8 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal RuntimeStatus Status { get; }
 
+    internal QuestionBroker Questions { get; } = new();
+
     // Assigned, never rebuilt. The main session holds the conversation, the
     // input admitted against it and the drain that may be running: replacing it
     // to change a model would throw all three away, and a turn in flight would
@@ -170,6 +173,7 @@ internal sealed class UserSession : IAsyncDisposable
     // remember would be the same crash whenever anyone forgot.
     public async ValueTask DisposeAsync()
     {
+        Questions.Dispose();
         await Registry.DisposeAsync().ConfigureAwait(false);
         await _lifetime.CancelAsync().ConfigureAwait(false);
         await ShellProcesses.Settle().ConfigureAwait(false);

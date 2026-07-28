@@ -3,6 +3,7 @@ using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Questions;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -208,6 +209,69 @@ internal sealed class ParrotService(
         return new InterruptResponse();
     }
 
+    public override Task<ListPendingQuestionsResponse> ListPendingQuestions(
+        ListPendingQuestionsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var response = new ListPendingQuestionsResponse();
+        response.Questions.AddRange(Find(request.UserSessionId).Questions.Pending().Select(ToProtocol));
+        return Task.FromResult(response);
+    }
+
+    public override Task<ReplyQuestionResponse> ReplyQuestion(ReplyQuestionRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (request.QuestionRequestId.Length == 0)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "a question request id is required"));
+        }
+
+        try
+        {
+            Find(request.UserSessionId).Questions.Reply(
+                request.QuestionRequestId,
+                new QuestionReply([.. request.Answers.Select(answer => new global::Parrot.Questions.QuestionAnswer(
+                    answer.QuestionId,
+                    [.. answer.OptionIds],
+                    answer.Custom))]));
+            return Task.FromResult(new ReplyQuestionResponse());
+        }
+        catch (QuestionException failure)
+        {
+            throw new RpcException(new Status(
+                failure.Message.StartsWith("question request not found:", StringComparison.Ordinal)
+                    ? StatusCode.NotFound
+                    : StatusCode.InvalidArgument,
+                failure.Message));
+        }
+    }
+
+    public override Task<RejectQuestionResponse> RejectQuestion(RejectQuestionRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (request.QuestionRequestId.Length == 0)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "a question request id is required"));
+        }
+
+        try
+        {
+            Find(request.UserSessionId).Questions.Reject(request.QuestionRequestId);
+            return Task.FromResult(new RejectQuestionResponse());
+        }
+        catch (QuestionException failure)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, failure.Message));
+        }
+    }
+
     // Indefinite. It ends when the client stops listening or the call is
     // cancelled -- not when a turn finishes, because a subagent spawned by the
     // agent keeps publishing to this same stream long afterwards.
@@ -241,6 +305,29 @@ internal sealed class ParrotService(
             .ConfigureAwait(false);
 
         _userSessions.Clear();
+    }
+
+    private static PendingQuestion ToProtocol(PendingQuestionRequest request)
+    {
+        var pending = new PendingQuestion { Id = request.Id };
+        pending.Questions.AddRange(request.Questions.Select(question =>
+        {
+            var converted = new QuestionDefinition
+            {
+                Id = question.Id,
+                Header = question.Header,
+                Prompt = question.Prompt,
+                Multiple = question.Multiple,
+                Custom = question.Custom,
+            };
+            converted.Options.AddRange(question.Options.Select(option => new QuestionOption
+            {
+                Id = option.Id,
+                Label = option.Label,
+            }));
+            return converted;
+        }));
+        return pending;
     }
 
     private static ModelAlias ToProtocol(ModelAliasDefinition definition) =>

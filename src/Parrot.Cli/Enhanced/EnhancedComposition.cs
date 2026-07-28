@@ -30,6 +30,7 @@ internal partial class EnhancedComposition
                     new GrepToolPresenter(),
                     new InterruptProcessToolPresenter(),
                     new ReadToolPresenter(),
+                    new QuestionToolPresenter(),
                     new TodoReadToolPresenter(),
                     new TodoWriteToolPresenter(),
                     new WaitAgentToolPresenter(),
