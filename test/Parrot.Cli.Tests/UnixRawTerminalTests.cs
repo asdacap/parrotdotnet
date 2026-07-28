@@ -26,6 +26,28 @@ internal sealed class UnixRawTerminalTests
     }
 
     [Test]
+    public async Task Linux_raw_mode_prevents_kernel_echo_from_a_pseudo_terminal()
+    {
+        Skip.Unless(OperatingSystem.IsLinux(), "Linux is required.");
+
+        const byte sentinel = (byte)'q';
+        using var terminal = OpenLinuxPseudoTerminal();
+        var original = terminal.GetSlaveAttributes();
+        try
+        {
+            terminal.SetSlaveAttributes(UnixRawTerminal.MakeLinuxRaw(original));
+            terminal.WriteMaster(sentinel);
+
+            _ = await Assert.That(terminal.ReadSlave()).IsEqualTo(sentinel);
+            _ = await Assert.That(terminal.MasterHasOutput(200)).IsFalse();
+        }
+        finally
+        {
+            terminal.SetSlaveAttributes(original);
+        }
+    }
+
+    [Test]
     public async Task Darwin_raw_mode_disables_echo_and_canonical_input()
     {
         const ulong echo = 0x00000008UL;
@@ -44,5 +66,18 @@ internal sealed class UnixRawTerminalTests
         _ = await Assert.That(raw.LocalFlags & (echo | canonical | extended | signals)).IsEqualTo(0UL);
         _ = await Assert.That(raw.InputFlags).IsEqualTo(0UL);
         _ = await Assert.That(raw.ControlFlags & 0x00000300UL).IsEqualTo(0x00000300UL);
+    }
+
+    private static LinuxPseudoTerminal OpenLinuxPseudoTerminal()
+    {
+        try
+        {
+            return LinuxPseudoTerminal.Open();
+        }
+        catch (IOException exception)
+        {
+            Skip.Test($"Linux pseudo-terminal support is unavailable: {exception.Message}");
+            throw;
+        }
     }
 }

@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>Parrot.Cli.Tests</RootNamespace>
     <IsTestProject>true</IsTestProject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
