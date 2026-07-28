@@ -11,6 +11,35 @@ namespace Parrot.Core.Tests;
 internal sealed class EventPayloadTests
 {
     [Test]
+    public async Task Agent_statistics_roundtrip_as_a_protobuf_payload()
+    {
+        var source = new Event
+        {
+            Id = "statistics-event",
+            AgentSessionId = "session",
+            AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+            {
+                InputTokens = 4_000_000_000,
+                CachedInputTokens = 3_000_000_000,
+                OutputTokens = 2_000_000_000,
+                ContextSize = 100_000,
+                ContextLimit = 500_000,
+            },
+        };
+
+        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
+
+        _ = await Assert.That(roundtripped.Id).IsEqualTo("statistics-event");
+        _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("session");
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.AgentStatisticsUpdated);
+        _ = await Assert.That(roundtripped.AgentStatisticsUpdated.InputTokens).IsEqualTo(4_000_000_000);
+        _ = await Assert.That(roundtripped.AgentStatisticsUpdated.CachedInputTokens).IsEqualTo(3_000_000_000);
+        _ = await Assert.That(roundtripped.AgentStatisticsUpdated.OutputTokens).IsEqualTo(2_000_000_000);
+        _ = await Assert.That(roundtripped.AgentStatisticsUpdated.ContextSize).IsEqualTo(100_000);
+        _ = await Assert.That(roundtripped.AgentStatisticsUpdated.ContextLimit).IsEqualTo(500_000);
+    }
+
+    [Test]
     public async Task Status_injected_roundtrips_as_a_protobuf_payload()
     {
         var source = new Event

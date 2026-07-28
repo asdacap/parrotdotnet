@@ -259,6 +259,7 @@ internal static class ResponsesAdapter
         }
 
         state.InputTokens = ReadInt(usage, "input_tokens");
+        state.CachedInputTokens = ReadCachedInputTokens(usage);
         state.OutputTokens = ReadInt(usage, "output_tokens");
     }
 
@@ -310,6 +311,12 @@ internal static class ResponsesAdapter
     private static int ReadInt(JsonElement scope, string name) =>
         scope.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
             ? value.GetInt32()
+            : 0;
+
+    private static int ReadCachedInputTokens(JsonElement usage) =>
+        usage.TryGetProperty("input_tokens_details", out var details)
+            && details.ValueKind == JsonValueKind.Object
+            ? ReadInt(details, "cached_tokens")
             : 0;
 
     private readonly record struct ItemFields(string Id, string Type, string CallId, string Name, string Arguments);
@@ -430,6 +437,8 @@ internal static class ResponsesAdapter
 
         public int InputTokens { get; set; }
 
+        public int CachedInputTokens { get; set; }
+
         public int OutputTokens { get; set; }
 
         public StringBuilder AssistantText { get; } = new();
@@ -521,6 +530,7 @@ internal static class ResponsesAdapter
             LLMEvent.Completed(
                 FinishReason,
                 InputTokens,
+                CachedInputTokens,
                 OutputTokens,
                 AssistantText.ToString(),
                 [

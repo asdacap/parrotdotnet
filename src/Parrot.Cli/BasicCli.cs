@@ -222,9 +222,7 @@ internal sealed class BasicCli(
     }
 
     private static string Summarise(TurnEnded ended) =>
-        ended.FinishReason == "length" && ended.OutputTokens > 0
-            ? "turn ended: the token budget was spent before any content"
-            : $"turn ended ({ended.FinishReason}, {ended.InputTokens} in / {ended.OutputTokens} out)";
+        $"turn ended ({ended.FinishReason}, {ended.InputTokens} total in / {ended.OutputTokens} total out)";
 
     private static SendMessageRequest Message(string userSessionId, string text) =>
         new()

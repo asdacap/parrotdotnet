@@ -219,6 +219,29 @@ internal sealed class EventRepository(SessionDatabase database)
         return events;
     }
 
+    public AgentStatistics? LatestStatistics(string agentSessionId)
+    {
+        lock (_gate)
+        {
+            using var read = database.Connection.CreateCommand();
+            read.CommandText =
+                "SELECT payload FROM event WHERE agent_session = $session ORDER BY sequence DESC;";
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                var published = Event.Parser.ParseFrom((byte[])reader["payload"]);
+                if (published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
+                {
+                    return AgentStatistics.Restore(published.AgentStatisticsUpdated);
+                }
+            }
+
+            return null;
+        }
+    }
+
     public IReadOnlyList<string> Messages(string agentSessionId) =>
         [.. ModelHistory(agentSessionId).Select(message => $"{Text(message.Role)}: {message.Content}")];
 

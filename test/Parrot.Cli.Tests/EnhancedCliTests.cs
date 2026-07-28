@@ -109,7 +109,7 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(output).Contains("  + agent explorer[31m finished");
         _ = await Assert.That(output).Contains("  ! agent reviewer[31m: boom[2J");
         _ = await Assert.That(output).Contains("tail\r\n");
-        _ = await Assert.That(output).Contains("  stop[2J - 3 in / 4 out");
+        _ = await Assert.That(output).Contains("  stop[2J - 3 total in / 4 total out");
         _ = await Assert.That(Count(output, "abcdefgh\r\n")).IsEqualTo(1);
         _ = await Assert.That(UntrustedEscape(output)).IsFalse();
         _ = await Assert.That(output).DoesNotContain("\u001b[?1049");
@@ -307,6 +307,20 @@ internal sealed class EnhancedCliTests
         await view.Render(
             new Event
             {
+                AgentSessionId = "child-session",
+                AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                {
+                    InputTokens = 1200000,
+                    CachedInputTokens = 800,
+                    OutputTokens = 300,
+                    ContextSize = 1500,
+                    ContextLimit = 0,
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
                 AgentSessionId = "main-session",
                 ToolCallChunk = new ToolCallChunk
                 {
@@ -335,7 +349,7 @@ internal sealed class EnhancedCliTests
         var live = draws.Last();
         _ = await Assert.That(live).Contains("answer");
         _ = await Assert.That(live).Contains("⠋ agent main");
-        _ = await Assert.That(live).Contains("⠋ agent explorer[31m");
+        _ = await Assert.That(live).Contains("⠋ agent explorer[31m (1.2m in / 800 cached / 300 out, 1.5k/? ctx)");
         _ = await Assert.That(live).Contains("⠋ main: exec_command");
         _ = await Assert.That(live).Contains("⠋ explorer[31m: read[2J");
 
@@ -393,6 +407,38 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(string.Join('|', committed)).Contains("! explorer[31m: read[2J: denied[2J");
         _ = await Assert.That(string.Join('|', committed)).Contains("+ agent explorer[31m finished");
         _ = await Assert.That(draws.Last()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Enhanced_turn_ignores_agent_statistics_events(CancellationToken cancellationToken)
+    {
+        var (completed, output, error) = await Render(
+            [
+                new Event { AgentSessionId = "main", TurnStarted = new TurnStarted { Model = "model" } },
+                new Event
+                {
+                    AgentSessionId = "main",
+                    AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                    {
+                        InputTokens = 10,
+                        CachedInputTokens = 5,
+                        OutputTokens = 2,
+                        ContextSize = 12,
+                        ContextLimit = 100,
+                    },
+                },
+                new Event
+                {
+                    AgentSessionId = "main",
+                    TurnEnded = new TurnEnded { FinishReason = "stop", InputTokens = 10, OutputTokens = 2 },
+                },
+            ],
+            cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(output).DoesNotContain("AgentStatisticsUpdated");
+        _ = await Assert.That(output).Contains("stop - 10 total in / 2 total out");
+        _ = await Assert.That(error).IsEmpty();
     }
 
     [Test]

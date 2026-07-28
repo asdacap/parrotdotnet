@@ -47,7 +47,7 @@ internal sealed class SteppedProvider(params LLMEvent[] answers) : ILLMProvider,
             _requests.Add(request);
             answer = _answers.Count > 0
                 ? _answers.Dequeue()
-                : LLMEvent.Completed("stop", 1, 1, "nothing scripted", []);
+                : LLMEvent.Completed("stop", 1, 0, 1, "nothing scripted", []);
         }
 
         _ = _arrived.Release();

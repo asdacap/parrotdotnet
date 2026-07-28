@@ -18,7 +18,7 @@ internal sealed class OpenAICompatibleProviderTests
 
         data: {"choices":[{"index":0,"finish_reason":null,"delta":{"content":"world","reasoning_content":null}}],"usage":null}
 
-        data: {"choices":[{"index":0,"finish_reason":"stop","delta":{}}],"usage":{"prompt_tokens":11,"completion_tokens":3}}
+        data: {"choices":[{"index":0,"finish_reason":"stop","delta":{}}],"usage":{"prompt_tokens":11,"prompt_tokens_details":{"cached_tokens":5},"completion_tokens":3}}
 
         data: [DONE]
 
@@ -71,6 +71,7 @@ internal sealed class OpenAICompatibleProviderTests
         _ = await Assert.That(completed.Kind).IsEqualTo(LLMEventKind.Completed);
         _ = await Assert.That(completed.FinishReason).IsEqualTo("stop");
         _ = await Assert.That(completed.InputTokens).IsEqualTo(11);
+        _ = await Assert.That(completed.CachedInputTokens).IsEqualTo(5);
         _ = await Assert.That(completed.OutputTokens).IsEqualTo(3);
     }
 
@@ -123,7 +124,7 @@ internal sealed class OpenAICompatibleProviderTests
     {
         _ = await Assert.That(LLMEvent.TextDelta("x").ToolName).IsEmpty();
         _ = await Assert.That(LLMEvent.Retry(2, TimeSpan.FromSeconds(1), "429").ToolCallId).IsEmpty();
-        _ = _ = await Assert.That(LLMEvent.Completed("stop", 1, 2, "hi", []).Text).IsEmpty();
+        _ = _ = await Assert.That(LLMEvent.Completed("stop", 1, 0, 2, "hi", []).Text).IsEmpty();
         _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
     }
 

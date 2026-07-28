@@ -12,7 +12,7 @@ internal sealed class RetryingProviderTests
     {
         var scripted = new ReplayProvider(
             () => ThrowImmediately(new IOException("dropped")),
-            () => Yield(LLMEvent.TextDelta("hi"), LLMEvent.Completed("stop", 1, 1, "hi", [])));
+            () => Yield(LLMEvent.TextDelta("hi"), LLMEvent.Completed("stop", 1, 0, 1, "hi", [])));
 
         var events = await Drain(new RetryingProvider(scripted), cancellationToken);
         var text = string.Concat(events.Where(e => e.Kind == LLMEventKind.TextDelta).Select(e => e.Text));
