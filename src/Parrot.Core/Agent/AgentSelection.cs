@@ -5,5 +5,5 @@ namespace Parrot.Agent;
 
 internal sealed record AgentSelection(
     ProviderModel ResolvedModel,
-    ModeProfile? Mode,
+    MainAgentProfile? Profile,
     SecurityProfile SecurityProfile);

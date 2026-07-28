@@ -24,21 +24,21 @@ internal sealed class ModeRegistry(
 
     public IReadOnlyList<string> List() => _modeIds;
 
-    public ModeProfile Resolve(string id, string sessionId)
+    public MainAgentProfile Resolve(string id, string sessionId)
     {
         var selected = id.Length == 0 ? Build : id;
 
         if (selected == Plan)
         {
             var configured = Profile(Plan);
-            return ModeProfile.Plan(
+            return MainAgentProfile.Plan(
                 planDirectory,
                 () => PlanArtifact(sessionId),
                 configured?.ReadOnly ?? true,
                 configured?.SandboxRules ?? [],
                 globalRules,
                 () => PreparePlan(sessionId),
-                CompletePlan);
+                (agentSessionId, messageId) => CompletePlan(sessionId, agentSessionId, messageId));
         }
 
         return selected switch
@@ -66,19 +66,19 @@ internal sealed class ModeRegistry(
         }
     }
 
-    private ModeProfile BuildProfile()
+    private MainAgentProfile BuildProfile()
     {
         var configured = Profile(Build);
-        return ModeProfile.Build(
+        return MainAgentProfile.Build(
             configured?.ReadOnly ?? false,
             configured?.SandboxRules ?? [],
             globalRules);
     }
 
-    private ModeProfile QueryProfile()
+    private MainAgentProfile QueryProfile()
     {
         var configured = Profile(Query);
-        return ModeProfile.Query(
+        return MainAgentProfile.Query(
             configured?.ReadOnly ?? true,
             configured?.SandboxRules ?? [],
             globalRules);
@@ -130,13 +130,13 @@ internal sealed class ModeRegistry(
         }
     }
 
-    private PlanCompleted? CompletePlan(string sessionId, string messageId)
+    private PlanCompleted? CompletePlan(string userSessionId, string agentSessionId, string messageId)
     {
         string plan;
 
         lock (_planGate)
         {
-            if (!_planArtifacts.TryGetValue(sessionId, out var artifact))
+            if (!_planArtifacts.TryGetValue(userSessionId, out var artifact))
             {
                 return null;
             }
@@ -155,7 +155,7 @@ internal sealed class ModeRegistry(
             ? null
             : new PlanCompleted
             {
-                SessionId = sessionId,
+                SessionId = agentSessionId,
                 MessageId = messageId,
                 Markdown = plan,
                 Dialog = new TurnCompleteDialog

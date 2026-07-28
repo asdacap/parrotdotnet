@@ -98,18 +98,18 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        parent.UpdateSelection(parent.Selection().ResolvedModel, ModeProfile.Build(readOnly: false, [], []));
+        parent.UpdateSelection(parent.Selection().ResolvedModel, MainAgentProfile.Build(readOnly: false, [], []));
         var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
         parent.UpdateSelection(
             new ProviderModel(replacement, new LLMModel("replacement", replacement.Id)),
-            mode: null);
+            profile: null);
 
         _ = await spawn.Execute("""{"prompt":"do the subtask"}""", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
 
         _ = await Assert.That(sessions.Models.Single().Model.Id).IsEqualTo("model");
-        _ = await Assert.That(sessions.Modes.Single()).IsNull();
+        _ = await Assert.That(sessions.Profiles.Single()).IsNull();
     }
 
     [Test]
@@ -235,17 +235,18 @@ internal sealed class SubagentTests : IDisposable
         var planArtifact = Path.Combine(Path.GetTempPath(), "plan.md");
         parent.UpdateSelection(
             parent.Selection().ResolvedModel,
-            ModeProfile.Plan(Path.GetTempPath(), () => planArtifact, true, [], [], static () => { }, static (_, _) => null));
+            MainAgentProfile.Plan(Path.GetTempPath(), () => planArtifact, true, [], [], static () => { }, static (_, _) => null));
         var spawned = registry.Spawn(parent, parent.Selection(), "worker");
         parent.UpdateSelection(
             parent.Selection().ResolvedModel,
-            ModeProfile.Build(readOnly: false, [], []));
+            MainAgentProfile.Build(readOnly: false, [], []));
         var permissive = registry.Spawn(parent, parent.Selection(), "permissive");
 
         var rejected = await new AgentSendTool(registry, spawned, spawned.Selection()).Execute(
             $$"""{"session_id":"{{permissive.SessionId}}","message":"hello"}""",
             cancellationToken);
 
+        _ = await Assert.That(sessions.Profiles[0]).IsNull();
         _ = await Assert.That(sessions.SecurityProfiles[0].Rules).IsEmpty();
         _ = await Assert.That(rejected).IsEqualTo("error: cannot delegate to a more permissive agent");
     }
@@ -334,7 +335,7 @@ internal sealed class SubagentTests : IDisposable
             new SystemContextBuilder(".", ".", "2026-07-24", string.Empty),
             new TodoCollection("agent", _repository, _broker),
             new Compactor(120_000),
-            mode: null,
+            profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             cancellationToken);
@@ -343,13 +344,12 @@ internal sealed class SubagentTests : IDisposable
     {
         private readonly List<AgentIdentity> _identities = [];
         private readonly List<ProviderModel> _models = [];
-        private readonly List<ModeProfile?> _modes = [];
 
         public IReadOnlyList<AgentIdentity> Identities => _identities;
 
         public IReadOnlyList<ProviderModel> Models => _models;
 
-        public IReadOnlyList<ModeProfile?> Modes => _modes;
+        public List<MainAgentProfile?> Profiles { get; } = [];
 
         public List<SecurityProfile> SecurityProfiles { get; } = [];
 
@@ -358,14 +358,14 @@ internal sealed class SubagentTests : IDisposable
             ProviderModel model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            ModeProfile? mode,
+            MainAgentProfile? profile,
             SecurityProfile securityProfile,
             RuntimeStatus? status,
             CancellationToken lifetime)
         {
             _identities.Add(identity);
             _models.Add(model);
-            _modes.Add(mode);
+            Profiles.Add(profile);
             SecurityProfiles.Add(securityProfile);
 
             return new AgentSessionLease(new AgentSession(
@@ -377,7 +377,7 @@ internal sealed class SubagentTests : IDisposable
                 new SystemContextBuilder(".", ".", "2026-07-24", identity.Context),
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new Compactor(120_000),
-                mode,
+                profile,
                 securityProfile,
                 status,
                 lifetime));

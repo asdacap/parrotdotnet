@@ -132,6 +132,24 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
+    public async Task Plan_completion_uses_the_user_session_artifact_and_the_main_agent_identity()
+    {
+        var profile = Registry().Resolve(ModeRegistry.Plan, "user-session");
+        profile.Prepare();
+        await File.WriteAllTextAsync(profile.PlanArtifact, "# Plan");
+
+        var completed = profile.Complete("main-agent-session", "message");
+
+        if (completed is not { } emitted)
+        {
+            throw new InvalidOperationException("plan completion was not emitted");
+        }
+
+        _ = await Assert.That(emitted.SessionId).IsEqualTo("main-agent-session");
+        _ = await Assert.That(emitted.Markdown).IsEqualTo("# Plan");
+    }
+
+    [Test]
     public async Task Plan_completion_omits_a_blank_artifact()
     {
         var profile = Registry().Resolve(ModeRegistry.Plan, "session");

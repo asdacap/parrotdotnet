@@ -103,7 +103,7 @@ internal sealed class EventPayloadTests
             new SystemContextBuilder(".", ".", "2026-07-24", string.Empty),
             new TodoCollection("session", new EventRepository(database), events),
             new Compactor(120_000),
-            mode: null,
+            profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             CancellationToken.None);

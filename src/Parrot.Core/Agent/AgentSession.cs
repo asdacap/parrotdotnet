@@ -32,7 +32,7 @@ internal sealed class AgentSession(
     SystemContextBuilder systemContext,
     TodoCollection todos,
     Compactor compactor,
-    ModeProfile? mode,
+    MainAgentProfile? profile,
     SecurityProfile securityProfile,
     RuntimeStatus? status,
     CancellationToken lifetime)
@@ -71,7 +71,7 @@ internal sealed class AgentSession(
 
     private string _messageId = string.Empty;
 
-    private AgentSelection _selection = new(model, mode, securityProfile);
+    private AgentSelection _selection = new(model, profile, securityProfile);
     private string _epochContext = string.Empty;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
@@ -94,15 +94,13 @@ internal sealed class AgentSession(
 
     public TodoCollection Todos { get; } = todos;
 
-    // Selection is session state: an UpdateSession changes it, a prompt does
-    // not. One immutable snapshot is used for a whole turn because a running
+    // Selection is execution state supplied by the owning user session. One
+    // immutable snapshot is used for a whole turn because a running
     // drain keeps its history and pending input while later updates wait for
     // the next turn boundary.
     public ILLMProvider Provider => Selection().ResolvedModel.Provider;
 
     public string Model => Selection().ResolvedModel.Selector;
-
-    public ModeProfile? Mode => Selection().Mode;
 
     // How deep this session sits below the root. The registry refuses a child
     // beyond its recursion limit.
@@ -121,7 +119,7 @@ internal sealed class AgentSession(
         }
     }
 
-    public void UpdateSelection(ProviderModel selectedModel, ModeProfile? mode)
+    public void UpdateSelection(ProviderModel selectedModel, MainAgentProfile? profile)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
 
@@ -129,8 +127,8 @@ internal sealed class AgentSession(
         {
             _selection = new AgentSelection(
                 selectedModel,
-                mode,
-                mode?.SecurityProfile ?? _selection.SecurityProfile);
+                profile,
+                profile?.SecurityProfile ?? _selection.SecurityProfile);
         }
     }
 
@@ -605,7 +603,7 @@ internal sealed class AgentSession(
                 if (!turnOpen)
                 {
                     activeSelection = Selection();
-                    activeSelection.Mode?.Prepare();
+                    activeSelection.Profile?.Prepare();
                     turnOpen = true;
                     var started = new Event
                     {
@@ -627,7 +625,7 @@ internal sealed class AgentSession(
                     rounds = 0;
                 }
 
-                if (rounds++ >= (activeSelection?.Mode?.MaxToolRounds ?? 24))
+                if (rounds++ >= (activeSelection?.Profile?.MaxToolRounds ?? 24))
                 {
                     await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
                     return AgentExecution.Failed(RunawayMessage);
@@ -646,7 +644,7 @@ internal sealed class AgentSession(
 
                 var messages = new List<LLMMessage>(_history.Count + 1)
                 {
-                    LLMMessage.System(SystemPrompt(activeSelection.Mode)),
+                    LLMMessage.System(SystemPrompt(activeSelection.Profile)),
                 };
                 messages.AddRange(_history);
 
@@ -675,7 +673,7 @@ internal sealed class AgentSession(
                         OutputTokens = _statistics.OutputTokens,
                     },
                 };
-                if (activeSelection.Mode?.Complete(SessionId, _messageId) is { } planCompleted)
+                if (activeSelection.Profile?.Complete(SessionId, _messageId) is { } planCompleted)
                 {
                     var plan = new Event
                     {
@@ -835,15 +833,15 @@ internal sealed class AgentSession(
         _epochContext = systemContext.Build();
     }
 
-    private string SystemPrompt(ModeProfile? activeMode) => activeMode is null
+    private string SystemPrompt(MainAgentProfile? activeProfile) => activeProfile is null
         ? _epochContext
-        : $"{_epochContext}\n\n{activeMode.Prompt}\n\n{activeMode.HardRule}";
+        : $"{_epochContext}\n\n{activeProfile.Prompt}\n\n{activeProfile.HardRule}";
 
     private async Task<AgentSelection> InjectStatus(
         AgentSelection selection,
         CancellationToken cancellationToken)
     {
-        if (status is null || selection.Mode is null)
+        if (status is null || selection.Profile is null)
         {
             return selection;
         }
@@ -851,17 +849,17 @@ internal sealed class AgentSession(
         while (eventRepository.PendingStatus(SessionId) is { } pending)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var mode = selection.Mode;
+            var profile = selection.Profile;
 
-            if (mode is null || !string.Equals(mode.Id, pending.Mode, StringComparison.Ordinal))
+            if (profile is null || !string.Equals(profile.Id, pending.Mode, StringComparison.Ordinal))
             {
                 selection = Selection();
-                selection.Mode?.Prepare();
+                selection.Profile?.Prepare();
                 await Task.Yield();
                 continue;
             }
 
-            var content = await status.Observe(this, selection, mode, cancellationToken).ConfigureAwait(false);
+            var content = await status.Observe(this, selection, profile, cancellationToken).ConfigureAwait(false);
             var published = new Event
             {
                 Id = Identifier.EventId(),
@@ -871,7 +869,7 @@ internal sealed class AgentSession(
             if (!eventRepository.AppendStatusPrompt(published, pending, content))
             {
                 selection = Selection();
-                selection.Mode?.Prepare();
+                selection.Profile?.Prepare();
                 continue;
             }
 

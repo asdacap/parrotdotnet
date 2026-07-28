@@ -43,7 +43,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             new SystemContextBuilder(_workspace, _workspace, "2026-07-24", string.Empty),
             new TodoCollection("session", new EventRepository(database), events),
             new Compactor(120_000),
-            mode: null,
+            profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             CancellationToken.None);

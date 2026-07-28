@@ -48,7 +48,7 @@ internal sealed class AgentSessionFactory(
         ProviderModel model,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        ModeProfile? mode,
+        MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime) =>
@@ -62,7 +62,7 @@ internal sealed class AgentSessionFactory(
             configDirectory,
             date,
             compactor,
-            mode,
+            profile,
             securityProfile,
             status,
             lifetime);

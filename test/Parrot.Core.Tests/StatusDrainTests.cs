@@ -89,6 +89,40 @@ internal sealed class StatusDrainTests : IDisposable
     }
 
     [Test]
+    public async Task Plan_completion_uses_the_user_session_profile_for_the_main_agent(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var modes = new ModeRegistry(Path.Combine(_root, "plans"));
+        using var provider = new SteppedProvider(Answer("done"));
+        await using var session = new Parrot.Agent.UserSession(
+            "user",
+            "main-agent",
+            new ProviderModel(provider, new LLMModel("model", provider.Id)),
+            ModeRegistry.Plan,
+            repository,
+            new DirectAgentSessions(),
+            modes);
+
+        _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        await File.WriteAllTextAsync(session.Mode.PlanArtifact, "  # Plan\n", cancellationToken);
+        provider.Release();
+        await Settled(session);
+
+        var mainAgentSessionId = AgentSessionId(repository);
+        var events = repository.Replay();
+        var plan = events.Single(published => published.PayloadCase == Event.PayloadOneofCase.PlanCompleted);
+        var ended = events.Single(published => published.PayloadCase == Event.PayloadOneofCase.TurnEnded);
+
+        _ = await Assert.That(plan.AgentSessionId).IsEqualTo(mainAgentSessionId);
+        _ = await Assert.That(plan.PlanCompleted.SessionId).IsEqualTo(mainAgentSessionId);
+        _ = await Assert.That(plan.PlanCompleted.Markdown).IsEqualTo("# Plan");
+        var sequence = events.ToArray();
+        _ = await Assert.That(Array.IndexOf(sequence, plan)).IsLessThan(Array.IndexOf(sequence, ended));
+    }
+
+    [Test]
     public async Task Tool_rounds_reuse_one_durable_status_message(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
