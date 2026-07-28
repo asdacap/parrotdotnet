@@ -43,6 +43,7 @@ internal sealed class SubagentTests : IDisposable
 
         _ = await Assert.That(started.RootElement.GetProperty("name").GetString()).IsEqualTo("child-helper");
         _ = await Assert.That(started.RootElement.GetProperty("status").GetString()).IsEqualTo("running");
+        _ = await Assert.That(started.RootElement.GetProperty("depth").GetInt32()).IsEqualTo(1);
         _ = await Assert.That(sessionId).StartsWith("agent-session-");
         await provider.Arrived(cancellationToken);
 
@@ -62,6 +63,7 @@ internal sealed class SubagentTests : IDisposable
 
         _ = await Assert.That(completed.RootElement.GetProperty("task_id").GetString()).IsEqualTo(sessionId);
         _ = await Assert.That(completed.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
+        _ = await Assert.That(completed.RootElement.GetProperty("elapsed_ms").GetInt64() >= 0).IsTrue();
         _ = await Assert.That(completed.RootElement.GetProperty("output").GetString()).IsEqualTo("child says hi");
         _ = await Assert.That(retained.RootElement.GetProperty("output").GetString()).IsEqualTo("child says hi");
         _ = await Assert.That(sessions.Identities.Single()?.Name).IsEqualTo("child-helper");

@@ -46,7 +46,7 @@ internal sealed class WaitAgentTool(AgentRegistry agents) : ITool
         {
             return (await agents.Get(sessionId).Wait(
                 yieldAfterMilliseconds,
-                cancellationToken).ConfigureAwait(false)).FormatWait();
+                cancellationToken).ConfigureAwait(false)).Format();
         }
         catch (AgentRegistryException failure)
         {

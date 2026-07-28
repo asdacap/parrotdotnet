@@ -35,16 +35,7 @@ internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session,
         {
             var agent = agents.Spawn(session, selection.ResolvedModel, requestedName);
             _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
-            var result = new AgentTaskResult(
-                agent.SessionId,
-                agent.Name,
-                agent.Depth,
-                AgentTaskStatus.Running,
-                Yielded: false,
-                ElapsedMilliseconds: 0,
-                string.Empty,
-                string.Empty);
-            return result.FormatSpawn();
+            return new SpawnAgentResult(agent.SessionId, agent.Name, agent.Depth).Format();
         }
         catch (AgentRegistryException failure)
         {

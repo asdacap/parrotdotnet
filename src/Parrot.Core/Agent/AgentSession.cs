@@ -240,7 +240,7 @@ internal sealed class AgentSession(
         return new AgentSendResult(SessionId, Name, messageId, followUp);
     }
 
-    internal async Task<AgentTaskResult> Wait(
+    internal async Task<WaitAgentResult> Wait(
         int yieldAfterMilliseconds,
         CancellationToken cancellationToken)
     {
@@ -365,7 +365,7 @@ internal sealed class AgentSession(
         return value[..characters];
     }
 
-    private AgentTaskResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
+    private WaitAgentResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
         completed.Status switch
         {
             AgentExecutionStatus.Succeeded => TaskResult(
@@ -388,13 +388,13 @@ internal sealed class AgentSession(
                 completed.Error),
         };
 
-    private AgentTaskResult TaskResult(
+    private WaitAgentResult TaskResult(
         AgentTaskStatus status,
         bool yielded,
         long elapsedMilliseconds,
         string output,
         string error) =>
-        new(SessionId, Name, Depth, status, yielded, elapsedMilliseconds, output, error);
+        new(SessionId, Name, status, yielded, elapsedMilliseconds, output, error);
 
     private async Task<AgentExecution> Execute(
         string prompt,
