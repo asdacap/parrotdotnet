@@ -20,6 +20,8 @@ internal sealed class Configuration(string path)
     // what upstream accepts for the model too.
     public string Model { get; private set; } = string.Empty;
 
+    public bool InlineDiff { get; private set; } = true;
+
     // The configured providers, keyed by id. Empty is the common case: the
     // preset providers need only a credential, not a config entry.
     public IReadOnlyDictionary<string, ProviderConfig> Providers { get; private set; } =
@@ -39,6 +41,7 @@ internal sealed class Configuration(string path)
         return new(path)
         {
             Model = Scalar(root, ModelKey),
+            InlineDiff = ReadInlineDiff(root),
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules"),
@@ -179,6 +182,21 @@ internal sealed class Configuration(string path)
         "deny_write" => SandboxRuleAction.DenyWrite,
         _ => throw new InvalidDataException($"{path} has invalid action {action}"),
     };
+
+    private static bool ReadInlineDiff(YamlMappingNode root)
+    {
+        if (!Child(root, "inline_diff", out var node))
+        {
+            return true;
+        }
+
+        return node switch
+        {
+            YamlScalarNode { Value: "true" } => true,
+            YamlScalarNode { Value: "false" } => false,
+            _ => throw new InvalidDataException("inline_diff must be true or false"),
+        };
+    }
 
     private static bool? ReadOptionalBoolean(YamlMappingNode parent, string path, string key)
     {

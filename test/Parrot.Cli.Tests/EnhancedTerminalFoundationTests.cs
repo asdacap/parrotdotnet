@@ -79,7 +79,7 @@ internal sealed class EnhancedTerminalFoundationTests
     public async Task Renderer_owns_compact_block_and_role_spacing(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12, true);
         var frame = new ILiveBufferItem[]
         {
             new ModelineValue("build", string.Empty, "model"),
@@ -134,11 +134,11 @@ internal sealed class EnhancedTerminalFoundationTests
             .Render(new ScrollbackRenderContext(24, new TerminalPalette(true)));
 
         _ = await Assert.That(plain.Count).IsEqualTo(DiffScrollbackValue.MaximumRows + 2);
-        _ = await Assert.That(string.Join('\n', plain)).Contains("-old[2J    value");
-        _ = await Assert.That(string.Join('\n', plain)).Contains("… 5 diff rows omitted");
+        _ = await Assert.That(string.Join('\n', plain)).Contains("1 -old[2J    value");
+        _ = await Assert.That(string.Join('\n', plain)).Contains("… 4 diff rows omitted");
         _ = await Assert.That(string.Join('\n', plain)).DoesNotContain("\u001b");
-        _ = await Assert.That(string.Join('\n', colored)).Contains("\u001b[31m-old[2J    value\u001b[0m");
-        _ = await Assert.That(string.Join('\n', colored)).Contains("\u001b[32m+new    value\u001b[0m");
+        _ = await Assert.That(string.Join('\n', colored)).Contains("\u001b[31m1 -old[2J    value\u001b[0m");
+        _ = await Assert.That(string.Join('\n', colored)).Contains("\u001b[32m1 +new    value\u001b[0m");
         _ = await Assert.That(plain.All(line => TerminalText.Width(line) <= 24)).IsTrue();
     }
 

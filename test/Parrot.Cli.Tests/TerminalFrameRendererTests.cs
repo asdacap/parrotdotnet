@@ -9,7 +9,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Draw_and_clear_emit_exact_frame_and_caret_bytes(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12, true);
         var frame = Items(
             [new LiveTextValue("live\u001b[2J"), new SpinnerValue("thinking", 0)],
             new ModelineValue("chat", string.Empty, "model"),
@@ -37,7 +37,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task First_draw_reserves_rows_before_rendering_the_modeline(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12, true);
 
         await renderer.Draw(
             Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0)),
@@ -52,7 +52,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Full_width_modeline_is_drawn_without_terminal_autowrap(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 10, 12, true);
 
         await renderer.Draw(
             Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0)),
@@ -69,7 +69,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Live_rows_have_a_full_width_distinct_background(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(true), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(true), 10, 12, true);
 
         await renderer.Draw(
             Items(
@@ -87,7 +87,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Committing_scrollback_redraws_the_replacement_frame(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
         var initial = Items(
             [new LiveTextValue("running")],
             new ModelineValue("build", "working", "model"),
@@ -114,7 +114,7 @@ internal sealed class TerminalFrameRendererTests
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12, true);
         await renderer.Draw(
             Items(
                 [new LiveTextValue("working")],
@@ -166,7 +166,7 @@ internal sealed class TerminalFrameRendererTests
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12, true);
         var frame = Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0));
         var sequenceA = new object();
         var sequenceB = new object();
@@ -195,7 +195,7 @@ internal sealed class TerminalFrameRendererTests
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 40, new TerminalPalette(false), 10, 12, true);
         var frame = Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0));
         var sequence = new object();
 
@@ -215,7 +215,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Draw_replaces_the_live_frame_without_clearing_it_first(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
         var frame = Items(
             [new LiveTextValue("working")],
             new ModelineValue("chat", string.Empty, "model"),
@@ -240,7 +240,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Draw_removes_rows_when_the_live_frame_shrinks(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
 
         await renderer.Draw(
             Items(
@@ -265,7 +265,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Complete_snapshot_updates_input_and_live_frame(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
         await renderer.Draw(
             Items(
                 [new LiveTextValue("tool running"), new SpinnerValue("working", 0)],
@@ -300,7 +300,7 @@ internal sealed class TerminalFrameRendererTests
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 2, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 2, 12, true);
 
         await renderer.Draw(
             Items(
@@ -323,7 +323,7 @@ internal sealed class TerminalFrameRendererTests
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 2, 2);
+        var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 2, 2, true);
 
         await renderer.Draw(
             Items(
@@ -346,7 +346,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Complete_buffer_requires_exactly_one_caret(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12, true);
 
         _ = await Assert.That(async () => await renderer.Draw(
             [new ModelineValue("chat", string.Empty, "model")],
@@ -360,7 +360,7 @@ internal sealed class TerminalFrameRendererTests
     public async Task Concurrent_draws_are_serialized(CancellationToken cancellationToken)
     {
         using var output = new TrackingTextWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12, true);
         var frame = Items(
             [],
             new ModelineValue("chat", string.Empty, "model"),

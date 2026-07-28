@@ -54,9 +54,13 @@ internal sealed class ProcessAndPatchToolPresenterTests
         [
             new ApplyPatchToolPresenter(),
             new ToolCallPresentation("main", "apply_patch", "{\"patchText\":\"file.txt\\n<<<<<<< SEARCH\\na\\n=======\\nb\\n>>>>>>> REPLACE\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Applied patch to file.txt", string.Empty),
+            new ToolTerminalPresentation(
+                ToolTerminalStatus.Succeeded,
+                true,
+                "--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
+                string.Empty),
             "apply patch",
-            "apply patch",
+            "file.txt",
         ];
         yield return () =>
         [
@@ -111,5 +115,34 @@ internal sealed class ProcessAndPatchToolPresenterTests
 
         _ = await Assert.That(string.Join('\n', live)).Contains(liveExpected);
         _ = await Assert.That(string.Join('\n', terminalLines)).Contains(terminalExpected);
+    }
+
+    [Test]
+    public async Task Apply_patch_renders_the_result_diff_not_aider_request_syntax()
+    {
+        var presenter = new ApplyPatchToolPresenter();
+        var call = new ToolCallPresentation(
+            "main",
+            "apply_patch",
+            "{\"patchText\":\"file.txt\\n<<<<<<< SEARCH\\na\\n=======\\nb\\n>>>>>>> REPLACE\"}");
+        var terminal = new ToolTerminalPresentation(
+            ToolTerminalStatus.Succeeded,
+            true,
+            "--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
+            string.Empty);
+
+        var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
+            .Render(new ScrollbackRenderContext(80, new TerminalPalette(false)));
+        var sideBySide = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
+            .Render(new ScrollbackRenderContext(80, new TerminalPalette(false), false));
+
+        _ = await Assert.That(string.Join('\n', rendered)).Contains("1 -a");
+        _ = await Assert.That(string.Join('\n', rendered)).Contains("1 +b");
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("│");
+        _ = await Assert.That(string.Join('\n', sideBySide)).Contains("│ 1 +b");
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("--- a/file.txt");
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("+++ b/file.txt");
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("<<<<<<< SEARCH");
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(">>>>>>> REPLACE");
     }
 }

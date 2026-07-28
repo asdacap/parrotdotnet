@@ -13,7 +13,7 @@ internal sealed class TerminalSpinnerTests
         var delays = Channel.CreateUnbounded<int>();
         var delayCount = 0;
         var indices = new ConcurrentQueue<int>();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12, true);
         var fixedItems = new ILiveBufferItem[]
         {
             new ModelineValue("chat", string.Empty, "model"),

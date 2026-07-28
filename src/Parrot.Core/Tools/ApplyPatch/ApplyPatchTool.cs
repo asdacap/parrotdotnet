@@ -42,6 +42,7 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
             }
 
             var written = new List<string>();
+            var changes = new List<PatchDiff.FileChange>();
 
             try
             {
@@ -50,7 +51,7 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
                 foreach (var operation in patch.Operations)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await Apply(workingDirectory, operation, cancellationToken).ConfigureAwait(false);
+                    changes.Add(await Apply(workingDirectory, operation, cancellationToken).ConfigureAwait(false));
                     written.Add(operation.Path);
                 }
             }
@@ -62,7 +63,7 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
                     : $"{report}\nFiles written before failure: {string.Join(", ", written)}";
             }
 
-            return $"Applied patch to {string.Join(", ", written)}";
+            return PatchDiff.Render(changes);
         }
 
         private static void Preflight(
@@ -116,7 +117,7 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
             return (textElement.GetString() ?? string.Empty, format);
         }
 
-        private static async Task Apply(
+        private static async Task<PatchDiff.FileChange> Apply(
             string workingDirectory,
             PatchOperation operation,
             CancellationToken cancellationToken)
@@ -127,14 +128,18 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
             {
                 case PatchOperationKind.Add:
                     EnsureRegularFileOrMissing(path);
+                    var beforeExists = File.Exists(path);
+                    var addBefore = beforeExists
+                        ? await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false)
+                        : null;
                     var parent = Path.GetDirectoryName(path)
                         ?? throw new PatchException($"Destination '{operation.Path}' has no parent directory.");
                     _ = Directory.CreateDirectory(parent);
                     path = Resolve(workingDirectory, operation.Path, create: true);
                     EnsureRegularFileOrMissing(path);
-                    await File.WriteAllBytesAsync(
-                        path, StrictUtf8.GetBytes(operation.Data), cancellationToken).ConfigureAwait(false);
-                    break;
+                    var addAfter = StrictUtf8.GetBytes(operation.Data);
+                    await File.WriteAllBytesAsync(path, addAfter, cancellationToken).ConfigureAwait(false);
+                    return new PatchDiff.FileChange(operation.Path, addBefore, addAfter);
 
                 case PatchOperationKind.Update:
                     EnsureRegularFile(path);
@@ -143,14 +148,15 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
                     path = Resolve(workingDirectory, operation.Path, create: false);
                     EnsureRegularFile(path);
                     await File.WriteAllBytesAsync(path, after, cancellationToken).ConfigureAwait(false);
-                    break;
+                    return new PatchDiff.FileChange(operation.Path, before, after);
 
                 case PatchOperationKind.Delete:
                     EnsureRegularFile(path);
+                    var deleted = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
                     path = Resolve(workingDirectory, operation.Path, create: false);
                     EnsureRegularFile(path);
                     File.Delete(path);
-                    break;
+                    return new PatchDiff.FileChange(operation.Path, deleted, null);
 
                 default:
                     throw new PatchException($"Unknown operation for '{operation.Path}'.");

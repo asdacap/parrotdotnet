@@ -356,7 +356,7 @@ internal sealed class EnhancedCliTests
     public async Task Finished_shell_tool_flushes_its_command_to_scrollback(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
-        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12, true);
         var fixedItems = new ILiveBufferItem[]
         {
             new ModelineValue("build", "working", "provider/model"),
