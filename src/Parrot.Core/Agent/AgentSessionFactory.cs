@@ -20,6 +20,8 @@ internal sealed class AgentSessionFactory(
     string date,
     Compactor compactor,
     WebFetcher webFetcher,
+    ModelRouter router,
+    ModelPromptContext modelPromptContext,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactory
 {
     private readonly ToolWorkspace _workspace = new(workingDirectory);
@@ -35,7 +37,7 @@ internal sealed class AgentSessionFactory(
             new GrepToolFactory(_workspace),
             new ApplyPatchToolFactory(workingDirectory),
             new WebFetchToolFactory(webFetcher),
-            new AgentSpawnToolFactory(owner.Registry),
+            new AgentSpawnToolFactory(owner.Registry, router),
             new AgentSendToolFactory(owner.Registry),
             new WaitAgentToolFactory(owner.Registry),
             new TodoReadToolFactory(),
@@ -44,7 +46,7 @@ internal sealed class AgentSessionFactory(
 
     public IAgentSessionLease Create(
         AgentIdentity identity,
-        ProviderModel model,
+        ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
         MainAgentProfile? profile,
@@ -54,12 +56,14 @@ internal sealed class AgentSessionFactory(
         scopes.Create(
             identity,
             model,
+            router,
             eventBroker,
             eventRepository,
             ToolFactories,
             workingDirectory,
             configDirectory,
             date,
+            modelPromptContext,
             compactor,
             profile,
             securityProfile,

@@ -5,6 +5,38 @@ namespace Parrot.Cli.Tests;
 internal sealed class BasicCliTests
 {
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Startup_warns_for_unconfigured_aliases_in_name_order(
+        bool enhanced,
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced);
+        driver.Invoker.ModelAliases.Add(new ModelAlias { Name = "z_llm", Usage = "last" });
+        driver.Invoker.ModelAliases.Add(new ModelAlias
+        {
+            Name = "configured_llm",
+            ModelString = "provider/model",
+            Usage = "configured",
+        });
+        driver.Invoker.ModelAliases.Add(new ModelAlias { Name = "a_llm", Usage = "first" });
+
+        var driving = driver.Drive(cancellationToken);
+        await driver.OutputContains("warning: model alias \"z_llm\" is not configured", cancellationToken);
+        driver.Input.End();
+        _ = await driving;
+
+        var first = driver.Output.IndexOf(
+            "warning: model alias \"a_llm\" is not configured", StringComparison.Ordinal);
+        var last = driver.Output.IndexOf(
+            "warning: model alias \"z_llm\" is not configured", StringComparison.Ordinal);
+        _ = await Assert.That(first).IsGreaterThanOrEqualTo(0);
+        _ = await Assert.That(last).IsGreaterThan(first);
+        _ = await Assert.That(driver.Output).DoesNotContain(
+            "warning: model alias \"configured_llm\" is not configured");
+    }
+
+    [Test]
     public async Task Tool_lifecycle_events_render_as_plain_lines(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();

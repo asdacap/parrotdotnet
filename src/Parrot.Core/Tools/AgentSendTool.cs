@@ -6,7 +6,7 @@ namespace Parrot.Tools;
 internal sealed class AgentSendTool(
     AgentRegistry agents,
     AgentSession session,
-    AgentSelection caller) : ITool
+    AgentTurnSelection caller) : ITool
 {
     public string Name => "agent_send";
 

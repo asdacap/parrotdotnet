@@ -12,6 +12,8 @@ package parrot.v1;
 // resume the stream without re-sending the prompt.
 service Parrot {
   rpc ListModels (ListModelsRequest) returns (ListModelsResponse);
+  rpc ListModelAliases (ListModelAliasesRequest) returns (ListModelAliasesResponse);
+  rpc ConfigureModelAlias (ConfigureModelAliasRequest) returns (ConfigureModelAliasResponse);
   rpc ListModes (ListModesRequest) returns (ListModesResponse);
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
@@ -62,6 +64,27 @@ message Model {
 message ModelVariant {
   string name             = 1;
   string reasoning_effort = 2;
+}
+
+message ListModelAliasesRequest {}
+
+message ListModelAliasesResponse {
+  repeated ModelAlias aliases = 1;
+}
+
+message ModelAlias {
+  string name         = 1;
+  string model_string = 2;
+  string usage        = 3;
+}
+
+message ConfigureModelAliasRequest {
+  string name         = 1;
+  string model_string = 2;
+}
+
+message ConfigureModelAliasResponse {
+  ModelAlias alias = 1;
 }
 
 message ListModesRequest {}

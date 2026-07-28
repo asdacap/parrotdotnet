@@ -25,12 +25,14 @@ namespace Parrot.Agent;
 // _drainGate is the whole of its synchronisation.
 internal sealed class AgentSession(
     AgentIdentity identity,
-    ProviderModel model,
+    ModelSelector model,
+    ModelRouter router,
     EventBroker eventBroker,
     EventRepository eventRepository,
     IReadOnlyList<IToolFactory> toolFactories,
     SystemContextBuilder systemContext,
     TodoCollection todos,
+    ModelPromptContext modelPromptContext,
     Compactor compactor,
     MainAgentProfile? profile,
     SecurityProfile securityProfile,
@@ -67,7 +69,7 @@ internal sealed class AgentSession(
     private readonly Lock _selectionGate = new();
 
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
-        ?? new AgentStatistics(0, 0, 0, 0, model.Model.ContextWindow, 0, 0);
+        ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);
 
     private string _messageId = string.Empty;
 
@@ -98,9 +100,7 @@ internal sealed class AgentSession(
     // immutable snapshot is used for a whole turn because a running
     // drain keeps its history and pending input while later updates wait for
     // the next turn boundary.
-    public ILLMProvider Provider => Selection().ResolvedModel.Provider;
-
-    public string Model => Selection().ResolvedModel.Selector;
+    public string Model => Selection().RequestedModel.Value;
 
     // How deep this session sits below the root. The registry refuses a child
     // beyond its recursion limit.
@@ -119,7 +119,7 @@ internal sealed class AgentSession(
         }
     }
 
-    public void UpdateSelection(ProviderModel selectedModel, MainAgentProfile? profile)
+    public void UpdateSelection(ModelSelector selectedModel, MainAgentProfile? profile)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
 
@@ -580,7 +580,7 @@ internal sealed class AgentSession(
     // difference between a steer and a queued prompt.
     private async Task<AgentExecution> Pass(
         bool turnOpen,
-        AgentSelection? activeSelection,
+        AgentTurnSelection? activeSelection,
         CancellationToken cancellationToken)
     {
         var answer = string.Empty;
@@ -602,14 +602,20 @@ internal sealed class AgentSession(
 
                 if (!turnOpen)
                 {
-                    activeSelection = Selection();
-                    activeSelection.Profile?.Prepare();
+                    var captured = Selection();
+                    captured.Profile?.Prepare();
+                    var resolved = router.Resolve(captured.RequestedModel.Value);
+                    activeSelection = new AgentTurnSelection(
+                        resolved.RequestedSelector,
+                        resolved,
+                        captured.Profile,
+                        captured.SecurityProfile);
                     turnOpen = true;
                     var started = new Event
                     {
                         Id = Identifier.EventId(),
                         AgentSessionId = SessionId,
-                        TurnStarted = new TurnStarted { Model = activeSelection.ResolvedModel.Selector },
+                        TurnStarted = new TurnStarted { Model = resolved.CanonicalModel.Selector },
                     };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
@@ -644,7 +650,7 @@ internal sealed class AgentSession(
 
                 var messages = new List<LLMMessage>(_history.Count + 1)
                 {
-                    LLMMessage.System(SystemPrompt(activeSelection.Profile)),
+                    LLMMessage.System(modelPromptContext.Build(_epochContext, activeSelection)),
                 };
                 messages.AddRange(_history);
 
@@ -806,7 +812,7 @@ internal sealed class AgentSession(
 
     // Sampled at the start of an epoch, not every turn, and compaction starts a
     // fresh one -- so a turn never begins already over the window.
-    private async Task Epoch(AgentSelection? selection, CancellationToken cancellationToken)
+    private async Task Epoch(AgentTurnSelection? selection, CancellationToken cancellationToken)
     {
         if (_epochContext.Length == 0)
         {
@@ -820,7 +826,8 @@ internal sealed class AgentSession(
 
         // Copied before the clear: a compaction with nothing to summarise hands
         // back the very list being emptied.
-        var selectedModel = (selection ?? Selection()).ResolvedModel;
+        var selectedModel = selection?.ResolvedModel.CanonicalModel
+            ?? throw new AgentRegistryException("turn selection is unavailable");
         var compacted = (await Compactor.Compact(
             selectedModel.Provider,
             selectedModel.ModelId,
@@ -833,12 +840,8 @@ internal sealed class AgentSession(
         _epochContext = systemContext.Build();
     }
 
-    private string SystemPrompt(MainAgentProfile? activeProfile) => activeProfile is null
-        ? _epochContext
-        : $"{_epochContext}\n\n{activeProfile.Prompt}\n\n{activeProfile.HardRule}";
-
-    private async Task<AgentSelection> InjectStatus(
-        AgentSelection selection,
+    private async Task<AgentTurnSelection> InjectStatus(
+        AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
         if (status is null || selection.Profile is null)
@@ -853,7 +856,7 @@ internal sealed class AgentSession(
 
             if (profile is null || !string.Equals(profile.Id, pending.Mode, StringComparison.Ordinal))
             {
-                selection = Selection();
+                selection = RefreshSelection(selection);
                 selection.Profile?.Prepare();
                 await Task.Yield();
                 continue;
@@ -868,7 +871,7 @@ internal sealed class AgentSession(
             };
             if (!eventRepository.AppendStatusPrompt(published, pending, content))
             {
-                selection = Selection();
+                selection = RefreshSelection(selection);
                 selection.Profile?.Prepare();
                 continue;
             }
@@ -880,15 +883,26 @@ internal sealed class AgentSession(
         return selection;
     }
 
+    private AgentTurnSelection RefreshSelection(AgentTurnSelection active)
+    {
+        var selected = Selection();
+        return active with
+        {
+            Profile = selected.Profile,
+            SecurityProfile = selected.SecurityProfile,
+        };
+    }
+
     // Streams one provider call: deltas go out as events, and the terminal
     // Completed is returned so the loop can decide what to do next.
     private async Task<LLMEvent> Call(
-        AgentSelection? selection,
+        AgentTurnSelection? selection,
         ToolSnapshot snapshot,
         IReadOnlyList<LLMMessage> messages,
         CancellationToken cancellationToken)
     {
-        var selectedModel = (selection ?? Selection()).ResolvedModel;
+        var selectedModel = selection?.ResolvedModel.CanonicalModel
+            ?? throw new AgentRegistryException("turn selection is unavailable");
         var request = new LLMRequest
         {
             Model = selectedModel.ModelId,

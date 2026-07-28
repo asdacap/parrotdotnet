@@ -53,14 +53,14 @@ assembly needs a reason recorded in `MIGRATION.md`.
 
 ## Model Selection
 
-A model selection is a canonical `provider/model[/effort-variant]` selector.
-The provider is the first path segment, and the model may itself contain
-slashes. The refreshed provider catalog supplies autocomplete and model
-metadata, but it is not an allowlist: an unlisted model ID is passed to the
-provider and can fail when called. The optional final segment is treated as an
-effort variant only when the complete remainder is not an exact catalog model
-ID. This makes selectors stable even when a provider offers slash-containing
-model IDs.
+A model selection is either a configured model alias or a canonical
+`provider/model[/effort-variant]` selector. The provider is the first path
+segment, and the model may itself contain slashes. The refreshed provider
+catalog supplies autocomplete and model metadata, but it is not an allowlist:
+an unlisted model ID is passed to the provider and can fail when called. The
+optional final segment is treated as an effort variant only when the complete
+remainder is not an exact catalog model ID. This makes selectors stable even
+when a provider offers slash-containing model IDs.
 
 A variant has a stable catalog name and a provider-facing `reasoning_effort`
 value. They are intentionally distinct: selecting `high`, for example, can map
@@ -69,12 +69,13 @@ unset so the provider chooses its default. Interactive `/model` preserves a
 compatible current effort when possible; otherwise it uses the target model's
 first listed variant, or clears the effort for a model without variants.
 
-`/model` and `/effort` persist the complete canonical selector through the
+`/model` and `/effort` persist the complete requested selector through the
 shared configuration. `/effort NAME` selects one of the active model's listed
 variants; bare `/effort` presents those variants in provider order. `--model`
-is per invocation and accepts the same complete selector. `--variant NAME` is a
-deprecated startup-only override: it replaces any selected suffix after
-validation against the selected model and does not persist.
+is per invocation and accepts an alias or the same complete canonical selector.
+`--variant NAME` is a deprecated startup-only override: it resolves an alias
+first, then replaces the selected canonical suffix after validation against that
+model; it does not persist.
 
 The gRPC model-list response carries ordered model-variant metadata
 additively. Each entry contains the stable `name` and mapped
@@ -86,6 +87,78 @@ selected effort and automatic summary under
 `"reasoning":{"effort":"…","summary":"auto"}`. Chat Completions requests
 place it at top level as `"reasoning_effort":"…"`. Both omit their effort field
 for a bare model selection.
+
+## Model Aliases
+
+Model aliases give stable names to model selectors. The effective configuration
+combines these four predefined aliases with the `model_aliases` map in the
+configuration file: `low_llm`, `medium_llm`, `high_llm`, and `xhigh_llm`.
+Their predefined `usage` values are:
+
+- `low_llm`: `mechanical, single file task, text or code processing when no suitable cli tool available.`
+- `medium_llm`: `Decently capable, specific clear task, component level task, two or three file window`
+- `high_llm`: `General purpose, agent spawner, tactical decision making and planning, debugging, colaborator`
+- `xhigh_llm`: `Strategic work spanning multiple modules or parties, ambiguous or open-ended requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.`
+
+A configured entry can override any predefined field without losing its default
+metadata, and can add another alias.
+
+```yaml
+model_aliases:
+  low_llm:
+    model_string: provider/model/low
+    usage: Low cost or routine work
+    augment_system_prompt: null
+  review_llm:
+    model_string: provider/model/high
+    usage: Careful code review
+
+model_augment_system_prompts:
+  provider/model/low: Additional system guidance
+```
+
+`model_string` is the canonical target. An empty target is valid: it defines a
+disabled, unconfigured alias, which is shown in the model-alias picker and
+reported as a startup warning. Selecting it fails clearly until it is
+configured. `usage` is required after predefined and user fields are merged.
+Alias names are ordinal, case-sensitive identifiers: they must be nonempty,
+already trimmed, and contain no `/`. Targets and canonical augmentation keys
+must be trimmed `provider/model[/variant]` selectors with no empty or control
+whitespace path segment. Aliases cannot chain or refer to themselves; an alias
+target must be a canonical selector accepted by a configured provider.
+
+The requested selector remains the session's identity. Thus a session selected
+as `high_llm` continues to display and persist `high_llm`, while the provider
+executes that alias's resolved canonical target. The route is resolved once at
+the beginning of each turn. Retargeting an alias affects the next turn only;
+an active turn, including its tool rounds, continues to use its captured
+canonical route and matching prompt configuration.
+
+Configured aliases may be used anywhere a model selector is accepted,
+including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits
+the parent turn's complete requested selector, including an alias or variant;
+an explicit alias or canonical selector becomes the child's requested selector
+and is validated before the child is created. The child resolves its own route
+when its turn begins, so later alias changes can affect a later child turn.
+
+`/model-alias` is an interactive, wizard-only command for configuring an
+existing alias. It ignores typed arguments, lists aliases by name with their
+usage and target (or `not configured`), and lets the user choose a provider,
+model, and, where applicable, effort. It configures only the alias; it does not
+change the active session or model selection.
+
+Alias listing and configuration belong to the server that executes turns. A
+remote CLI queries and updates that authoritative server configuration; it does
+not modify its own local configuration instead.
+
+Aliases can also tailor the system prompt. For a matched alias, a non-null
+`augment_system_prompt` wins, including an explicit empty string, which
+suppresses augmentation. `null` (or omission) falls through to
+`model_augment_system_prompts`: first an exact canonical selector key, then its
+canonical base `provider/model` key. An explicit empty alias value is therefore
+different from `null`. Direct canonical selectors retain the same exact-then-
+base augmentation behavior, and remain compatible with unlisted models that
+the provider accepts.
 
 ## Build And Run
 
@@ -103,10 +176,11 @@ to build this repository against an ambient SDK.
 ## Interactive slash commands
 
 Slash commands are interactive wizards. Enter `/model` to select a provider and
-then a model, `/mode` to select a mode, `/clear` to configure a fresh session,
-or `/auth` to manage credentials. Text after the command name is ignored; the
-wizard always asks for the complete selection. Escape or Ctrl-C dismisses an
-enhanced wizard without applying partial changes.
+then a model, `/model-alias` to configure a predefined or custom alias, `/mode`
+to select a mode, `/clear` to configure a fresh session, or `/auth` to manage
+credentials. Text after the command name is ignored; the wizard always asks for
+the complete selection. Escape or Ctrl-C dismisses an enhanced wizard without
+applying partial changes.
 
 The basic CLI prints choices and reads them as lines. The enhanced CLI replaces
 only its live input area with a filterable picker, so an active turn's output,

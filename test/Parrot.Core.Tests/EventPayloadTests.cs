@@ -94,14 +94,17 @@ internal sealed class EventPayloadTests
         // A real repository over an in-memory database, not a null: the code
         // under test should take the same path production does.
         using var database = SessionDatabase.Open(":memory:");
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var session = new AgentSession(
             AgentIdentity.Main("session", string.Empty),
-            new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
             events,
             new EventRepository(database),
             [],
             new SystemContextBuilder(".", ".", "2026-07-24", string.Empty),
             new TodoCollection("session", new EventRepository(database), events),
+            new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)),
             new Compactor(120_000),
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),

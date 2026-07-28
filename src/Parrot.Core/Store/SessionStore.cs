@@ -13,15 +13,16 @@ internal sealed class SessionStore(
     string stateDirectory,
     string workingDirectory,
     string hostKey,
-    IUserSessionFactory userSessions) : IDisposable
+    IUserSessionFactory userSessions,
+    ModelRouter router) : IDisposable
 {
     private readonly List<SessionDatabase> _open = [];
 
     public SessionIndex Index { get; } = new(stateDirectory);
 
-    public UserSession Open(ProviderModel model) => Open(model, ModeRegistry.Build);
+    public UserSession Open(ResolvedModelSelection model) => Open(model, ModeRegistry.Build);
 
-    public UserSession Open(ProviderModel model, string mode)
+    public UserSession Open(ResolvedModelSelection model, string mode)
     {
         var claim = new WorkingDirectoryClaim(stateDirectory, hostKey);
         var claimed = claim.Claim(workingDirectory, Identifier.UserSession(), ProcessIsAlive);
@@ -51,7 +52,8 @@ internal sealed class SessionStore(
         try
         {
             database = SessionDatabase.Open(Index.DatabaseFor(id));
-            var session = userSessions.Create(id, rootAgentName, model, mode, new EventRepository(database));
+            var selected = existing is null ? model : router.Resolve(StoredSelector(existing));
+            var session = userSessions.Create(id, rootAgentName, selected, mode, new EventRepository(database));
             Index.Publish(new SessionMeta
             {
                 Id = id,
@@ -59,7 +61,8 @@ internal sealed class SessionStore(
                 HostKey = hostKey,
                 RootAgentName = rootAgentName,
                 ProviderId = session.ProviderId,
-                Model = session.Model,
+                Model = session.CanonicalModel,
+                Selector = session.Model,
                 Mode = session.Mode.Id,
                 ProcessId = Environment.ProcessId,
                 CreatedAt = existing?.CreatedAt
@@ -81,7 +84,8 @@ internal sealed class SessionStore(
         Index.Publish(current with
         {
             ProviderId = session.ProviderId,
-            Model = session.Model,
+            Model = session.CanonicalModel,
+            Selector = session.Model,
             Mode = session.Mode.Id,
         });
     }
@@ -94,6 +98,18 @@ internal sealed class SessionStore(
         }
 
         _open.Clear();
+    }
+
+    private static string StoredSelector(SessionMeta meta)
+    {
+        if (meta.Selector.Length > 0)
+        {
+            return meta.Selector;
+        }
+
+        return meta.Model.StartsWith($"{meta.ProviderId}/", StringComparison.Ordinal)
+            ? meta.Model
+            : $"{meta.ProviderId}/{meta.Model}";
     }
 
     // A record left by a dead process is abandoned and may be reclaimed. Repair

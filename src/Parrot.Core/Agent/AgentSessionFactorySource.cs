@@ -13,10 +13,21 @@ internal sealed class AgentSessionFactorySource(
     string date,
     Compactor compactor,
     WebFetcher webFetcher,
+    Llm.ModelRouter router,
+    ModelPromptContext modelPromptContext,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactorySource
 {
     public IAgentSessionFactory Create(UserSession owner) =>
-        new AgentSessionFactory(owner, workingDirectory, configDirectory, date, compactor, webFetcher, scopes);
+        new AgentSessionFactory(
+            owner,
+            workingDirectory,
+            configDirectory,
+            date,
+            compactor,
+            webFetcher,
+            router,
+            modelPromptContext,
+            scopes);
 
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
         new(

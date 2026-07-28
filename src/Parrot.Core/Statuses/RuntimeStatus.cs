@@ -10,16 +10,16 @@ internal sealed class RuntimeStatus(UserSession owner)
 
     public Task<string> Observe(
         AgentSession session,
-        AgentSelection selection,
+        AgentTurnSelection selection,
         MainAgentProfile profile,
         CancellationToken cancellationToken) =>
         _registry.Observe(
             new StatusQuery(
                 session.SessionId,
                 profile.Id,
-                selection.ResolvedModel.Provider.Id,
-                selection.ResolvedModel.ModelId,
-                selection.ResolvedModel.Variant?.Name ?? string.Empty),
+                selection.ResolvedModel.CanonicalModel.Provider.Id,
+                selection.ResolvedModel.CanonicalModel.ModelId,
+                selection.ResolvedModel.CanonicalModel.Variant?.Name ?? string.Empty),
             new ProfileStatusProvider(
                 $"profile:{profile.Id}-mode",
                 profile.Prompt,

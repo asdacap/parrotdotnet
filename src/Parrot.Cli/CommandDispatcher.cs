@@ -108,8 +108,10 @@ internal sealed class CommandDispatcher(
         TextWriter error,
         CancellationToken cancellationToken)
     {
+        var canonicalSelector = await ModelAliasSelection.Resolve(client, selector, cancellationToken)
+            .ConfigureAwait(false);
         var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
-        var current = ModelSelection.Resolve(listed.Models, selector);
+        var current = ModelSelection.Resolve(listed.Models, canonicalSelector);
         if (current is null)
         {
             await error.WriteLineAsync(

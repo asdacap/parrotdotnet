@@ -71,6 +71,36 @@ internal partial class Composition
             .Bind().As(Lifetime.Singleton).To(_ => new Compactor(CompactionTokenBudget))
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
+                ctx.Inject<ProviderRegistry>(out var registry);
+                ctx.Inject<Configuration>(out var configuration);
+                return new ModelAliasCatalog(
+                    registry,
+                    configuration.ModelAliases.Select(alias => new ModelAliasDefinition(
+                        alias.Key,
+                        alias.Value.ModelString,
+                        alias.Value.Usage,
+                        alias.Value.AugmentSystemPrompt)));
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<ProviderRegistry>(out var registry);
+                ctx.Inject<ModelAliasCatalog>(out var aliases);
+                ctx.Inject<Configuration>(out var configuration);
+                return new ModelRouter(registry, aliases, configuration.Model);
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<Configuration>(out var configuration);
+                ctx.Inject<ModelAliasCatalog>(out var aliases);
+                return new ModelAliasConfigurator(configuration, aliases);
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<Configuration>(out var configuration);
+                return new ModelPromptContext(configuration.ModelAugmentSystemPrompts);
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
                 ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<Configuration>(out var configuration);
                 return new ModeRegistry(
@@ -92,12 +122,23 @@ internal partial class Composition
                 ctx.Inject<string>("date", out var date);
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<WebFetcher>(out var webFetcher);
+                ctx.Inject<ModelRouter>(out var router);
+                ctx.Inject<ModelPromptContext>(out var modelPromptContext);
                 ctx.Inject<IAgentSessionScopeFactory>(out var scopes);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<StatePaths>(out var paths);
 
                 return new AgentSessionFactorySource(
-                    workingDirectory, paths.Config, sessionIndex, processes, date, compactor, webFetcher, scopes);
+                    workingDirectory,
+                    paths.Config,
+                    sessionIndex,
+                    processes,
+                    date,
+                    compactor,
+                    webFetcher,
+                    router,
+                    modelPromptContext,
+                    scopes);
             })
 
             .Bind().As(Lifetime.Singleton).To<IAgentSessionScopeFactory>(_ => new AgentSessionScopeFactory())
@@ -113,17 +154,20 @@ internal partial class Composition
             {
                 ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<IUserSessionFactory>(out var userSessions);
+                ctx.Inject<ModelRouter>(out var router);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<string>("hostKey", out var hostKey);
-                return new SessionStore(paths.State, workingDirectory, hostKey, userSessions);
+                return new SessionStore(paths.State, workingDirectory, hostKey, userSessions, router);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
+                ctx.Inject<ModelRouter>(out var router);
                 ctx.Inject<ProviderRegistry>(out var registry);
+                ctx.Inject<ModelAliasConfigurator>(out var aliases);
                 ctx.Inject<SessionStore>(out var store);
                 ctx.Inject<ModeRegistry>(out var modes);
-                return new ParrotService(registry, store, modes);
+                return new ParrotService(router, registry, aliases, store, modes);
             })
 
             .Root<StatePaths>("Paths")

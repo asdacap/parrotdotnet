@@ -13,7 +13,17 @@ namespace Parrot.Config;
 // handful of scalars; revisit when it gains structure worth commenting.
 internal sealed class Configuration(string path)
 {
+    private const string ModelAliasesKey = "model_aliases";
+    private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
+    private const string XhighAugmentation =
+        "For complex work, delegate focused exploration or implementation when the active profile permits it. " +
+        "Do not duplicate a task already handled by a running agent.";
+
+    private const string XhighUsage = "Strategic work spanning multiple modules or parties, ambiguous or open-ended " +
+        "requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.";
+
+    private readonly Lock _writeLock = new();
 
     // A read-modify-write. Rename gives atomicity, not serialisation across
     // hosts, so this is last-write-wins for a global preference -- which is
@@ -26,6 +36,12 @@ internal sealed class Configuration(string path)
     // preset providers need only a credential, not a config entry.
     public IReadOnlyDictionary<string, ProviderConfig> Providers { get; private set; } =
         new Dictionary<string, ProviderConfig>(StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, ModelAliasConfig> ModelAliases { get; private set; } =
+        new SortedDictionary<string, ModelAliasConfig>(StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, string> ModelAugmentSystemPrompts { get; private set; } =
+        new SortedDictionary<string, string>(StringComparer.Ordinal);
 
     public WebFetchConfig WebFetch { get; private set; } = new();
 
@@ -42,6 +58,8 @@ internal sealed class Configuration(string path)
         {
             Model = Scalar(root, ModelKey),
             InlineDiff = ReadInlineDiff(root),
+            ModelAliases = ReadModelAliases(root),
+            ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules"),
@@ -53,21 +71,41 @@ internal sealed class Configuration(string path)
     // override that does not persist.
     public void SetModel(string model)
     {
-        var root = LoadRoot(path);
-        root.Children[new YamlScalarNode(ModelKey)] = new YamlScalarNode(model);
-
-        var directory = Path.GetDirectoryName(path);
-
-        if (!string.IsNullOrEmpty(directory))
+        lock (_writeLock)
         {
-            _ = Directory.CreateDirectory(directory);
+            var root = LoadRoot(path);
+            root.Children[new YamlScalarNode(ModelKey)] = new YamlScalarNode(model);
+            Write(root);
+            Model = model;
         }
+    }
 
-        var temporary = path + ".tmp";
-        File.WriteAllText(temporary, Serialize(root));
-        File.Move(temporary, path, overwrite: true);
+    public void SetModelAlias(string name, string target)
+    {
+        lock (_writeLock)
+        {
+            if (!ModelAliases.TryGetValue(name, out var existing))
+            {
+                throw new InvalidDataException($"model alias \"{name}\" is not defined");
+            }
 
-        Model = model;
+            ValidateAliasName(name);
+            ValidateModelSelector($"{ModelAliasesKey}.{name}.model_string", target, allowEmpty: true);
+
+            var root = LoadRoot(path);
+            var aliases = Mapping(root, ModelAliasesKey);
+            var alias = Mapping(aliases, name);
+            alias.Children[new YamlScalarNode("model_string")] = new YamlScalarNode(target);
+            Write(root);
+
+            var updated = new SortedDictionary<string, ModelAliasConfig>(
+                ModelAliases.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal),
+                StringComparer.Ordinal)
+            {
+                [name] = existing with { ModelString = target },
+            };
+            ModelAliases = updated;
+        }
     }
 
     private static string Serialize(YamlMappingNode root)
@@ -87,6 +125,192 @@ internal sealed class Configuration(string path)
         }
 
         return text + "\n";
+    }
+
+    private static SortedDictionary<string, ModelAliasConfig> ReadModelAliases(YamlMappingNode root)
+    {
+        var aliases = PredefinedModelAliases();
+
+        if (!Child(root, ModelAliasesKey, out var node))
+        {
+            return aliases;
+        }
+
+        if (node is not YamlMappingNode configured)
+        {
+            throw new InvalidDataException($"{ModelAliasesKey} must be a mapping");
+        }
+
+        foreach (var entry in configured.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { } name })
+            {
+                throw new InvalidDataException($"{ModelAliasesKey} keys must be strings");
+            }
+
+            ValidateAliasName(name);
+
+            if (entry.Value is not YamlMappingNode fields)
+            {
+                throw new InvalidDataException($"{ModelAliasesKey}.{name} must be a mapping");
+            }
+
+            ValidateAliasKeys(fields, name);
+            _ = aliases.TryGetValue(name, out var predefined);
+            var modelString = Child(fields, "model_string", out _)
+                ? ScalarValue(fields, "model_string", $"{ModelAliasesKey}.{name}.model_string")
+                : predefined?.ModelString ?? string.Empty;
+            var usage = Child(fields, "usage", out _)
+                ? ScalarValue(fields, "usage", $"{ModelAliasesKey}.{name}.usage")
+                : predefined?.Usage ?? string.Empty;
+            string? augmentation;
+
+            if (Child(fields, "augment_system_prompt", out var augmentationNode))
+            {
+                augmentation = augmentationNode switch
+                {
+                    YamlScalarNode scalar => scalar.Value,
+                    _ => throw new InvalidDataException(
+                        $"{ModelAliasesKey}.{name}.augment_system_prompt must be a string or null"),
+                };
+            }
+            else
+            {
+                augmentation = predefined?.AugmentSystemPrompt;
+            }
+
+            if (usage.Length == 0)
+            {
+                throw new InvalidDataException($"{ModelAliasesKey}.{name}.usage must not be empty");
+            }
+
+            ValidateModelSelector($"{ModelAliasesKey}.{name}.model_string", modelString, allowEmpty: true);
+            aliases[name] = new(modelString, usage, augmentation);
+        }
+
+        return aliases;
+    }
+
+    private static SortedDictionary<string, ModelAliasConfig> PredefinedModelAliases() =>
+        new(StringComparer.Ordinal)
+        {
+            ["low_llm"] = new(
+                string.Empty,
+                "mechanical, single file task, text or code processing when no suitable cli tool available.",
+                null),
+            ["medium_llm"] = new(
+                string.Empty,
+                "Decently capable, specific clear task, component level task, two or three file window",
+                null),
+            ["high_llm"] = new(
+                string.Empty,
+                "General purpose, agent spawner, tactical decision making and planning, debugging, colaborator",
+                null),
+            ["xhigh_llm"] = new(string.Empty, XhighUsage, XhighAugmentation),
+        };
+
+    private static SortedDictionary<string, string> ReadModelAugmentSystemPrompts(YamlMappingNode root)
+    {
+        var prompts = new SortedDictionary<string, string>(StringComparer.Ordinal);
+
+        if (!Child(root, ModelAugmentSystemPromptsKey, out var node))
+        {
+            return prompts;
+        }
+
+        if (node is not YamlMappingNode configured)
+        {
+            throw new InvalidDataException($"{ModelAugmentSystemPromptsKey} must be a mapping");
+        }
+
+        foreach (var entry in configured.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { } selector } ||
+                entry.Value is not YamlScalarNode { Value: { } prompt })
+            {
+                throw new InvalidDataException($"{ModelAugmentSystemPromptsKey} must contain string values");
+            }
+
+            ValidateModelSelector($"{ModelAugmentSystemPromptsKey} key", selector, allowEmpty: false);
+            prompts[selector] = prompt;
+        }
+
+        return prompts;
+    }
+
+    private static void ValidateAliasKeys(YamlMappingNode fields, string name)
+    {
+        foreach (var key in fields.Children.Keys)
+        {
+            if (key is not YamlScalarNode { Value: { } value } ||
+                value is not ("model_string" or "usage" or "augment_system_prompt"))
+            {
+                throw new InvalidDataException($"{ModelAliasesKey}.{name} contains an unsupported key");
+            }
+        }
+    }
+
+    private static void ValidateAliasName(string name)
+    {
+        if (name.Length == 0)
+        {
+            throw new InvalidDataException($"{ModelAliasesKey} key must not be empty");
+        }
+
+        if (!string.Equals(name.Trim(), name, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"model alias name \"{name}\" must not have surrounding whitespace");
+        }
+
+        if (name.Contains('/', StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"model alias name \"{name}\" must not contain '/'");
+        }
+    }
+
+    private static void ValidateModelSelector(string field, string selector, bool allowEmpty)
+    {
+        if (selector.Length == 0 && allowEmpty)
+        {
+            return;
+        }
+
+        if (!string.Equals(selector.Trim(), selector, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"{field} must not have surrounding whitespace");
+        }
+
+        if (selector.Any(character => char.IsControl(character) && char.IsWhiteSpace(character)))
+        {
+            throw new InvalidDataException($"{field} must not contain control whitespace");
+        }
+
+        if (selector.Split('/').Length < 2)
+        {
+            throw new InvalidDataException($"{field} must be provider/model");
+        }
+
+        if (selector.Split('/').Any(segment => segment.Length == 0))
+        {
+            throw new InvalidDataException($"{field} must not contain empty path segments");
+        }
+    }
+
+    private static string ScalarValue(YamlMappingNode parent, string key, string field) =>
+        Child(parent, key, out var node) && node is YamlScalarNode { Value: { } scalar }
+            ? scalar
+            : throw new InvalidDataException($"{field} must be a string");
+
+    private static YamlMappingNode Mapping(YamlMappingNode parent, string key)
+    {
+        if (!Child(parent, key, out var node))
+        {
+            var created = new YamlMappingNode();
+            parent.Children[new YamlScalarNode(key)] = created;
+            return created;
+        }
+
+        return node as YamlMappingNode ?? throw new InvalidDataException($"{key} must be a mapping");
     }
 
     private static Dictionary<string, ProfileSecurityConfig> ReadProfiles(YamlMappingNode root)
@@ -368,5 +592,19 @@ internal sealed class Configuration(string path)
         }
 
         return stream.Documents is [{ RootNode: YamlMappingNode root }, ..] ? root : [];
+    }
+
+    private void Write(YamlMappingNode root)
+    {
+        var directory = Path.GetDirectoryName(path);
+
+        if (!string.IsNullOrEmpty(directory))
+        {
+            _ = Directory.CreateDirectory(directory);
+        }
+
+        var temporary = path + ".tmp";
+        File.WriteAllText(temporary, Serialize(root));
+        File.Move(temporary, path, overwrite: true);
     }
 }

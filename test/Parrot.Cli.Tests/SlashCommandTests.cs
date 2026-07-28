@@ -24,7 +24,7 @@ internal sealed class SlashCommandTests
             new SessionIndex(Path.Combine(Path.GetTempPath(), $"parrot-sessions-{Guid.NewGuid():N}")));
 
         _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
-            .IsEqualTo("/auth|/clear|/effort|/exit|/help|/mode|/model|/models|/modes|/sessions|/version");
+            .IsEqualTo("/auth|/clear|/effort|/exit|/help|/mode|/model|/model-alias|/models|/modes|/sessions|/version");
         _ = await Assert.That(registry.Commands.All(command => command.Summary.Length > 0)).IsTrue();
     }
 

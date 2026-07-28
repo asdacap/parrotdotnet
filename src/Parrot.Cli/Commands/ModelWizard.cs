@@ -5,7 +5,16 @@ namespace Parrot.Cli.Commands;
 
 internal sealed class ModelWizard(GeneratedParrot.ParrotClient client, ISlashDialog dialog)
 {
-    public async Task<string?> Select(string? currentSelector, CancellationToken cancellationToken)
+    public Task<string?> Select(string? currentSelector, CancellationToken cancellationToken) =>
+        Select(currentSelector, false, cancellationToken);
+
+    public Task<string?> SelectExplicitEffort(CancellationToken cancellationToken) =>
+        Select(null, true, cancellationToken);
+
+    private async Task<string?> Select(
+        string? currentSelector,
+        bool selectEffort,
+        CancellationToken cancellationToken)
     {
         var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
         var providers = listed.Models
@@ -41,16 +50,23 @@ internal sealed class ModelWizard(GeneratedParrot.ParrotClient client, ISlashDia
         var selected = new ModelSelection(
             providerModels.Single(item => string.Equals(item.Id, model.Id, StringComparison.Ordinal)),
             null);
-        var current = currentSelector is null ? null : ModelSelection.Resolve(listed.Models, currentSelector);
-        if (current?.Variant is { } currentVariant)
+        if (selectEffort && selected.Model.Variants.Count > 0)
         {
-            selected = selected.WithVariant(currentVariant.Name) ?? selected.WithFirstVariant();
-        }
-        else
-        {
-            selected = selected.WithFirstVariant();
+            var effort = await dialog.Select(
+                "Select model effort",
+                [.. selected.Model.Variants.Select(variant =>
+                    new SlashDialogOption(variant.Name, variant.Name, variant.ReasoningEffort))],
+                cancellationToken).ConfigureAwait(false);
+            return effort is null ? null : selected.WithVariant(effort.Id)?.Selector;
         }
 
+        var canonicalCurrent = currentSelector is null
+            ? null
+            : await ModelAliasSelection.Resolve(client, currentSelector, cancellationToken).ConfigureAwait(false);
+        var current = canonicalCurrent is null ? null : ModelSelection.Resolve(listed.Models, canonicalCurrent);
+        selected = current?.Variant is { } currentVariant
+            ? selected.WithVariant(currentVariant.Name) ?? selected.WithFirstVariant()
+            : selected.WithFirstVariant();
         return selected.Selector;
     }
 }

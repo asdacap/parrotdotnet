@@ -49,22 +49,90 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Model_prompt_context_sorts_configured_guidance_and_filters_disabled_aliases()
+    {
+        var provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var snapshot = new ModelAliasSnapshot(
+        [
+            new("zeta", model.Selector, "last", null),
+            new("disabled", string.Empty, "hidden", null),
+            new("alpha", model.Selector, "first", null),
+        ]);
+        var selection = new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            new ResolvedModelSelection(new ModelSelector(model.Selector), null, model, snapshot),
+            null,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
+
+        var built = new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal))
+            .Build("epoch", selection);
+
+        _ = await Assert.That(built).Contains($"- alpha: {model.Selector} — first");
+        _ = await Assert.That(built).Contains($"- zeta: {model.Selector} — last");
+        _ = await Assert.That(built).DoesNotContain("disabled");
+        _ = await Assert.That(built.IndexOf("- alpha:", StringComparison.Ordinal))
+            .IsLessThan(built.IndexOf("- zeta:", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task Model_prompt_context_prefers_alias_then_exact_then_base_augmentation()
+    {
+        var provider = new UnusedProvider();
+        var baseModel = new LLMModel("model", provider.Id);
+        var variant = new Parrot.Llm.ModelVariant("high", "xhigh");
+        var model = new ProviderModel(provider, baseModel, variant);
+        var alias = new ModelAliasDefinition("preferred", model.Selector, "primary", "alias augmentation");
+        var snapshot = new ModelAliasSnapshot([alias]);
+        var prompt = new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [model.Selector] = "exact augmentation",
+            [$"{provider.Id}/{baseModel.Id}"] = "base augmentation",
+        });
+        AgentTurnSelection Selection(ModelAliasDefinition? selectedAlias) =>
+            new(
+                new ModelSelector(selectedAlias?.Name ?? model.Selector),
+                new ResolvedModelSelection(
+                    new ModelSelector(selectedAlias?.Name ?? model.Selector), selectedAlias, model, snapshot),
+                null,
+                SecurityProfile.Compose(readOnly: false, [], [], []));
+
+        var aliasBuilt = prompt.Build("epoch", Selection(alias));
+        var suppressed = prompt.Build("epoch", Selection(alias with { AugmentSystemPrompt = string.Empty }));
+        var exactBuilt = prompt.Build("epoch", Selection(null));
+        var baseOnly = new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [$"{provider.Id}/{baseModel.Id}"] = "base augmentation",
+        }).Build("epoch", Selection(null));
+
+        _ = await Assert.That(aliasBuilt).Contains("alias augmentation");
+        _ = await Assert.That(aliasBuilt).DoesNotContain("exact augmentation");
+        _ = await Assert.That(suppressed).DoesNotContain("augmentation");
+        _ = await Assert.That(exactBuilt).Contains("exact augmentation");
+        _ = await Assert.That(exactBuilt).DoesNotContain("base augmentation");
+        _ = await Assert.That(baseOnly).Contains("base augmentation");
+    }
+
+    [Test]
     public async Task Agent_session_compaction_preserves_the_current_history(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
         using var broker = new EventBroker();
         var provider = new ScriptedProvider("reply");
+        var model = new ProviderModel(
+            provider,
+            new LLMModel("model", provider.Id),
+            new Parrot.Llm.ModelVariant("high", "xhigh"));
         var session = new AgentSession(
             AgentIdentity.Main("agent", string.Empty),
-            new ProviderModel(
-                provider,
-                new LLMModel("model", provider.Id),
-                new Parrot.Llm.ModelVariant("high", "xhigh")),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
             broker,
             new EventRepository(database),
             [],
             new SystemContextBuilder(_workspace, _workspace, "2026-07-24", string.Empty),
             new TodoCollection("agent", new EventRepository(database), broker),
+            new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)),
             new Compactor(tokenBudget: 0),
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),

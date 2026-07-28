@@ -11,6 +11,8 @@ internal sealed class TestSlashDialog : ISlashDialog
 
     public List<string> Errors { get; } = [];
 
+    public List<(string Title, IReadOnlyList<SlashDialogOption> Options)> Pickers { get; } = [];
+
     public TestSlashDialog Select(params string?[] ids)
     {
         foreach (var id in ids)
@@ -35,6 +37,7 @@ internal sealed class TestSlashDialog : ISlashDialog
         string title, IReadOnlyList<SlashDialogOption> options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Pickers.Add((title, options));
         var id = _selections.Dequeue();
         return Task.FromResult(id is null
             ? null

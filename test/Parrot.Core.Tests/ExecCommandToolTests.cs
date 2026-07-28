@@ -34,18 +34,21 @@ internal sealed class ExecCommandToolTests : IDisposable
 
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var session = new AgentSession(
             AgentIdentity.Main("session", string.Empty),
-            new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
             events,
             new EventRepository(database),
             [],
             new SystemContextBuilder(_workspace, _workspace, "2026-07-24", string.Empty),
             new TodoCollection("session", new EventRepository(database), events),
+            new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)),
             new Compactor(120_000),
-            profile: null,
+            null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            status: null,
+            null,
             CancellationToken.None);
         var processes = new ShellProcessOwner(
             _workspace,

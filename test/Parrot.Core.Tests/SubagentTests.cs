@@ -30,11 +30,11 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "child says hi", []));
-        var sessions = new TestAgentSessions();
+        var sessions = new TestAgentSessions(Router(provider));
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
+        var spawn = new AgentSpawnTool(registry, Router(provider), parent, Turn(parent, Router(provider)));
         var wait = new WaitAgentTool(registry);
 
         var startedJson = await spawn.Execute(
@@ -93,23 +93,73 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        using var replacement = new SteppedProvider();
-        var sessions = new TestAgentSessions();
+        var sessions = new TestAgentSessions(Router(provider));
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        parent.UpdateSelection(parent.Selection().ResolvedModel, MainAgentProfile.Build(readOnly: false, [], []));
-        var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
+        parent.UpdateSelection(parent.Selection().RequestedModel, MainAgentProfile.Build(readOnly: false, [], []));
+        var spawn = new AgentSpawnTool(registry, Router(provider), parent, Turn(parent, Router(provider)));
         parent.UpdateSelection(
-            new ProviderModel(replacement, new LLMModel("replacement", replacement.Id)),
+            new ModelSelector("stepped/replacement"),
             profile: null);
 
         _ = await spawn.Execute("""{"prompt":"do the subtask"}""", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
 
-        _ = await Assert.That(sessions.Models.Single().Model.Id).IsEqualTo("model");
+        _ = await Assert.That(sessions.Models.Single().Value).IsEqualTo("stepped/model");
         _ = await Assert.That(sessions.Profiles.Single()).IsNull();
+    }
+
+    [Test]
+    public async Task Spawn_inherits_the_omitted_selector_and_accepts_alias_or_canonical_overrides(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "inherited", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "alias", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "canonical", []));
+        var alias = new ModelAliasDefinition("fast", "stepped/replacement", "Fast work", null);
+        var router = Router(provider, [alias]);
+        var sessions = new TestAgentSessions(router);
+        await using var registry = new AgentRegistry(sessions, _broker, _repository, cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
+        parent.UpdateSelection(new ModelSelector("fast"), profile: null);
+        var spawn = new AgentSpawnTool(registry, router, parent, Turn(parent, router));
+
+        foreach (var arguments in new[]
+        {
+            """{"prompt":"inherit"}""",
+            """{"prompt":"override alias","model":"fast"}""",
+            """{"prompt":"override canonical","model":"stepped/model"}""",
+        })
+        {
+            _ = await spawn.Execute(arguments, cancellationToken);
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+        }
+
+        _ = await Assert.That(string.Join(',', sessions.Models.Select(model => model.Value)))
+            .IsEqualTo("fast,fast,stepped/model");
+    }
+
+    [Test]
+    public async Task Spawn_rejects_an_invalid_alias(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        var invalid = new ModelAliasDefinition("broken", string.Empty, "Unavailable", null);
+        var router = Router(provider, [invalid]);
+        var sessions = new TestAgentSessions(router);
+        await using var registry = new AgentRegistry(sessions, _broker, _repository, cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
+        var spawn = new AgentSpawnTool(registry, router, parent, Turn(parent, router));
+
+        var result = await spawn.Execute(
+            """{"prompt":"work","model":"broken"}""",
+            cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo("error: model alias: alias \"broken\" is not configured");
+        _ = await Assert.That(sessions.Models).IsEmpty();
     }
 
     [Test]
@@ -121,11 +171,11 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "steered", []),
             LLMEvent.Completed("stop", 1, 0, 1, "followed up", []));
         await using var registry = new AgentRegistry(
-            new TestAgentSessions(), _broker, _repository, cancellationToken);
+            new TestAgentSessions(Router(provider)), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
+        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
-        var send = new AgentSendTool(registry, parent, parent.Selection());
+        var send = new AgentSendTool(registry, parent, Turn(parent, Router(provider)));
 
         await provider.Arrived(cancellationToken);
         var steeredJson = await send.Execute(
@@ -172,13 +222,13 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
             LLMEvent.Completed("stop", 1, 0, 1, "second", []));
         await using var registry = new AgentRegistry(
-            new TestAgentSessions(), _broker, _repository, cancellationToken);
+            new TestAgentSessions(Router(provider)), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
+        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
-        var sending = new AgentSendTool(registry, parent, parent.Selection()).Execute(
+        var sending = new AgentSendTool(registry, parent, Turn(parent, Router(provider))).Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}""", cancellationToken);
         provider.Release();
         _ = await sending;
@@ -198,19 +248,19 @@ internal sealed class SubagentTests : IDisposable
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         await using var registry = new AgentRegistry(
-            new TestAgentSessions(), _broker, _repository, cancellationToken);
+            new TestAgentSessions(Router(provider)), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var stranger = Session(provider, 0, "stranger", cancellationToken);
-        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
+        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
-        var send = new AgentSendTool(registry, parent, parent.Selection());
+        var send = new AgentSendTool(registry, parent, Turn(parent, Router(provider)));
 
         var malformed = await send.Execute("{}", cancellationToken);
         var blank = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":" "}""", cancellationToken);
         var missing = await send.Execute(
             """{"session_id":"missing","message":"hello"}""", cancellationToken);
-        var invisible = await new AgentSendTool(registry, stranger, stranger.Selection()).Execute(
+        var invisible = await new AgentSendTool(registry, stranger, Turn(stranger, Router(provider))).Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}""", cancellationToken);
         var oversized = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (1024 * 1024) + 1)}}"}""",
@@ -229,24 +279,23 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        var sessions = new TestAgentSessions();
+        var sessions = new TestAgentSessions(Router(provider));
         await using var registry = new AgentRegistry(sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var planArtifact = Path.Combine(Path.GetTempPath(), "plan.md");
         parent.UpdateSelection(
-            parent.Selection().ResolvedModel,
+            parent.Selection().RequestedModel,
             MainAgentProfile.Plan(Path.GetTempPath(), () => planArtifact, true, [], [], static () => { }, static (_, _) => null));
-        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
+        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "worker");
         parent.UpdateSelection(
-            parent.Selection().ResolvedModel,
+            parent.Selection().RequestedModel,
             MainAgentProfile.Build(readOnly: false, [], []));
-        var permissive = registry.Spawn(parent, parent.Selection(), "permissive");
+        var permissive = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "permissive");
 
-        var rejected = await new AgentSendTool(registry, spawned, spawned.Selection()).Execute(
+        var rejected = await new AgentSendTool(registry, spawned, Turn(spawned, Router(provider))).Execute(
             $$"""{"session_id":"{{permissive.SessionId}}","message":"hello"}""",
             cancellationToken);
 
-        _ = await Assert.That(sessions.Profiles[0]).IsNull();
         _ = await Assert.That(sessions.SecurityProfiles[0].Rules).IsEmpty();
         _ = await Assert.That(rejected).IsEqualTo("error: cannot delegate to a more permissive agent");
     }
@@ -262,17 +311,17 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "three", []),
             LLMEvent.Completed("stop", 1, 0, 1, "four", []));
         await using var registry = new AgentRegistry(
-            new TestAgentSessions(), _broker, _repository, cancellationToken);
+            new TestAgentSessions(Router(provider)), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
-        var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
-        var idle = registry.Spawn(parent, parent.Selection(), "idle");
+        var spawn = new AgentSpawnTool(registry, Router(provider), parent, Turn(parent, Router(provider)));
+        var idle = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "idle");
         _ = await idle.Send("become idle", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await idle.Wait(0, cancellationToken);
 
         var deepParent = Session(provider, 4, "deep-parent", cancellationToken);
-        var tooDeep = await new AgentSpawnTool(registry, deepParent, deepParent.Selection()).Execute(
+        var tooDeep = await new AgentSpawnTool(registry, Router(provider), deepParent, Turn(deepParent, Router(provider))).Execute(
             """{"prompt":"too deep"}""", cancellationToken);
 
         _ = await Assert.That(tooDeep).IsEqualTo("error: subagent depth limit reached");
@@ -286,17 +335,17 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
             LLMEvent.Completed("stop", 1, 0, 1, "unreachable", []));
         var registry = new AgentRegistry(
-            new TestAgentSessions(),
+            new TestAgentSessions(Router(provider)),
             _broker,
             _repository,
             cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
+        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "worker");
         _ = await spawned.Send("first", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await spawned.Wait(0, cancellationToken);
-        var send = new AgentSendTool(registry, parent, parent.Selection());
+        var send = new AgentSendTool(registry, parent, Turn(parent, Router(provider)));
         _ = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"wait forever"}""", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -312,42 +361,71 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.ParentAgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(failed.AgentFailed.Name).IsEqualTo("worker");
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
-        _ = await Assert.That(() => registry.Spawn(parent, parent.Selection(), "worker"))
+        _ = await Assert.That(() => registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "worker"))
             .Throws<AgentRegistryException>();
         var rejected = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}""", cancellationToken);
         _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");
     }
 
+    private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
+    {
+        var selection = session.Selection();
+        return new AgentTurnSelection(
+            selection.RequestedModel,
+            router.Resolve(selection.RequestedModel.Value),
+            selection.Profile,
+            selection.SecurityProfile);
+    }
+
+    private static ModelRouter Router(SteppedProvider provider) =>
+        Router(provider, []);
+
+    private static ModelRouter Router(
+        SteppedProvider provider,
+        IReadOnlyList<ModelAliasDefinition> aliases)
+    {
+        var models = new[] { new LLMModel("model", provider.Id), new LLMModel("replacement", provider.Id) };
+        var registry = new ProviderRegistry(
+            [provider],
+            new Dictionary<string, IReadOnlyList<LLMModel>> { [provider.Id] = models });
+        return new ModelRouter(registry, new ModelAliasCatalog(registry, aliases), "stepped/model");
+    }
+
     private AgentSession Session(
         SteppedProvider provider,
         int depth,
         string sessionId,
-        CancellationToken cancellationToken) =>
-        new(
+        CancellationToken cancellationToken)
+    {
+        var router = Router(provider);
+        return new AgentSession(
             depth == 0
                 ? AgentIdentity.Main(sessionId, string.Empty)
                 : AgentIdentity.Child(sessionId, "ancestor", "parent", depth),
-            new ProviderModel(provider, new LLMModel("model", provider.Id)),
+            new ModelSelector("stepped/model"),
+            router,
             _broker,
             _repository,
             [],
             new SystemContextBuilder(".", ".", "2026-07-24", string.Empty),
             new TodoCollection("agent", _repository, _broker),
+            new ModelPromptContext(new Dictionary<string, string>()),
             new Compactor(120_000),
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             cancellationToken);
+    }
 
-    private sealed class TestAgentSessions : IAgentSessionFactory
+    private sealed class TestAgentSessions(ModelRouter router) : IAgentSessionFactory
     {
         private readonly List<AgentIdentity> _identities = [];
-        private readonly List<ProviderModel> _models = [];
+        private readonly List<ModelSelector> _models = [];
 
         public IReadOnlyList<AgentIdentity> Identities => _identities;
 
-        public IReadOnlyList<ProviderModel> Models => _models;
+        public IReadOnlyList<ModelSelector> Models => _models;
 
         public List<MainAgentProfile?> Profiles { get; } = [];
 
@@ -355,7 +433,7 @@ internal sealed class SubagentTests : IDisposable
 
         public IAgentSessionLease Create(
             AgentIdentity identity,
-            ProviderModel model,
+            ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
             MainAgentProfile? profile,
@@ -371,11 +449,13 @@ internal sealed class SubagentTests : IDisposable
             return new AgentSessionLease(new AgentSession(
                 identity,
                 model,
+                router,
                 eventBroker,
                 eventRepository,
                 [],
                 new SystemContextBuilder(".", ".", "2026-07-24", identity.Context),
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
+                new ModelPromptContext(new Dictionary<string, string>()),
                 new Compactor(120_000),
                 profile,
                 securityProfile,

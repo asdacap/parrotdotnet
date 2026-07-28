@@ -10,13 +10,15 @@ namespace Parrot.Agent;
 
 internal sealed record AgentSessionScopeArguments(
     AgentIdentity Identity,
-    ProviderModel Model,
+    ModelSelector Model,
+    ModelRouter Router,
     EventBroker EventBroker,
     EventRepository EventRepository,
     IReadOnlyList<IToolFactory> ToolFactories,
     string WorkingDirectory,
     string ConfigDirectory,
     string Date,
+    ModelPromptContext ModelPromptContext,
     Compactor Compactor,
     MainAgentProfile? Profile,
     SecurityProfile SecurityProfile,

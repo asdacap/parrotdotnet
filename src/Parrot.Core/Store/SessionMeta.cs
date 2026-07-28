@@ -18,6 +18,8 @@ internal sealed record SessionMeta
 
     public required string Model { get; init; }
 
+    public string Selector { get; init; } = string.Empty;
+
     public string Mode { get; init; } = ModeRegistry.Build;
 
     public int ProcessId { get; init; }

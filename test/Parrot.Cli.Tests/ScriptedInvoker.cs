@@ -16,6 +16,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<string> _listenedTo = [];
     private readonly List<CreateSessionRequest> _created = [];
     private readonly List<UpdateSessionRequest> _updated = [];
+    private readonly List<ConfigureModelAliasRequest> _configuredAliases = [];
     private readonly Lock _gate = new();
 
     public IReadOnlyList<string> Sent
@@ -73,7 +74,20 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public IReadOnlyList<ConfigureModelAliasRequest> ConfiguredAliases
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _configuredAliases];
+            }
+        }
+    }
+
     public int Interrupts { get; private set; }
+
+    public List<ModelAlias> ModelAliases { get; } = [];
 
     public List<Model> Models { get; } =
     [
@@ -135,6 +149,22 @@ internal sealed class ScriptedInvoker : CallInvoker
                 var listedModels = new ListModelsResponse();
                 listedModels.Models.Add(Models);
                 answered = listedModels;
+                break;
+            case ListModelAliasesRequest:
+                var listedAliases = new ListModelAliasesResponse();
+                listedAliases.Aliases.Add(ModelAliases);
+                answered = listedAliases;
+                break;
+            case ConfigureModelAliasRequest configure:
+                lock (_gate)
+                {
+                    _configuredAliases.Add(configure);
+                }
+
+                var configured = ModelAliases.Single(alias =>
+                    string.Equals(alias.Name, configure.Name, StringComparison.Ordinal));
+                configured.ModelString = configure.ModelString;
+                answered = new ConfigureModelAliasResponse { Alias = configured.Clone() };
                 break;
             case ListModesRequest:
                 var listedModes = new ListModesResponse();

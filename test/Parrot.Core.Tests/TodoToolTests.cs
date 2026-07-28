@@ -105,18 +105,23 @@ internal sealed class TodoToolTests : IDisposable
         _ = await Assert.That(repository.Replay()).Count().IsEqualTo(1);
     }
 
-    private AgentSession Session(EventRepository repository, string sessionId) =>
-        new(
+    private AgentSession Session(EventRepository repository, string sessionId)
+    {
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        return new AgentSession(
             AgentIdentity.Main(sessionId, string.Empty),
-            new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
             _events,
             repository,
             [],
             new SystemContextBuilder("/workspace", "/workspace", "2026-07-24", string.Empty),
             new TodoCollection(sessionId, repository, _events),
+            new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)),
             new Compactor(120_000),
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             CancellationToken.None);
+    }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Grpc.Core;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -17,8 +18,12 @@ namespace Parrot.Protocol;
 // `ParrotClient` for clients. The alias exists because `Parrot` is also this
 // repository's root namespace, and `Parrot.ParrotBase` reads as though it were
 // a namespace lookup.
-internal sealed class ParrotService(ProviderRegistry registry, SessionStore store, ModeRegistry modes)
-    : GeneratedParrot.ParrotBase, IAsyncDisposable
+internal sealed class ParrotService(
+    ModelRouter router,
+    ProviderRegistry registry,
+    ModelAliasConfigurator aliases,
+    SessionStore store,
+    ModeRegistry modes) : GeneratedParrot.ParrotBase, IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
 
@@ -40,6 +45,44 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
         return response;
     }
 
+    public override Task<ListModelAliasesResponse> ListModelAliases(
+        ListModelAliasesRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var response = new ListModelAliasesResponse();
+        response.Aliases.AddRange(aliases.Capture().Definitions.Values.Select(ToProtocol));
+        return Task.FromResult(response);
+    }
+
+    public override Task<ConfigureModelAliasResponse> ConfigureModelAlias(
+        ConfigureModelAliasRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        try
+        {
+            return Task.FromResult(new ConfigureModelAliasResponse
+            {
+                Alias = ToProtocol(aliases.Configure(request.Name, request.ModelString)),
+            });
+        }
+        catch (Exception failure) when (failure is LLMProviderException or InvalidDataException)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new RpcException(new Status(
+                StatusCode.Internal,
+                $"failed to persist model alias: {failure.Message}"));
+        }
+    }
+
     public override Task<ListModesResponse> ListModes(ListModesRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -54,11 +97,11 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        ProviderModel model;
+        ResolvedModelSelection model;
 
         try
         {
-            model = registry.Resolve(request.Model);
+            model = router.Resolve(request.Model);
         }
         catch (LLMProviderException failure)
         {
@@ -72,7 +115,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
             _ = modes.Resolve(request.Mode, string.Empty);
             created = store.Open(model, request.Mode);
         }
-        catch (ModeRegistryException failure)
+        catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
         {
             throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
@@ -89,7 +132,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
         var found = Find(request.UserSessionId);
 
         MainAgentProfile? selectedMode = null;
-        ProviderModel? selectedModel = null;
+        ResolvedModelSelection? selectedModel = null;
 
         try
         {
@@ -100,7 +143,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 
             if (request.Model.Length > 0)
             {
-                selectedModel = registry.Resolve(request.Model);
+                selectedModel = router.Resolve(request.Model);
             }
         }
         catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
@@ -199,6 +242,9 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 
         _userSessions.Clear();
     }
+
+    private static ModelAlias ToProtocol(ModelAliasDefinition definition) =>
+        new() { Name = definition.Name, ModelString = definition.ModelString, Usage = definition.Usage };
 
     private Agent.UserSession Find(string userSessionId) =>
         _userSessions.TryGetValue(userSessionId, out var found)

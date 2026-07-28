@@ -363,23 +363,28 @@ internal sealed class DrainTests : IDisposable
         int contextWindow,
         double inputPrice,
         double outputPrice,
-        CancellationToken lifetime) =>
-        new(
+        CancellationToken lifetime)
+    {
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id)
+        {
+            ContextWindow = contextWindow,
+            InputPrice = inputPrice,
+            OutputPrice = outputPrice,
+        });
+        return new AgentSession(
             AgentIdentity.Main("agent", string.Empty),
-            new ProviderModel(provider, new LLMModel("model", provider.Id)
-            {
-                ContextWindow = contextWindow,
-                InputPrice = inputPrice,
-                OutputPrice = outputPrice,
-            }),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
             _broker,
             repository,
             toolFactories,
             new SystemContextBuilder(".", ".", "2026-07-24", string.Empty),
             new TodoCollection("agent", repository, _broker),
+            new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)),
             new Compactor(120_000),
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             lifetime);
+    }
 }

@@ -16,8 +16,11 @@ namespace Parrot.Core.Tests;
 internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSessionFactory
 {
     private readonly List<AgentIdentity> _identities = [];
+    private ModelRouter? _router;
 
     public IReadOnlyList<AgentIdentity> Identities => _identities;
+
+    public void Use(ModelRouter router) => _router = router;
 
     public IAgentSessionFactory Create(UserSession owner) => this;
 
@@ -26,7 +29,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
 
     public IAgentSessionLease Create(
         AgentIdentity identity,
-        ProviderModel model,
+        ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
         MainAgentProfile? profile,
@@ -35,14 +38,17 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         CancellationToken lifetime)
     {
         _identities.Add(identity);
+        var router = _router ?? throw new InvalidOperationException("model router is not configured");
         return new AgentSessionLease(new AgentSession(
             identity,
             model,
+            router,
             eventBroker,
             eventRepository,
             [],
             new SystemContextBuilder(".", ".", "2026-07-24", identity.Context),
             new TodoCollection(identity.SessionId, eventRepository, eventBroker),
+            new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)),
             new Compactor(120_000),
             profile,
             securityProfile,

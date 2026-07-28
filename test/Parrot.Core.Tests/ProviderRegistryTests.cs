@@ -15,9 +15,9 @@ internal sealed class ProviderRegistryTests
             [("openrouter", ["openai/gpt-4o", "z"]), ("opencode-go", ["glm-5.2"])],
             "openrouter/openai/gpt-4o");
 
-        var explicitModel = registry.Resolve("openrouter/openai/gpt-4o");
-        var defaultModel = registry.Resolve(string.Empty);
-        var defaultProvider = registry.Resolve(string.Empty);
+        var explicitModel = registry.ResolveCanonical("openrouter/openai/gpt-4o");
+        var defaultModel = registry.ResolveCanonical("openrouter/openai/gpt-4o");
+        var defaultProvider = registry.ResolveCanonical("openrouter/openai/gpt-4o");
 
         _ = await Assert.That(explicitModel.Model.Id).IsEqualTo("openai/gpt-4o");
         _ = await Assert.That(defaultModel.Model.Id).IsEqualTo("openai/gpt-4o");
@@ -51,11 +51,10 @@ internal sealed class ProviderRegistryTests
         };
         var registry = new ProviderRegistry(
             [provider],
-            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { ["p"] = models },
-            string.Empty);
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { ["p"] = models });
 
-        var selected = registry.Resolve("p/vendor/model/high");
-        var exact = registry.Resolve("p/plain/high");
+        var selected = registry.ResolveCanonical("p/vendor/model/high");
+        var exact = registry.ResolveCanonical("p/plain/high");
 
         _ = await Assert.That(selected.ModelId).IsEqualTo("vendor/model");
         _ = await Assert.That(selected.Variant?.Name).IsEqualTo("high");
@@ -64,7 +63,7 @@ internal sealed class ProviderRegistryTests
         _ = await Assert.That(selected.Selector).IsEqualTo("p/vendor/model/high");
         _ = await Assert.That(exact.ModelId).IsEqualTo("plain/high");
         _ = await Assert.That(exact.Variant).IsNull();
-        _ = await Assert.That(() => registry.Resolve("p/ambiguous/path/high")).Throws<LLMProviderException>();
+        _ = await Assert.That(() => registry.ResolveCanonical("p/ambiguous/path/high")).Throws<LLMProviderException>();
     }
 
     [Test]
@@ -77,7 +76,7 @@ internal sealed class ProviderRegistryTests
     {
         var registry = Build([("p", ["m"])], string.Empty);
 
-        _ = await Assert.That(() => registry.Resolve(selector)).Throws<LLMProviderException>();
+        _ = await Assert.That(() => registry.ResolveCanonical(selector)).Throws<LLMProviderException>();
     }
 
     [Test]
@@ -95,11 +94,10 @@ internal sealed class ProviderRegistryTests
                         Capabilities = ModelCapabilities.Create(tools: true, reasoning: true, ["medium"]),
                     },
                 ],
-            },
-            string.Empty);
+            });
 
-        var plain = registry.Resolve("p/not-listed");
-        var variant = registry.Resolve("p/new-model/medium");
+        var plain = registry.ResolveCanonical("p/not-listed");
+        var variant = registry.ResolveCanonical("p/new-model/medium");
 
         _ = await Assert.That(plain.ModelId).IsEqualTo("not-listed");
         _ = await Assert.That(plain.Variant).IsNull();
@@ -132,7 +130,7 @@ internal sealed class ProviderRegistryTests
                 client,
                 new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
 
-            var selected = registry.Resolve(string.Empty);
+            var selected = registry.ResolveCanonical("configured/not-listed");
 
             _ = await Assert.That(registry.Models("configured").Single().Id).IsEqualTo("live-model");
             _ = await Assert.That(selected.ModelId).IsEqualTo("not-listed");
@@ -149,6 +147,88 @@ internal sealed class ProviderRegistryTests
         _ = await Assert.That(() => Build([("p", []), ("p", [])], string.Empty)).Throws<LLMProviderException>();
 
     [Test]
+    public async Task Resolve_preserves_requested_alias_identity_and_canonical_slash_model_route()
+    {
+        var registry = Build([("p", ["vendor/model"])], string.Empty);
+        var catalog = new ModelAliasCatalog(
+            registry,
+            [new("preferred", "p/vendor/model", "primary", "system prompt")]);
+        var router = new ModelRouter(registry, catalog, string.Empty);
+
+        var selection = router.Resolve("preferred");
+
+        _ = await Assert.That(selection.RequestedSelector.Value).IsEqualTo("preferred");
+        _ = await Assert.That(selection.Alias?.Name).IsEqualTo("preferred");
+        _ = await Assert.That(selection.CanonicalModel.Selector).IsEqualTo("p/vendor/model");
+        _ = await Assert.That(selection.CanonicalBase).IsEqualTo("p/vendor/model");
+    }
+
+    [Test]
+    public async Task Resolve_uses_default_alias_and_accepts_unlisted_alias_target()
+    {
+        var registry = Build([("p", ["listed"])], string.Empty);
+        var catalog = new ModelAliasCatalog(
+            registry,
+            [
+                new("default", "p/not-listed", "primary", null),
+                new("unlisted", "p/also-not-listed", "secondary", null),
+            ]);
+        var router = new ModelRouter(registry, catalog, "default");
+
+        var defaultSelection = router.Resolve(string.Empty);
+        var unlistedSelection = router.Resolve("unlisted");
+
+        _ = await Assert.That(defaultSelection.Alias?.Name).IsEqualTo("default");
+        _ = await Assert.That(defaultSelection.CanonicalModel.Selector).IsEqualTo("p/not-listed");
+        _ = await Assert.That(unlistedSelection.CanonicalModel.Selector).IsEqualTo("p/also-not-listed");
+    }
+
+    [Test]
+    public async Task Resolve_rejects_disabled_alias()
+    {
+        var registry = Build([("p", ["listed"])], string.Empty);
+        var catalog = new ModelAliasCatalog(registry, [new("disabled", string.Empty, "primary", null)]);
+        var router = new ModelRouter(registry, catalog, string.Empty);
+
+        _ = await Assert.That(() => router.Resolve("disabled")).Throws<LLMProviderException>();
+    }
+
+    [Test]
+    public async Task Replace_retargets_future_resolutions_while_captured_snapshot_keeps_old_alias()
+    {
+        var registry = Build([("p", ["old", "new"])], string.Empty);
+        var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null)]);
+        var router = new ModelRouter(registry, catalog, string.Empty);
+        var beforeReplacement = router.Resolve("preferred");
+
+        catalog.Replace([new("preferred", "p/new", "primary", null)]);
+        var afterReplacement = router.Resolve("preferred");
+
+        _ = await Assert.That(beforeReplacement.CanonicalModel.Selector).IsEqualTo("p/old");
+        _ = await Assert.That(beforeReplacement.AliasSnapshot.Find("preferred")?.ModelString).IsEqualTo("p/old");
+        _ = await Assert.That(afterReplacement.CanonicalModel.Selector).IsEqualTo("p/new");
+        _ = await Assert.That(afterReplacement.AliasSnapshot.Find("preferred")?.ModelString).IsEqualTo("p/new");
+    }
+
+    [Test]
+    public async Task Replacement_rejections_are_atomic_and_disallow_self_or_chained_aliases()
+    {
+        var registry = Build([("p", ["old"])], string.Empty);
+        var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null)]);
+
+        _ = await Assert.That(() => new ModelAliasCatalog(
+            registry,
+            [new("self", "self", "primary", null)])).Throws<LLMProviderException>();
+        _ = await Assert.That(() => new ModelAliasCatalog(
+            registry,
+            [new("first", "second", "primary", null), new("second", "p/old", "primary", null)]))
+            .Throws<LLMProviderException>();
+        _ = await Assert.That(() => catalog.Replace([new("preferred", "preferred", "primary", null)]))
+            .Throws<LLMProviderException>();
+        _ = await Assert.That(catalog.Capture().Find("preferred")?.ModelString).IsEqualTo("p/old");
+    }
+
+    [Test]
     public async Task Available_models_skips_uncredentialed_providers_and_keeps_seed_on_refresh_failure(
         CancellationToken cancellationToken)
     {
@@ -162,7 +242,7 @@ internal sealed class ProviderRegistryTests
             ["b"] = [new LLMModel("seed-b", "b")],
             ["c"] = [new LLMModel("seed-c", "c")],
         };
-        var registry = new ProviderRegistry(providers, catalogues, string.Empty);
+        var registry = new ProviderRegistry(providers, catalogues);
 
         var listed = await registry.AvailableModels(cancellationToken);
 
@@ -193,7 +273,8 @@ internal sealed class ProviderRegistryTests
             catalogues[id] = [.. models.Select(model => new LLMModel(model, id))];
         }
 
-        return new ProviderRegistry(builtProviders, catalogues, defaultSelector);
+        _ = defaultSelector;
+        return new ProviderRegistry(builtProviders, catalogues);
     }
 
     private sealed class ModelsHandler : HttpMessageHandler

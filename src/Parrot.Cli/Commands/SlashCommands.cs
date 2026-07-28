@@ -28,6 +28,7 @@ internal static class SlashCommands
         commands.Add(new HelpCommand(registry, dialog));
         commands.Add(new ModeCommand(modes, session, activity, dialog));
         commands.Add(new ModelCommand(models, session, activity, dialog));
+        commands.Add(new ModelAliasCommand(client, models, dialog));
         commands.Add(new ModelsCommand(client, dialog));
         commands.Add(new ModesCommand(client, dialog));
         commands.Add(new SessionsCommand(sessionIndex, session, dialog));

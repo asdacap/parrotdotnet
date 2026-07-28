@@ -64,6 +64,11 @@ internal sealed class BasicCli(
             return CommandDispatcher.ExitFailure;
         }
 
+        foreach (var warning in await ModelAliasWarnings.List(client, cancellationToken).ConfigureAwait(false))
+        {
+            await output.WriteLineAsync(warning.AsMemory(), cancellationToken).ConfigureAwait(false);
+        }
+
         return text.Length > 0
             ? await Once(session.Id, text, output, error, cancellationToken).ConfigureAwait(false)
             : await Loop(session, input, output, error, cancellationToken).ConfigureAwait(false);

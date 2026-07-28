@@ -12,13 +12,15 @@ internal interface IAgentSessionScopeFactory
 {
     IAgentSessionLease Create(
         AgentIdentity identity,
-        ProviderModel model,
+        ModelSelector model,
+        ModelRouter router,
         EventBroker eventBroker,
         EventRepository eventRepository,
         IReadOnlyList<IToolFactory> toolFactories,
         string workingDirectory,
         string configDirectory,
         string date,
+        ModelPromptContext modelPromptContext,
         Compactor compactor,
         MainAgentProfile? profile,
         SecurityProfile securityProfile,

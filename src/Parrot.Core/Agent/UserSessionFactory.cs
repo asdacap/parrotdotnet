@@ -10,7 +10,7 @@ internal sealed class UserSessionFactory(
     public UserSession Create(
         string id,
         string rootAgentName,
-        ProviderModel model,
+        ResolvedModelSelection model,
         string mode,
         EventRepository eventRepository) =>
         new(

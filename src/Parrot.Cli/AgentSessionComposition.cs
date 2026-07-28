@@ -35,11 +35,13 @@ internal partial class AgentSessionComposition
                 return new AgentSession(
                     arguments.Identity,
                     arguments.Model,
+                    arguments.Router,
                     arguments.EventBroker,
                     arguments.EventRepository,
                     arguments.ToolFactories,
                     context,
                     todos,
+                    arguments.ModelPromptContext,
                     arguments.Compactor,
                     arguments.Profile,
                     arguments.SecurityProfile,

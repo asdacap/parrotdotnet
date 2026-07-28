@@ -1,5 +1,6 @@
 using Grpc.Core;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
@@ -16,6 +17,24 @@ internal sealed class ParrotServiceTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
 
+    private readonly Configuration _configuration;
+    private readonly ProviderRegistry _registry;
+    private readonly ModelAliasCatalog _catalog;
+    private readonly ModelRouter _router;
+
+    public ParrotServiceTests()
+    {
+        _registry = Registry();
+        _configuration = Configuration.Load(Path.Combine(_root, "config.yaml"));
+        _catalog = new ModelAliasCatalog(_registry, _configuration.ModelAliases.Select(alias =>
+            new ModelAliasDefinition(
+                alias.Key,
+                alias.Value.ModelString,
+                alias.Value.Usage,
+                alias.Value.AugmentSystemPrompt)));
+        _router = new ModelRouter(_registry, _catalog, Selection);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -29,7 +48,7 @@ internal sealed class ParrotServiceTests : IDisposable
     {
         var sessions = new DirectAgentSessions();
         using var store = Store(sessions);
-        await using var service = new ParrotService(Registry(), store, Modes());
+        await using var service = Service(store);
         var context = new InProcessServerCallContext(cancellationToken);
 
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
@@ -52,7 +71,7 @@ internal sealed class ParrotServiceTests : IDisposable
     public async Task Modes_are_listed_created_updated_and_validated(CancellationToken cancellationToken)
     {
         using var store = Store();
-        await using var service = new ParrotService(Registry(), store, Modes());
+        await using var service = Service(store);
         var context = new InProcessServerCallContext(cancellationToken);
         var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
 
@@ -85,7 +104,7 @@ internal sealed class ParrotServiceTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var store = Store();
-        await using var service = new ParrotService(Registry(), store, Modes());
+        await using var service = Service(store);
         var context = new InProcessServerCallContext(cancellationToken);
 
         var listed = await service.ListModels(new ListModelsRequest(), context);
@@ -108,10 +127,70 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Model_aliases_are_listed_configured_routed_and_validated(CancellationToken cancellationToken)
+    {
+        using var store = Store();
+        await using var service = Service(store);
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+
+        var before = await client.ListModelAliasesAsync(
+            new ListModelAliasesRequest(), cancellationToken: cancellationToken);
+        var configured = await client.ConfigureModelAliasAsync(
+            new ConfigureModelAliasRequest { Name = "high_llm", ModelString = Selection },
+            cancellationToken: cancellationToken);
+        var after = await client.ListModelAliasesAsync(
+            new ListModelAliasesRequest(), cancellationToken: cancellationToken);
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = "high_llm" }, cancellationToken: cancellationToken);
+        var updated = await client.UpdateSessionAsync(
+            new UpdateSessionRequest { UserSessionId = session.Id, Model = "high_llm" },
+            cancellationToken: cancellationToken);
+        var meta = store.Index.List().Single(item => item.Id == session.Id);
+        var refused = await Assert.That(async () => await client.ConfigureModelAliasAsync(
+            new ConfigureModelAliasRequest { Name = "missing", ModelString = Selection },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+
+        _ = await Assert.That(string.Join(",", before.Aliases.Select(alias => alias.Name)))
+            .IsEqualTo("high_llm,low_llm,medium_llm,xhigh_llm");
+        _ = await Assert.That(configured.Alias.Name).IsEqualTo("high_llm");
+        _ = await Assert.That(configured.Alias.ModelString).IsEqualTo(Selection);
+        _ = await Assert.That(after.Aliases.Single(alias => alias.Name == "high_llm").ModelString)
+            .IsEqualTo(Selection);
+        _ = await Assert.That(session.Model).IsEqualTo("high_llm");
+        _ = await Assert.That(updated.Model).IsEqualTo("high_llm");
+        _ = await Assert.That(meta.Selector).IsEqualTo("high_llm");
+        _ = await Assert.That(meta.ProviderId).IsEqualTo("scripted");
+        _ = await Assert.That(meta.Model).IsEqualTo(Selection);
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(_root, "config.yaml"), cancellationToken))
+            .Contains("model_string: scripted/model");
+    }
+
+    [Test]
+    public async Task A_persistence_failure_does_not_publish_an_alias(CancellationToken cancellationToken)
+    {
+        var registry = Registry();
+        var blockedParent = Path.Combine(_root, "not-a-directory");
+        _ = Directory.CreateDirectory(_root);
+        await File.WriteAllTextAsync(blockedParent, "file", cancellationToken);
+        var configuration = Configuration.Load(Path.Combine(blockedParent, "config.yaml"));
+        var catalog = new ModelAliasCatalog(registry, configuration.ModelAliases.Select(alias =>
+            new ModelAliasDefinition(
+                alias.Key,
+                alias.Value.ModelString,
+                alias.Value.Usage,
+                alias.Value.AugmentSystemPrompt)));
+        var configurator = new ModelAliasConfigurator(configuration, catalog);
+
+        _ = await Assert.That(() => configurator.Configure("high_llm", Selection)).Throws<IOException>();
+        _ = await Assert.That(catalog.Capture().Find("high_llm")?.ModelString).IsEmpty();
+    }
+
+    [Test]
     public async Task A_prompt_with_no_delivery_is_refused(CancellationToken cancellationToken)
     {
         using var store = Store();
-        await using var service = new ParrotService(Registry(), store, Modes());
+        await using var service = Service(store);
         var context = new InProcessServerCallContext(cancellationToken);
 
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
@@ -128,7 +207,7 @@ internal sealed class ParrotServiceTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var store = Store();
-        await using var service = new ParrotService(Registry(), store, Modes());
+        await using var service = Service(store);
         var context = new InProcessServerCallContext(cancellationToken);
 
         var prompted = await Assert.That(async () =>
@@ -171,18 +250,28 @@ internal sealed class ParrotServiceTests : IDisposable
 
         return new ProviderRegistry(
             [provider],
-            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { ["scripted"] = models },
-            "scripted/model");
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { ["scripted"] = models });
     }
+
+    private ParrotService Service(SessionStore store) => new(
+        _router,
+        _registry,
+        new ModelAliasConfigurator(_configuration, _catalog),
+        store,
+        Modes());
 
     private ModeRegistry Modes() => new(Path.Combine(_root, "plans"));
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 
-    private SessionStore Store(DirectAgentSessions sessions) =>
-        new(
+    private SessionStore Store(DirectAgentSessions sessions)
+    {
+        sessions.Use(_router);
+        return new(
             _root,
             Path.Combine(_root, "work"),
             "host",
-            new UserSessionFactory(sessions, Modes()));
+            new UserSessionFactory(sessions, Modes()),
+            _router);
+    }
 }

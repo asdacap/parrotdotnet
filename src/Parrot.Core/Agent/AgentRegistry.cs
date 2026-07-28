@@ -23,7 +23,11 @@ internal sealed class AgentRegistry(
     private bool _accepting = true;
     private Task? _shutdown;
 
-    public AgentSession Spawn(AgentSession parent, AgentSelection selection, string requestedName)
+    public AgentSession Spawn(
+        AgentSession parent,
+        AgentTurnSelection selection,
+        Llm.ModelSelector model,
+        string requestedName)
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(selection);
@@ -52,7 +56,7 @@ internal sealed class AgentRegistry(
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
             var lease = agentSessions.Create(
                 identity,
-                selection.ResolvedModel,
+                model,
                 eventBroker,
                 eventRepository,
                 profile: null,

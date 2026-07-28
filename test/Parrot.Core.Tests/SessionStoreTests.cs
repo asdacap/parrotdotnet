@@ -52,13 +52,15 @@ internal sealed class SessionStoreTests : IDisposable
     [Test]
     public async Task Failed_session_construction_does_not_consume_a_root_agent_name()
     {
+        var model = Model();
         using (var failing = new SessionStore(
             _root,
             Path.Combine(_root, "failing-work"),
             "host",
-            new ThrowingUserSessions()))
+            new ThrowingUserSessions(),
+            TestModels.Route(model)))
         {
-            _ = await Assert.That(() => failing.Open(Model())).Throws<InvalidOperationException>();
+            _ = await Assert.That(() => failing.Open(TestModels.Resolve(model))).Throws<InvalidOperationException>();
         }
 
         var session = Open(Path.Combine(_root, "working"), out var store);
@@ -90,12 +92,16 @@ internal sealed class SessionStoreTests : IDisposable
     private UserSession Open(string workingDirectory, out SessionStore store)
     {
         var sessions = new DirectAgentSessions();
+        var model = Model();
+        var router = TestModels.Route(model);
+        sessions.Use(router);
         store = new SessionStore(
             _root,
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, new ModeRegistry(Path.Combine(_root, "plans"))));
-        return store.Open(Model());
+            new UserSessionFactory(sessions, new ModeRegistry(Path.Combine(_root, "plans"))),
+            router);
+        return store.Open(router.Resolve(model.Selector));
     }
 
     private void PublishOwner(string workingDirectory, string sessionId)
@@ -121,7 +127,7 @@ internal sealed class SessionStoreTests : IDisposable
         public UserSession Create(
             string id,
             string rootAgentName,
-            ProviderModel model,
+            ResolvedModelSelection model,
             string mode,
             EventRepository eventRepository) =>
             throw new InvalidOperationException("construction failed");

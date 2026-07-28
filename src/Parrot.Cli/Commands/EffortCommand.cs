@@ -15,8 +15,10 @@ internal sealed class EffortCommand(
 
     public async Task Run(CancellationToken cancellationToken)
     {
+        var selector = await ModelAliasSelection.Resolve(client, session.Model, cancellationToken)
+            .ConfigureAwait(false);
         var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
-        var current = ModelSelection.Resolve(listed.Models, session.Model);
+        var current = ModelSelection.Resolve(listed.Models, selector);
         if (current is null)
         {
             await dialog.ShowError($"unknown selected model: {session.Model}", cancellationToken).ConfigureAwait(false);

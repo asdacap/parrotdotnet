@@ -47,7 +47,8 @@ internal sealed class StatusDrainTests : IDisposable
             await Settled(session);
 
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();
-            session.UpdateSelection(new ProviderModel(provider, new LLMModel("model-2", provider.Id)));
+            session.UpdateSelection(TestModels.Resolve(
+                new ProviderModel(provider, new LLMModel("model-2", provider.Id))));
             session.UpdateMode(ModeRegistry.Build);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();
 
@@ -95,13 +96,17 @@ internal sealed class StatusDrainTests : IDisposable
         var repository = new EventRepository(database);
         var modes = new ModeRegistry(Path.Combine(_root, "plans"));
         using var provider = new SteppedProvider(Answer("done"));
+        var providerModel = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var router = TestModels.Route(providerModel);
+        var sessions = new DirectAgentSessions();
+        sessions.Use(router);
         await using var session = new Parrot.Agent.UserSession(
             "user",
             "main-agent",
-            new ProviderModel(provider, new LLMModel("model", provider.Id)),
+            router.Resolve(providerModel.Selector),
             ModeRegistry.Plan,
             repository,
-            new DirectAgentSessions(),
+            sessions,
             modes);
 
         _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
@@ -135,7 +140,8 @@ internal sealed class StatusDrainTests : IDisposable
 
         _ = await session.Send("prompt", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
-        session.UpdateSelection(new ProviderModel(provider, new LLMModel("next-model", provider.Id)));
+        session.UpdateSelection(TestModels.Resolve(
+            new ProviderModel(provider, new LLMModel("next-model", provider.Id))));
         session.UpdateMode(ModeRegistry.Plan);
         provider.Release();
         await provider.Arrived(cancellationToken);
@@ -196,13 +202,19 @@ internal sealed class StatusDrainTests : IDisposable
         SteppedProvider provider,
         EventRepository repository,
         ModeRegistry modes,
-        string model) =>
-        new(
+        string model)
+    {
+        var providerModel = new ProviderModel(provider, new LLMModel(model, provider.Id));
+        var router = TestModels.Route(providerModel);
+        var sessions = new DirectAgentSessions();
+        sessions.Use(router);
+        return new Parrot.Agent.UserSession(
             "user",
             "main-agent",
-            new ProviderModel(provider, new LLMModel(model, provider.Id)),
+            router.Resolve(providerModel.Selector),
             ModeRegistry.Build,
             repository,
-            new DirectAgentSessions(),
+            sessions,
             modes);
+    }
 }

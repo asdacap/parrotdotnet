@@ -14,7 +14,7 @@ internal interface IAgentSessionFactory
 {
     IAgentSessionLease Create(
         AgentIdentity identity,
-        ProviderModel model,
+        ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
         MainAgentProfile? profile,

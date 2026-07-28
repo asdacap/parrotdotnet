@@ -55,7 +55,7 @@ internal sealed class ProviderRegistryBuilder(
             }
         }
 
-        var registry = new ProviderRegistry(providers, catalogues, configuration.Model);
+        var registry = new ProviderRegistry(providers, catalogues);
         _ = await registry.AvailableModels(cancellationToken).ConfigureAwait(false);
         return registry;
     }

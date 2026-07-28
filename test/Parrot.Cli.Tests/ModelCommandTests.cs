@@ -13,6 +13,7 @@ internal sealed class ModelCommandTests : IDisposable
     [Arguments("provider/current/high", "other", "provider/other/low")]
     [Arguments("provider/current/high", "plain", "provider/plain")]
     [Arguments("provider/current/low", "next", "provider/next/low")]
+    [Arguments("current_llm", "next", "provider/next/high")]
     public async Task Model_wizard_applies_variant_rules(
         string current,
         string requested,
@@ -20,6 +21,16 @@ internal sealed class ModelCommandTests : IDisposable
         CancellationToken cancellationToken)
     {
         var invoker = InvokerWithModels();
+        if (string.Equals(current, "current_llm", StringComparison.Ordinal))
+        {
+            invoker.ModelAliases.Add(new ModelAlias
+            {
+                Name = current,
+                ModelString = "provider/current/high",
+                Usage = "current",
+            });
+        }
+
         var client = new GeneratedParrot.ParrotClient(invoker);
         var session = new TestSlashSession(current);
         var activity = new TestSlashActivity();
@@ -37,8 +48,14 @@ internal sealed class ModelCommandTests : IDisposable
     public async Task Effort_uses_metadata_and_cancellation_does_not_update(CancellationToken cancellationToken)
     {
         var invoker = InvokerWithModels();
+        invoker.ModelAliases.Add(new ModelAlias
+        {
+            Name = "current_llm",
+            ModelString = "provider/current/low",
+            Usage = "current",
+        });
         var client = new GeneratedParrot.ParrotClient(invoker);
-        var selectedSession = new TestSlashSession("provider/current/low");
+        var selectedSession = new TestSlashSession("current_llm");
         var selectedDialog = new TestSlashDialog().Select("high");
         var activity = new TestSlashActivity();
 
@@ -67,8 +84,17 @@ internal sealed class ModelCommandTests : IDisposable
             client, "provider/current/high", "missing", _error, cancellationToken);
         var unknown = await CommandDispatcher.OverrideVariant(
             client, "provider/unknown", "high", _error, cancellationToken);
+        invoker.ModelAliases.Add(new ModelAlias
+        {
+            Name = "high_llm",
+            ModelString = "provider/current/low",
+            Usage = "general",
+        });
+        var alias = await CommandDispatcher.OverrideVariant(
+            client, "high_llm", "high", _error, cancellationToken);
 
         _ = await Assert.That(selected).IsEqualTo("provider/current/high");
+        _ = await Assert.That(alias).IsEqualTo("provider/current/high");
         _ = await Assert.That(invalid).IsNull();
         _ = await Assert.That(unknown).IsNull();
         _ = await Assert.That(_error.ToString()).Contains("does not support effort missing")

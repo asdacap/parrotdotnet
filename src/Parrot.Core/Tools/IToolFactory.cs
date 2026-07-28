@@ -7,5 +7,5 @@ namespace Parrot.Tools;
 // that do not need it do not carry it. Create yields one instance per turn.
 internal interface IToolFactory
 {
-    ITool Create(AgentSession session, AgentSelection selection);
+    ITool Create(AgentSession session, AgentTurnSelection selection);
 }

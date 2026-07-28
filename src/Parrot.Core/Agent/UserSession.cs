@@ -35,13 +35,13 @@ internal sealed class UserSession : IAsyncDisposable
     // about before then.
     private readonly string _mainSessionId;
     private readonly string _rootAgentName;
-    private ProviderModel _model;
+    private ModelSelector _model;
     private AgentSession? _main;
 
     public UserSession(
         string id,
         string rootAgentName,
-        ProviderModel model,
+        ResolvedModelSelection model,
         string mode,
         EventRepository eventRepository,
         IAgentSessionFactorySource agentSessionFactories,
@@ -52,7 +52,9 @@ internal sealed class UserSession : IAsyncDisposable
 
         Id = id;
         _rootAgentName = rootAgentName;
-        _model = model;
+        _model = model.RequestedSelector;
+        ProviderId = model.CanonicalModel.Provider.Id;
+        CanonicalModel = model.CanonicalModel.Selector;
         _eventRepository = eventRepository;
         _modes = modes;
         var state = eventRepository.SessionState(id, modes.Resolve(mode, id).Id);
@@ -66,7 +68,9 @@ internal sealed class UserSession : IAsyncDisposable
 
     public string Id { get; }
 
-    public string ProviderId => _model.Provider.Id;
+    public string ProviderId { get; private set; }
+
+    public string CanonicalModel { get; private set; }
 
     // Session state, and owned here rather than on the main agent session:
     // CreateSession reports it and UpdateSession changes it, both of which can
@@ -74,7 +78,7 @@ internal sealed class UserSession : IAsyncDisposable
     // Under the same lock as Main: an UpdateSession racing the first prompt
     // would otherwise be free to see a null _main, skip, and lose the selection
     // the turn is about to run with.
-    public string Model => _model.Selector;
+    public string Model => _model.Value;
 
     // The user-selected foreground mode. The resolved profile is applied only
     // to this user session's main agent; child agents have no active profile.
@@ -108,9 +112,9 @@ internal sealed class UserSession : IAsyncDisposable
         }
     }
 
-    public void UpdateSelection(ProviderModel model) => Update(model, null);
+    public void UpdateSelection(ResolvedModelSelection model) => Update(model, null);
 
-    public void Update(ProviderModel? model, MainAgentProfile? profile)
+    public void Update(ResolvedModelSelection? model, MainAgentProfile? profile)
     {
         lock (_mainGate)
         {
@@ -122,7 +126,9 @@ internal sealed class UserSession : IAsyncDisposable
 
             if (model is not null)
             {
-                _model = model;
+                _model = model.RequestedSelector;
+                ProviderId = model.CanonicalModel.Provider.Id;
+                CanonicalModel = model.CanonicalModel.Selector;
             }
 
             _main?.UpdateSelection(_model, Mode);

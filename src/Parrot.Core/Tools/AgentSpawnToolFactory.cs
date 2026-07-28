@@ -1,8 +1,10 @@
 using Parrot.Agent;
+using Parrot.Llm;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentSpawnToolFactory(AgentRegistry agents) : IToolFactory
+internal sealed class AgentSpawnToolFactory(AgentRegistry agents, ModelRouter router) : IToolFactory
 {
-    public ITool Create(AgentSession session, AgentSelection selection) => new AgentSpawnTool(agents, session, selection);
+    public ITool Create(AgentSession session, AgentTurnSelection selection) =>
+        new AgentSpawnTool(agents, router, session, selection);
 }
