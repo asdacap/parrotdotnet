@@ -260,7 +260,7 @@ internal sealed class ParrotServiceTests : IDisposable
         store,
         Modes());
 
-    private ModeRegistry Modes() => new(Path.Combine(_root, "plans"));
+    private ModeRegistry Modes() => new(Path.Combine(_root, "plans"), _configuration.SandboxRules, _configuration.Profiles);
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 

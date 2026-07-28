@@ -73,6 +73,13 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.HardRule).Contains(ruleFragment);
         _ = await Assert.That(profile.Status).IsNotEmpty();
         _ = await Assert.That(profile.PlanArtifact).IsEmpty();
+
+        if (id == ModeRegistry.Plan)
+        {
+            profile.Prepare();
+            _ = await Assert.That(profile.Prompt).Contains(profile.PlanArtifact);
+            _ = await Assert.That(profile.Prompt).Contains(Path.Combine(_root, "plan"));
+        }
     }
 
     [Test]
@@ -80,17 +87,19 @@ internal sealed class ModeRegistryTests : IDisposable
     {
         var denied = Path.Combine(_root, "denied");
         var allowed = Path.Combine(_root, "allowed");
+        var configuration = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"));
+        var profiles = configuration.Profiles.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+        profiles[ModeRegistry.Build] = configuration.Profiles[ModeRegistry.Build] with
+        {
+            ReadOnly = true,
+            SandboxRules = [new SandboxRule(allowed, SandboxRuleAction.AllowWrite)],
+        };
         var registry = new ModeRegistry(
             Path.Combine(_root, "plans"),
             [new SandboxRule(denied, SandboxRuleAction.DenyWrite)],
-            new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal)
-            {
-                [ModeRegistry.Build] = new()
-                {
-                    ReadOnly = true,
-                    SandboxRules = [new SandboxRule(allowed, SandboxRuleAction.AllowWrite)],
-                },
-            });
+            profiles);
 
         var build = registry.Resolve(ModeRegistry.Build, "session");
         var plan = registry.Resolve(ModeRegistry.Plan, "session");
@@ -179,5 +188,11 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(Path.GetDirectoryName(first.PlanArtifact)).IsEqualTo(Path.Combine(_root, "plan"));
     }
 
-    private ModeRegistry Registry() => new(Path.Combine(_root, "plan"));
+    private ModeRegistry Registry()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"));
+        return new ModeRegistry(Path.Combine(_root, "plan"), configuration.SandboxRules, configuration.Profiles);
+    }
 }

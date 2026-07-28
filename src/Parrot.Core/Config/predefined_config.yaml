@@ -70,16 +70,38 @@ providers: {}
 # and one of allow_write, deny_read, allow_read, or deny_write.
 sandbox_rules: []
 
-# Security overrides for the supported foreground modes. Omit a field in
-# config.yaml to retain this default; sandbox_rules are an ordered replacement.
+# Complete defaults for the supported foreground modes. A nested config.yaml
+# mapping may override any guidance, limit, or security field while retaining
+# every other predefined value; sandbox_rules are an ordered replacement.
 profiles:
   build:
+    prompt: |-
+      You are Parrot's build mode. Implement and verify the requested changes.
+    hard_rule: |-
+      Keep tool side effects within the authorized workspace.
+    status: |-
+      Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.
+    max_tool_rounds: 64
     read_only: false
     sandbox_rules: []
   plan:
+    prompt: |-
+      You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown
+    hard_rule: |-
+      The plan directory is the only writable location; do not modify workspace files.
+    status: |-
+      Plan mode: inspect the project and write the designated plan artifact without changing other files.
+    max_tool_rounds: 24
     read_only: true
     sandbox_rules: []
   query:
+    prompt: |-
+      You are Parrot's query mode. Inspect the project and answer the user's question without making changes.
+    hard_rule: |-
+      Read-only mode: do not modify the workspace.
+    status: |-
+      Query mode: inspect the project and answer questions without changing files.
+    max_tool_rounds: 24
     read_only: true
     sandbox_rules: []
 

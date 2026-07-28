@@ -173,8 +173,11 @@ created or overwritten by loading configuration. Parrot recursively merges its
 mapping over `predefined_config.yaml`: nested mappings combine by key, while
 scalars and sequences replace their corresponding defaults. Thus a
 `model_aliases.low_llm.model_string` entry can override that target without
-repeating its predefined usage, and mode security overrides can change one
-field without materializing the rest.
+repeating its predefined usage. The predefined file also contains complete
+`build`, `plan`, and `query` foreground-profile definitions, so a nested
+`profiles.<mode>` mapping can override one prompt, hard rule, status,
+`max_tool_rounds`, `read_only`, or sandbox-rules field while inheriting every
+other field from the active default.
 
 ## Build And Run
 

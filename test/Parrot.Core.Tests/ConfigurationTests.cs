@@ -29,6 +29,17 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
+        _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(3);
+        var build = configuration.Profiles["build"];
+        _ = await Assert.That(build.Prompt).IsEqualTo("You are Parrot's build mode. Implement and verify the requested changes.");
+        _ = await Assert.That(build.HardRule).IsEqualTo("Keep tool side effects within the authorized workspace.");
+        _ = await Assert.That(build.Status).IsEqualTo(
+            "Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.");
+        _ = await Assert.That(build.MaxToolRounds).IsEqualTo(64);
+        _ = await Assert.That(build.ReadOnly).IsFalse();
+        _ = await Assert.That(build.SandboxRules).IsEmpty();
+        _ = await Assert.That(configuration.Profiles["plan"].MaxToolRounds).IsEqualTo(24);
+        _ = await Assert.That(configuration.Profiles["query"].ReadOnly).IsTrue();
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
             .Contains("Predefined Parrot configuration.");
     }
@@ -104,6 +115,26 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Profile_fields_partially_override_predefined_definitions()
+    {
+        var profile = Load(Write("""
+            profiles:
+              plan:
+                prompt: Custom plan guidance
+                max_tool_rounds: 7
+            """)).Profiles["plan"];
+
+        _ = await Assert.That(profile.Prompt).IsEqualTo("Custom plan guidance");
+        _ = await Assert.That(profile.MaxToolRounds).IsEqualTo(7);
+        _ = await Assert.That(profile.HardRule).IsEqualTo(
+            "The plan directory is the only writable location; do not modify workspace files.");
+        _ = await Assert.That(profile.Status).IsEqualTo(
+            "Plan mode: inspect the project and write the designated plan artifact without changing other files.");
+        _ = await Assert.That(profile.ReadOnly).IsTrue();
+        _ = await Assert.That(profile.SandboxRules).IsEmpty();
+    }
+
+    [Test]
     public async Task Invalid_security_configuration_fails_closed()
     {
         var relativePath = Write("sandbox_rules:\n  - path: relative\n    rule: allow_write\n");
@@ -128,6 +159,17 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
     }
+
+    [Test]
+    [Arguments("profiles:\n  build:\n    prompt: ''\n")]
+    [Arguments("profiles:\n  build:\n    hard_rule: []\n")]
+    [Arguments("profiles:\n  build:\n    status: '   '\n")]
+    [Arguments("profiles:\n  build:\n    max_tool_rounds: 0\n")]
+    [Arguments("profiles:\n  build:\n    max_tool_rounds: -1\n")]
+    [Arguments("profiles:\n  build:\n    max_tool_rounds: not-a-number\n")]
+    [Arguments("profiles:\n  build:\n    max_tool_rounds: 1.5\n")]
+    public async Task Profile_configuration_rejects_invalid_required_fields(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
     public async Task Model_aliases_have_four_exact_defaults()

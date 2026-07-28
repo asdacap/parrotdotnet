@@ -1,3 +1,4 @@
+using System.Globalization;
 using Parrot.Security;
 using YamlDotNet.RepresentationModel;
 
@@ -35,8 +36,8 @@ internal sealed class Configuration(string path)
 
     public IReadOnlyList<SandboxRule> SandboxRules { get; private set; } = [];
 
-    public IReadOnlyDictionary<string, ProfileSecurityConfig> Profiles { get; private set; } =
-        new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, ProfileConfig> Profiles { get; private set; } =
+        new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
 
     public static Configuration Load(string path, string predefinedPath)
     {
@@ -360,16 +361,11 @@ internal sealed class Configuration(string path)
         return node as YamlMappingNode ?? throw new InvalidDataException($"{key} must be a mapping");
     }
 
-    private static Dictionary<string, ProfileSecurityConfig> ReadProfiles(YamlMappingNode root)
+    private static Dictionary<string, ProfileConfig> ReadProfiles(YamlMappingNode root)
     {
-        var result = new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal);
+        var result = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
 
-        if (!Child(root, "profiles", out var node))
-        {
-            return result;
-        }
-
-        if (node is not YamlMappingNode profiles)
+        if (!Child(root, "profiles", out var node) || node is not YamlMappingNode profiles)
         {
             throw new InvalidDataException("profiles must be a mapping");
         }
@@ -387,13 +383,31 @@ internal sealed class Configuration(string path)
                 throw new InvalidDataException($"profiles.{id} is not supported");
             }
 
-            ValidateKeys(profile, $"profiles.{id}", "read_only", "sandbox_rules");
+            ValidateKeys(
+                profile,
+                $"profiles.{id}",
+                "prompt",
+                "hard_rule",
+                "status",
+                "max_tool_rounds",
+                "read_only",
+                "sandbox_rules");
+        }
 
-            result[id] = new ProfileSecurityConfig
+        foreach (var id in new[] { "build", "plan", "query" })
+        {
+            if (!Child(profiles, id, out var nodeForProfile) || nodeForProfile is not YamlMappingNode profile)
             {
-                ReadOnly = ReadOptionalBoolean(profile, $"profiles.{id}.read_only", "read_only"),
-                SandboxRules = ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules"),
-            };
+                throw new InvalidDataException($"profiles.{id} must be a mapping");
+            }
+
+            result[id] = new ProfileConfig(
+                NonEmptyScalar(profile, "prompt", $"profiles.{id}.prompt"),
+                NonEmptyScalar(profile, "hard_rule", $"profiles.{id}.hard_rule"),
+                NonEmptyScalar(profile, "status", $"profiles.{id}.status"),
+                PositiveInteger(profile, "max_tool_rounds", $"profiles.{id}.max_tool_rounds"),
+                ReadBoolean(profile, "read_only", $"profiles.{id}.read_only"),
+                ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules"));
         }
 
         return result;
@@ -434,11 +448,11 @@ internal sealed class Configuration(string path)
         return result;
     }
 
-    private static void ValidateKeys(YamlMappingNode mapping, string path, string firstKey, string secondKey)
+    private static void ValidateKeys(YamlMappingNode mapping, string path, params string[] supportedKeys)
     {
         foreach (var key in mapping.Children.Keys)
         {
-            if (key is not YamlScalarNode { Value: { } value } || (value != firstKey && value != secondKey))
+            if (key is not YamlScalarNode { Value: { } value } || !supportedKeys.Contains(value, StringComparer.Ordinal))
             {
                 throw new InvalidDataException($"{path} contains an unsupported key");
             }
@@ -469,11 +483,33 @@ internal sealed class Configuration(string path)
         };
     }
 
-    private static bool? ReadOptionalBoolean(YamlMappingNode parent, string path, string key)
+    private static string NonEmptyScalar(YamlMappingNode parent, string key, string path)
+    {
+        if (!Child(parent, key, out var node) || node is not YamlScalarNode { Value: { } value } ||
+            string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidDataException($"{path} must be a non-empty string");
+        }
+
+        return value;
+    }
+
+    private static int PositiveInteger(YamlMappingNode parent, string key, string path)
+    {
+        if (!Child(parent, key, out var node) || node is not YamlScalarNode { Value: { } value } ||
+            !int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0)
+        {
+            throw new InvalidDataException($"{path} must be a positive integer");
+        }
+
+        return parsed;
+    }
+
+    private static bool ReadBoolean(YamlMappingNode parent, string key, string path)
     {
         if (!Child(parent, key, out var node))
         {
-            return null;
+            throw new InvalidDataException($"{path} must be true or false");
         }
 
         return node switch

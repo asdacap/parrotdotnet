@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -97,7 +98,7 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        parent.UpdateSelection(parent.Selection().RequestedModel, MainAgentProfile.Build(readOnly: false, [], []));
+        parent.UpdateSelection(parent.Selection().RequestedModel, Profile(ModeRegistry.Build, readOnly: false, []));
         var spawn = new AgentSpawnTool(registry, Router(provider), parent, Turn(parent, Router(provider)));
         parent.UpdateSelection(
             new ModelSelector("stepped/replacement"),
@@ -282,14 +283,16 @@ internal sealed class SubagentTests : IDisposable
         var sessions = new TestAgentSessions(Router(provider));
         await using var registry = new AgentRegistry(sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
-        var planArtifact = Path.Combine(Path.GetTempPath(), "plan.md");
         parent.UpdateSelection(
             parent.Selection().RequestedModel,
-            MainAgentProfile.Plan(Path.GetTempPath(), () => planArtifact, true, [], [], static () => { }, static (_, _) => null));
+            Profile(
+                ModeRegistry.Plan,
+                readOnly: true,
+                [new SandboxRule(Path.GetTempPath(), SandboxRuleAction.AllowWrite)]));
         var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "worker");
         parent.UpdateSelection(
             parent.Selection().RequestedModel,
-            MainAgentProfile.Build(readOnly: false, [], []));
+            Profile(ModeRegistry.Build, readOnly: false, []));
         var permissive = registry.Spawn(parent, Turn(parent, Router(provider)), parent.Selection().RequestedModel, "permissive");
 
         var rejected = await new AgentSendTool(registry, spawned, Turn(spawned, Router(provider))).Execute(
@@ -367,6 +370,19 @@ internal sealed class SubagentTests : IDisposable
             $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}""", cancellationToken);
         _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");
     }
+
+    private static MainAgentProfile Profile(
+        string id,
+        bool readOnly,
+        IReadOnlyList<SandboxRule> runtimeCapabilities) =>
+        new(
+            id,
+            new ProfileConfig("Test prompt", "Test rule", "Test status", 1, readOnly, []),
+            static () => "Test prompt",
+            static () => string.Empty,
+            SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities),
+            static () => { },
+            static (_, _) => null);
 
     private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
     {

@@ -7,7 +7,7 @@ namespace Parrot.Agent;
 internal sealed class ModeRegistry(
     string planDirectory,
     IReadOnlyList<SandboxRule> globalRules,
-    IReadOnlyDictionary<string, ProfileSecurityConfig> profiles)
+    IReadOnlyDictionary<string, ProfileConfig> profiles)
 {
     public const string Build = "build";
     public const string Plan = "plan";
@@ -17,36 +17,43 @@ internal sealed class ModeRegistry(
     private readonly Lock _planGate = new();
     private readonly Dictionary<string, string> _planArtifacts = new(StringComparer.Ordinal);
 
-    public ModeRegistry(string planDirectory)
-        : this(planDirectory, [], new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal))
-    {
-    }
-
     public IReadOnlyList<string> List() => _modeIds;
 
     public MainAgentProfile Resolve(string id, string sessionId)
     {
         var selected = id.Length == 0 ? Build : id;
 
-        if (selected == Plan)
+        var configuration = selected switch
         {
-            var configured = Profile(Plan);
-            return MainAgentProfile.Plan(
-                planDirectory,
-                () => PlanArtifact(sessionId),
-                configured?.ReadOnly ?? true,
-                configured?.SandboxRules ?? [],
-                globalRules,
-                () => PreparePlan(sessionId),
-                (agentSessionId, messageId) => CompletePlan(sessionId, agentSessionId, messageId));
-        }
-
-        return selected switch
-        {
-            Build => BuildProfile(),
-            Query => QueryProfile(),
+            Build or Plan or Query => Profile(selected),
             _ => throw new ModeRegistryException($"unknown mode {selected}"),
         };
+
+        return selected == Plan
+            ? new MainAgentProfile(
+                selected,
+                configuration,
+                () => $"{configuration.Prompt} to this exact file: {PlanArtifact(sessionId)}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {planDirectory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
+                () => PlanArtifact(sessionId),
+                SecurityProfile.Compose(
+                    configuration.ReadOnly,
+                    configuration.SandboxRules,
+                    globalRules,
+                    [new SandboxRule(planDirectory, SandboxRuleAction.AllowWrite)]),
+                () => PreparePlan(sessionId),
+                (agentSessionId, messageId) => CompletePlan(sessionId, agentSessionId, messageId))
+            : new MainAgentProfile(
+                selected,
+                configuration,
+                () => configuration.Prompt,
+                static () => string.Empty,
+                SecurityProfile.Compose(
+                    configuration.ReadOnly,
+                    configuration.SandboxRules,
+                    globalRules,
+                    []),
+                static () => { },
+                static (_, _) => null);
     }
 
     private void SecureArtifact(string artifact)
@@ -66,25 +73,8 @@ internal sealed class ModeRegistry(
         }
     }
 
-    private MainAgentProfile BuildProfile()
-    {
-        var configured = Profile(Build);
-        return MainAgentProfile.Build(
-            configured?.ReadOnly ?? false,
-            configured?.SandboxRules ?? [],
-            globalRules);
-    }
-
-    private MainAgentProfile QueryProfile()
-    {
-        var configured = Profile(Query);
-        return MainAgentProfile.Query(
-            configured?.ReadOnly ?? true,
-            configured?.SandboxRules ?? [],
-            globalRules);
-    }
-
-    private ProfileSecurityConfig? Profile(string id) => profiles.GetValueOrDefault(id);
+    private ProfileConfig Profile(string id) => profiles.GetValueOrDefault(id)
+        ?? throw new ModeRegistryException($"configuration missing profile {id}");
 
     private string PlanArtifact(string sessionId)
     {

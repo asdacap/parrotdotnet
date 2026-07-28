@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
@@ -23,7 +24,7 @@ internal sealed class StatusDrainTests : IDisposable
         CancellationToken cancellationToken)
     {
         var databasePath = Path.Combine(_root, "session.db");
-        var modes = new ModeRegistry(Path.Combine(_root, "plans"));
+        var modes = Modes();
         using var provider = new SteppedProvider(Answer("first"), Answer("unused"), Answer("after interrupt"));
 
         using (var database = SessionDatabase.Open(databasePath))
@@ -94,7 +95,7 @@ internal sealed class StatusDrainTests : IDisposable
     {
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
-        var modes = new ModeRegistry(Path.Combine(_root, "plans"));
+        var modes = Modes();
         using var provider = new SteppedProvider(Answer("done"));
         var providerModel = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var router = TestModels.Route(providerModel);
@@ -132,7 +133,7 @@ internal sealed class StatusDrainTests : IDisposable
     {
         using var database = SessionDatabase.Open(":memory:");
         var repository = new EventRepository(database);
-        var modes = new ModeRegistry(Path.Combine(_root, "plans"));
+        var modes = Modes();
         using var provider = new SteppedProvider(
             Answer(string.Empty, new LLMToolCall("call", "missing", "{}")),
             Answer("done"));
@@ -216,5 +217,13 @@ internal sealed class StatusDrainTests : IDisposable
             repository,
             sessions,
             modes);
+    }
+
+    private ModeRegistry Modes()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"));
+        return new ModeRegistry(Path.Combine(_root, "plans"), configuration.SandboxRules, configuration.Profiles);
     }
 }

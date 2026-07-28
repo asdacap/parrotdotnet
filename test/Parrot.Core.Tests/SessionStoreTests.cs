@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Store;
 
@@ -99,9 +100,17 @@ internal sealed class SessionStoreTests : IDisposable
             _root,
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, new ModeRegistry(Path.Combine(_root, "plans"))),
+            new UserSessionFactory(sessions, Modes()),
             router);
         return store.Open(router.Resolve(model.Selector));
+    }
+
+    private ModeRegistry Modes()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"));
+        return new ModeRegistry(Path.Combine(_root, "plans"), configuration.SandboxRules, configuration.Profiles);
     }
 
     private void PublishOwner(string workingDirectory, string sessionId)

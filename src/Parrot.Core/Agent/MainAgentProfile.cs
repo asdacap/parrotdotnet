@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Protocol;
 using Parrot.Security;
 
@@ -5,11 +6,8 @@ namespace Parrot.Agent;
 
 internal sealed class MainAgentProfile(
     string id,
+    ProfileConfig configuration,
     Func<string> prompt,
-    string hardRule,
-    string status,
-    int maxToolRounds,
-    bool readOnly,
     Func<string> planArtifact,
     SecurityProfile securityProfile,
     Action prepare,
@@ -19,73 +17,17 @@ internal sealed class MainAgentProfile(
 
     public string Prompt => prompt();
 
-    public string HardRule { get; } = hardRule;
+    public string HardRule { get; } = configuration.HardRule;
 
-    public string Status { get; } = status;
+    public string Status { get; } = configuration.Status;
 
-    public int MaxToolRounds { get; } = maxToolRounds;
+    public int MaxToolRounds { get; } = configuration.MaxToolRounds;
 
-    public bool ReadOnly { get; } = readOnly;
+    public bool ReadOnly { get; } = configuration.ReadOnly;
 
     public string PlanArtifact => planArtifact();
 
     public SecurityProfile SecurityProfile { get; } = securityProfile;
-
-    public static MainAgentProfile Build(
-        bool readOnly,
-        IReadOnlyList<SandboxRule> modeRules,
-        IReadOnlyList<SandboxRule> globalRules) =>
-        new(
-            ModeRegistry.Build,
-            static () => "You are Parrot's build mode. Implement and verify the requested changes.",
-            "Keep tool side effects within the authorized workspace.",
-            "Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.",
-            64,
-            readOnly,
-            static () => string.Empty,
-            SecurityProfile.Compose(readOnly, modeRules, globalRules, []),
-            static () => { },
-            static (_, _) => null);
-
-    public static MainAgentProfile Query(
-        bool readOnly,
-        IReadOnlyList<SandboxRule> modeRules,
-        IReadOnlyList<SandboxRule> globalRules) =>
-        new(
-            ModeRegistry.Query,
-            static () => "You are Parrot's query mode. Inspect the project and answer the user's question without making changes.",
-            "Read-only mode: do not modify the workspace.",
-            "Query mode: inspect the project and answer questions without changing files.",
-            24,
-            readOnly,
-            static () => string.Empty,
-            SecurityProfile.Compose(readOnly, modeRules, globalRules, []),
-            static () => { },
-            static (_, _) => null);
-
-    public static MainAgentProfile Plan(
-        string directory,
-        Func<string> artifact,
-        bool readOnly,
-        IReadOnlyList<SandboxRule> modeRules,
-        IReadOnlyList<SandboxRule> globalRules,
-        Action prepare,
-        Func<string, string, PlanCompleted?> complete) =>
-        new(
-            ModeRegistry.Plan,
-            () => $"You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown to this exact file: {artifact()}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {directory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
-            "The plan directory is the only writable location; do not modify workspace files.",
-            "Plan mode: inspect the project and write the designated plan artifact without changing other files.",
-            24,
-            readOnly,
-            artifact,
-            SecurityProfile.Compose(
-                readOnly,
-                modeRules,
-                globalRules,
-                [new SandboxRule(directory, SandboxRuleAction.AllowWrite)]),
-            prepare,
-            complete);
 
     public void Prepare() => prepare();
 
