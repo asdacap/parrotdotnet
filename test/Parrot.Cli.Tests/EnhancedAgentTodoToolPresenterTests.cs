@@ -37,10 +37,10 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
         yield return () =>
         [
             new TodoWriteToolPresenter(),
-            new ToolCallPresentation("main", "todowrite", "{\"todos\":[{\"content\":\"ship it\",\"status\":\"pending\"}]}"),
-            "[{\"content\":\"ship it\",\"status\":\"completed\"}]",
-            "main: TODO · 1 item|  ○ ship it",
-            "✓ main: TODO · 1 item|  ✓ ship it",
+            new ToolCallPresentation("main", "todowrite", "{\"todos\":[{\"content\":\"ship it\",\"status\":\"pending\",\"priority\":\"high\"}]}"),
+            "[{\"content\":\"ship it\",\"status\":\"completed\",\"priority\":\"low\"}]",
+            "main: TODO · 1 item|  ○ high · ship it",
+            "✓ main: TODO · 1 item|  ✓ low · ship it",
         ];
     }
 
@@ -70,6 +70,24 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
 
         _ = await Assert.That(string.Join('|', live)).Contains(expectedLive);
         _ = await Assert.That(string.Join('|', completed)).Contains(expectedTerminal);
+    }
+
+    [Test]
+    public async Task Todo_write_renders_priorities_and_empty_lists_like_the_reference_client()
+    {
+        var presenter = new TodoWriteToolPresenter();
+        var call = new ToolCallPresentation(
+            "main",
+            "todowrite",
+            "{\"todos\":[{\"content\":\"Plan work\",\"status\":\"pending\",\"priority\":\"high\"},{\"content\":\"Implement UI\",\"status\":\"in_progress\",\"priority\":\"medium\"},{\"content\":\"Run tests\",\"status\":\"completed\",\"priority\":\"low\"},{\"content\":\"Discard old approach\",\"status\":\"cancelled\",\"priority\":\"low\"}]}");
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "[]", string.Empty);
+
+        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text);
+        var completed = (presenter.PresentTerminal(call, terminal)
+            ?? throw new InvalidOperationException("Presenter did not render terminal output")).Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('|', live)).Contains("○ high · Plan work|  ◐ medium · Implement UI|  ✓ low · Run tests|  ■ low · Discard old approach");
+        _ = await Assert.That(string.Join('|', completed)).Contains("✓ main: TODO · 0 items|  No todos");
     }
 
     [Test]
