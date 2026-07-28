@@ -55,7 +55,7 @@ internal sealed class AgentRegistry(
                 selection.ResolvedModel,
                 eventBroker,
                 eventRepository,
-                mode: null,
+                profile: null,
                 selection.SecurityProfile.WithoutRuntimeCapabilities(),
                 status: null,
                 _lifetime.Token);

@@ -29,7 +29,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         ProviderModel model,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        ModeProfile? mode,
+        MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime)
@@ -44,7 +44,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             new SystemContextBuilder(".", ".", "2026-07-24", identity.Context),
             new TodoCollection(identity.SessionId, eventRepository, eventBroker),
             new Compactor(120_000),
-            mode,
+            profile,
             securityProfile,
             status,
             lifetime));

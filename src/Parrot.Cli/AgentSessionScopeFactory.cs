@@ -21,7 +21,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         string configDirectory,
         string date,
         Compactor compactor,
-        ModeProfile? mode,
+        MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime)
@@ -36,7 +36,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             configDirectory,
             date,
             compactor,
-            mode,
+            profile,
             securityProfile,
             status,
             lifetime);

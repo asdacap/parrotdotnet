@@ -76,7 +76,9 @@ internal sealed class UserSession : IAsyncDisposable
     // the turn is about to run with.
     public string Model => _model.Selector;
 
-    public ModeProfile Mode { get; private set; }
+    // The user-selected foreground mode. The resolved profile is applied only
+    // to this user session's main agent; child agents have no active profile.
+    public MainAgentProfile Mode { get; private set; }
 
     internal CancellationToken Lifetime => _lifetime.Token;
 
@@ -108,14 +110,14 @@ internal sealed class UserSession : IAsyncDisposable
 
     public void UpdateSelection(ProviderModel model) => Update(model, null);
 
-    public void Update(ProviderModel? model, ModeProfile? mode)
+    public void Update(ProviderModel? model, MainAgentProfile? profile)
     {
         lock (_mainGate)
         {
-            if (mode is not null && !string.Equals(Mode.Id, mode.Id, StringComparison.Ordinal))
+            if (profile is not null && !string.Equals(Mode.Id, profile.Id, StringComparison.Ordinal))
             {
-                _eventRepository.UpdateMode(Id, _mainSessionId, mode.Id);
-                Mode = mode;
+                _eventRepository.UpdateMode(Id, _mainSessionId, profile.Id);
+                Mode = profile;
             }
 
             if (model is not null)

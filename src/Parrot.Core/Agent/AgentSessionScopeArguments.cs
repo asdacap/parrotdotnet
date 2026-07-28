@@ -18,7 +18,7 @@ internal sealed record AgentSessionScopeArguments(
     string ConfigDirectory,
     string Date,
     Compactor Compactor,
-    ModeProfile? Mode,
+    MainAgentProfile? Profile,
     SecurityProfile SecurityProfile,
     RuntimeStatus? Status,
     CancellationToken Lifetime);

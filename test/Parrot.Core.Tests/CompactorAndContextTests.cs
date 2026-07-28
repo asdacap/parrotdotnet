@@ -66,7 +66,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new SystemContextBuilder(_workspace, _workspace, "2026-07-24", string.Empty),
             new TodoCollection("agent", new EventRepository(database), broker),
             new Compactor(tokenBudget: 0),
-            mode: null,
+            profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             cancellationToken);

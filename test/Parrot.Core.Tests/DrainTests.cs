@@ -378,7 +378,7 @@ internal sealed class DrainTests : IDisposable
             new SystemContextBuilder(".", ".", "2026-07-24", string.Empty),
             new TodoCollection("agent", repository, _broker),
             new Compactor(120_000),
-            mode: null,
+            profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             lifetime);

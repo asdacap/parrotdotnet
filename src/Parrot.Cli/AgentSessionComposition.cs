@@ -41,7 +41,7 @@ internal partial class AgentSessionComposition
                     context,
                     todos,
                     arguments.Compactor,
-                    arguments.Mode,
+                    arguments.Profile,
                     arguments.SecurityProfile,
                     arguments.Status,
                     arguments.Lifetime);

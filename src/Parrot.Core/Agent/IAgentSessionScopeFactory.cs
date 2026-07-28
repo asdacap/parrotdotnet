@@ -20,7 +20,7 @@ internal interface IAgentSessionScopeFactory
         string configDirectory,
         string date,
         Compactor compactor,
-        ModeProfile? mode,
+        MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime);

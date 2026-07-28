@@ -88,7 +88,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 
         var found = Find(request.UserSessionId);
 
-        ModeProfile? selectedMode = null;
+        MainAgentProfile? selectedMode = null;
         ProviderModel? selectedModel = null;
 
         try

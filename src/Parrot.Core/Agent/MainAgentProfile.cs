@@ -3,7 +3,7 @@ using Parrot.Security;
 
 namespace Parrot.Agent;
 
-internal sealed class ModeProfile(
+internal sealed class MainAgentProfile(
     string id,
     Func<string> prompt,
     string hardRule,
@@ -31,7 +31,7 @@ internal sealed class ModeProfile(
 
     public SecurityProfile SecurityProfile { get; } = securityProfile;
 
-    public static ModeProfile Build(
+    public static MainAgentProfile Build(
         bool readOnly,
         IReadOnlyList<SandboxRule> modeRules,
         IReadOnlyList<SandboxRule> globalRules) =>
@@ -47,7 +47,7 @@ internal sealed class ModeProfile(
             static () => { },
             static (_, _) => null);
 
-    public static ModeProfile Query(
+    public static MainAgentProfile Query(
         bool readOnly,
         IReadOnlyList<SandboxRule> modeRules,
         IReadOnlyList<SandboxRule> globalRules) =>
@@ -63,7 +63,7 @@ internal sealed class ModeProfile(
             static () => { },
             static (_, _) => null);
 
-    public static ModeProfile Plan(
+    public static MainAgentProfile Plan(
         string directory,
         Func<string> artifact,
         bool readOnly,
