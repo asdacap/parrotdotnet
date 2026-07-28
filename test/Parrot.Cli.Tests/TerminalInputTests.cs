@@ -18,6 +18,25 @@ internal sealed class TerminalInputTests
         _ = await Assert.That(output.ToString()).IsEqualTo("\u001b[?2004h\u001b[>1u\u001b[<u\u001b[?2004l");
     }
 
+    // Application cursor key mode swaps CSI for SS3 on the arrows; tmux and screen set it
+    // whatever this process does.
+    [Test]
+    [Arguments("\u001b[A", TerminalKeyKind.Up)]
+    [Arguments("\u001bOA", TerminalKeyKind.Up)]
+    [Arguments("\u001b[B", TerminalKeyKind.Down)]
+    [Arguments("\u001bOB", TerminalKeyKind.Down)]
+    [Arguments("\u001b[C", TerminalKeyKind.Right)]
+    [Arguments("\u001bOC", TerminalKeyKind.Right)]
+    [Arguments("\u001b[D", TerminalKeyKind.Left)]
+    [Arguments("\u001bOD", TerminalKeyKind.Left)]
+    public async Task Decoder_maps_normal_and_application_cursor_keys(string sequence, TerminalKeyKind kind)
+    {
+        var decoded = new TerminalKeyDecoder().Feed(Encoding.ASCII.GetBytes(sequence));
+
+        _ = await Assert.That(decoded).HasSingleItem();
+        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(kind));
+    }
+
     [Test]
     public async Task Decoder_preserves_incremental_sequences_and_sanitizes_paste()
     {

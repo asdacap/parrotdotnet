@@ -159,6 +159,13 @@ internal sealed class TerminalKeyDecoder
             ["\u001b[Z"] = TerminalKeyKind.Mode,
             ["\u001bOH"] = TerminalKeyKind.Home,
             ["\u001bOF"] = TerminalKeyKind.End,
+
+            // The SS3 forms: what the arrows send once something has put the terminal
+            // into application cursor key mode, as tmux and screen do.
+            ["\u001bOA"] = TerminalKeyKind.Up,
+            ["\u001bOB"] = TerminalKeyKind.Down,
+            ["\u001bOC"] = TerminalKeyKind.Right,
+            ["\u001bOD"] = TerminalKeyKind.Left,
         };
         foreach (var pair in sequences)
         {
