@@ -213,7 +213,7 @@ internal sealed class EnhancedTurnView(
             EndReasoning();
             if (fragment.Length > 0)
             {
-                await Commit(ImmediateScrollbackValue.Muted([$"✦ {fragment}"]), cancellationToken)
+                await Commit(new ReasoningSummaryScrollbackValue(fragment), cancellationToken)
                     .ConfigureAwait(false);
             }
 

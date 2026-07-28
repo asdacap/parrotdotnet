@@ -278,12 +278,20 @@ internal sealed class EnhancedCliTests
                 new Event
                 {
                     Id = "summary-1",
-                    ReasoningChunk = new ReasoningChunk { Fragment = "a", Kind = ReasoningKind.Summary },
+                    ReasoningChunk = new ReasoningChunk
+                    {
+                        Fragment = "# first\n- **bold**",
+                        Kind = ReasoningKind.Summary,
+                    },
                 },
                 new Event
                 {
                     Id = "summary-2",
-                    ReasoningChunk = new ReasoningChunk { Fragment = "b", Kind = ReasoningKind.Summary },
+                    ReasoningChunk = new ReasoningChunk
+                    {
+                        Fragment = "**safe\u001b[2J**",
+                        Kind = ReasoningKind.Summary,
+                    },
                 },
                 new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             ],
@@ -291,8 +299,10 @@ internal sealed class EnhancedCliTests
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error).IsEmpty();
-        _ = await Assert.That(output).Contains("✦ a\r\n✦ b\r\n");
-        _ = await Assert.That(output).DoesNotContain("✦ ab");
+        _ = await Assert.That(output).Contains("✦ first\r\n  • bold\r\n✦ safe[2\r\n  J\r\n");
+        _ = await Assert.That(output).DoesNotContain("# first");
+        _ = await Assert.That(output).DoesNotContain("**bold**");
+        _ = await Assert.That(output).DoesNotContain("\u001b[2J");
     }
 
     [Test]

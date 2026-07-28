@@ -83,4 +83,20 @@ internal sealed class MarkdownRendererTests
         _ = await Assert.That(withoutOwnedAnsi).IsEqualTo("safe[2J");
         _ = await Assert.That(rendered).DoesNotContain("\u001b[2J");
     }
+
+    [Test]
+    public async Task Reasoning_summaries_format_markdown_with_a_muted_hanging_prefix()
+    {
+        var plain = new ReasoningSummaryScrollbackValue("# title\n- **item**")
+            .Render(new ScrollbackRenderContext(80, new TerminalPalette(false)));
+        var wrapped = new ReasoningSummaryScrollbackValue("abcdefg")
+            .Render(new ScrollbackRenderContext(8, new TerminalPalette(false)));
+        var colored = new ReasoningSummaryScrollbackValue("# title")
+            .Render(new ScrollbackRenderContext(80, new TerminalPalette(true)));
+
+        _ = await Assert.That(string.Join('|', plain)).IsEqualTo("✦ title|  • item");
+        _ = await Assert.That(string.Join('|', wrapped)).IsEqualTo("✦ abcdef|  g");
+        _ = await Assert.That(colored[0]).IsEqualTo("\u001b[38;5;245m✦ title\u001b[0m");
+        _ = await Assert.That(colored[0]).DoesNotContain("38;5;195");
+    }
 }

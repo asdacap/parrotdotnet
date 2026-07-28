@@ -193,7 +193,7 @@ internal sealed class RawActivityView(
                         if (fragment.Length > 0)
                         {
                             await commit(
-                                ImmediateScrollbackValue.Muted([$"✦ {fragment}"]),
+                                new ReasoningSummaryScrollbackValue(fragment),
                                 Snapshot(),
                                 cancellationToken).ConfigureAwait(false);
                         }

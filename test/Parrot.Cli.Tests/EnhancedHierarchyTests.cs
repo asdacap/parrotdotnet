@@ -182,19 +182,23 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "root",
-                ReasoningChunk = new ReasoningChunk { Fragment = "first", Kind = ReasoningKind.Summary },
+                ReasoningChunk = new ReasoningChunk
+                {
+                    Fragment = "# first\n- **bold**",
+                    Kind = ReasoningKind.Summary,
+                },
             },
             cancellationToken);
         await view.Render(
             new Event
             {
                 AgentSessionId = "root",
-                ReasoningChunk = new ReasoningChunk { Fragment = "second", Kind = ReasoningKind.Summary },
+                ReasoningChunk = new ReasoningChunk { Fragment = "**second**", Kind = ReasoningKind.Summary },
             },
             cancellationToken);
 
         _ = await Assert.That(committed.Count).IsEqualTo(2);
-        _ = await Assert.That(committed[0]).IsEqualTo("✦ first");
+        _ = await Assert.That(committed[0]).IsEqualTo("✦ first|  • bold");
         _ = await Assert.That(committed[1]).IsEqualTo("✦ second");
     }
 
