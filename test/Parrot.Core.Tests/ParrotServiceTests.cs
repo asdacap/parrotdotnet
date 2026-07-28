@@ -79,6 +79,35 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Model_variants_are_listed_selected_persisted_and_validated(CancellationToken cancellationToken)
+    {
+        using var store = Store();
+        await using var service = new ParrotService(Registry(), store, Modes());
+        var context = new InProcessServerCallContext(cancellationToken);
+
+        var listed = await service.ListModels(new ListModelsRequest(), context);
+        var created = await service.CreateSession(
+            new CreateSessionRequest { Model = "scripted/vendor/model/high" }, context);
+        var updated = await service.UpdateSession(
+            new UpdateSessionRequest { UserSessionId = created.Id, Model = Selection }, context);
+        var refused = await Assert.That(async () => await service.UpdateSession(
+            new UpdateSessionRequest { UserSessionId = created.Id, Model = "scripted/model/missing" }, context))
+            .Throws<RpcException>();
+        var unchanged = await service.UpdateSession(
+            new UpdateSessionRequest { UserSessionId = created.Id }, context);
+        var meta = store.Index.List().Single(item => item.Id == created.Id);
+
+        _ = await Assert.That(string.Join(",", listed.Models.Single(model => model.Id == "vendor/model")
+            .Variants.Select(variant => $"{variant.Name}:{variant.ReasoningEffort}")))
+            .IsEqualTo("low:low,high:xhigh");
+        _ = await Assert.That(created.Model).IsEqualTo("scripted/vendor/model/high");
+        _ = await Assert.That(updated.Model).IsEqualTo(Selection);
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(unchanged.Model).IsEqualTo(Selection);
+        _ = await Assert.That(meta.Model).IsEqualTo(Selection);
+    }
+
+    [Test]
     public async Task A_prompt_with_no_delivery_is_refused(CancellationToken cancellationToken)
     {
         using var store = Store();
@@ -123,14 +152,26 @@ internal sealed class ParrotServiceTests : IDisposable
 
     private static ProviderRegistry Registry()
     {
-        var provider = new ScriptedProvider("an answer");
+        var models = new LLMModel[]
+        {
+            new("model", "scripted"),
+            new("vendor/model", "scripted")
+            {
+                Capabilities = new ModelCapabilities(
+                    true,
+                    true,
+                    ["text"],
+                    [
+                        new Parrot.Llm.ModelVariant("low", "low"),
+                        new Parrot.Llm.ModelVariant("high", "xhigh"),
+                    ]),
+            },
+        };
+        var provider = new ScriptedProvider("an answer") { Models = models };
 
         return new ProviderRegistry(
             [provider],
-            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
-            {
-                ["scripted"] = [new LLMModel("model", "scripted")],
-            },
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { ["scripted"] = models },
             new ProviderModel(provider, new LLMModel("model", "scripted")));
     }
 

@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Store;
 using Parrot.Tools;
@@ -34,7 +35,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var session = new AgentSession(
             AgentIdentity.Main("session"),
-            new UnusedProvider(),
+            new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
             events,
             new EventRepository(database),
             [],

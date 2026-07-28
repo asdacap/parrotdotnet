@@ -34,12 +34,13 @@ internal static class CommandDispatcher
           auth login --api-key-stdin  Store the opencode-go key read from stdin
           models                      List the models the provider serves
           sessions                    List sessions, reading meta.json only
-          chat [--model <id>] [--mode <id>] [text]
+          chat [--model <id>] [--variant <name>] [--mode <id>] [text]
                                       A session, or one prompt if text is given
           chat --connect host:port    Drive a session on a remote parrot serve
           serve [--port <n>]          Host the service for remote clients
 
         --basic forces the minimal renderer; the default is the enhanced one.
+        --variant is a deprecated, nonpersistent reasoning-variant override.
 
         Bare `parrot` is `parrot chat`. In a terminal that opens a REPL; with a
         prompt or piped stdin it answers once. /help lists the slash commands.
@@ -101,6 +102,34 @@ internal static class CommandDispatcher
                     .ConfigureAwait(false);
                 return ExitUsage;
         }
+    }
+
+    internal static async Task<string?> OverrideVariant(
+        GeneratedParrot.ParrotClient client,
+        string selector,
+        string variant,
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
+        var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
+        var current = ModelSelection.Resolve(listed.Models, selector);
+        if (current is null)
+        {
+            await error.WriteLineAsync(
+                $"parrot: unknown model selection {selector}".AsMemory(), cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
+        var replacement = current.WithVariant(variant);
+        if (replacement is null)
+        {
+            var message = $"parrot: model {current.BaseSelector} does not support effort {variant}; choose one of: "
+                + string.Join(", ", current.Model.Variants.Select(item => item.Name));
+            await error.WriteLineAsync(message.AsMemory(), cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
+        return replacement.Selector;
     }
 
     private static async Task<int> Login(
@@ -291,6 +320,7 @@ internal static class CommandDispatcher
             new VersionCommand(),
             new ModelCommand(),
             new ModelsCommand(),
+            new EffortCommand(),
             new ModeCommand(),
             new ModesCommand(),
             new SessionsCommand(),
@@ -319,6 +349,7 @@ internal static class CommandDispatcher
         var model = configuration.Model.Length > 0 ? configuration.Model : DefaultModel;
         var mode = DefaultMode;
         var connect = string.Empty;
+        var variant = (string?)null;
         var basic = false;
         var words = new List<string>();
 
@@ -330,6 +361,16 @@ internal static class CommandDispatcher
                 case "--model" when index + 1 < arguments.Count:
                     model = arguments[++index];
                     break;
+
+                case "--variant" when index + 1 < arguments.Count
+                    && !arguments[index + 1].StartsWith("--", StringComparison.Ordinal):
+                    variant = arguments[++index];
+                    break;
+
+                case "--variant":
+                    await error.WriteLineAsync(
+                        "usage: parrot chat --variant <name>".AsMemory(), cancellationToken).ConfigureAwait(false);
+                    return ExitUsage;
 
                 case "--mode" when index + 1 < arguments.Count:
                     mode = arguments[++index];
@@ -357,6 +398,17 @@ internal static class CommandDispatcher
         {
             using var channel = GrpcChannel.ForAddress(RemoteAddress(connect));
             var remote = new GeneratedParrot.ParrotClient(channel);
+            if (variant is not null)
+            {
+                var overridden = await OverrideVariant(remote, model, variant, error, cancellationToken)
+                    .ConfigureAwait(false);
+                if (overridden is null)
+                {
+                    return ExitUsage;
+                }
+
+                model = overridden;
+            }
 
             using var remoteCredentials = new FileCredentialStore(paths.CredentialsFile);
             var remoteProviderIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
@@ -426,6 +478,18 @@ internal static class CommandDispatcher
         }
 
         var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service));
+        if (variant is not null)
+        {
+            var overridden = await OverrideVariant(client, model, variant, error, cancellationToken)
+                .ConfigureAwait(false);
+            if (overridden is null)
+            {
+                return ExitUsage;
+            }
+
+            model = overridden;
+        }
+
         var providerIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
 
         if (basic || Console.IsOutputRedirected)

@@ -22,8 +22,33 @@ internal sealed class ModelCommand : ISlashCommand
             return SlashOutcome.Continue;
         }
 
+        var listed = await context.Client.ListModelsAsync(
+            new ListModelsRequest(), cancellationToken: cancellationToken);
+        var current = ModelSelection.Resolve(listed.Models, context.Model);
+        if (current is null)
+        {
+            await context.Error.WriteLineAsync(
+                $"  unknown selected model: {context.Model}".AsMemory(), cancellationToken).ConfigureAwait(false);
+            return SlashOutcome.Continue;
+        }
+
+        var selected = ModelSelection.Resolve(listed.Models, arguments.Trim());
+        if (selected is null)
+        {
+            await context.Error.WriteLineAsync(
+                $"  unknown model: {arguments.Trim()}".AsMemory(), cancellationToken).ConfigureAwait(false);
+            return SlashOutcome.Continue;
+        }
+
+        if (selected.Variant is null)
+        {
+            selected = current.Variant is { } currentVariant
+                ? selected.WithVariant(currentVariant.Name) ?? selected.WithFirstVariant()
+                : selected.WithFirstVariant();
+        }
+
         var updated = await context.Client.UpdateSessionAsync(
-            new UpdateSessionRequest { UserSessionId = context.UserSessionId, Model = arguments },
+            new UpdateSessionRequest { UserSessionId = context.UserSessionId, Model = selected.Selector },
             cancellationToken: cancellationToken);
 
         // Persist it as the default for the next launch. This is the one place

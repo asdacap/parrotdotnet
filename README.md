@@ -51,6 +51,40 @@ project count, and boundaries between components are enforced by namespace
 discipline and analyzer rules rather than by `ProjectReference` graphs. A new
 assembly needs a reason recorded in `MIGRATION.md`.
 
+## Model Selection
+
+A model selection is a canonical `provider/model[/effort-variant]` selector.
+The provider is the first path segment; the model is resolved against that
+provider's catalog and may itself contain slashes. The optional final segment is
+therefore treated as an effort variant only when the complete remainder is not
+an exact model ID. This makes selectors stable even when a provider offers
+slash-containing model IDs.
+
+A variant has a stable catalog name and a provider-facing `reasoning_effort`
+value. They are intentionally distinct: selecting `high`, for example, can map
+to the provider effort `xhigh`. A bare `provider/model` leaves reasoning effort
+unset so the provider chooses its default. Interactive `/model` preserves a
+compatible current effort when possible; otherwise it uses the target model's
+first listed variant, or clears the effort for a model without variants.
+
+`/model` and `/effort` persist the complete canonical selector through the
+shared configuration. `/effort NAME` selects one of the active model's listed
+variants; bare `/effort` presents those variants in provider order. `--model`
+is per invocation and accepts the same complete selector. `--variant NAME` is a
+deprecated startup-only override: it replaces any selected suffix after
+validation against the selected model and does not persist.
+
+The gRPC model-list response carries ordered model-variant metadata
+additively. Each entry contains the stable `name` and mapped
+`reasoning_effort`; session state remains the single canonical model selector,
+not a separate variant field.
+
+Provider request dialects deliberately differ. Responses requests place a
+selected effort and automatic summary under
+`"reasoning":{"effort":"…","summary":"auto"}`. Chat Completions requests
+place it at top level as `"reasoning_effort":"…"`. Both omit their effort field
+for a bare model selection.
+
 ## Build And Run
 
 The quickest way to run it, no dev shell needed:

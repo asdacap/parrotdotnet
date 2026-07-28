@@ -55,7 +55,9 @@ internal sealed class ProviderRegistryBuilder(
             }
         }
 
-        return Task.FromResult(new ProviderRegistry(providers, catalogues, ResolveDefaultModel(providers, catalogues)));
+        var registry = new ProviderRegistry(providers, catalogues, null);
+        var defaultModel = string.IsNullOrEmpty(configuration.Model) ? null : registry.Resolve(configuration.Model);
+        return Task.FromResult(new ProviderRegistry(providers, catalogues, defaultModel));
     }
 
     private static string ProviderPreferences(ProviderConfig? config, ProviderPreset? preset) =>
@@ -99,37 +101,6 @@ internal sealed class ProviderRegistryBuilder(
 
     private static string FirstNonEmpty(string? first, string? second) =>
         !string.IsNullOrEmpty(first) ? first : second ?? string.Empty;
-
-    private ProviderModel? ResolveDefaultModel(
-        IReadOnlyList<ILLMProvider> providers,
-        IReadOnlyDictionary<string, IReadOnlyList<LLMModel>> catalogues)
-    {
-        if (string.IsNullOrEmpty(configuration.Model))
-        {
-            return null;
-        }
-
-        var slash = configuration.Model.IndexOf('/', StringComparison.Ordinal);
-        var providerId = slash < 0 ? string.Empty : configuration.Model[..slash];
-        var modelId = slash < 0 ? configuration.Model : configuration.Model[(slash + 1)..];
-
-        if (modelId.Length == 0)
-        {
-            return null;
-        }
-
-        var provider = providerId.Length == 0
-            ? providers.FirstOrDefault(candidate => catalogues.GetValueOrDefault(candidate.Id, []).Any(model => model.Id == modelId))
-            : providers.FirstOrDefault(candidate => candidate.Id == providerId);
-
-        if (provider is null)
-        {
-            return null;
-        }
-
-        var model = catalogues.GetValueOrDefault(provider.Id, []).FirstOrDefault(candidate => candidate.Id == modelId);
-        return model is null ? null : new ProviderModel(provider, model);
-    }
 
     private OAuthTokenSource ChatGptTokens() =>
         new(

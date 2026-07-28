@@ -27,6 +27,25 @@ internal sealed class CommandDispatcherTests
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Variant_without_a_value_reports_usage_error(
+        bool followedByFlag, CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var stopping = new CancellationTokenSource();
+        var arguments = followedByFlag ? new[] { "chat", "--variant", "--basic" } : ["chat", "--variant"];
+
+        var exitCode = await CommandDispatcher.Run(
+            arguments, new Interrupts(stopping), output, error, cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
+        _ = await Assert.That(output.ToString()).IsEmpty();
+        _ = await Assert.That(error.ToString()).Contains("--variant <name>");
+    }
+
+    [Test]
     [Arguments("nonsense")]
     [Arguments("--nonsense")]
     public async Task Unknown_command_reports_usage_error_on_stderr(string argument, CancellationToken cancellationToken)

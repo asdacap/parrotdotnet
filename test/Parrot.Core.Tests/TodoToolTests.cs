@@ -2,6 +2,7 @@ using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -106,7 +107,7 @@ internal sealed class TodoToolTests : IDisposable
     private AgentSession Session(EventRepository repository, string sessionId) =>
         new(
             AgentIdentity.Main(sessionId),
-            new UnusedProvider(),
+            new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
             _events,
             repository,
             [],

@@ -44,7 +44,7 @@ internal sealed class EventPayloadTests
         using var database = SessionDatabase.Open(":memory:");
         var session = new AgentSession(
             AgentIdentity.Main("session"),
-            new UnusedProvider(),
+            new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused")),
             events,
             new EventRepository(database),
             [],

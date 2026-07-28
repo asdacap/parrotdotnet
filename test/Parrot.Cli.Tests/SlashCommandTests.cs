@@ -14,6 +14,7 @@ internal sealed class SlashCommandTests
             new VersionCommand(),
             new ModelCommand(),
             new ModelsCommand(),
+            new EffortCommand(),
             new ModeCommand(),
             new ModesCommand(),
             new SessionsCommand(),
@@ -31,6 +32,7 @@ internal sealed class SlashCommandTests
     [Arguments("/version")]
     [Arguments("/model")]
     [Arguments("/models")]
+    [Arguments("/effort")]
     [Arguments("/mode")]
     [Arguments("/modes")]
     [Arguments("/sessions")]

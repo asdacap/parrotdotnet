@@ -12,10 +12,12 @@ internal sealed class ScriptedProvider(string reply) : ILLMProvider
 
     public IReadOnlyList<LLMRequest> Requests => _requests;
 
+    public IReadOnlyList<LLMModel> Models { get; init; } = [];
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<LLMModel>>([]);
+        Task.FromResult(Models);
 
     public async IAsyncEnumerable<LLMEvent> Call(
         LLMRequest request,

@@ -1,5 +1,4 @@
 using Parrot.Context;
-using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Store;
 using Parrot.Web;
@@ -14,7 +13,7 @@ internal sealed class AgentSessionFactorySource(
     Compactor compactor,
     WebFetcher webFetcher) : IAgentSessionFactorySource
 {
-    public IAgentSessionFactory Create(UserSession owner, ILLMProvider provider) =>
+    public IAgentSessionFactory Create(UserSession owner) =>
         new AgentSessionFactory(owner, workingDirectory, date, compactor, webFetcher);
 
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>

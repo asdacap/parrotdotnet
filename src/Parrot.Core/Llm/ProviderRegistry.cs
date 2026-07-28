@@ -85,60 +85,73 @@ internal sealed class ProviderRegistry
         return available;
     }
 
-    // Resolves a "provider/model" selection. An empty provider takes the
-    // configured default when available, otherwise the first sorted one; an empty
-    // model takes that provider's default when available, otherwise its first
-    // sorted model. The model portion keeps any vendor prefix, since selection
-    // splits on the first slash only.
-    public ProviderModel Resolve(string providerId, string modelId)
+    // Resolves one complete canonical selector. Model IDs may contain slashes,
+    // so an exact model match wins before the final segment is considered as a
+    // variant name.
+    public ProviderModel Resolve(string selector)
     {
         if (_ordered.Count == 0)
         {
             throw new LLMProviderException("provider: no providers configured");
         }
 
-        if (providerId.Length == 0)
+        if (selector.Length == 0)
         {
-            if (modelId.Length == 0 && _defaultModel is not null)
+            if (_defaultModel is not null)
             {
                 return _defaultModel;
             }
 
-            var fallbackProvider = _defaultModel?.Provider ?? _ordered[0];
-            return ResolveForProvider(fallbackProvider, modelId);
+            return ResolveDefaultForProvider(_ordered[0]);
         }
 
+        var slash = selector.IndexOf('/', StringComparison.Ordinal);
+        if (slash <= 0 || slash == selector.Length - 1 || selector.Contains("//", StringComparison.Ordinal))
+        {
+            throw new LLMProviderException($"provider: malformed model selector \"{selector}\"");
+        }
+
+        var providerId = selector[..slash];
+        var modelSelector = selector[(slash + 1)..];
         var provider = _byId.TryGetValue(providerId, out var found)
             ? found
             : throw new LLMProviderException($"provider: unknown provider \"{providerId}\"");
+        var models = Models(provider.Id);
 
-        return ResolveForProvider(provider, modelId);
+        var exact = models.FirstOrDefault(candidate => candidate.Id == modelSelector);
+        if (exact is not null)
+        {
+            return new ProviderModel(provider, exact);
+        }
+
+        var matches = models
+            .SelectMany(model => model.Capabilities.Variants
+                .Where(variant => string.Equals(
+                    modelSelector, $"{model.Id}/{variant.Name}", StringComparison.Ordinal))
+                .Select(variant => new ProviderModel(provider, model, variant)))
+            .Take(2)
+            .ToList();
+
+        return matches.Count switch
+        {
+            1 => matches[0],
+            > 1 => throw new LLMProviderException($"provider: ambiguous model selector \"{selector}\""),
+            _ => throw new LLMProviderException($"provider: unknown model \"{selector}\""),
+        };
     }
 
     private static bool IsRefreshFailure(Exception failure) =>
         failure is LLMProviderException or Wire.ProviderHttpException or Wire.HeaderTimeoutException
             or Wire.WireProtocolException or Auth.AuthException or HttpRequestException or IOException;
 
-    private ProviderModel ResolveForProvider(ILLMProvider provider, string modelId)
+    private ProviderModel ResolveDefaultForProvider(ILLMProvider provider)
     {
         var models = Models(provider.Id);
-
         if (models.Count == 0)
         {
             throw new LLMProviderException($"provider: \"{provider.Id}\" serves no models");
         }
 
-        if (modelId.Length == 0)
-        {
-            var model = _defaultModel is { Provider.Id: var defaultProviderId, Model: var defaultModel } && defaultProviderId == provider.Id
-                ? defaultModel
-                : models.OrderBy(candidate => candidate.Id, StringComparer.Ordinal).First();
-            return new ProviderModel(provider, model);
-        }
-
-        var resolved = models.FirstOrDefault(candidate => candidate.Id == modelId)
-            ?? throw new LLMProviderException($"provider: unknown model \"{provider.Id}/{modelId}\"");
-
-        return new ProviderModel(provider, resolved);
+        return new ProviderModel(provider, models.OrderBy(candidate => candidate.Id, StringComparer.Ordinal).First());
     }
 }

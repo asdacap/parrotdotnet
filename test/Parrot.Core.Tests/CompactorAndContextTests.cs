@@ -42,7 +42,10 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("reply");
         var session = new AgentSession(
             AgentIdentity.Main("agent"),
-            provider,
+            new ProviderModel(
+                provider,
+                new LLMModel("model", provider.Id),
+                new Parrot.Llm.ModelVariant("high", "xhigh")),
             broker,
             new EventRepository(database),
             [],
@@ -50,10 +53,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new Compactor(tokenBudget: 0),
             mode: null,
             status: null,
-            cancellationToken)
-        {
-            Model = "model",
-        };
+            cancellationToken);
 
         _ = await session.Send(
             "keep this prompt", Identifier.MessageId(), Delivery.Steer, cancellationToken);
@@ -62,6 +62,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         var inferenceRequest = provider.Requests.Single();
         _ = await Assert.That(inferenceRequest.Messages)
             .Contains(message => message.Role == LLMRole.User && message.Content == "keep this prompt");
+        _ = await Assert.That(inferenceRequest.Model).IsEqualTo("model");
+        _ = await Assert.That(inferenceRequest.Reasoning?.Effort).IsEqualTo("xhigh");
+        _ = await Assert.That(inferenceRequest.Reasoning?.Summary).IsEqualTo("auto");
     }
 
     [Test]

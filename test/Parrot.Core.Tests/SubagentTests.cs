@@ -33,7 +33,7 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
-        var spawn = new AgentSpawnTool(registry, parent);
+        var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
         var wait = new WaitAgentTool(registry);
 
         var startedJson = await spawn.Execute(
@@ -86,6 +86,30 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Spawn_uses_the_selection_captured_before_parent_selection_changes(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 1, "done", []));
+        using var replacement = new SteppedProvider();
+        var sessions = new TestAgentSessions();
+        await using var registry = new AgentRegistry(
+            sessions, _broker, _repository, cancellationToken);
+        var parent = Session(provider, depth: 0, cancellationToken);
+        parent.UpdateSelection(parent.Selection().ResolvedModel, ModeProfile.Build());
+        var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
+        parent.UpdateSelection(
+            new ProviderModel(replacement, new LLMModel("replacement", replacement.Id)),
+            mode: null);
+
+        _ = await spawn.Execute("""{"prompt":"do the subtask"}""", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+
+        _ = await Assert.That(sessions.Models.Single().Model.Id).IsEqualTo("model");
+        _ = await Assert.That(sessions.Modes.Single()).IsNull();
+    }
+
+    [Test]
     public async Task Send_steers_running_child_and_reuses_idle_session_for_follow_up(
         CancellationToken cancellationToken)
     {
@@ -96,7 +120,7 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
-        var spawned = registry.Spawn(parent, "worker");
+        var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry);
 
@@ -147,7 +171,7 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
-        var spawned = registry.Spawn(parent, "worker");
+        var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
@@ -174,7 +198,7 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken, "parent");
         var stranger = Session(provider, depth: 0, cancellationToken, "stranger");
-        var spawned = registry.Spawn(parent, "worker");
+        var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry);
 
@@ -210,15 +234,15 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken, "parent");
-        var spawn = new AgentSpawnTool(registry, parent);
-        var idle = registry.Spawn(parent, "idle");
+        var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
+        var idle = registry.Spawn(parent, parent.Selection().ResolvedModel, "idle");
         _ = await idle.Send("become idle", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await idle.Wait(0, cancellationToken);
 
-        var tooDeep = await new AgentSpawnTool(
-            registry, Session(provider, depth: 4, cancellationToken, "deep-parent")).Execute(
+        var deepParent = Session(provider, depth: 4, cancellationToken, "deep-parent");
+        var tooDeep = await new AgentSpawnTool(registry, deepParent, deepParent.Selection()).Execute(
             """{"prompt":"too deep"}""", cancellationToken);
 
         _ = await Assert.That(tooDeep).IsEqualTo("error: subagent depth limit reached");
@@ -237,7 +261,7 @@ internal sealed class SubagentTests : IDisposable
             _repository,
             cancellationToken);
         var parent = Session(provider, depth: 0, cancellationToken);
-        var spawned = registry.Spawn(parent, "worker");
+        var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
         _ = await spawned.Send("first", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
@@ -258,7 +282,7 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.ParentAgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(failed.AgentFailed.Name).IsEqualTo("worker");
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
-        _ = await Assert.That(() => registry.Spawn(parent, "worker"))
+        _ = await Assert.That(() => registry.Spawn(parent, parent.Selection().ResolvedModel, "worker"))
             .Throws<AgentRegistryException>();
         var rejected = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}""", cancellationToken);
@@ -266,7 +290,7 @@ internal sealed class SubagentTests : IDisposable
     }
 
     private AgentSession Session(
-        ILLMProvider provider,
+        SteppedProvider provider,
         int depth,
         CancellationToken cancellationToken,
         string sessionId = "agent") =>
@@ -274,7 +298,7 @@ internal sealed class SubagentTests : IDisposable
             depth == 0
                 ? AgentIdentity.Main(sessionId)
                 : AgentIdentity.Child(sessionId, "ancestor", "parent", depth),
-            provider,
+            new ProviderModel(provider, new LLMModel("model", provider.Id)),
             _broker,
             _repository,
             [],
@@ -282,21 +306,23 @@ internal sealed class SubagentTests : IDisposable
             new Compactor(120_000),
             mode: null,
             status: null,
-            cancellationToken)
-        {
-            Model = "model",
-        };
+            cancellationToken);
 
     private sealed class TestAgentSessions : IAgentSessionFactory
     {
         private readonly List<AgentIdentity> _identities = [];
+        private readonly List<ProviderModel> _models = [];
+        private readonly List<ModeProfile?> _modes = [];
 
         public IReadOnlyList<AgentIdentity> Identities => _identities;
 
+        public IReadOnlyList<ProviderModel> Models => _models;
+
+        public IReadOnlyList<ModeProfile?> Modes => _modes;
+
         public AgentSession Create(
             AgentIdentity identity,
-            ILLMProvider provider,
-            string model,
+            ProviderModel model,
             EventBroker eventBroker,
             EventRepository eventRepository,
             ModeProfile? mode,
@@ -304,10 +330,12 @@ internal sealed class SubagentTests : IDisposable
             CancellationToken lifetime)
         {
             _identities.Add(identity);
+            _models.Add(model);
+            _modes.Add(mode);
 
             return new AgentSession(
                 identity,
-                provider,
+                model,
                 eventBroker,
                 eventRepository,
                 [],
@@ -315,10 +343,7 @@ internal sealed class SubagentTests : IDisposable
                 new Compactor(120_000),
                 mode,
                 status,
-                lifetime)
-            {
-                Model = model,
-            };
+                lifetime);
         }
     }
 }

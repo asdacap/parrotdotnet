@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Parrot.Llm;
 using Parrot.Llm.Wire;
 
@@ -35,6 +36,31 @@ internal sealed class OpenAICompatibleProviderTests
         data: [DONE]
 
         """;
+
+    [Test]
+    [Arguments("xhigh", true)]
+    [Arguments("", false)]
+    public async Task Encode_writes_or_omits_top_level_reasoning_effort(
+        string effort, bool hasReasoning, CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "vendor/model",
+            Messages = [LLMMessage.User("hello")],
+            Reasoning = hasReasoning ? new ReasoningOptions(effort, "auto") : null,
+        };
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+        var root = document.RootElement;
+
+        _ = await Assert.That(root.TryGetProperty("reasoning_effort", out var encodedEffort)).IsEqualTo(hasReasoning);
+
+        if (hasReasoning)
+        {
+            _ = await Assert.That(encodedEffort.GetString()).IsEqualTo(effort);
+        }
+
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
 
     [Test]
     public async Task Stream_ends_with_a_completed_event_carrying_the_outcome(CancellationToken cancellationToken)

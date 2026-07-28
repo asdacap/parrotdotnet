@@ -1,5 +1,6 @@
 using System.Text;
 using Parrot.Events;
+using Parrot.Llm;
 using Parrot.Statuses;
 using Parrot.Store;
 
@@ -23,9 +24,10 @@ internal sealed class AgentRegistry(
     private bool _accepting = true;
     private Task? _shutdown;
 
-    public AgentSession Spawn(AgentSession parent, string requestedName)
+    public AgentSession Spawn(AgentSession parent, ProviderModel model, string requestedName)
     {
         ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(model);
 
         lock (_gate)
         {
@@ -49,11 +51,9 @@ internal sealed class AgentRegistry(
             var sessionId = Identifier.AgentSession();
             var name = UniqueName(requestedName, sessionId);
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
-            var selection = parent.Selection();
             var child = agentSessions.Create(
                 identity,
-                selection.Provider,
-                selection.Model,
+                model,
                 eventBroker,
                 eventRepository,
                 mode: null,

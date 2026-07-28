@@ -24,7 +24,7 @@ namespace Parrot.Agent;
 // _drainGate is the whole of its synchronisation.
 internal sealed class AgentSession(
     AgentIdentity identity,
-    ILLMProvider provider,
+    ProviderModel model,
     EventBroker eventBroker,
     EventRepository eventRepository,
     IReadOnlyList<IToolFactory> toolFactories,
@@ -63,7 +63,7 @@ internal sealed class AgentSession(
     private readonly Lock _drainGate = new();
     private readonly Lock _selectionGate = new();
 
-    private AgentSelection _selection = new(provider, string.Empty, mode);
+    private AgentSelection _selection = new(model, mode);
     private string _epochContext = string.Empty;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
@@ -88,13 +88,9 @@ internal sealed class AgentSession(
     // not. One immutable snapshot is used for a whole turn because a running
     // drain keeps its history and pending input while later updates wait for
     // the next turn boundary.
-    public ILLMProvider Provider => Selection().Provider;
+    public ILLMProvider Provider => Selection().ResolvedModel.Provider;
 
-    public string Model
-    {
-        get => Selection().Model;
-        init => _selection = _selection with { Model = value };
-    }
+    public string Model => Selection().ResolvedModel.Selector;
 
     public ModeProfile? Mode => Selection().Mode;
 
@@ -107,12 +103,6 @@ internal sealed class AgentSession(
     // that question can be.
     public DrainState State { get; private set; }
 
-    // One instance per tool per session, built on first use rather than in a
-    // field initializer: a tool is constructed with the session it belongs to,
-    // and `this` is not available there.
-    private IReadOnlyList<ITool> Tools =>
-        field ??= [.. toolFactories.Select(factory => factory.Create(this))];
-
     public AgentSelection Selection()
     {
         lock (_selectionGate)
@@ -121,13 +111,13 @@ internal sealed class AgentSession(
         }
     }
 
-    public void UpdateSelection(ILLMProvider provider, string model, ModeProfile? mode)
+    public void UpdateSelection(ProviderModel selectedModel, ModeProfile? mode)
     {
-        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(selectedModel);
 
         lock (_selectionGate)
         {
-            _selection = new AgentSelection(provider, model, mode);
+            _selection = new AgentSelection(selectedModel, mode);
         }
     }
 
@@ -576,6 +566,7 @@ internal sealed class AgentSession(
     {
         var answer = string.Empty;
         var rounds = 0;
+        IReadOnlyList<ITool>? activeTools = null;
 
         try
         {
@@ -599,10 +590,11 @@ internal sealed class AgentSession(
                     {
                         Id = Identifier.EventId(),
                         AgentSessionId = SessionId,
-                        TurnStarted = new TurnStarted { Model = activeSelection.Model },
+                        TurnStarted = new TurnStarted { Model = activeSelection.ResolvedModel.Selector },
                     };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
+                    activeTools = [.. toolFactories.Select(factory => factory.Create(this, activeSelection))];
                 }
 
                 // Status is committed before promotion, so sequenced history is
@@ -622,13 +614,18 @@ internal sealed class AgentSession(
 
                 await Epoch(activeSelection, cancellationToken).ConfigureAwait(false);
 
+                if (activeSelection is null || activeTools is null)
+                {
+                    throw new AgentRegistryException("turn selection is unavailable");
+                }
+
                 // One snapshot for the round, so what is offered to the model is
                 // what answers it (principle 4).
-                var snapshot = new ToolSnapshot(Tools);
+                var snapshot = new ToolSnapshot(activeTools);
 
                 var messages = new List<LLMMessage>(_history.Count + 1)
                 {
-                    LLMMessage.System(SystemPrompt(activeSelection?.Mode)),
+                    LLMMessage.System(SystemPrompt(activeSelection.Mode)),
                 };
                 messages.AddRange(_history);
 
@@ -663,6 +660,7 @@ internal sealed class AgentSession(
                 // exactly here, where the turn would otherwise stop.
                 turnOpen = false;
                 activeSelection = null;
+                activeTools = null;
             }
         }
         catch (OperationCanceledException)
@@ -786,9 +784,10 @@ internal sealed class AgentSession(
 
         // Copied before the clear: a compaction with nothing to summarise hands
         // back the very list being emptied.
+        var selectedModel = (selection ?? Selection()).ResolvedModel;
         var compacted = (await Compactor.Compact(
-            selection?.Provider ?? Provider,
-            selection?.Model ?? Model,
+            selectedModel.Provider,
+            selectedModel.ModelId,
             _history,
             cancellationToken)
             .ConfigureAwait(false)).ToList();
@@ -853,17 +852,19 @@ internal sealed class AgentSession(
         IReadOnlyList<LLMMessage> messages,
         CancellationToken cancellationToken)
     {
+        var selectedModel = (selection ?? Selection()).ResolvedModel;
         var request = new LLMRequest
         {
-            Model = selection?.Model ?? Model,
+            Model = selectedModel.ModelId,
             MaxTokens = 4096,
             Messages = messages,
             Tools = snapshot.Definitions,
+            Reasoning = selectedModel.Reasoning,
         };
 
         var completed = LLMEvent.Completed(string.Empty, 0, 0, string.Empty, []);
 
-        await foreach (var llmEvent in (selection?.Provider ?? Provider)
+        await foreach (var llmEvent in selectedModel.Provider
             .Call(request, cancellationToken).ConfigureAwait(false))
         {
             if (llmEvent.Kind == LLMEventKind.Completed)
