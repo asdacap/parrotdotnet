@@ -5,16 +5,35 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class RawActivityView(
     Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
-    Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit) : IDisposable
+    Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+    Func<CancellationToken, Task> delay) : IDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
+    private const string AgentActivity = "agent";
+    private const string ToolActivityPrefix = "tool:";
 
+    private readonly List<(string AgentSessionId, string ActivityId)> _activities = [];
+    private readonly Dictionary<(string AgentSessionId, string ActivityId), string> _activityLabels = [];
+    private readonly HashSet<string> _completedTurns = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
     private readonly StringBuilder _reasoning = new();
-    private readonly Dictionary<string, (string Name, StringBuilder Arguments)> _toolCalls = [];
     private readonly SemaphoreSlim _rendering = new(1, 1);
-    private IReadOnlyList<string> _rows = [];
-    private string? _activeToolCallId;
-    private bool _started;
+    private readonly Dictionary<(string AgentSessionId, string ToolCallId), (string Name, StringBuilder Arguments)>
+        _toolCalls = [];
+
+    private IReadOnlyList<ILiveBufferItem> _content = [];
+    private int _frame;
+    private string? _mainSessionId;
+
+    public RawActivityView(
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit)
+        : this(
+            draw,
+            commit,
+            static cancellationToken => Task.Delay(SpinnerIntervalMilliseconds, cancellationToken))
+    {
+    }
 
     public void Dispose() => _rendering.Dispose();
 
@@ -22,18 +41,16 @@ internal sealed class RawActivityView(
     {
         try
         {
-            for (var frame = 0; ; frame++)
+            while (true)
             {
-                await Task.Delay(SpinnerIntervalMilliseconds, cancellationToken).ConfigureAwait(false);
+                await delay(cancellationToken).ConfigureAwait(false);
                 await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    if (_activeToolCallId is not null
-                        && _toolCalls.TryGetValue(_activeToolCallId, out var toolCall))
+                    _frame++;
+                    if (_activities.Count > 0)
                     {
-                        await draw(
-                            [new SpinnerValue(FormatToolCall(toolCall), frame)],
-                            cancellationToken).ConfigureAwait(false);
+                        await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
                     }
                 }
                 finally
@@ -47,11 +64,62 @@ internal sealed class RawActivityView(
         }
     }
 
+    public async Task DrawContent(
+        IReadOnlyList<ILiveBufferItem> items,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+
+        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _content = [.. items];
+            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _rendering.Release();
+        }
+    }
+
+    public async Task CommitContent(
+        IScrollbackItem scrollback,
+        IReadOnlyList<ILiveBufferItem> items,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(scrollback);
+        ArgumentNullException.ThrowIfNull(items);
+
+        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _content = [.. items];
+            await commit(scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _rendering.Release();
+        }
+    }
+
+    public async Task Redraw(CancellationToken cancellationToken)
+    {
+        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _rendering.Release();
+        }
+    }
+
     public async Task Prepare(Event published, CancellationToken cancellationToken)
     {
-        if (published.PayloadCase is not (Event.PayloadOneofCase.TextChunk or
-            Event.PayloadOneofCase.TurnEnded or
-            Event.PayloadOneofCase.TurnFailed))
+        ArgumentNullException.ThrowIfNull(published);
+
+        if (_reasoning.Length == 0 || published.PayloadCase == Event.PayloadOneofCase.ReasoningChunk)
         {
             return;
         }
@@ -59,7 +127,15 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await Flush(false, cancellationToken).ConfigureAwait(false);
+            if (_reasoning.Length > 0)
+            {
+                var reasoning = _reasoning.ToString();
+                _ = _reasoning.Clear();
+                await commit(
+                    ImmediateScrollbackValue.Muted([reasoning]),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
         finally
         {
@@ -69,44 +145,51 @@ internal sealed class RawActivityView(
 
     public async Task Render(Event published, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(published);
+
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _started |= published.PayloadCase == Event.PayloadOneofCase.TurnStarted;
-            if (published.PayloadCase is
-                Event.PayloadOneofCase.TextChunk or
-                Event.PayloadOneofCase.TurnEnded or
-                Event.PayloadOneofCase.TurnFailed)
+            switch (published.PayloadCase)
             {
-                return;
+                case Event.PayloadOneofCase.AgentStarted:
+                    _names[published.AgentSessionId] = published.AgentStarted.Name;
+                    break;
+                case Event.PayloadOneofCase.AgentFinished:
+                    await FinishAgent(published, failed: false, cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.AgentFailed:
+                    await FinishAgent(published, failed: true, cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.TurnStarted:
+                    StartTurn(published.AgentSessionId);
+                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.TurnEnded:
+                    await FinishTurn(published, failed: false, cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.TurnFailed:
+                    await FinishTurn(published, failed: true, cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.ToolCallChunk:
+                    ToolCall(published.AgentSessionId, published.ToolCallChunk);
+                    break;
+                case Event.PayloadOneofCase.ToolStarted:
+                    StartTool(published);
+                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.ToolFinished:
+                case Event.PayloadOneofCase.ToolCancelled:
+                case Event.PayloadOneofCase.ToolError:
+                    await FinishTool(published, cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.ReasoningChunk:
+                    _ = _reasoning.Append(TerminalText.Sanitize(published.ReasoningChunk.Fragment));
+                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    break;
+                default:
+                    break;
             }
-
-            var activity = published.PayloadCase switch
-            {
-                Event.PayloadOneofCase.ReasoningChunk => Reasoning(published.ReasoningChunk.Fragment),
-                Event.PayloadOneofCase.ToolCallChunk => ToolCall(published.ToolCallChunk),
-                _ => EnhancedActivity.Format(published, _started),
-            };
-            _rows = Rows(published, activity);
-            if (IsTerminalToolEvent(published))
-            {
-                await Flush(true, cancellationToken).ConfigureAwait(false);
-                RemoveToolCall(published);
-                return;
-            }
-
-            SpinnerValue? spinner = published.PayloadCase == Event.PayloadOneofCase.ToolCallChunk
-                ? new SpinnerValue(activity, 0)
-                : null;
-            if (spinner is not null)
-            {
-                _rows = [];
-            }
-
-            var items = spinner is { } current
-                ? [(ILiveBufferItem)current]
-                : _rows.Select(value => (ILiveBufferItem)new LiveTextValue(value)).ToList();
-            await draw(items, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -114,49 +197,108 @@ internal sealed class RawActivityView(
         }
     }
 
-    private static string FormatToolCall((string Name, StringBuilder Arguments) toolCall) =>
-        $"tool call {TerminalText.Sanitize(toolCall.Name)}: {TerminalText.Sanitize(toolCall.Arguments.ToString())}";
+    private static string ActivityId(string toolCallId) => ToolActivityPrefix + toolCallId;
 
-    private static bool IsTerminalToolEvent(Event published) =>
-        published.PayloadCase is Event.PayloadOneofCase.ToolFinished or
-            Event.PayloadOneofCase.ToolCancelled or
-            Event.PayloadOneofCase.ToolError;
-
-    private static string? TerminalToolCallId(Event published) => published.PayloadCase switch
+    private static string ToolCallDescription((string Name, StringBuilder Arguments) toolCall)
     {
-        Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
-        Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
-        Event.PayloadOneofCase.ToolError => published.ToolError.ToolCallId,
-        _ => null,
+        var name = TerminalText.Sanitize(toolCall.Name);
+        var arguments = TerminalText.Sanitize(toolCall.Arguments.ToString());
+        return arguments.Length == 0 ? name : $"tool call {name}: {arguments}";
+    }
+
+    private static (string ToolCallId, string ToolName) TerminalTool(Event published) => published.PayloadCase switch
+    {
+        Event.PayloadOneofCase.ToolFinished =>
+            (published.ToolFinished.ToolCallId, published.ToolFinished.ToolName),
+        Event.PayloadOneofCase.ToolCancelled =>
+            (published.ToolCancelled.ToolCallId, published.ToolCancelled.ToolName),
+        Event.PayloadOneofCase.ToolError =>
+            (published.ToolError.ToolCallId, published.ToolError.ToolName),
+        _ => (string.Empty, string.Empty),
     };
 
-    private string Reasoning(string fragment)
+    private List<ILiveBufferItem> Snapshot()
     {
-        _ = _reasoning.Append(TerminalText.Sanitize(fragment));
-        return _reasoning.ToString();
-    }
-
-    private IReadOnlyList<string> Rows(Event published, string activity)
-    {
-        var toolCallId = TerminalToolCallId(published);
-        if (toolCallId is not null && _toolCalls.TryGetValue(toolCallId, out var toolCall))
+        var items = new List<ILiveBufferItem>(_content.Count + _activities.Count + 1);
+        items.AddRange(_content);
+        if (_reasoning.Length > 0)
         {
-            return published.PayloadCase switch
-            {
-                Event.PayloadOneofCase.ToolFinished => [$"+ {FormatToolCall(toolCall)}"],
-                Event.PayloadOneofCase.ToolCancelled => [$"- {FormatToolCall(toolCall)} cancelled"],
-                Event.PayloadOneofCase.ToolError =>
-                    [$"! {FormatToolCall(toolCall)}: {TerminalText.Sanitize(published.ToolError.Message)}"],
-                _ => [FormatToolCall(toolCall)],
-            };
+            items.Add(new LiveTextValue(_reasoning.ToString()));
         }
 
-        return activity.Length == 0 ? [] : [activity];
+        items.AddRange(_activities.Select(activity =>
+            (ILiveBufferItem)new SpinnerValue(_activityLabels[activity], _frame)));
+        return items;
     }
 
-    private string ToolCall(ToolCallChunk chunk)
+    private string Name(string agentSessionId)
     {
-        if (!_toolCalls.TryGetValue(chunk.ToolCallId, out var toolCall))
+        if (_names.TryGetValue(agentSessionId, out var name))
+        {
+            return name;
+        }
+
+        _mainSessionId ??= agentSessionId;
+
+        return string.Equals(_mainSessionId, agentSessionId, StringComparison.Ordinal)
+            ? "main"
+            : agentSessionId;
+    }
+
+    private void StartTurn(string agentSessionId)
+    {
+        var identity = (agentSessionId, AgentActivity);
+        if (_activityLabels.ContainsKey(identity))
+        {
+            return;
+        }
+
+        _activities.Add(identity);
+        _activityLabels.Add(identity, $"agent {Name(agentSessionId)}");
+    }
+
+    private async Task FinishTurn(Event published, bool failed, CancellationToken cancellationToken)
+    {
+        var identity = (published.AgentSessionId, AgentActivity);
+        if (!_activityLabels.Remove(identity))
+        {
+            return;
+        }
+
+        _ = _activities.Remove(identity);
+        _ = _completedTurns.Add(published.AgentSessionId);
+        var name = Name(published.AgentSessionId);
+        var interrupted = !failed
+            && string.Equals(published.TurnEnded.FinishReason, "interrupted", StringComparison.Ordinal);
+        var line = failed
+            ? $"! agent {name}: {TerminalText.Sanitize(published.TurnFailed.Message)}"
+            : interrupted
+                ? $"- agent {name} interrupted"
+                : $"+ agent {name} finished";
+        await commit(ImmediateScrollbackValue.Muted([line]), Snapshot(), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task FinishAgent(Event published, bool failed, CancellationToken cancellationToken)
+    {
+        if (_completedTurns.Remove(published.AgentSessionId))
+        {
+            return;
+        }
+
+        var identity = (published.AgentSessionId, AgentActivity);
+        _ = _activityLabels.Remove(identity);
+        _ = _activities.Remove(identity);
+        var name = failed ? published.AgentFailed.Name : published.AgentFinished.Name;
+        var line = failed
+            ? $"! agent {name}: {TerminalText.Sanitize(published.AgentFailed.Message)}"
+            : $"+ agent {name} finished";
+        await commit(ImmediateScrollbackValue.Muted([line]), Snapshot(), cancellationToken).ConfigureAwait(false);
+    }
+
+    private void ToolCall(string agentSessionId, ToolCallChunk chunk)
+    {
+        var identity = (agentSessionId, chunk.ToolCallId);
+        if (!_toolCalls.TryGetValue(identity, out var toolCall))
         {
             toolCall = (chunk.ToolName, new StringBuilder());
         }
@@ -166,39 +308,56 @@ internal sealed class RawActivityView(
         }
 
         _ = toolCall.Arguments.Append(chunk.ArgumentsFragment);
-        _toolCalls[chunk.ToolCallId] = toolCall;
-        _activeToolCallId = chunk.ToolCallId;
-        return FormatToolCall(toolCall);
+        _toolCalls[identity] = toolCall;
     }
 
-    private void RemoveToolCall(Event published)
+    private void StartTool(Event published)
     {
-        var toolCallId = TerminalToolCallId(published);
-        if (toolCallId is null)
+        var tool = published.ToolStarted;
+        var toolIdentity = (published.AgentSessionId, tool.ToolCallId);
+        if (!_toolCalls.TryGetValue(toolIdentity, out var toolCall))
+        {
+            toolCall = (tool.ToolName, new StringBuilder());
+            _toolCalls.Add(toolIdentity, toolCall);
+        }
+        else if (tool.ToolName.Length > 0)
+        {
+            toolCall.Name = tool.ToolName;
+            _toolCalls[toolIdentity] = toolCall;
+        }
+
+        var identity = (published.AgentSessionId, ActivityId(tool.ToolCallId));
+        if (_activityLabels.ContainsKey(identity))
         {
             return;
         }
 
-        _ = _toolCalls.Remove(toolCallId);
-        if (string.Equals(_activeToolCallId, toolCallId, StringComparison.Ordinal))
-        {
-            _activeToolCallId = null;
-        }
+        _activities.Add(identity);
+        _activityLabels.Add(identity, $"{Name(published.AgentSessionId)}: {toolCall.Name}");
     }
 
-    private async Task Flush(bool redraw, CancellationToken cancellationToken)
+    private async Task FinishTool(Event published, CancellationToken cancellationToken)
     {
-        var activities = _rows;
-        _rows = [];
-        var items = redraw
-            ? _rows.Select(value => (ILiveBufferItem)new LiveTextValue(value)).ToList()
-            : [];
-        if (activities.Count == 0)
+        var (toolCallId, toolName) = TerminalTool(published);
+        var toolIdentity = (published.AgentSessionId, toolCallId);
+        if (!_toolCalls.Remove(toolIdentity, out var toolCall))
         {
-            await draw(items, cancellationToken).ConfigureAwait(false);
-            return;
+            toolCall = (toolName, new StringBuilder());
         }
 
-        await commit(ImmediateScrollbackValue.Muted(activities), items, cancellationToken).ConfigureAwait(false);
+        var identity = (published.AgentSessionId, ActivityId(toolCallId));
+        _ = _activityLabels.Remove(identity);
+        _ = _activities.Remove(identity);
+        var description = ToolCallDescription(toolCall);
+        var owner = Name(published.AgentSessionId);
+        var line = published.PayloadCase switch
+        {
+            Event.PayloadOneofCase.ToolFinished => $"+ {owner}: {description}",
+            Event.PayloadOneofCase.ToolCancelled => $"- {owner}: {description} cancelled",
+            Event.PayloadOneofCase.ToolError =>
+                $"! {owner}: {description}: {TerminalText.Sanitize(published.ToolError.Message)}",
+            _ => string.Empty,
+        };
+        await commit(ImmediateScrollbackValue.Muted([line]), Snapshot(), cancellationToken).ConfigureAwait(false);
     }
 }

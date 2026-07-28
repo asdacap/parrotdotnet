@@ -96,7 +96,8 @@ internal sealed class EnhancedCli(
         bool renderActivityEvents = true,
         Func<Event, CancellationToken, Task>? afterRender = null,
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? draw = null,
-        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? commit = null)
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? commit = null,
+        ForegroundTurn? foreground = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
@@ -124,7 +125,8 @@ internal sealed class EnhancedCli(
             terminal.Error,
             terminal.GetColumns,
             renderActivityEvents,
-            terminal.Color);
+            terminal.Color,
+            foreground ?? new ForegroundTurn());
 
         try
         {
@@ -288,7 +290,6 @@ internal sealed class EnhancedCli(
             await composing.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                currentBody = [];
                 currentModeline = new ModelineValue(context.Mode, "working", context.Model);
                 currentPrompt = editor.Prompt;
                 await renderer.Commit(committed, Snapshot(), CancellationToken.None).ConfigureAwait(false);
@@ -461,66 +462,71 @@ internal sealed class EnhancedCli(
         CancellationToken cancellationToken)
     {
         var spinning = true;
+        var foreground = new ForegroundTurn();
+        using var activity = new RawActivityView(draw, commit);
+        using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var animation = activity.Run(animating.Token);
 
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            var failed = false;
-            using var activity = new RawActivityView(draw, commit);
-            using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var animation = activity.Run(animating.Token);
-
-            async Task BeforeRender(Event published, CancellationToken token)
+            while (!cancellationToken.IsCancellationRequested)
             {
-                if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
+                var failed = false;
+
+                async Task BeforeRender(Event published, CancellationToken token)
                 {
-                    _busy = true;
-                }
-                else if (published.PayloadCase == Event.PayloadOneofCase.TurnFailed)
-                {
-                    failed = true;
+                    foreground.Observe(published);
+                    if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
+                        && foreground.IsMain(published.AgentSessionId))
+                    {
+                        _busy = true;
+                    }
+                    else if (published.PayloadCase == Event.PayloadOneofCase.TurnFailed
+                             && foreground.IsTerminal(published))
+                    {
+                        failed = true;
+                    }
+
+                    if (spinning)
+                    {
+                        spinning = false;
+                        await stopSpinner().ConfigureAwait(false);
+                    }
+
+                    await activity.Prepare(published, token).ConfigureAwait(false);
                 }
 
-                if (spinning)
-                {
-                    spinning = false;
-                    await stopSpinner().ConfigureAwait(false);
-                }
-
-                await activity.Prepare(published, token).ConfigureAwait(false);
-            }
-
-            bool completed;
-            try
-            {
-                completed = await RenderTurn(
+                var completed = await RenderTurn(
                     stream,
                     cancellationToken,
                     BeforeRender,
                     false,
                     activity.Render,
-                    draw,
-                    commit).ConfigureAwait(false);
-            }
-            finally
-            {
-                await animating.CancelAsync().ConfigureAwait(false);
-                await animation.ConfigureAwait(false);
+                    activity.DrawContent,
+                    activity.CommitContent,
+                    foreground).ConfigureAwait(false);
+
+                if ((!completed && !failed) || exitOnFirstCompletion)
+                {
+                    return completed;
+                }
+
+                _busy = false;
+                _interruptRequested = false;
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    await ready(cancellationToken).ConfigureAwait(false);
+                    await activity.Redraw(cancellationToken).ConfigureAwait(false);
+                }
             }
 
-            if ((!completed && !failed) || exitOnFirstCompletion)
-            {
-                return completed;
-            }
-
-            _busy = false;
-            _interruptRequested = false;
-            if (!cancellationToken.IsCancellationRequested)
-            {
-                await ready(cancellationToken).ConfigureAwait(false);
-            }
+            return false;
         }
-
-        return false;
+        finally
+        {
+            await animating.CancelAsync().ConfigureAwait(false);
+            await animation.ConfigureAwait(false);
+        }
     }
 
     private async Task Interrupting(SlashContext context, CancellationToken cancellationToken)
