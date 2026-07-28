@@ -235,7 +235,7 @@ internal sealed class SubagentTests : IDisposable
         var planArtifact = Path.Combine(Path.GetTempPath(), "plan.md");
         parent.UpdateSelection(
             parent.Selection().ResolvedModel,
-            ModeProfile.Plan(Path.GetTempPath(), planArtifact, true, [], [], static () => { }));
+            ModeProfile.Plan(Path.GetTempPath(), () => planArtifact, true, [], [], static () => { }, static (_, _) => null));
         var spawned = registry.Spawn(parent, parent.Selection(), "worker");
         parent.UpdateSelection(
             parent.Selection().ResolvedModel,

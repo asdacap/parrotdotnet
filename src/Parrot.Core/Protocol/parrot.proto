@@ -160,6 +160,7 @@ message Event {
     TodoUpdated             todo_updated             = 19;
     StatusInjected         status_injected          = 20;
     AgentStatisticsUpdatedEvent agent_statistics_updated = 21;
+    PlanCompleted          plan_completed          = 22;
   }
 }
 
@@ -283,6 +284,35 @@ message TurnEnded {
   string finish_reason = 1;
   int64  input_tokens  = 2;
   int64  output_tokens = 3;
+}
+
+message PlanCompleted {
+  string session_id = 1;
+  string message_id = 2;
+  string markdown = 3;
+  TurnCompleteDialog dialog = 4;
+}
+
+message TurnCompleteDialog {
+  string prompt = 1;
+  repeated string context = 2;
+  repeated DialogChoice choices = 3;
+  string custom_choice = 4;
+  string custom_description = 5;
+  string custom_prompt = 6;
+  string empty_message = 7;
+}
+
+message DialogChoice {
+  string value = 1;
+  string description = 2;
+  repeated string aliases = 3;
+  ChoiceAction action = 4;
+}
+
+message ChoiceAction {
+  string mode = 1;
+  string prompt = 2;
 }
 
 message TurnFailed {
