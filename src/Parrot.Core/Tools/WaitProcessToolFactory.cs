@@ -5,5 +5,5 @@ namespace Parrot.Tools;
 
 internal sealed class WaitProcessToolFactory(ShellProcessOwner processes) : IToolFactory
 {
-    public ITool? Create(AgentSession session, AgentTurnSelection selection) => new WaitProcessTool(processes);
+    public ITool Create(AgentSession session, AgentTurnSelection selection) => new WaitProcessTool(processes);
 }
