@@ -186,7 +186,9 @@ internal sealed class TerminalFrameRenderer(
                 _lastLayout = item.Layout;
             }
 
-            if (item.EndsLayout && item.Layout == ScrollbackLayout.Assistant && !_committedGap)
+            if (item.EndsLayout
+                && item.Layout is ScrollbackLayout.Assistant or ScrollbackLayout.Block
+                && !_committedGap)
             {
                 output.Add(string.Empty);
                 _committed = true;
