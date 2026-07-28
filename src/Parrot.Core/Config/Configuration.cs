@@ -388,6 +388,7 @@ internal sealed class Configuration(string path)
                 $"profiles.{id}",
                 "prompt",
                 "hard_rule",
+                "status",
                 "max_tool_rounds",
                 "read_only",
                 "sandbox_rules");
@@ -403,6 +404,7 @@ internal sealed class Configuration(string path)
             result[id] = new ProfileConfig(
                 NonEmptyScalar(profile, "prompt", $"profiles.{id}.prompt"),
                 NonEmptyScalar(profile, "hard_rule", $"profiles.{id}.hard_rule"),
+                NonEmptyScalar(profile, "status", $"profiles.{id}.status"),
                 PositiveInteger(profile, "max_tool_rounds", $"profiles.{id}.max_tool_rounds"),
                 ReadBoolean(profile, "read_only", $"profiles.{id}.read_only"),
                 ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules"));

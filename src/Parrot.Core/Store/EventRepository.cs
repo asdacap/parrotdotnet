@@ -402,6 +402,20 @@ internal sealed class EventRepository(SessionDatabase database)
         }
     }
 
+    public void AppendInitialStatusPrompt(Event published, string content)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+
+        published.StatusInjected = new StatusInjected();
+
+        lock (_gate)
+        {
+            using var transaction = database.Begin();
+            Project(transaction, published.AgentSessionId, "system", content);
+            transaction.Commit();
+        }
+    }
+
     // Spelt out rather than derived from the enum name: the column outlives any
     // rename of the generated member.
     //

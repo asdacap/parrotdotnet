@@ -21,7 +21,20 @@ internal sealed class AgentRegistry(
     private readonly Lock _gate = new();
 
     private bool _accepting = true;
+    private RuntimeStatus? _status;
     private Task? _shutdown;
+
+    public void AttachStatus(RuntimeStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+
+        lock (_gate)
+        {
+            _status = _status is null
+                ? status
+                : throw new AgentRegistryException("the runtime status is already attached");
+        }
+    }
 
     public AgentSession Spawn(
         AgentSession parent,
@@ -53,15 +66,16 @@ internal sealed class AgentRegistry(
 
             var sessionId = Identifier.AgentSession();
             var name = UniqueName(requestedName, sessionId);
-            var identity = AgentIdentity.Child(sessionId, parent.SessionId, name, depth);
+            var childSecurityProfile = selection.SecurityProfile.WithoutRuntimeCapabilities();
+            var identity = AgentIdentity.Child(sessionId, parent.SessionId, parent.Name, name, depth);
             var lease = agentSessions.Create(
                 identity,
                 model,
                 eventBroker,
                 eventRepository,
-                profile: null,
-                selection.SecurityProfile.WithoutRuntimeCapabilities(),
-                status: null,
+                selection.Profile?.ForChild(childSecurityProfile),
+                childSecurityProfile,
+                _status,
                 _lifetime.Token);
 
             _entries.Add(sessionId, lease);

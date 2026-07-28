@@ -19,7 +19,7 @@ internal sealed class ModeRegistry(
 
     public IReadOnlyList<string> List() => _modeIds;
 
-    public MainAgentProfile Resolve(string id, string sessionId)
+    public AgentProfile Resolve(string id, string sessionId)
     {
         var selected = id.Length == 0 ? Build : id;
 
@@ -30,7 +30,7 @@ internal sealed class ModeRegistry(
         };
 
         return selected == Plan
-            ? new MainAgentProfile(
+            ? new AgentProfile(
                 selected,
                 configuration,
                 () => $"{configuration.Prompt} to this exact file: {PlanArtifact(sessionId)}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {planDirectory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
@@ -42,7 +42,7 @@ internal sealed class ModeRegistry(
                     [new SandboxRule(planDirectory, SandboxRuleAction.AllowWrite)]),
                 () => PreparePlan(sessionId),
                 (agentSessionId, messageId) => CompletePlan(sessionId, agentSessionId, messageId))
-            : new MainAgentProfile(
+            : new AgentProfile(
                 selected,
                 configuration,
                 () => configuration.Prompt,

@@ -86,6 +86,7 @@ internal sealed class SubagentTests : IDisposable
         var systemPrompt = provider.Requests.Single().Messages.Single(message => message.Role == LLMRole.System).Content;
         _ = await Assert.That(systemPrompt).Contains($"Child agent session: {sessionId}");
         _ = await Assert.That(systemPrompt).Contains("Parent agent session: agent");
+        _ = await Assert.That(systemPrompt).Contains("Parent agent name: ");
         _ = await Assert.That(systemPrompt).Contains("Child agent name: child-helper");
     }
 
@@ -109,7 +110,7 @@ internal sealed class SubagentTests : IDisposable
         provider.Release();
 
         _ = await Assert.That(sessions.Models.Single().Value).IsEqualTo("stepped/model");
-        _ = await Assert.That(sessions.Profiles.Single()).IsNull();
+        _ = await Assert.That(sessions.Profiles.Single()?.Id).IsEqualTo(ModeRegistry.Build);
     }
 
     [Test]
@@ -300,6 +301,7 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
 
         _ = await Assert.That(sessions.SecurityProfiles[0].Rules).IsEmpty();
+        _ = await Assert.That(sessions.Profiles[0]?.SecurityProfile.Rules).IsEmpty();
         _ = await Assert.That(rejected).IsEqualTo("error: cannot delegate to a more permissive agent");
     }
 
@@ -371,13 +373,13 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");
     }
 
-    private static MainAgentProfile Profile(
+    private static AgentProfile Profile(
         string id,
         bool readOnly,
         IReadOnlyList<SandboxRule> runtimeCapabilities) =>
         new(
             id,
-            new ProfileConfig("Test prompt", "Test rule", 1, readOnly, []),
+            new ProfileConfig("Test prompt", "Test rule", "Test status", 1, readOnly, []),
             static () => "Test prompt",
             static () => string.Empty,
             SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities),
@@ -418,7 +420,7 @@ internal sealed class SubagentTests : IDisposable
         return new AgentSession(
             depth == 0
                 ? AgentIdentity.Main(sessionId, string.Empty)
-                : AgentIdentity.Child(sessionId, "ancestor", "parent", depth),
+                : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", "parent", depth),
             new ModelSelector("stepped/model"),
             router,
             _broker,
@@ -442,7 +444,7 @@ internal sealed class SubagentTests : IDisposable
 
         public IReadOnlyList<ModelSelector> Models => _models;
 
-        public List<MainAgentProfile?> Profiles { get; } = [];
+        public List<AgentProfile?> Profiles { get; } = [];
 
         public List<SecurityProfile> SecurityProfiles { get; } = [];
 
@@ -451,7 +453,7 @@ internal sealed class SubagentTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            MainAgentProfile? profile,
+            AgentProfile? profile,
             SecurityProfile securityProfile,
             RuntimeStatus? status,
             CancellationToken lifetime)

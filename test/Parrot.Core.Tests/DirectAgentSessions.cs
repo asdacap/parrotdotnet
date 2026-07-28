@@ -32,7 +32,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        MainAgentProfile? profile,
+        AgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime)

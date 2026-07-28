@@ -7,7 +7,7 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Observe_composes_available_status_by_key_and_resamples_providers()
     {
-        var query = new StatusQuery("session", "plan", "openai", "gpt", "high");
+        var query = new StatusQuery("session", string.Empty, string.Empty, "plan", "openai", "gpt", "high");
         var calls = 0;
         StatusQuery? observedQuery = null;
         var registry = new StatusRegistry(
@@ -25,12 +25,35 @@ internal sealed class StatusRegistryTests
             new ScriptedStatusProvider(
                 "runtime:blank",
                 static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("  "))));
-        var first = await registry.Observe(query, CancellationToken.None);
-        var second = await registry.Observe(query, CancellationToken.None);
+        var profile = new ScriptedStatusProvider(
+            "profile:plan",
+            static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("profile")));
 
-        _ = await Assert.That(first).IsEqualTo("selection 1");
-        _ = await Assert.That(second).IsEqualTo("selection 2");
+        var first = await registry.Observe(query, profile, CancellationToken.None);
+        var second = await registry.Observe(query, profile, CancellationToken.None);
+
+        _ = await Assert.That(first).IsEqualTo("profile\n\nselection 1");
+        _ = await Assert.That(second).IsEqualTo("profile\n\nselection 2");
         _ = await Assert.That(observedQuery).IsEqualTo(query);
+    }
+
+    [Test]
+    [Arguments("", "")]
+    [Arguments("parent", "")]
+    [Arguments("parent", "  ")]
+    [Arguments("parent", "main-agent")]
+    public async Task Selection_reports_parent_context_when_present(string parentSessionId, string parentSessionName)
+    {
+        var observation = await new SelectionStatusProvider().Observe(
+            new StatusQuery("child", parentSessionId, parentSessionName, "build", "provider", "model", string.Empty),
+            CancellationToken.None);
+
+        var parent = string.IsNullOrWhiteSpace(parentSessionId)
+            ? string.Empty
+            : string.IsNullOrWhiteSpace(parentSessionName)
+                ? $"\nParent session: {parentSessionId}"
+                : $"\nParent session: {parentSessionId} ({parentSessionName})";
+        _ = await Assert.That(observation.Text).IsEqualTo($"Active profile: build\nModel: provider/model{parent}");
     }
 
     [Test]
@@ -49,11 +72,16 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
-    public async Task Register_rejects_duplicate_keys()
+    public async Task Register_and_profile_reject_duplicate_keys()
     {
         var registry = new StatusRegistry(Provider("runtime:selection", "first"));
 
         _ = await Assert.That(() => registry.Register(Provider("runtime:selection", "second")))
+            .Throws<StatusRegistryException>();
+        _ = await Assert.That(async () => await registry.Observe(
+                new StatusQuery("session", string.Empty, string.Empty, "build", "provider", "model", string.Empty),
+                Provider("runtime:selection", "profile"),
+                CancellationToken.None))
             .Throws<StatusRegistryException>();
     }
 
@@ -65,7 +93,8 @@ internal sealed class StatusRegistryTests
             static (_, _) => ValueTask.FromException<StatusObservation>(new InvalidOperationException("failed"))));
 
         var exception = await Assert.That(async () => await registry.Observe(
-                new StatusQuery("session", "build", "provider", "model", string.Empty),
+                new StatusQuery("session", string.Empty, string.Empty, "build", "provider", "model", string.Empty),
+                null,
                 CancellationToken.None))
             .Throws<StatusRegistryException>();
 

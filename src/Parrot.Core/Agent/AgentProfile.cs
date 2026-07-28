@@ -4,7 +4,7 @@ using Parrot.Security;
 
 namespace Parrot.Agent;
 
-internal sealed class MainAgentProfile(
+internal sealed class AgentProfile(
     string id,
     ProfileConfig configuration,
     Func<string> prompt,
@@ -19,6 +19,8 @@ internal sealed class MainAgentProfile(
 
     public string HardRule { get; } = configuration.HardRule;
 
+    public string Status { get; } = configuration.Status;
+
     public int MaxToolRounds { get; } = configuration.MaxToolRounds;
 
     public bool ReadOnly { get; } = configuration.ReadOnly;
@@ -30,4 +32,13 @@ internal sealed class MainAgentProfile(
     public void Prepare() => prepare();
 
     public PlanCompleted? Complete(string sessionId, string messageId) => complete(sessionId, messageId);
+
+    public AgentProfile ForChild(SecurityProfile childSecurityProfile) => new(
+        Id,
+        configuration,
+        () => configuration.Prompt,
+        static () => string.Empty,
+        childSecurityProfile,
+        static () => { },
+        static (_, _) => null);
 }

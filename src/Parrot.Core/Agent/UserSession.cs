@@ -20,7 +20,6 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly IAgentSessionFactory _agentSessions;
     private readonly Lock _mainGate = new();
     private readonly ModeRegistry _modes;
-    private readonly RuntimeStatus _status;
 
     // What every drain inside this session is bounded by. It is owned here
     // rather than by an agent session because the drain outlives the request
@@ -63,7 +62,8 @@ internal sealed class UserSession : IAsyncDisposable
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, _lifetime.Token);
-        _status = new RuntimeStatus(this);
+        Status = new RuntimeStatus(this);
+        Registry.AttachStatus(Status);
     }
 
     public string Id { get; }
@@ -82,13 +82,15 @@ internal sealed class UserSession : IAsyncDisposable
 
     // The user-selected foreground mode. The resolved profile is applied only
     // to this user session's main agent; child agents have no active profile.
-    public MainAgentProfile Mode { get; private set; }
+    public AgentProfile Mode { get; private set; }
 
     internal CancellationToken Lifetime => _lifetime.Token;
 
     internal ShellProcessOwner ShellProcesses { get; }
 
     internal AgentRegistry Registry { get; }
+
+    internal RuntimeStatus Status { get; }
 
     // Assigned, never rebuilt. The main session holds the conversation, the
     // input admitted against it and the drain that may be running: replacing it
@@ -114,7 +116,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     public void UpdateSelection(ResolvedModelSelection model) => Update(model, null);
 
-    public void Update(ResolvedModelSelection? model, MainAgentProfile? profile)
+    public void Update(ResolvedModelSelection? model, AgentProfile? profile)
     {
         lock (_mainGate)
         {
@@ -203,7 +205,7 @@ internal sealed class UserSession : IAsyncDisposable
                     _eventRepository,
                     Mode,
                     Mode.SecurityProfile,
-                    _status,
+                    Status,
                     _lifetime.Token);
                 _main = lease.Session;
                 _agents.Add(lease);

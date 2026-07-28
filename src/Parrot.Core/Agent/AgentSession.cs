@@ -33,7 +33,7 @@ internal sealed class AgentSession(
     ISystemPromptProvider systemPromptProvider,
     TodoCollection todos,
     Compactor compactor,
-    MainAgentProfile? profile,
+    AgentProfile? profile,
     SecurityProfile securityProfile,
     RuntimeStatus? status,
     CancellationToken lifetime)
@@ -78,6 +78,7 @@ internal sealed class AgentSession(
     private AgentSelection _selection = new(model, profile, securityProfile);
 
     private bool _epochInitialized;
+    private bool _initialStatusPending = identity.Depth > 0;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
     private bool _wake;
@@ -96,6 +97,8 @@ internal sealed class AgentSession(
     public string Name => identity.Name;
 
     public string ParentSessionId => identity.ParentSessionId;
+
+    public string ParentSessionName => identity.ParentSessionName;
 
     public TodoCollection Todos { get; } = todos;
 
@@ -122,7 +125,7 @@ internal sealed class AgentSession(
         }
     }
 
-    public void UpdateSelection(ModelSelector selectedModel, MainAgentProfile? profile)
+    public void UpdateSelection(ModelSelector selectedModel, AgentProfile? profile)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
 
@@ -850,6 +853,28 @@ internal sealed class AgentSession(
     {
         if (status is null || selection.Profile is null)
         {
+            return selection;
+        }
+
+        if (Depth > 0)
+        {
+            if (!_initialStatusPending)
+            {
+                return selection;
+            }
+
+            var content = await status.Observe(this, selection, selection.Profile, cancellationToken)
+                .ConfigureAwait(false);
+            var published = new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                StatusInjected = new StatusInjected(),
+            };
+            eventRepository.AppendInitialStatusPrompt(published, content);
+            _history.Add(LLMMessage.System(content));
+            _initialStatusPending = false;
+            await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
             return selection;
         }
 

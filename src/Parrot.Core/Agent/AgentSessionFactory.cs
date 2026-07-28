@@ -38,6 +38,7 @@ internal sealed class AgentSessionFactory(
             new AgentSpawnToolFactory(owner.Registry, router),
             new AgentSendToolFactory(owner.Registry),
             new WaitAgentToolFactory(owner.Registry),
+            new StatusToolFactory(owner.Status),
             new TodoReadToolFactory(),
             new TodoWriteToolFactory(),
         ];
@@ -47,7 +48,7 @@ internal sealed class AgentSessionFactory(
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        MainAgentProfile? profile,
+        AgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime) =>

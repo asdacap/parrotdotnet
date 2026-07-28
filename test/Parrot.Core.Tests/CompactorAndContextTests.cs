@@ -125,7 +125,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var composite = new CompositeSystemPromptProvider("test:composite", [first, second]);
 
         var main = composite.Materialize(AgentIdentity.Main("main", string.Empty));
-        var child = composite.Materialize(AgentIdentity.Child("child", "main", "worker", 1));
+        var child = composite.Materialize(AgentIdentity.Child("child", "main", "main-agent", "worker", 1));
         main.RenewEpoch();
         child.RenewEpoch();
 

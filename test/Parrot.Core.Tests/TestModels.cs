@@ -10,30 +10,27 @@ internal static class TestModels
     public static IReadOnlyDictionary<string, ProfileConfig> Profiles { get; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
         {
-            [ModeRegistry.Build] = new()
-            {
-                Prompt = "You are Parrot's build mode. Implement and verify the requested changes.",
-                HardRule = "Keep tool side effects within the authorized workspace.",
-                Status = "Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.",
-                MaxToolRounds = 64,
-                ReadOnly = false,
-            },
-            [ModeRegistry.Plan] = new()
-            {
-                Prompt = "You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown",
-                HardRule = "The plan directory is the only writable location; do not modify workspace files.",
-                Status = "Plan mode: inspect the project and write the designated plan artifact without changing other files.",
-                MaxToolRounds = 24,
-                ReadOnly = true,
-            },
-            [ModeRegistry.Query] = new()
-            {
-                Prompt = "You are Parrot's query mode. Inspect the project and answer the user's question without making changes.",
-                HardRule = "Read-only mode: do not modify the workspace.",
-                Status = "Query mode: inspect the project and answer questions without changing files.",
-                MaxToolRounds = 24,
-                ReadOnly = true,
-            },
+            [ModeRegistry.Build] = new(
+                "You are Parrot's build mode. Implement and verify the requested changes.",
+                "Keep tool side effects within the authorized workspace.",
+                "Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.",
+                64,
+                false,
+                []),
+            [ModeRegistry.Plan] = new(
+                "You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown",
+                "The plan directory is the only writable location; do not modify workspace files.",
+                "Plan mode: inspect the project and write the designated plan artifact without changing other files.",
+                24,
+                true,
+                []),
+            [ModeRegistry.Query] = new(
+                "You are Parrot's query mode. Inspect the project and answer the user's question without making changes.",
+                "Read-only mode: do not modify the workspace.",
+                "Query mode: inspect the project and answer questions without changing files.",
+                24,
+                true,
+                []),
         };
 
     public static ISystemPromptProvider PromptProvider(string workingDirectory, string configDirectory) =>

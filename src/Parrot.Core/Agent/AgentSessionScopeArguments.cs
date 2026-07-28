@@ -17,7 +17,7 @@ internal sealed record AgentSessionScopeArguments(
     IReadOnlyList<IToolFactory> ToolFactories,
     ISystemPromptProvider SystemPromptProvider,
     Compactor Compactor,
-    MainAgentProfile? Profile,
+    AgentProfile? Profile,
     SecurityProfile SecurityProfile,
     RuntimeStatus? Status,
     CancellationToken Lifetime);
