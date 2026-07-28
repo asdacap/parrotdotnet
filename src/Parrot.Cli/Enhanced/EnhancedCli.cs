@@ -55,7 +55,7 @@ internal sealed class EnhancedCli(
             configuration,
             providerIds,
             session,
-            terminal.Input,
+            new TerminalPromptReader(terminal),
             terminal.Output,
             terminal.Error);
 

@@ -295,45 +295,13 @@ internal static class CommandDispatcher
             new ModesCommand(),
             new SessionsCommand(),
             new ClearCommand(defaultModel),
-            new AuthCommand(ReadSecret),
+            new AuthCommand(),
         };
 
         var registry = new SlashCommandRegistry(commands);
         commands.Add(new HelpCommand(registry));
 
         return registry;
-    }
-
-    // Not ReadLine: a key must not land in the terminal scrollback, nor in a
-    // screen recording.
-    private static string ReadSecret()
-    {
-        var typed = new System.Text.StringBuilder();
-
-        while (true)
-        {
-            var key = Console.ReadKey(intercept: true);
-
-            if (key.Key == ConsoleKey.Enter)
-            {
-                return typed.ToString();
-            }
-
-            if (key.Key == ConsoleKey.Backspace)
-            {
-                if (typed.Length > 0)
-                {
-                    _ = typed.Remove(typed.Length - 1, 1);
-                }
-
-                continue;
-            }
-
-            if (!char.IsControl(key.KeyChar))
-            {
-                _ = typed.Append(key.KeyChar);
-            }
-        }
     }
 
     private static async Task<int> Chat(

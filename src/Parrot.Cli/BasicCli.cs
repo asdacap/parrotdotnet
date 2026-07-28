@@ -71,7 +71,7 @@ internal sealed class BasicCli(
             session.Id,
             session.Model,
             session.Mode,
-            input,
+            new ConsolePromptReader(input),
             output,
             error);
 

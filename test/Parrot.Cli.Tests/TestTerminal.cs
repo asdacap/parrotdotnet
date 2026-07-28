@@ -5,8 +5,6 @@ namespace Parrot.Cli.Tests;
 
 internal sealed class TestTerminal(TextReader input, TextWriter output, TextWriter error, int columns) : ITerminal
 {
-    public TextReader Input { get; } = input;
-
     public TextWriter Output { get; } = output;
 
     public TextWriter Error { get; } = error;
@@ -17,7 +15,7 @@ internal sealed class TestTerminal(TextReader input, TextWriter output, TextWrit
 
     public async ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken)
     {
-        var line = await Input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+        var line = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
         if (line is null)
         {
             buffer[0] = 0x04;

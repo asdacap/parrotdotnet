@@ -25,7 +25,7 @@ internal sealed class ModeCommandTests : IDisposable
             "user-session",
             "provider/model",
             "query",
-            _input,
+            new ConsolePromptReader(_input),
             _output,
             _error);
 

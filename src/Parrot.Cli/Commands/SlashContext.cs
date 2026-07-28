@@ -16,7 +16,7 @@ internal sealed class SlashContext(
     string userSessionId,
     string model,
     string mode,
-    TextReader input,
+    IPromptReader input,
     TextWriter output,
     TextWriter error)
 {
@@ -36,7 +36,7 @@ internal sealed class SlashContext(
 
     public string Mode { get; set; } = mode;
 
-    public TextReader Input { get; } = input;
+    public IPromptReader Input { get; } = input;
 
     public TextWriter Output { get; } = output;
 
@@ -49,7 +49,7 @@ internal sealed class SlashContext(
         Configuration configuration,
         IReadOnlyList<string> providerIds,
         UserSession session,
-        TextReader input,
+        IPromptReader input,
         TextWriter output,
         TextWriter error) =>
         new(

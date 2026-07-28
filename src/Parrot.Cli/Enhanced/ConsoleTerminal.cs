@@ -2,8 +2,6 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class ConsoleTerminal(TextWriter output, TextWriter error, IRawTerminal rawTerminal) : ITerminal
 {
-    public TextReader Input => Console.In;
-
     public TextWriter Output { get; } = output;
 
     public TextWriter Error { get; } = error;

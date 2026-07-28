@@ -7,7 +7,7 @@ namespace Parrot.Cli.Commands;
 // reach a working prompt without knowing the subcommand form exists. A provider
 // argument selects which one; chatgpt runs the OAuth flow, everything else takes
 // a key.
-internal sealed class AuthCommand(Func<string> readSecret) : ISlashCommand
+internal sealed class AuthCommand : ISlashCommand
 {
     public string Name => "/auth";
 
@@ -69,7 +69,7 @@ internal sealed class AuthCommand(Func<string> readSecret) : ISlashCommand
             .WriteAsync($"  key for {provider}: ".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
-        var key = readSecret().Trim();
+        var key = (await context.Input.ReadSecret(cancellationToken).ConfigureAwait(false)).Trim();
         await context.Output.WriteLineAsync().ConfigureAwait(false);
 
         if (key.Length == 0)
@@ -98,7 +98,7 @@ internal sealed class AuthCommand(Func<string> readSecret) : ISlashCommand
         }
 
         await context.Output.WriteAsync("  provider: ".AsMemory(), cancellationToken).ConfigureAwait(false);
-        var selected = await context.Input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+        var selected = await context.Input.ReadLine(cancellationToken).ConfigureAwait(false);
 
         if (selected is not null && context.ProviderIds.Contains(selected.Trim(), StringComparer.Ordinal))
         {

@@ -18,7 +18,7 @@ internal sealed class SlashCommandTests
             new ModesCommand(),
             new SessionsCommand(),
             new ClearCommand("model"),
-            new AuthCommand(static () => string.Empty),
+            new AuthCommand(),
         };
 
         _registry = new SlashCommandRegistry(commands);
