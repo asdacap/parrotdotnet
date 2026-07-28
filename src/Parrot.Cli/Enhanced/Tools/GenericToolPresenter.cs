@@ -13,15 +13,10 @@ internal sealed class GenericToolPresenter : IToolPresenter
         return new ToolScrollbackValue(
             $"{call.Owner}: tool call {call.ToolName}{suffix}",
             TerminalDetails(call, terminal),
-            Status(terminal));
+            terminal.ResolveStatus());
     }
 
     private static IEnumerable<string> Detail(string value) => value.Length == 0 ? [] : [value];
-
-    private static ToolTerminalStatus Status(ToolTerminalPresentation terminal) =>
-        terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal)
-            ? ToolTerminalStatus.ReportedFailure
-            : terminal.Status;
 
     private static IEnumerable<string> TerminalDetails(
         ToolCallPresentation call,

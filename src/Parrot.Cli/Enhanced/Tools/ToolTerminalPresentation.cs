@@ -36,4 +36,26 @@ internal readonly record struct ToolTerminalPresentation(
         ResultPresent && Result.StartsWith("error: ", StringComparison.Ordinal)
             ? ToolTerminalStatus.ReportedFailure
             : Status;
+
+    public ToolBlock DescribeBlock(ToolBlockKind successKind)
+    {
+        var status = ResolveStatus();
+        if (status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure)
+        {
+            return ToolBlock.FromError(ResultPresent ? Result : Error);
+        }
+
+        if (!ResultPresent || Result.Length == 0)
+        {
+            return ToolBlock.Empty;
+        }
+
+        return successKind switch
+        {
+            ToolBlockKind.Diff => ToolBlock.FromDiff(Result),
+            ToolBlockKind.Todos => ToolBlock.FromTodos(Result),
+            ToolBlockKind.Text => ToolBlock.FromText(Result),
+            _ => ToolBlock.Empty,
+        };
+    }
 }

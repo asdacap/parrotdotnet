@@ -26,7 +26,7 @@ internal sealed class EnhancedCli(
     private const string DisableKeyboardEnhancement = "\u001b[<u";
     private const string EnableBracketedPaste = "\u001b[?2004h";
     private const string EnableKeyboardEnhancement = "\u001b[>1u";
-    private const string Prompt = "> ";
+    private const string Prompt = "$ ";
 
     private readonly Channel<bool> _interrupts =
         Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
@@ -205,7 +205,12 @@ internal sealed class EnhancedCli(
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
         var currentInput = (IReadOnlyList<ILiveBufferItem>)[editor.Prompt];
         var currentBody = (IReadOnlyList<ILiveBufferItem>)[];
-        var currentModeline = new ModelineValue(session.Mode, "ready", session.Model);
+        var usage = new RuntimeUsageTracker();
+        var foregroundForModeline = new ForegroundTurn();
+        var modelineActivity = string.Empty;
+        var modelineFrame = 0;
+        var modelineTools = new HashSet<string>(StringComparer.Ordinal);
+        var currentModeline = CreateModeline();
         using var composing = new SemaphoreSlim(1, 1);
         var palette = new TerminalPalette(terminal.Color);
         var renderer = new TerminalFrameRenderer(
@@ -222,12 +227,60 @@ internal sealed class EnhancedCli(
 
         IReadOnlyList<ILiveBufferItem> Snapshot() => [.. currentBody, currentModeline, .. currentInput];
 
+        ModelineValue CreateModeline()
+        {
+            var runtime = usage.Current;
+            var right = new[]
+            {
+                runtime.FormatContext() is { Length: > 0 } context
+                    ? $"{session.Model} ({context})"
+                    : session.Model,
+                runtime.FormatTokens(),
+                runtime.FormatCost(),
+            };
+            var activity = modelineActivity.Length == 0
+                ? string.Empty
+                : $"{TerminalIcons.SpinnerFrames[modelineFrame % TerminalIcons.SpinnerFrames.Length]} {modelineActivity}";
+            return new ModelineValue(
+                session.Mode,
+                activity,
+                string.Join(" · ", right.Where(value => value.Length > 0)));
+        }
+
+        void ObserveModelineActivity(Event published)
+        {
+            if (published.PayloadCase == Event.PayloadOneofCase.ToolStarted
+                && foregroundForModeline.IsMain(published.AgentSessionId)
+                && toolPresenters.Describe(published.ToolStarted.ToolName).Modeline)
+            {
+                _ = modelineTools.Add(published.ToolStarted.ToolCallId);
+                modelineActivity = $"Working: {published.ToolStarted.ToolName}";
+            }
+            else if (published.PayloadCase is Event.PayloadOneofCase.ToolFinished
+                     or Event.PayloadOneofCase.ToolCancelled
+                     or Event.PayloadOneofCase.ToolError)
+            {
+                var toolCallId = published.PayloadCase switch
+                {
+                    Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
+                    Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
+                    _ => published.ToolError.ToolCallId,
+                };
+                if (modelineTools.Remove(toolCallId) && modelineTools.Count == 0)
+                {
+                    modelineActivity = string.Empty;
+                }
+            }
+        }
+
         async Task DrawBody(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             await composing.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 currentBody = [.. items];
+                modelineFrame++;
+                currentModeline = CreateModeline();
                 await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
             }
             finally
@@ -300,11 +353,12 @@ internal sealed class EnhancedCli(
         async Task StartTurn(string entered, AsyncServerStreamingCall<Event> activeCall)
         {
             _busy = true;
-            var committed = ImmediateScrollbackValue.User("› " + entered);
+            var committed = ImmediateScrollbackValue.User(entered);
             await composing.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                currentModeline = new ModelineValue(session.Mode, "working", session.Model);
+                modelineActivity = "Thinking…";
+                currentModeline = CreateModeline();
                 currentInput = [editor.Prompt];
                 await renderer.Commit(committed, Snapshot(), CancellationToken.None).ConfigureAwait(false);
             }
@@ -323,7 +377,26 @@ internal sealed class EnhancedCli(
                         activeCall.ResponseStream,
                         DrawBody,
                         CommitBody,
-                        token => DrawState(new ModelineValue(session.Mode, "ready", session.Model), token),
+                        async (published, eventToken) =>
+                        {
+                            await composing.WaitAsync(eventToken).ConfigureAwait(false);
+                            try
+                            {
+                                foregroundForModeline.Observe(published);
+                                usage.Observe(published);
+                                ObserveModelineActivity(published);
+                                currentModeline = CreateModeline();
+                            }
+                            finally
+                            {
+                                _ = composing.Release();
+                            }
+                        },
+                        async token =>
+                        {
+                            modelineActivity = string.Empty;
+                            await DrawState(CreateModeline(), token).ConfigureAwait(false);
+                        },
                         stopSpinner,
                         exitOnFirstCompletion,
                         token).ConfigureAwait(false),
@@ -350,6 +423,11 @@ internal sealed class EnhancedCli(
             streaming = replacementStreaming;
             call = replacementCall;
             rendering = Task.CompletedTask;
+            usage.Reset();
+            foregroundForModeline.Reset();
+            modelineTools.Clear();
+            modelineActivity = string.Empty;
+            currentModeline = CreateModeline();
             _busy = false;
             _interruptRequested = false;
         }
@@ -377,9 +455,7 @@ internal sealed class EnhancedCli(
             streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
             call = client.Listen(
                 new ListenRequest { UserSessionId = session.Id }, cancellationToken: streaming.Token);
-            await DrawState(
-                new ModelineValue(session.Mode, "ready", session.Model),
-                cancellationToken).ConfigureAwait(false);
+            await DrawState(CreateModeline(), cancellationToken).ConfigureAwait(false);
             if (initialPrompt.Length > 0)
             {
                 await StartTurn(initialPrompt, call).ConfigureAwait(false);
@@ -452,9 +528,8 @@ internal sealed class EnhancedCli(
 
                 if (!_busy && !exiting)
                 {
-                    await DrawState(
-                        new ModelineValue(session.Mode, "ready", session.Model),
-                        cancellationToken).ConfigureAwait(false);
+                    modelineActivity = string.Empty;
+                    await DrawState(CreateModeline(), cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -500,6 +575,7 @@ internal sealed class EnhancedCli(
         IAsyncStreamReader<Event> stream,
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
         Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        Func<Event, CancellationToken, Task> observe,
         Func<CancellationToken, Task> ready,
         Func<Task> stopSpinner,
         bool exitOnFirstCompletion,
@@ -531,6 +607,7 @@ internal sealed class EnhancedCli(
                         failed = true;
                     }
 
+                    await observe(published, token).ConfigureAwait(false);
                     if (spinning)
                     {
                         spinning = false;

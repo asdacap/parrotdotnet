@@ -22,6 +22,7 @@ internal sealed class EnhancedTurnView(
     private readonly StringBuilder _reasoning = new();
     private MarkdownLiveUpdate? _pendingTextCompletion;
     private MarkdownLiveUpdate? _pendingTextUpdate;
+    private bool _reasoningSummary;
     private bool _started;
     private bool _textActive;
     private int _textSegment;
@@ -30,6 +31,11 @@ internal sealed class EnhancedTurnView(
 
     public async Task Prepare(Event published, CancellationToken cancellationToken)
     {
+        if (foreground.IsChild(published.AgentSessionId))
+        {
+            return;
+        }
+
         if (_textActive && published.PayloadCase != Event.PayloadOneofCase.TextChunk)
         {
             await CommitText(cancellationToken).ConfigureAwait(false);
@@ -85,24 +91,30 @@ internal sealed class EnhancedTurnView(
                 break;
 
             case Event.PayloadOneofCase.ReasoningChunk:
-                if (renderActivityEvents)
+                if (renderActivityEvents && !foreground.IsChild(published.AgentSessionId))
                 {
-                    await RenderReasoning(published.ReasoningChunk.Fragment, cancellationToken)
-                        .ConfigureAwait(false);
+                    await RenderReasoning(published.ReasoningChunk, cancellationToken).ConfigureAwait(false);
                 }
 
                 break;
 
             case Event.PayloadOneofCase.TextChunk:
-                _textActive = true;
-                _pendingTextUpdate = _live.Append(
-                    new LiveTerminalStreamMessage(TextId, string.Empty, published.TextChunk.Fragment));
-                await Apply(_pendingTextUpdate.Value, cancellationToken).ConfigureAwait(false);
-                _pendingTextUpdate = null;
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    _textActive = true;
+                    _pendingTextUpdate = _live.Append(
+                        new LiveTerminalStreamMessage(
+                            TextId,
+                            TerminalIcons.AssistantMessage + " ",
+                            published.TextChunk.Fragment));
+                    await Apply(_pendingTextUpdate.Value, cancellationToken).ConfigureAwait(false);
+                    _pendingTextUpdate = null;
+                }
+
                 break;
 
             case Event.PayloadOneofCase.TurnEnded:
-                if (renderActivityEvents)
+                if (renderActivityEvents && foreground.IsTerminal(published))
                 {
                     await Commit(
                         ImmediateScrollbackValue.Trusted([$"{Green}  {Summarise(published.TurnEnded)}{Reset}"]),
@@ -197,17 +209,33 @@ internal sealed class EnhancedTurnView(
         _textSegment++;
     }
 
-    private Task RenderReasoning(string fragment, CancellationToken cancellationToken)
+    private async Task RenderReasoning(ReasoningChunk chunk, CancellationToken cancellationToken)
     {
-        _ = _reasoning.Append(TerminalText.Sanitize(fragment));
-        return draw([new LiveTextValue(_reasoning.ToString())], cancellationToken);
+        _ = _reasoning.Append(TerminalText.Sanitize(chunk.Fragment));
+        _reasoningSummary |= chunk.Kind == ReasoningKind.Summary;
+        var prefix = _reasoningSummary ? "✦ " : string.Empty;
+        await draw([new SpinnerValue(prefix + _reasoning, 0)], cancellationToken).ConfigureAwait(false);
+        if (chunk.Completed)
+        {
+            await EndReasoning(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task EndReasoning(CancellationToken cancellationToken)
     {
-        await Commit(
-            ImmediateScrollbackValue.Trusted([$"{Dim}{_reasoning}{Reset}"]),
-            cancellationToken).ConfigureAwait(false);
+        if (_reasoning.Length == 0)
+        {
+            return;
+        }
+
+        if (_reasoningSummary)
+        {
+            await Commit(
+                ImmediateScrollbackValue.Muted([$"✦ {_reasoning}"]),
+                cancellationToken).ConfigureAwait(false);
+        }
+
         _ = _reasoning.Clear();
+        _reasoningSummary = false;
     }
 }

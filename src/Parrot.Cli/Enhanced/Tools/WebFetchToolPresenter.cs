@@ -6,16 +6,22 @@ internal sealed class WebFetchToolPresenter : IToolPresenter
 {
     public string ToolName => "web_fetch";
 
+    public ToolPresentationMetadata Metadata { get; } = ToolPresentationMetadata.Default with
+    {
+        Style = ToolPresentationStyle.Muted,
+    };
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: web fetch {Host(call.ArgumentsJson)}", [], frame);
+        new ToolLiveValue($"{call.Owner}: web fetch {Request(call.ArgumentsJson)}", [], Metadata, frame);
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) =>
         new ToolScrollbackValue(
-            $"{call.Owner}: web fetch {Host(call.ArgumentsJson)}",
-            Details(terminal),
-            Status(terminal));
+            $"{call.Owner}: web fetch {Request(call.ArgumentsJson)}",
+            terminal.DescribeBlock(ToolBlockKind.Text),
+            terminal.ResolveStatus(),
+            Metadata);
 
-    private static string Host(string argumentsJson)
+    private static string Request(string argumentsJson)
     {
         using var document = JsonDocument.Parse(argumentsJson);
         var root = document.RootElement;
@@ -27,27 +33,11 @@ internal sealed class WebFetchToolPresenter : IToolPresenter
             return string.Empty;
         }
 
-        var value = url.GetString() ?? string.Empty;
-        return Uri.TryCreate(value, UriKind.Absolute, out var address) && address.Host.Length > 0
-            ? address.Host
-            : value;
+        var target = url.GetString() ?? string.Empty;
+        var method = root.TryGetProperty("method", out var methodValue)
+            && methodValue.ValueKind == JsonValueKind.String
+            ? methodValue.GetString()?.ToUpperInvariant() ?? "GET"
+            : "GET";
+        return $"{method} {target}";
     }
-
-    private static IEnumerable<string> Details(ToolTerminalPresentation terminal)
-    {
-        if (terminal.ResultPresent)
-        {
-            yield return terminal.Result;
-        }
-
-        if (terminal.Error.Length > 0)
-        {
-            yield return terminal.Error;
-        }
-    }
-
-    private static ToolTerminalStatus Status(ToolTerminalPresentation terminal) =>
-        terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal)
-            ? ToolTerminalStatus.ReportedFailure
-            : terminal.Status;
 }

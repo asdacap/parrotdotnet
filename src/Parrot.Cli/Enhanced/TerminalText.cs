@@ -26,8 +26,17 @@ internal static class TerminalText
         return clean.ToString();
     }
 
-    public static List<string> Layout(string value, int width)
+    public static List<string> Layout(string value, int width) => LayoutHanging(value, width, string.Empty);
+
+    public static List<string> LayoutHanging(string value, int width, string indent)
     {
+        width = Math.Max(1, width);
+        indent = Sanitize(indent).Replace("\n", string.Empty, StringComparison.Ordinal);
+        if (Width(indent) >= width)
+        {
+            indent = string.Empty;
+        }
+
         var rows = new List<string>();
         var row = new StringBuilder();
         var cells = 0;
@@ -36,8 +45,8 @@ internal static class TerminalText
             if (rune.Value == '\n')
             {
                 rows.Add(row.ToString());
-                _ = row.Clear();
-                cells = 0;
+                _ = row.Clear().Append(indent);
+                cells = Width(indent);
                 continue;
             }
 
@@ -45,8 +54,8 @@ internal static class TerminalText
             if (cells > 0 && cells + runeWidth > width)
             {
                 rows.Add(row.ToString());
-                _ = row.Clear();
-                cells = 0;
+                _ = row.Clear().Append(indent);
+                cells = Width(indent);
             }
 
             _ = row.Append(rune);
@@ -55,6 +64,25 @@ internal static class TerminalText
 
         rows.Add(row.ToString());
         return rows;
+    }
+
+    public static string Clip(string value, int width)
+    {
+        var rendered = new StringBuilder();
+        var used = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            var runeWidth = Width(rune);
+            if (used + runeWidth > Math.Max(0, width))
+            {
+                break;
+            }
+
+            _ = rendered.Append(rune);
+            used += runeWidth;
+        }
+
+        return rendered.ToString();
     }
 
     public static int Width(Rune rune)

@@ -32,7 +32,7 @@ internal sealed class ProcessAndPatchToolPresenterTests
             new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 7", string.Empty),
             "$ compile",
-            "! main: $ compile",
+            "✗ main: $ compile",
         ];
         yield return () =>
         [
@@ -44,27 +44,11 @@ internal sealed class ProcessAndPatchToolPresenterTests
         ];
         yield return () =>
         [
-            new WaitProcessToolPresenter(),
-            new ToolCallPresentation("main", "wait_process", "{\"name\":\"build\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "build", string.Empty),
-            "wait build",
-            "build still running",
-        ];
-        yield return () =>
-        [
-            new WaitProcessToolPresenter(),
-            new ToolCallPresentation("main", "wait_process", "{\"name\":\"build\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2", string.Empty),
-            "wait build",
-            "! main: wait build",
-        ];
-        yield return () =>
-        [
             new InterruptProcessToolPresenter(),
             new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2", string.Empty),
             "interrupt build",
-            "! main: interrupt build",
+            "✗ main: interrupt build",
         ];
         yield return () =>
         [
@@ -80,8 +64,22 @@ internal sealed class ProcessAndPatchToolPresenterTests
             new ToolCallPresentation("main", "apply_patch", "{\"patchText\":\"file.txt\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "error: rejected", string.Empty),
             "apply patch",
-            "! main: apply patch",
+            "✗ main: apply patch",
         ];
+    }
+
+    [Test]
+    public async Task Wait_process_is_live_only_and_modeline_eligible()
+    {
+        var presenter = new WaitProcessToolPresenter();
+        var call = new ToolCallPresentation("main", "wait_process", "{\"name\":\"build\"}");
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "build", string.Empty);
+
+        var live = (IToolPresentationValue)presenter.PresentLive(call, 0);
+
+        _ = await Assert.That(live.Report.Metadata.LiveOnly).IsTrue();
+        _ = await Assert.That(live.Report.Metadata.Modeline).IsTrue();
+        _ = await Assert.That(presenter.PresentTerminal(call, terminal)).IsNull();
     }
 
     [Test]

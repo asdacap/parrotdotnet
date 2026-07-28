@@ -8,15 +8,19 @@ internal sealed record AgentStatistics(
     long CachedInputTokens,
     long OutputTokens,
     long ContextSize,
-    long ContextLimit)
+    long ContextLimit,
+    double InputCost,
+    double OutputCost)
 {
-    public AgentStatistics Add(LLMEvent completed, long contextLimit) =>
+    public AgentStatistics Add(LLMEvent completed, LLMModel model) =>
         new(
             checked(InputTokens + completed.InputTokens),
             checked(CachedInputTokens + completed.CachedInputTokens),
             checked(OutputTokens + completed.OutputTokens),
             completed.InputTokens,
-            contextLimit);
+            model.ContextWindow,
+            InputCost + (completed.InputTokens * model.InputPrice),
+            OutputCost + (completed.OutputTokens * model.OutputPrice));
 
     public AgentStatisticsUpdatedEvent ConvertToPayload() =>
         new()
@@ -26,6 +30,8 @@ internal sealed record AgentStatistics(
             OutputTokens = OutputTokens,
             ContextSize = ContextSize,
             ContextLimit = ContextLimit,
+            InputCost = InputCost,
+            OutputCost = OutputCost,
         };
 
     public static AgentStatistics Restore(AgentStatisticsUpdatedEvent payload) =>
@@ -34,5 +40,7 @@ internal sealed record AgentStatistics(
             payload.CachedInputTokens,
             payload.OutputTokens,
             payload.ContextSize,
-            payload.ContextLimit);
+            payload.ContextLimit,
+            payload.InputCost,
+            payload.OutputCost);
 }

@@ -8,6 +8,13 @@ internal sealed record LLMEvent
     // ToolCallDelta: the fully accumulated arguments. Retry: why.
     public string Text { get; init; } = string.Empty;
 
+    // ReasoningDelta only.
+    public LLMReasoningKind ReasoningKind { get; init; }
+
+    public string ReasoningPartId { get; init; } = string.Empty;
+
+    public bool ReasoningCompleted { get; init; }
+
     // ToolCallDelta only.
     public string ToolCallId { get; init; } = string.Empty;
 
@@ -39,7 +46,21 @@ internal sealed record LLMEvent
         new() { Kind = LLMEventKind.TextDelta, Text = fragment };
 
     public static LLMEvent ReasoningDelta(string fragment) =>
-        new() { Kind = LLMEventKind.ReasoningDelta, Text = fragment };
+        ReasoningDelta(fragment, LLMReasoningKind.Raw, string.Empty, completed: false);
+
+    public static LLMEvent ReasoningDelta(
+        string fragment,
+        LLMReasoningKind reasoningKind,
+        string partId,
+        bool completed) =>
+        new()
+        {
+            Kind = LLMEventKind.ReasoningDelta,
+            Text = fragment,
+            ReasoningKind = reasoningKind,
+            ReasoningPartId = partId,
+            ReasoningCompleted = completed,
+        };
 
     public static LLMEvent ToolCallDelta(string toolCallId, string toolName, string arguments) =>
         new()

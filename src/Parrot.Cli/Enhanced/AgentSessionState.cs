@@ -8,6 +8,7 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class AgentSessionState(string agentSessionId)
 {
     private const string AgentActivity = "agent";
+    private const int MaximumResponseCharacters = 16 * 1024;
     private const string ToolActivityPrefix = "tool:";
 
     private readonly HashSet<string> _activities = new(StringComparer.Ordinal);
@@ -15,53 +16,82 @@ internal sealed class AgentSessionState(string agentSessionId)
         new(StringComparer.Ordinal);
 
     private readonly Dictionary<string, ILiveBufferItem> _toolLive = new(StringComparer.Ordinal);
+    private readonly StringBuilder _response = new();
 
-    private bool _completedTurn;
+    private bool _terminalCommitted;
     private string? _name;
     private AgentStatisticsUpdatedEvent? _statistics;
 
     public bool HasName => _name is not null;
 
-    private string Name => _name ?? agentSessionId;
+    public string Name => _name ?? agentSessionId;
+
+    public string AgentSessionId => agentSessionId;
 
     public void UpdateName(string name) => _name = name;
 
     public void UpdateStatistics(AgentStatisticsUpdatedEvent statistics) => _statistics = statistics;
 
-    public string? StartTurn() => _activities.Add(AgentActivity) ? AgentActivity : null;
+    public string? StartTurn()
+    {
+        if (!_activities.Add(AgentActivity))
+        {
+            return null;
+        }
 
-    public (string ActivityId, string Line)? FinishTurn(Event published, bool failed)
+        _terminalCommitted = false;
+        _ = _response.Clear();
+        return AgentActivity;
+    }
+
+    public void CollectResponse(string fragment)
+    {
+        if (_terminalCommitted)
+        {
+            return;
+        }
+
+        _ = _response.Append(TerminalText.Sanitize(fragment));
+        if (_response.Length > MaximumResponseCharacters)
+        {
+            _ = _response.Remove(0, _response.Length - MaximumResponseCharacters);
+        }
+    }
+
+    public (string ActivityId, string Response, string Line)? FinishTurn(Event published, bool failed)
     {
         if (!_activities.Remove(AgentActivity))
         {
             return null;
         }
 
-        _completedTurn = true;
+        _terminalCommitted = true;
         var interrupted = !failed
             && string.Equals(published.TurnEnded.FinishReason, "interrupted", StringComparison.Ordinal);
-        var line = failed
-            ? $"! agent {Name}: {TerminalText.Sanitize(published.TurnFailed.Message)}"
+        var response = _response.ToString();
+        _ = _response.Clear();
+        var status = failed
+            ? $"! agent: {TerminalText.Sanitize(published.TurnFailed.Message)}"
             : interrupted
-                ? $"- agent {Name} interrupted"
-                : $"+ agent {Name} finished";
-        return (AgentActivity, line);
+                ? "- agent interrupted"
+                : "+ agent finished";
+        return (AgentActivity, response, status);
     }
 
-    public (string ActivityId, string Line)? FinishAgent(Event published, bool failed)
+    public (string ActivityId, string Response, string Line)? FinishAgent(Event published, bool failed)
     {
-        if (_completedTurn)
+        if (_terminalCommitted || !_activities.Remove(AgentActivity))
         {
-            _completedTurn = false;
             return null;
         }
 
-        _ = _activities.Remove(AgentActivity);
-        var name = failed ? published.AgentFailed.Name : published.AgentFinished.Name;
-        var line = failed
-            ? $"! agent {name}: {TerminalText.Sanitize(published.AgentFailed.Message)}"
-            : $"+ agent {name} finished";
-        return (AgentActivity, line);
+        _terminalCommitted = true;
+        var response = _response.ToString();
+        _ = _response.Clear();
+        var status = failed
+            ? $"! agent: {TerminalText.Sanitize(published.AgentFailed.Message)}"
+            : "+ agent finished";
+        return (AgentActivity, response, status);
     }
 
     public void CollectToolCall(ToolCallChunk chunk)
@@ -145,7 +175,9 @@ internal sealed class AgentSessionState(string agentSessionId)
     {
         if (string.Equals(activityId, AgentActivity, StringComparison.Ordinal))
         {
-            return new SpinnerValue(CreateAgentLabel(), frame);
+            return _response.Length == 0
+                ? new SpinnerValue(CreateAgentLabel(), frame)
+                : new LiveTextValue($"● {_response}");
         }
 
         var toolCallId = activityId[ToolActivityPrefix.Length..];

@@ -6,19 +6,23 @@ internal sealed class GitDiffToolPresenter : IToolPresenter
 {
     public string ToolName => "git_diff";
 
+    public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var (target, reference) = Arguments(call.ArgumentsJson);
-        return new ToolLiveValue(Label(call.Owner, target, reference), [], frame);
+        return new ToolLiveValue(Label(call.Owner, target, reference), [], Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var (target, reference) = Arguments(call.ArgumentsJson);
+        var status = terminal.ResolveStatus();
         return new ToolScrollbackValue(
-            Label(call.Owner, target, reference),
-            Details(terminal),
-            Status(terminal));
+            CompletedLabel(call.Owner, target, reference, terminal, status),
+            terminal.DescribeBlock(ToolBlockKind.Diff),
+            status,
+            Metadata);
     }
 
     private static (string Target, string Reference) Arguments(string argumentsJson)
@@ -33,23 +37,14 @@ internal sealed class GitDiffToolPresenter : IToolPresenter
         ? $"{owner}: git diff {target}"
         : $"{owner}: git diff {target} {reference}";
 
-    private static IEnumerable<string> Details(ToolTerminalPresentation terminal)
-    {
-        if (terminal.ResultPresent)
-        {
-            yield return terminal.Result;
-        }
-
-        if (terminal.Error.Length > 0)
-        {
-            yield return terminal.Error;
-        }
-    }
-
-    private static ToolTerminalStatus Status(ToolTerminalPresentation terminal) =>
-        terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal)
-            ? ToolTerminalStatus.ReportedFailure
-            : terminal.Status;
+    private static string CompletedLabel(
+        string owner,
+        string target,
+        string reference,
+        ToolTerminalPresentation terminal,
+        ToolTerminalStatus status) => status == ToolTerminalStatus.Succeeded
+            ? $"{Label(owner, target, reference)} · {ToolOutputText.CountLines(terminal.Result)} lines"
+            : Label(owner, target, reference);
 
     private static string String(JsonElement root, string name) => root.ValueKind == JsonValueKind.Object
         && root.TryGetProperty(name, out var value)

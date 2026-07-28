@@ -6,16 +6,33 @@ internal sealed class GrepToolPresenter : IToolPresenter
 {
     public string ToolName => "grep";
 
+    public ToolPresentationMetadata Metadata { get; } = ToolPresentationMetadata.Default with
+    {
+        Style = ToolPresentationStyle.Muted,
+    };
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var (pattern, path) = Arguments(call.ArgumentsJson);
-        return new ToolLiveValue(Label(call.Owner, pattern, path), [], frame);
+        return new ToolLiveValue(Label(call.Owner, pattern, path), [], Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var (pattern, path) = Arguments(call.ArgumentsJson);
-        return new ToolScrollbackValue(Label(call.Owner, pattern, path), Details(terminal), Status(terminal));
+        var status = terminal.ResolveStatus();
+        var label = Label(call.Owner, pattern, path);
+        if (status == ToolTerminalStatus.Succeeded)
+        {
+            var count = ToolOutputText.CountLines(terminal.Result);
+            label += $" · {count} {(count == 1 ? "match" : "matches")}";
+        }
+
+        return new ToolScrollbackValue(
+            label,
+            status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
+            status,
+            Metadata);
     }
 
     private static (string Pattern, string Path) Arguments(string argumentsJson)
@@ -26,26 +43,8 @@ internal sealed class GrepToolPresenter : IToolPresenter
     }
 
     private static string Label(string owner, string pattern, string path) => path.Length == 0
-        ? $"{owner}: grep {pattern}"
-        : $"{owner}: grep {pattern} in {path}";
-
-    private static IEnumerable<string> Details(ToolTerminalPresentation terminal)
-    {
-        if (terminal.ResultPresent)
-        {
-            yield return terminal.Result;
-        }
-
-        if (terminal.Error.Length > 0)
-        {
-            yield return terminal.Error;
-        }
-    }
-
-    private static ToolTerminalStatus Status(ToolTerminalPresentation terminal) =>
-        terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal)
-            ? ToolTerminalStatus.ReportedFailure
-            : terminal.Status;
+        ? $"{owner}: grep \"{pattern}\" in ."
+        : $"{owner}: grep \"{pattern}\" in {path}";
 
     private static string String(JsonElement root, string name) => root.ValueKind == JsonValueKind.Object
         && root.TryGetProperty(name, out var value)

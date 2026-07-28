@@ -173,7 +173,13 @@ internal sealed class DrainTests : IDisposable
             LLMEvent.Completed("stop", 7, 2, 5, "first", [])))
         {
             var firstSession = Session(
-                firstProvider, repository, [new FixedToolFactory(new SettledTool("settled"))], 128, cancellationToken);
+                firstProvider,
+                repository,
+                [new FixedToolFactory(new SettledTool("settled"))],
+                128,
+                0.125,
+                0.25,
+                cancellationToken);
             _ = await firstSession.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
             await firstProvider.Arrived(cancellationToken);
             firstProvider.Release();
@@ -185,7 +191,7 @@ internal sealed class DrainTests : IDisposable
         using (var secondProvider = new SteppedProvider(
             LLMEvent.Completed("stop", 6, 1, 2, "second", [])))
         {
-            var restoredSession = Session(secondProvider, repository, [], 128, cancellationToken);
+            var restoredSession = Session(secondProvider, repository, [], 128, 0.125, 0.25, cancellationToken);
             _ = await restoredSession.Admit("second prompt", "msg-2", Delivery.Steer, cancellationToken);
             await secondProvider.Arrived(cancellationToken);
             secondProvider.Release();
@@ -208,6 +214,12 @@ internal sealed class DrainTests : IDisposable
                 $"{updated.InputTokens}:{updated.CachedInputTokens}:{updated.OutputTokens}:"
                 + $"{updated.ContextSize}:{updated.ContextLimit}")))
             .IsEqualTo("10:3:4:10:128 | 17:5:9:7:128 | 23:6:11:6:128");
+        _ = await Assert.That(statistics[0].InputCost).IsEqualTo(1.25);
+        _ = await Assert.That(statistics[0].OutputCost).IsEqualTo(1.0);
+        _ = await Assert.That(statistics[1].InputCost).IsEqualTo(2.125);
+        _ = await Assert.That(statistics[1].OutputCost).IsEqualTo(2.25);
+        _ = await Assert.That(statistics[2].InputCost).IsEqualTo(2.875);
+        _ = await Assert.That(statistics[2].OutputCost).IsEqualTo(2.75);
         _ = await Assert.That(
             string.Join(" | ", endings.Select(ended => $"{ended.InputTokens}:{ended.OutputTokens}")))
             .IsEqualTo("17:9 | 23:11");
@@ -342,17 +354,24 @@ internal sealed class DrainTests : IDisposable
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         CancellationToken lifetime) =>
-        Session(provider, repository, toolFactories, 0, lifetime);
+        Session(provider, repository, toolFactories, 0, 0, 0, lifetime);
 
     private AgentSession Session(
         SteppedProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         int contextWindow,
+        double inputPrice,
+        double outputPrice,
         CancellationToken lifetime) =>
         new(
             AgentIdentity.Main("agent", string.Empty),
-            new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = contextWindow }),
+            new ProviderModel(provider, new LLMModel("model", provider.Id)
+            {
+                ContextWindow = contextWindow,
+                InputPrice = inputPrice,
+                OutputPrice = outputPrice,
+            }),
             _broker,
             repository,
             toolFactories,

@@ -6,14 +6,16 @@ internal sealed class GlobToolPresenter : IToolPresenter
 {
     public string ToolName => "glob";
 
+    public ToolPresentationMetadata Metadata { get; } = ToolPresentationMetadata.Default with
+    {
+        Style = ToolPresentationStyle.Muted,
+    };
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: glob {Pattern(call.ArgumentsJson)}", [], frame);
+        new ToolLiveValue($"{call.Owner}: glob \"{Pattern(call.ArgumentsJson)}\"", [], Metadata, frame);
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) =>
-        new ToolScrollbackValue(
-            $"{call.Owner}: glob {Pattern(call.ArgumentsJson)}",
-            Details(terminal),
-            Status(terminal));
+        DescribeTerminal(call.Owner, Pattern(call.ArgumentsJson), terminal);
 
     private static string Pattern(string argumentsJson)
     {
@@ -26,21 +28,23 @@ internal sealed class GlobToolPresenter : IToolPresenter
             : string.Empty;
     }
 
-    private static IEnumerable<string> Details(ToolTerminalPresentation terminal)
+    private ToolScrollbackValue DescribeTerminal(
+        string owner,
+        string pattern,
+        ToolTerminalPresentation terminal)
     {
-        if (terminal.ResultPresent)
+        var status = terminal.ResolveStatus();
+        var label = $"{owner}: glob \"{pattern}\"";
+        if (status == ToolTerminalStatus.Succeeded)
         {
-            yield return terminal.Result;
+            var count = ToolOutputText.CountLines(terminal.Result);
+            label += $" · {count} {(count == 1 ? "path" : "paths")}";
         }
 
-        if (terminal.Error.Length > 0)
-        {
-            yield return terminal.Error;
-        }
+        return new ToolScrollbackValue(
+            label,
+            status == ToolTerminalStatus.Succeeded ? ToolBlock.Empty : terminal.DescribeBlock(ToolBlockKind.None),
+            status,
+            Metadata);
     }
-
-    private static ToolTerminalStatus Status(ToolTerminalPresentation terminal) =>
-        terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal)
-            ? ToolTerminalStatus.ReportedFailure
-            : terminal.Status;
 }

@@ -29,6 +29,8 @@ internal sealed class ToolPresenterRegistry
         _fallback = fallback;
     }
 
+    public ToolPresentationMetadata Describe(string toolName) => Find(toolName).Metadata;
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var presenter = Find(call.ToolName);

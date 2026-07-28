@@ -6,19 +6,22 @@ internal sealed class ApplyPatchToolPresenter : IToolPresenter
 {
     public string ToolName => "apply_patch";
 
+    public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var patch = Patch(call.ArgumentsJson);
-        return new ToolLiveValue($"{call.Owner}: apply patch", [patch], frame);
+        return new ToolLiveValue($"{call.Owner}: apply patch", ToolBlock.FromDiff(patch), Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         var patch = Patch(call.ArgumentsJson);
-        return new ToolScrollbackValue(
-            $"{call.Owner}: apply patch",
-            Details(patch, terminal),
-            Status(terminal));
+        var status = terminal.ResolveStatus();
+        var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
+            ? terminal.DescribeBlock(ToolBlockKind.None)
+            : ToolBlock.FromDiff(patch);
+        return new ToolScrollbackValue($"{call.Owner}: apply patch", block, status, Metadata);
     }
 
     private static string Patch(string argumentsJson)
@@ -31,23 +34,4 @@ internal sealed class ApplyPatchToolPresenter : IToolPresenter
             ? patch.GetString() ?? string.Empty
             : throw new FormatException("apply_patch requires a string patchText.");
     }
-
-    private static IEnumerable<string> Details(string patch, ToolTerminalPresentation terminal)
-    {
-        yield return patch;
-        if (terminal.ResultPresent)
-        {
-            yield return terminal.Result;
-        }
-
-        if (terminal.Error.Length > 0)
-        {
-            yield return terminal.Error;
-        }
-    }
-
-    private static ToolTerminalStatus Status(ToolTerminalPresentation terminal) =>
-        terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal)
-            ? ToolTerminalStatus.ReportedFailure
-            : terminal.Status;
 }

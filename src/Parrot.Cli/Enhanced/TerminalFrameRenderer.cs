@@ -19,7 +19,10 @@ internal sealed class TerminalFrameRenderer(
     private readonly TerminalSurface _surface = new(1, 1);
     private IScrollbackItem? _activeScrollback;
     private int _caretRow;
+    private bool _committed;
+    private bool _committedGap;
     private TerminalFrame? _frame;
+    private ScrollbackLayout _lastLayout;
     private List<IScrollbackItem> _pendingScrollback = [];
     private int _renderedHeight;
 
@@ -85,7 +88,7 @@ internal sealed class TerminalFrameRenderer(
                 pending.Add(scrollback);
             }
 
-            var lines = emitted.SelectMany(item => item.Render(context)).ToList();
+            var lines = RenderScrollback(emitted, context);
             var availableRows = lines.Count == 0 ? Math.Max(1, _renderedHeight) : 1;
             _activeScrollback = active;
             _pendingScrollback = pending;
@@ -153,6 +156,47 @@ internal sealed class TerminalFrameRenderer(
 
         return gate;
     }
+
+    private List<string> RenderScrollback(
+        IReadOnlyList<IScrollbackItem> items,
+        ScrollbackRenderContext context)
+    {
+        var output = new List<string>();
+        foreach (var item in items)
+        {
+            var rendered = item.Render(context);
+            if (item.StartsLayout && rendered.Count > 0 && NeedsLeadingGap(item.Layout))
+            {
+                output.Add(string.Empty);
+                _committedGap = true;
+            }
+
+            output.AddRange(rendered);
+            if (rendered.Count > 0)
+            {
+                _committed = true;
+                _committedGap = false;
+                _lastLayout = item.Layout;
+            }
+
+            if (item.EndsLayout && item.Layout == ScrollbackLayout.Assistant && !_committedGap)
+            {
+                output.Add(string.Empty);
+                _committed = true;
+                _committedGap = true;
+                _lastLayout = item.Layout;
+            }
+        }
+
+        return output;
+    }
+
+    private bool NeedsLeadingGap(ScrollbackLayout layout) => layout switch
+    {
+        ScrollbackLayout.User or ScrollbackLayout.Assistant => !_committedGap,
+        ScrollbackLayout.Block => _committed && !_committedGap,
+        _ => _committed && !_committedGap && _lastLayout == ScrollbackLayout.Block,
+    };
 
     private TerminalFrame Render(IReadOnlyList<ILiveBufferItem> items, int width)
     {

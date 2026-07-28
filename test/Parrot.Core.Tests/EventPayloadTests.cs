@@ -25,6 +25,8 @@ internal sealed class EventPayloadTests
                 OutputTokens = 2_000_000_000,
                 ContextSize = 100_000,
                 ContextLimit = 500_000,
+                InputCost = 12.5,
+                OutputCost = 7.25,
             },
         };
 
@@ -38,6 +40,8 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtripped.AgentStatisticsUpdated.OutputTokens).IsEqualTo(2_000_000_000);
         _ = await Assert.That(roundtripped.AgentStatisticsUpdated.ContextSize).IsEqualTo(100_000);
         _ = await Assert.That(roundtripped.AgentStatisticsUpdated.ContextLimit).IsEqualTo(500_000);
+        _ = await Assert.That(roundtripped.AgentStatisticsUpdated.InputCost).IsEqualTo(12.5);
+        _ = await Assert.That(roundtripped.AgentStatisticsUpdated.OutputCost).IsEqualTo(7.25);
     }
 
     [Test]
@@ -106,7 +110,8 @@ internal sealed class EventPayloadTests
         var llmEvent = source switch
         {
             LLMEventKind.TextDelta => LLMEvent.TextDelta("fragment"),
-            LLMEventKind.ReasoningDelta => LLMEvent.ReasoningDelta("thought"),
+            LLMEventKind.ReasoningDelta => LLMEvent.ReasoningDelta(
+                "thought", LLMReasoningKind.Summary, "reasoning-1", completed: true),
             LLMEventKind.ToolCallDelta => LLMEvent.ToolCallDelta("call", "grep", "{}"),
             _ => LLMEvent.Retry(2, TimeSpan.FromSeconds(1), "429"),
         };
@@ -116,5 +121,12 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(published.PayloadCase).IsEqualTo(expectedPayload);
         _ = await Assert.That(published.AgentSessionId).IsEqualTo("session");
         _ = await Assert.That(published.Id).IsNotEmpty();
+
+        if (source == LLMEventKind.ReasoningDelta)
+        {
+            _ = await Assert.That(published.ReasoningChunk.Kind).IsEqualTo(ReasoningKind.Summary);
+            _ = await Assert.That(published.ReasoningChunk.PartId).IsEqualTo("reasoning-1");
+            _ = await Assert.That(published.ReasoningChunk.Completed).IsTrue();
+        }
     }
 }

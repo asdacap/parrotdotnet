@@ -6,21 +6,19 @@ internal sealed class WaitProcessToolPresenter : IToolPresenter
 {
     public string ToolName => "wait_process";
 
+    public ToolPresentationMetadata Metadata { get; } = ToolPresentationMetadata.Default with
+    {
+        LiveOnly = true,
+        Modeline = true,
+    };
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var name = Process(call.ArgumentsJson);
-        return new ToolLiveValue($"{call.Owner}: wait {name}", [], frame);
+        return new ToolLiveValue($"{call.Owner}: wait {name}", [], Metadata, frame);
     }
 
-    public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
-    {
-        var name = Process(call.ArgumentsJson);
-        var yielded = terminal.ResultPresent && terminal.Result == name;
-        var label = yielded
-            ? $"{call.Owner}: {name} still running"
-            : $"{call.Owner}: wait {name}";
-        return new ToolScrollbackValue(label, Details(terminal, yielded), terminal.ResolveProcessStatus());
-    }
+    public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) => null;
 
     private static string Process(string argumentsJson)
     {
@@ -31,18 +29,5 @@ internal sealed class WaitProcessToolPresenter : IToolPresenter
             && name.ValueKind == JsonValueKind.String
             ? name.GetString() ?? string.Empty
             : throw new FormatException("wait_process requires a string name.");
-    }
-
-    private static IEnumerable<string> Details(ToolTerminalPresentation terminal, bool yielded)
-    {
-        if (terminal.ResultPresent && !yielded)
-        {
-            yield return terminal.Result;
-        }
-
-        if (terminal.Error.Length > 0)
-        {
-            yield return terminal.Error;
-        }
     }
 }
