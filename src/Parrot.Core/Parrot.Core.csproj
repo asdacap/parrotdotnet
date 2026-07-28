@@ -27,6 +27,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Config/predefined_config.yaml"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Protobuf Include="Protocol/parrot.proto" GrpcServices="Both" />
   </ItemGroup>
 

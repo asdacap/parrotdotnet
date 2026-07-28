@@ -319,7 +319,8 @@ internal sealed class CommandDispatcher(
     {
         try
         {
-            return Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile);
+            var paths = StatePaths.ResolveFromEnvironment();
+            return Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
         }
         catch (Exception failure) when (failure is InvalidDataException or YamlException)
         {
@@ -334,16 +335,8 @@ internal sealed class CommandDispatcher(
         CancellationToken cancellationToken)
     {
         var paths = StatePaths.ResolveFromEnvironment();
-        var configuration = await LoadConfiguration(cancellationToken).ConfigureAwait(false);
-
-        if (configuration is null)
-        {
-            return ExitFailure;
-        }
-
-        // The saved model is the default; the built-in one is only the fallback
-        // for a fresh install with no config yet.
-        var model = configuration.Model.Length > 0 ? configuration.Model : DefaultModel;
+        var model = DefaultModel;
+        var modelOverridden = false;
         var mode = DefaultMode;
         var connect = string.Empty;
         var variant = (string?)null;
@@ -357,6 +350,7 @@ internal sealed class CommandDispatcher(
                 // A per-invocation override; unlike /model it does not persist.
                 case "--model" when index + 1 < arguments.Count:
                     model = arguments[++index];
+                    modelOverridden = true;
                     break;
 
                 case "--variant" when index + 1 < arguments.Count
@@ -387,6 +381,16 @@ internal sealed class CommandDispatcher(
             }
         }
 
+        var configuration = await LoadConfiguration(cancellationToken).ConfigureAwait(false);
+
+        if (configuration is null)
+        {
+            return ExitFailure;
+        }
+
+        // The saved model is the default; the built-in one is only the fallback
+        // for a fresh install with no config yet.
+        model = !modelOverridden && configuration.Model.Length > 0 ? configuration.Model : model;
         var prompt = string.Join(' ', words);
 
         // Remote: the server owns the provider, the state, and the tools; this

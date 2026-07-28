@@ -25,7 +25,7 @@ internal sealed class ParrotServiceTests : IDisposable
     public ParrotServiceTests()
     {
         _registry = Registry();
-        _configuration = Configuration.Load(Path.Combine(_root, "config.yaml"));
+        _configuration = Configuration.Load(Path.Combine(_root, "config.yaml"), Path.Combine(_root, "predefined_config.yaml"));
         _catalog = new ModelAliasCatalog(_registry, _configuration.ModelAliases.Select(alias =>
             new ModelAliasDefinition(
                 alias.Key,
@@ -173,7 +173,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var blockedParent = Path.Combine(_root, "not-a-directory");
         _ = Directory.CreateDirectory(_root);
         await File.WriteAllTextAsync(blockedParent, "file", cancellationToken);
-        var configuration = Configuration.Load(Path.Combine(blockedParent, "config.yaml"));
+        var configuration = Configuration.Load(Path.Combine(blockedParent, "config.yaml"), Path.Combine(_root, "predefined_config.yaml"));
         var catalog = new ModelAliasCatalog(registry, configuration.ModelAliases.Select(alias =>
             new ModelAliasDefinition(
                 alias.Key,

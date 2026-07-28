@@ -125,7 +125,7 @@ internal sealed class ProviderRegistryTests
             using var handler = new ModelsHandler();
             using var client = new HttpClient(handler, disposeHandler: false);
             var registry = await new ProviderRegistryBuilder(
-                Configuration.Load(path),
+                Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
                 store,
                 client,
                 new SystemBrowserOpener(static _ => null)).Build(cancellationToken);

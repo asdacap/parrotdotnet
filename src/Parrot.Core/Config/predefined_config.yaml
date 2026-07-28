@@ -1,0 +1,89 @@
+# Predefined Parrot configuration.
+#
+# Parrot replaces the generated predefined_config.yaml in its configuration
+# directory from this document at startup. It is an agent-readable reference of
+# the active defaults. Put personal changes in config.yaml instead: config.yaml
+# is merged over this document and is never replaced by Parrot.
+
+# The default requested model selector. It may be provider/model or an alias.
+model: ""
+
+# Render changed lines as full-width inline blocks. False selects side-by-side
+# diff blocks in the enhanced terminal.
+inline_diff: true
+
+# Stable names for requested model selectors. Empty targets are intentionally
+# unconfigured and can be set through /model-alias or config.yaml.
+model_aliases:
+  low_llm:
+    model_string: ""
+    usage: mechanical, single file task, text or code processing when no suitable cli tool available.
+  medium_llm:
+    model_string: ""
+    usage: Decently capable, specific clear task, component level task, two or three file window
+  high_llm:
+    model_string: ""
+    usage: General purpose, agent spawner, tactical decision making and planning, debugging, colaborator
+  xhigh_llm:
+    model_string: ""
+    usage: Strategic work spanning multiple modules or parties, ambiguous or open-ended requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.
+    augment_system_prompt: For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent.
+
+# Extra system-prompt text keyed by canonical provider/model[/variant]
+# selectors. An alias augmentation wins over this map; an empty string is an
+# explicit suppression.
+model_augment_system_prompts: {}
+
+# Provider declarations are optional. Preset providers need only a credential.
+# Uncomment and adapt an entry in config.yaml for another OpenAI-compatible
+# endpoint. API keys are named by environment variable, never stored here.
+# providers:
+#   provider:
+#     type: openai-compatible
+#     protocol: responses
+#     base_url: https://api.example.test/v1
+#     api_key_env: PROVIDER_API_KEY
+#     headers:
+#       X-Tenant: non-secret-value
+#     allow_insecure_localhost: false
+#     header_timeout_ms: 10000
+#     provider_preferences:
+#       order:
+#         - provider-name
+#       allow_fallbacks: false
+#       sort: price
+#     models:
+#       model:
+#         name: Display Name
+#         context: 128000
+#         max_tokens: 16384
+#         tools: true
+#         reasoning: false
+#         output:
+#           - text
+#         variants:
+#           high:
+#             reasoning_effort: high
+providers: {}
+
+# Ordered sandbox rules applied to every mode. Each rule has an absolute path
+# and one of allow_write, deny_read, allow_read, or deny_write.
+sandbox_rules: []
+
+# Security overrides for the supported foreground modes. Omit a field in
+# config.yaml to retain this default; sandbox_rules are an ordered replacement.
+profiles:
+  build:
+    read_only: false
+    sandbox_rules: []
+  plan:
+    read_only: true
+    sandbox_rules: []
+  query:
+    read_only: true
+    sandbox_rules: []
+
+# Private-network web fetches are disabled unless explicitly enabled in
+# config.yaml because they increase SSRF risk.
+web_fetch:
+  allow_private: false
