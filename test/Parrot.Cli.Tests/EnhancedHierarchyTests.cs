@@ -71,7 +71,7 @@ internal sealed class EnhancedHierarchyTests
         var parentPosition = live.IndexOf("  ● [parent] parent response", StringComparison.Ordinal);
         _ = await Assert.That(childPosition).IsGreaterThanOrEqualTo(0);
         _ = await Assert.That(parentPosition).IsGreaterThan(childPosition);
-        _ = await Assert.That(live).Contains("    [child] response");
+        _ = await Assert.That(live).Contains("      [child] response");
 
         await view.Render(
             new Event
@@ -98,7 +98,7 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("    ✓ [child] tool call read|    ● [child] child|    [child] response|    ♟ [child] agent finished|  ● [parent] parent response|  ♟ [parent] agent finished");
+            .IsEqualTo("    ✓ [child] tool call read|    ● [child] child|      [child] response|    ♟ [child] agent finished|  ● [parent] parent response|  ♟ [parent] agent finished");
 
         var count = committed.Count;
         await view.Render(
@@ -109,6 +109,73 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         _ = await Assert.That(committed.Count).IsEqualTo(count);
+    }
+
+    [Test]
+    public async Task Child_response_keeps_ten_lines_and_aligns_continuations_with_its_label(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new List<string>();
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines).Select(line => line.Text)));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(
+            IScrollbackItem item,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(Draw, Commit, new ToolPresenterRegistry([], new GenericToolPresenter()));
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "child" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+
+        var response = string.Join('\n', Enumerable.Range(1, 12).Select(static line => $"line {line}"));
+        var split = response.IndexOf("line 6", StringComparison.Ordinal) + "line ".Length;
+        await view.Render(
+            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = response[..split] } },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = response[split..] } },
+            cancellationToken);
+
+        var expectedResponse = string.Join(
+            '|',
+            Enumerable.Range(1, 10).Select(static line => line == 1
+                ? "  ● [child] line 1"
+                : $"    [child] line {line}"));
+        _ = await Assert.That(drawn[^1]).Contains(expectedResponse);
+        _ = await Assert.That(drawn[^1]).DoesNotContain("line 11");
+
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+
+        _ = await Assert.That(committed[0]).IsEqualTo(expectedResponse);
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("line 11");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished");
     }
 
     [Test]

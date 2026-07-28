@@ -8,7 +8,7 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class AgentSessionState(string agentSessionId)
 {
     private const string AgentActivity = "agent";
-    private const int MaximumResponseCharacters = 16 * 1024;
+    private const int MaximumResponseLines = 10;
     private const string ToolActivityPrefix = "tool:";
 
     private readonly HashSet<string> _activities = new(StringComparer.Ordinal);
@@ -19,8 +19,10 @@ internal sealed class AgentSessionState(string agentSessionId)
     private readonly StringBuilder _response = new();
 
     private bool _terminalCommitted;
+    private bool _responseComplete;
     private string? _name;
     private AgentStatisticsUpdatedEvent? _statistics;
+    private int _responseLineBreaks;
 
     public bool HasName => _name is not null;
 
@@ -41,6 +43,8 @@ internal sealed class AgentSessionState(string agentSessionId)
 
         _terminalCommitted = false;
         _ = _response.Clear();
+        _responseComplete = false;
+        _responseLineBreaks = 0;
         return AgentActivity;
     }
 
@@ -51,10 +55,24 @@ internal sealed class AgentSessionState(string agentSessionId)
             return;
         }
 
-        _ = _response.Append(TerminalText.Sanitize(fragment));
-        if (_response.Length > MaximumResponseCharacters)
+        foreach (var character in TerminalText.Sanitize(fragment))
         {
-            _ = _response.Remove(0, _response.Length - MaximumResponseCharacters);
+            if (_responseComplete)
+            {
+                return;
+            }
+
+            if (character == '\n' && _responseLineBreaks == MaximumResponseLines - 1)
+            {
+                _responseComplete = true;
+                return;
+            }
+
+            _ = _response.Append(character);
+            if (character == '\n')
+            {
+                _responseLineBreaks++;
+            }
         }
     }
 
@@ -70,6 +88,8 @@ internal sealed class AgentSessionState(string agentSessionId)
             && string.Equals(published.TurnEnded.FinishReason, "interrupted", StringComparison.Ordinal);
         var response = _response.ToString();
         _ = _response.Clear();
+        _responseComplete = false;
+        _responseLineBreaks = 0;
         var status = failed
             ? $"! agent: {TerminalText.Sanitize(published.TurnFailed.Message)}"
             : interrupted
@@ -88,6 +108,8 @@ internal sealed class AgentSessionState(string agentSessionId)
         _terminalCommitted = true;
         var response = _response.ToString();
         _ = _response.Clear();
+        _responseComplete = false;
+        _responseLineBreaks = 0;
         var status = failed
             ? $"! agent: {TerminalText.Sanitize(published.AgentFailed.Message)}"
             : "+ agent finished";
