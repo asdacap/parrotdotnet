@@ -26,7 +26,8 @@ internal static class HierarchicalActivityValue
         var agent = label is null ? string.Empty : $"[{TerminalText.Sanitize(label)}] ";
         if (!first)
         {
-            return indentation + agent + TrimDetail(value);
+            var contentIndentation = label is null ? string.Empty : "  ";
+            return indentation + contentIndentation + agent + TrimDetail(value);
         }
 
         var (icon, content) = SplitIcon(value, successfulIcon);
