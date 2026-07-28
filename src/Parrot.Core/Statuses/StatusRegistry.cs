@@ -29,7 +29,6 @@ internal sealed class StatusRegistry
 
     public async Task<string> Observe(
         StatusQuery query,
-        IStatusProvider? profile,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -39,18 +38,6 @@ internal sealed class StatusRegistry
         lock (_gate)
         {
             providers = [.. _providers];
-        }
-
-        if (profile is not null)
-        {
-            ValidateKey(profile.Key, "profile provider");
-
-            if (providers.Any(item => string.Equals(item.Key, profile.Key, StringComparison.Ordinal)))
-            {
-                throw new StatusRegistryException($"status: duplicate provider '{profile.Key}'");
-            }
-
-            providers = [.. providers, new KeyValuePair<string, IStatusProvider>(profile.Key, profile)];
         }
 
         Array.Sort(providers, static (left, right) => StringComparer.Ordinal.Compare(left.Key, right.Key));

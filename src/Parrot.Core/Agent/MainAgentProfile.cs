@@ -19,8 +19,6 @@ internal sealed class MainAgentProfile(
 
     public string HardRule { get; } = configuration.HardRule;
 
-    public string Status { get; } = configuration.Status;
-
     public int MaxToolRounds { get; } = configuration.MaxToolRounds;
 
     public bool ReadOnly { get; } = configuration.ReadOnly;

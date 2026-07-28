@@ -20,10 +20,5 @@ internal sealed class RuntimeStatus(UserSession owner)
                 selection.ResolvedModel.CanonicalModel.Provider.Id,
                 selection.ResolvedModel.CanonicalModel.ModelId,
                 selection.ResolvedModel.CanonicalModel.Variant?.Name ?? string.Empty),
-            new ProfileStatusProvider(
-                $"profile:{profile.Id}-mode",
-                profile.Prompt,
-                [profile.HardRule],
-                profile.Status),
             cancellationToken);
 }

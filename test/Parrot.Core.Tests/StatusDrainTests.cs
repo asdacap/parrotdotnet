@@ -43,7 +43,11 @@ internal sealed class StatusDrainTests : IDisposable
             await firstStatus;
 
             _ = await Assert.That(Roles(provider.Requests[0])).IsEqualTo("System | System | User");
-            _ = await Assert.That(provider.Requests[0].Messages[1].Content).Contains("Active profile: build");
+            var initialStatus = provider.Requests[0].Messages[1].Content;
+            _ = await Assert.That(initialStatus).Contains("Active profile: build");
+            _ = await Assert.That(initialStatus).Contains("Active tasks: none");
+            _ = await Assert.That(initialStatus).DoesNotContain("You are Parrot's build mode");
+            _ = await Assert.That(initialStatus).DoesNotContain("Hard rules:");
             provider.Release();
             await Settled(session);
 
@@ -61,9 +65,12 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(StatusMessages(repository).Count).IsEqualTo(2);
             _ = await Assert.That(provider.Requests[1].Messages.Count(message => message.Role == LLMRole.System))
                 .IsEqualTo(3);
-            _ = await Assert.That(provider.Requests[1].Messages.Any(message =>
+            var planStatus = provider.Requests[1].Messages.Single(message =>
                 message.Role == LLMRole.System &&
-                message.Content.Contains("Active profile: plan", StringComparison.Ordinal))).IsTrue();
+                message.Content.Contains("Active profile: plan", StringComparison.Ordinal));
+            _ = await Assert.That(planStatus.Content).Contains("Active tasks: none");
+            _ = await Assert.That(planStatus.Content).DoesNotContain("You are Parrot's plan mode");
+            _ = await Assert.That(planStatus.Content).DoesNotContain("Hard rules:");
 
             await session.Interrupt(cancellationToken);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();

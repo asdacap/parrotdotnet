@@ -71,7 +71,6 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.MaxToolRounds).IsEqualTo(maxToolRounds);
         _ = await Assert.That(profile.Prompt).Contains(promptFragment);
         _ = await Assert.That(profile.HardRule).Contains(ruleFragment);
-        _ = await Assert.That(profile.Status).IsNotEmpty();
         _ = await Assert.That(profile.PlanArtifact).IsEmpty();
 
         if (id == ModeRegistry.Plan)

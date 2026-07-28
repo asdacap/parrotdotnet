@@ -25,15 +25,11 @@ internal sealed class StatusRegistryTests
             new ScriptedStatusProvider(
                 "runtime:blank",
                 static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("  "))));
-        var profile = new ScriptedStatusProvider(
-            "profile:plan",
-            static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("profile")));
+        var first = await registry.Observe(query, CancellationToken.None);
+        var second = await registry.Observe(query, CancellationToken.None);
 
-        var first = await registry.Observe(query, profile, CancellationToken.None);
-        var second = await registry.Observe(query, profile, CancellationToken.None);
-
-        _ = await Assert.That(first).IsEqualTo("profile\n\nselection 1");
-        _ = await Assert.That(second).IsEqualTo("profile\n\nselection 2");
+        _ = await Assert.That(first).IsEqualTo("selection 1");
+        _ = await Assert.That(second).IsEqualTo("selection 2");
         _ = await Assert.That(observedQuery).IsEqualTo(query);
     }
 
@@ -53,16 +49,11 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
-    public async Task Register_and_profile_reject_duplicate_keys()
+    public async Task Register_rejects_duplicate_keys()
     {
         var registry = new StatusRegistry(Provider("runtime:selection", "first"));
 
         _ = await Assert.That(() => registry.Register(Provider("runtime:selection", "second")))
-            .Throws<StatusRegistryException>();
-        _ = await Assert.That(async () => await registry.Observe(
-                new StatusQuery("session", "build", "provider", "model", string.Empty),
-                Provider("runtime:selection", "profile"),
-                CancellationToken.None))
             .Throws<StatusRegistryException>();
     }
 
@@ -75,7 +66,6 @@ internal sealed class StatusRegistryTests
 
         var exception = await Assert.That(async () => await registry.Observe(
                 new StatusQuery("session", "build", "provider", "model", string.Empty),
-                null,
                 CancellationToken.None))
             .Throws<StatusRegistryException>();
 
