@@ -212,6 +212,56 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
+    public async Task Draw_replaces_the_live_frame_without_clearing_it_first(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
+        var frame = Items(
+            [new LiveTextValue("working")],
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", "draft", 5));
+
+        await renderer.Draw(frame, cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(
+            Items(
+                [new LiveTextValue("done")],
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", "draft", 5)),
+            cancellationToken);
+
+        var replacement = output.ToString()[boundary..];
+        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(3);
+        _ = await Assert.That(replacement).DoesNotContain("\u001b[2K\r\n\u001b[2K");
+        _ = await Assert.That(replacement).Contains("done");
+    }
+
+    [Test]
+    public async Task Draw_removes_rows_when_the_live_frame_shrinks(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
+
+        await renderer.Draw(
+            Items(
+                [new LiveTextValue("first\nsecond")],
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", "draft", 5)),
+            cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(
+            Items(
+                [],
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", "draft", 5)),
+            cancellationToken);
+
+        var replacement = output.ToString()[boundary..];
+        _ = await Assert.That(replacement).Contains("\u001b[2M");
+        _ = await Assert.That(replacement).DoesNotContain("\u001b[B\r\u001b[2K");
+    }
+
+    [Test]
     public async Task Complete_snapshot_updates_input_and_live_frame(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
