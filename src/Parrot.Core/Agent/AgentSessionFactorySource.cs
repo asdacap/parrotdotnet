@@ -7,26 +7,22 @@ namespace Parrot.Agent;
 
 internal sealed class AgentSessionFactorySource(
     string workingDirectory,
-    string configDirectory,
     SessionIndex sessionIndex,
     ProcessRunner processes,
-    string date,
     Compactor compactor,
     WebFetcher webFetcher,
     Llm.ModelRouter router,
-    ModelPromptContext modelPromptContext,
+    ISystemPromptProvider systemPromptProvider,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactorySource
 {
     public IAgentSessionFactory Create(UserSession owner) =>
         new AgentSessionFactory(
             owner,
             workingDirectory,
-            configDirectory,
-            date,
             compactor,
             webFetcher,
             router,
-            modelPromptContext,
+            systemPromptProvider,
             scopes);
 
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>

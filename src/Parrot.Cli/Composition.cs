@@ -94,10 +94,18 @@ internal partial class Composition
                 ctx.Inject<ModelAliasCatalog>(out var aliases);
                 return new ModelAliasConfigurator(configuration, aliases);
             })
-            .Bind().As(Lifetime.Singleton).To(ctx =>
+            .Bind().As(Lifetime.Singleton).To<ISystemPromptProvider>(ctx =>
             {
                 ctx.Inject<Configuration>(out var configuration);
-                return new ModelPromptContext(configuration.ModelAugmentSystemPrompts);
+                ctx.Inject<string>("workingDirectory", out var workingDirectory);
+                ctx.Inject<StatePaths>(out var paths);
+                ctx.Inject<string>("date", out var date);
+                return new CompositeSystemPromptProvider(
+                    "runtime:system-prompt",
+                    [
+                        new SystemContextProvider(workingDirectory, paths.Config, date),
+                        new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
+                    ]);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
@@ -123,21 +131,18 @@ internal partial class Composition
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<WebFetcher>(out var webFetcher);
                 ctx.Inject<ModelRouter>(out var router);
-                ctx.Inject<ModelPromptContext>(out var modelPromptContext);
+                ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
                 ctx.Inject<IAgentSessionScopeFactory>(out var scopes);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
-                ctx.Inject<StatePaths>(out var paths);
 
                 return new AgentSessionFactorySource(
                     workingDirectory,
-                    paths.Config,
                     sessionIndex,
                     processes,
-                    date,
                     compactor,
                     webFetcher,
                     router,
-                    modelPromptContext,
+                    systemPromptProvider,
                     scopes);
             })
 

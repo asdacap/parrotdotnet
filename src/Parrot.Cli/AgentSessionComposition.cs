@@ -1,5 +1,4 @@
 using Parrot.Agent;
-using Parrot.Context;
 using Pure.DI;
 
 namespace Parrot.Cli;
@@ -13,15 +12,6 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new SystemContextBuilder(
-                    arguments.WorkingDirectory,
-                    arguments.ConfigDirectory,
-                    arguments.Date,
-                    arguments.Identity.Context);
-            })
-            .Bind().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new TodoCollection(
                     arguments.Identity.SessionId,
                     arguments.EventRepository,
@@ -30,7 +20,6 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<SystemContextBuilder>(out var context);
                 ctx.Inject<TodoCollection>(out var todos);
                 return new AgentSession(
                     arguments.Identity,
@@ -39,9 +28,8 @@ internal partial class AgentSessionComposition
                     arguments.EventBroker,
                     arguments.EventRepository,
                     arguments.ToolFactories,
-                    context,
+                    arguments.SystemPromptProvider,
                     todos,
-                    arguments.ModelPromptContext,
                     arguments.Compactor,
                     arguments.Profile,
                     arguments.SecurityProfile,

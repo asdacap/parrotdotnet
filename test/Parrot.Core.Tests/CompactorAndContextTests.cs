@@ -38,7 +38,10 @@ internal sealed class CompactorAndContextTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_configDirectory, "AGENTS.md"), "GLOBAL RULE: be concise.");
         await File.WriteAllTextAsync(Path.Combine(_workspace, "AGENTS.md"), "PROJECT RULE: be terse.");
 
-        var built = new SystemContextBuilder(_workspace, _configDirectory, "2026-07-24", string.Empty).Build();
+        var prompt = new SystemContextProvider(_workspace, _configDirectory, "2026-07-24")
+            .Materialize(AgentIdentity.Main("session", string.Empty));
+        prompt.RenewEpoch();
+        var built = prompt.Build(Selection());
 
         _ = await Assert.That(built).Contains("2026-07-24");
         _ = await Assert.That(built).Contains(_workspace);
@@ -65,8 +68,9 @@ internal sealed class CompactorAndContextTests : IDisposable
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []));
 
-        var built = new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal))
-            .Build("epoch", selection);
+        var built = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal))
+            .Materialize(AgentIdentity.Main("session", string.Empty))
+            .Build(selection);
 
         _ = await Assert.That(built).Contains($"- alpha: {model.Selector} — first");
         _ = await Assert.That(built).Contains($"- zeta: {model.Selector} — last");
@@ -84,11 +88,11 @@ internal sealed class CompactorAndContextTests : IDisposable
         var model = new ProviderModel(provider, baseModel, variant);
         var alias = new ModelAliasDefinition("preferred", model.Selector, "primary", "alias augmentation");
         var snapshot = new ModelAliasSnapshot([alias]);
-        var prompt = new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)
+        var prompt = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [model.Selector] = "exact augmentation",
             [$"{provider.Id}/{baseModel.Id}"] = "base augmentation",
-        });
+        }).Materialize(AgentIdentity.Main("session", string.Empty));
         AgentTurnSelection Selection(ModelAliasDefinition? selectedAlias) =>
             new(
                 new ModelSelector(selectedAlias?.Name ?? model.Selector),
@@ -97,13 +101,13 @@ internal sealed class CompactorAndContextTests : IDisposable
                 null,
                 SecurityProfile.Compose(readOnly: false, [], [], []));
 
-        var aliasBuilt = prompt.Build("epoch", Selection(alias));
-        var suppressed = prompt.Build("epoch", Selection(alias with { AugmentSystemPrompt = string.Empty }));
-        var exactBuilt = prompt.Build("epoch", Selection(null));
-        var baseOnly = new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)
+        var aliasBuilt = prompt.Build(Selection(alias));
+        var suppressed = prompt.Build(Selection(alias with { AugmentSystemPrompt = string.Empty }));
+        var exactBuilt = prompt.Build(Selection(null));
+        var baseOnly = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)
         {
             [$"{provider.Id}/{baseModel.Id}"] = "base augmentation",
-        }).Build("epoch", Selection(null));
+        }).Materialize(AgentIdentity.Main("session", string.Empty)).Build(Selection(null));
 
         _ = await Assert.That(aliasBuilt).Contains("alias augmentation");
         _ = await Assert.That(aliasBuilt).DoesNotContain("exact augmentation");
@@ -111,6 +115,46 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(exactBuilt).Contains("exact augmentation");
         _ = await Assert.That(exactBuilt).DoesNotContain("base augmentation");
         _ = await Assert.That(baseOnly).Contains("base augmentation");
+    }
+
+    [Test]
+    public async Task Composite_system_prompt_validates_orders_and_materializes_per_session()
+    {
+        var first = new PromptTestProvider("test:z", "z");
+        var second = new PromptTestProvider("test:a", "a");
+        var composite = new CompositeSystemPromptProvider("test:composite", [first, second]);
+
+        var main = composite.Materialize(AgentIdentity.Main("main", string.Empty));
+        var child = composite.Materialize(AgentIdentity.Child("child", "main", "worker", 1));
+        main.RenewEpoch();
+        child.RenewEpoch();
+
+        _ = await Assert.That(main.Build(Selection())).IsEqualTo("a\n\nz");
+        _ = await Assert.That(child.Build(Selection())).IsEqualTo("a\n\nz");
+        _ = await Assert.That(first.Materializations).IsEqualTo(2);
+        _ = await Assert.That(second.Materializations).IsEqualTo(2);
+        _ = await Assert.That(() => new CompositeSystemPromptProvider("test:composite", [first, first]))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task System_context_is_stable_until_the_epoch_is_renewed()
+    {
+        var agents = Path.Combine(_workspace, "AGENTS.md");
+        await File.WriteAllTextAsync(agents, "first");
+        var prompt = new SystemContextProvider(_workspace, _configDirectory, "2026-07-24")
+            .Materialize(AgentIdentity.Main("session", string.Empty));
+
+        prompt.RenewEpoch();
+        var first = prompt.Build(Selection());
+        await File.WriteAllTextAsync(agents, "second");
+        var sameEpoch = prompt.Build(Selection());
+        prompt.RenewEpoch();
+        var nextEpoch = prompt.Build(Selection());
+
+        _ = await Assert.That(first).Contains("first");
+        _ = await Assert.That(sameEpoch).Contains("first");
+        _ = await Assert.That(nextEpoch).Contains("second");
     }
 
     [Test]
@@ -130,9 +174,8 @@ internal sealed class CompactorAndContextTests : IDisposable
             broker,
             new EventRepository(database),
             [],
-            new SystemContextBuilder(_workspace, _workspace, "2026-07-24", string.Empty),
+            TestModels.PromptProvider(_workspace, _workspace),
             new TodoCollection("agent", new EventRepository(database), broker),
-            new ModelPromptContext(new Dictionary<string, string>(StringComparer.Ordinal)),
             new Compactor(tokenBudget: 0),
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -197,5 +240,47 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(compacted[1].ToolCalls[0].Id).IsEqualTo("call-1");
         _ = await Assert.That(compacted[2].ToolCallId).IsEqualTo("call-1");
         _ = await Assert.That(compacted[3].ToolCallId).IsEqualTo("call-2");
+    }
+
+    private static AgentTurnSelection Selection()
+    {
+        var provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        return new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            new ResolvedModelSelection(
+                new ModelSelector(model.Selector),
+                null,
+                model,
+                new ModelAliasSnapshot([])),
+            null,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
+    }
+
+    private sealed class PromptTestProvider(string key, string text) : ISystemPromptProvider
+    {
+        public int Materializations { get; private set; }
+
+        public string Key => key;
+
+        public ISystemPrompt Materialize(AgentIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            Materializations++;
+            return new PromptTestProduct(text);
+        }
+    }
+
+    private sealed class PromptTestProduct(string text) : ISystemPrompt
+    {
+        private bool _renewed;
+
+        public void RenewEpoch() => _renewed = true;
+
+        public string Build(AgentTurnSelection selection)
+        {
+            ArgumentNullException.ThrowIfNull(selection);
+            return _renewed ? text : throw new InvalidOperationException("Prompt was not renewed.");
+        }
     }
 }

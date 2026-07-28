@@ -30,9 +30,8 @@ internal sealed class AgentSession(
     EventBroker eventBroker,
     EventRepository eventRepository,
     IReadOnlyList<IToolFactory> toolFactories,
-    SystemContextBuilder systemContext,
+    ISystemPromptProvider systemPromptProvider,
     TodoCollection todos,
-    ModelPromptContext modelPromptContext,
     Compactor compactor,
     MainAgentProfile? profile,
     SecurityProfile securityProfile,
@@ -67,6 +66,9 @@ internal sealed class AgentSession(
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
     private readonly Lock _selectionGate = new();
+    private readonly ISystemPrompt _systemPrompt = (systemPromptProvider
+        ?? throw new ArgumentNullException(nameof(systemPromptProvider))).Materialize(identity)
+        ?? throw new InvalidOperationException("The system prompt provider returned no prompt.");
 
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
         ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);
@@ -74,7 +76,8 @@ internal sealed class AgentSession(
     private string _messageId = string.Empty;
 
     private AgentSelection _selection = new(model, profile, securityProfile);
-    private string _epochContext = string.Empty;
+
+    private bool _epochInitialized;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
     private bool _wake;
@@ -650,7 +653,7 @@ internal sealed class AgentSession(
 
                 var messages = new List<LLMMessage>(_history.Count + 1)
                 {
-                    LLMMessage.System(modelPromptContext.Build(_epochContext, activeSelection)),
+                    LLMMessage.System(_systemPrompt.Build(activeSelection)),
                 };
                 messages.AddRange(_history);
 
@@ -814,9 +817,10 @@ internal sealed class AgentSession(
     // fresh one -- so a turn never begins already over the window.
     private async Task Epoch(AgentTurnSelection? selection, CancellationToken cancellationToken)
     {
-        if (_epochContext.Length == 0)
+        if (!_epochInitialized)
         {
-            _epochContext = systemContext.Build();
+            _systemPrompt.RenewEpoch();
+            _epochInitialized = true;
         }
 
         if (!compactor.ShouldCompact(_history))
@@ -837,7 +841,7 @@ internal sealed class AgentSession(
 
         _history.Clear();
         _history.AddRange(compacted);
-        _epochContext = systemContext.Build();
+        _systemPrompt.RenewEpoch();
     }
 
     private async Task<AgentTurnSelection> InjectStatus(

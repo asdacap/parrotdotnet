@@ -1,9 +1,18 @@
+using Parrot.Context;
 using Parrot.Llm;
 
 namespace Parrot.Core.Tests;
 
 internal static class TestModels
 {
+    public static ISystemPromptProvider PromptProvider(string workingDirectory, string configDirectory) =>
+        new CompositeSystemPromptProvider(
+            "test:system-prompt",
+            [
+                new SystemContextProvider(workingDirectory, configDirectory, "2026-07-24"),
+                new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)),
+            ]);
+
     public static ModelRouter Route(ProviderModel model)
     {
         var catalogModel = model.Variant is null
