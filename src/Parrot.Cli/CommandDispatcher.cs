@@ -12,7 +12,13 @@ using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
 
-internal static class CommandDispatcher
+internal sealed class CommandDispatcher(
+    Interrupts interrupts,
+    TextWriter output,
+    TextWriter error,
+    HttpClient httpClient,
+    IBrowserOpener browserOpener,
+    OpenAiOAuthClient oauthClient)
 {
     public const int ExitSuccess = 0;
     public const int ExitUsage = 2;
@@ -46,19 +52,9 @@ internal static class CommandDispatcher
         prompt or piped stdin it answers once. /help lists the slash commands.
         """;
 
-    // Used before the composition exists: the registry is assembled and OAuth
-    // runs while reading credentials, which the graph's own client cannot serve.
-    private static readonly HttpClient Http =
-        new(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
-
-    private static readonly IBrowserOpener Browser = new SystemBrowserOpener(System.Diagnostics.Process.Start);
-
     // The single top-level Run. Every other Run is a descendant of this call.
-    public static async Task<int> Run(
+    public async Task<int> Run(
         IReadOnlyList<string> arguments,
-        Interrupts interrupts,
-        TextWriter output,
-        TextWriter error,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(arguments);
@@ -81,19 +77,19 @@ internal static class CommandDispatcher
                 return ExitSuccess;
 
             case "auth":
-                return await Authenticate(arguments, output, error, cancellationToken).ConfigureAwait(false);
+                return await Authenticate(arguments, cancellationToken).ConfigureAwait(false);
 
             case "models":
-                return await ListModels(output, error, cancellationToken).ConfigureAwait(false);
+                return await ListModels(cancellationToken).ConfigureAwait(false);
 
             case "sessions":
-                return await ListSessions(output, cancellationToken).ConfigureAwait(false);
+                return await ListSessions(cancellationToken).ConfigureAwait(false);
 
             case "chat":
-                return await RunChat(arguments, interrupts, output, error, cancellationToken).ConfigureAwait(false);
+                return await RunChat(arguments, cancellationToken).ConfigureAwait(false);
 
             case "serve":
-                return await RunServer(arguments, output, error, cancellationToken).ConfigureAwait(false);
+                return await RunServer(arguments, cancellationToken).ConfigureAwait(false);
 
             default:
                 await error.WriteLineAsync($"parrot: unknown command \"{command}\"".AsMemory(), cancellationToken)
@@ -132,10 +128,11 @@ internal static class CommandDispatcher
         return replacement.Selector;
     }
 
-    private static async Task<int> Authenticate(
+    private static string NormalizeRemoteAddress(string target) =>
+        target.StartsWith("http", StringComparison.Ordinal) ? target : $"http://{target}";
+
+    private async Task<int> Authenticate(
         IReadOnlyList<string> arguments,
-        TextWriter output,
-        TextWriter error,
         CancellationToken cancellationToken)
     {
         if (arguments.Count < 3 || arguments[1] != "login")
@@ -168,7 +165,7 @@ internal static class CommandDispatcher
             {
                 await AuthFlows
                     .OAuthLogin(
-                        new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
+                        oauthClient,
                         store,
                         arguments.Contains("--device"),
                         output,
@@ -195,7 +192,7 @@ internal static class CommandDispatcher
         return ExitSuccess;
     }
 
-    private static async Task<int> ListSessions(TextWriter output, CancellationToken cancellationToken)
+    private async Task<int> ListSessions(CancellationToken cancellationToken)
     {
         var paths = StatePaths.ResolveFromEnvironment();
         var listed = new SessionIndex(paths.State).List();
@@ -215,13 +212,10 @@ internal static class CommandDispatcher
         return ExitSuccess;
     }
 
-    private static async Task<int> ListModels(
-        TextWriter output,
-        TextWriter error,
-        CancellationToken cancellationToken)
+    private async Task<int> ListModels(CancellationToken cancellationToken)
     {
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, error, cancellationToken)
+        await using var composition = await BuildComposition(credentials, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -251,15 +245,14 @@ internal static class CommandDispatcher
     // composition around the selected one. Null when the selection cannot be
     // resolved. The credential store must outlive the composition, because the
     // OAuth providers refresh through it, so the caller owns both.
-    private static async Task<Composition?> BuildComposition(
+    private async Task<Composition?> BuildComposition(
         ICredentialStore credentials,
-        TextWriter error,
         CancellationToken cancellationToken)
     {
         try
         {
             var registry = await new ProviderRegistryBuilder(
-                Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile), credentials, Http, Browser)
+                Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile), credentials, httpClient, browserOpener)
                 .Build().ConfigureAwait(false);
 
             return new Composition(
@@ -273,10 +266,8 @@ internal static class CommandDispatcher
         }
     }
 
-    private static async Task<int> RunServer(
+    private async Task<int> RunServer(
         IReadOnlyList<string> arguments,
-        TextWriter output,
-        TextWriter error,
         CancellationToken cancellationToken)
     {
         var port = 8710;
@@ -293,7 +284,7 @@ internal static class CommandDispatcher
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, error, cancellationToken)
+        await using var composition = await BuildComposition(credentials, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -307,14 +298,8 @@ internal static class CommandDispatcher
         return await GrpcServer.Run(composition.Service, port, cancellationToken).ConfigureAwait(false);
     }
 
-    private static string NormalizeRemoteAddress(string target) =>
-        target.StartsWith("http", StringComparison.Ordinal) ? target : $"http://{target}";
-
-    private static async Task<int> RunChat(
+    private async Task<int> RunChat(
         IReadOnlyList<string> arguments,
-        Interrupts interrupts,
-        TextWriter output,
-        TextWriter error,
         CancellationToken cancellationToken)
     {
         var paths = StatePaths.ResolveFromEnvironment();
@@ -395,7 +380,7 @@ internal static class CommandDispatcher
                     remote,
                     interrupts,
                     remoteCredentials,
-                    new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
+                    oauthClient,
                     configuration,
                     remoteProviderIds,
                     model,
@@ -415,7 +400,7 @@ internal static class CommandDispatcher
                     remote,
                     interrupts,
                     remoteCredentials,
-                    new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
+                    oauthClient,
                     configuration,
                     remoteProviderIds,
                     model,
@@ -433,7 +418,7 @@ internal static class CommandDispatcher
                 remote,
                 interrupts,
                 remoteCredentials,
-                new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
+                oauthClient,
                 configuration,
                 remoteProviderIds,
                 new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
@@ -442,7 +427,7 @@ internal static class CommandDispatcher
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, error, cancellationToken)
+        await using var composition = await BuildComposition(credentials, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -471,7 +456,7 @@ internal static class CommandDispatcher
                 client,
                 interrupts,
                 credentials,
-                new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
+                oauthClient,
                 configuration,
                 providerIds,
                 model,
@@ -491,7 +476,7 @@ internal static class CommandDispatcher
                 client,
                 interrupts,
                 credentials,
-                new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
+                oauthClient,
                 configuration,
                 providerIds,
                 model,
@@ -509,7 +494,7 @@ internal static class CommandDispatcher
             client,
             interrupts,
             credentials,
-            new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
+            oauthClient,
             configuration,
             providerIds,
             new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
