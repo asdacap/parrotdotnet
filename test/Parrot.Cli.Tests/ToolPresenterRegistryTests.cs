@@ -103,14 +103,16 @@ internal sealed class ToolPresenterRegistryTests
         var spawnReport = ((IToolPresentationValue)(spawn
             ?? throw new InvalidOperationException("Spawn report missing."))).Report;
         var readReport = ((IToolPresentationValue)read).Report;
+        var readLines = read.Render(new ScrollbackRenderContext(32_768, new TerminalPalette(true)));
         var todoReport = ((IToolPresentationValue)todos).Report;
 
         _ = await Assert.That(patchReport.Block.Kind).IsEqualTo(ToolBlockKind.Diff);
         _ = await Assert.That(spawnReport.Block.Kind).IsEqualTo(ToolBlockKind.CompletedInput);
-        _ = await Assert.That(readReport.Block.Kind).IsEqualTo(ToolBlockKind.Code);
-        _ = await Assert.That(readReport.Block.Language).IsEqualTo("csharp");
-        _ = await Assert.That(readReport.Block.Path).IsEqualTo("src/App.cs");
-        _ = await Assert.That(readReport.Block.Line).IsEqualTo(12);
+        _ = await Assert.That(readReport.Block.Kind).IsEqualTo(ToolBlockKind.None);
+        _ = await Assert.That(readReport.Block.Text).IsEmpty();
+        _ = await Assert.That(readLines).Count().IsEqualTo(1);
+        _ = await Assert.That(readLines[0]).Contains("\u001b[38;5;245m✓ main: read src/App.cs\u001b[0m");
+        _ = await Assert.That(string.Join('\n', readLines)).DoesNotContain("12: class App");
         _ = await Assert.That(todoReport.Block.Kind).IsEqualTo(ToolBlockKind.Todos);
         _ = await Assert.That(spawnReport.Metadata.SuccessIcon).IsEqualTo("♟");
         _ = await Assert.That(spawnReport.Metadata.TerminalOnly).IsTrue();

@@ -53,6 +53,25 @@ internal sealed class ToolPresenterBatchCTests
     }
 
     [Test]
+    public async Task Successful_read_hides_result_lines()
+    {
+        var presenter = new ReadToolPresenter();
+        var call = new ToolCallPresentation("main", "read", "{\"path\":\"README.md\"}");
+        var terminal = new ToolTerminalPresentation(
+            ToolTerminalStatus.Succeeded,
+            true,
+            "1: heading\n2: body",
+            string.Empty);
+
+        var item = presenter.PresentTerminal(call, terminal);
+        var lines = item.Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('\n', lines)).IsEqualTo("✓ main: read README.md");
+        _ = await Assert.That(string.Join('\n', lines)).DoesNotContain("1: heading");
+        _ = await Assert.That(string.Join('\n', lines)).DoesNotContain("2: body");
+    }
+
+    [Test]
     [MethodDataSource(nameof(PresenterInstances))]
     public async Task Presenters_throw_for_malformed_arguments(IToolPresenter presenter)
     {
