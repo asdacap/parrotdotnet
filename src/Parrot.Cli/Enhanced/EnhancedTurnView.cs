@@ -86,7 +86,7 @@ internal sealed class EnhancedTurnView(
 
             case Event.PayloadOneofCase.StatusInjected:
                 await Commit(
-                    ImmediateScrollbackValue.Trusted([$"{Dim}  ↻ Status prompt injected{Reset}"]),
+                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Status prompt injected{Reset}"]),
                     cancellationToken).ConfigureAwait(false);
                 break;
 

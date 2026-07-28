@@ -111,7 +111,8 @@ internal sealed class BasicCliTests
         var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
-        _ = await Assert.That(output.ToString()).Contains("  ↻ Status prompt injected");
+        _ = await Assert.That(output.ToString()).Contains("↻ Status prompt injected");
+        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Status prompt injected");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 
