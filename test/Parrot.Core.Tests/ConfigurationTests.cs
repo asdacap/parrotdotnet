@@ -33,8 +33,6 @@ internal sealed class ConfigurationTests : IDisposable
         var build = configuration.Profiles["build"];
         _ = await Assert.That(build.Prompt).IsEqualTo("You are Parrot's build mode. Implement and verify the requested changes.");
         _ = await Assert.That(build.HardRule).IsEqualTo("Keep tool side effects within the authorized workspace.");
-        _ = await Assert.That(build.Status).IsEqualTo(
-            "Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.");
         _ = await Assert.That(build.MaxToolRounds).IsEqualTo(64);
         _ = await Assert.That(build.ReadOnly).IsFalse();
         _ = await Assert.That(build.SandboxRules).IsEmpty();
@@ -128,8 +126,6 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(profile.MaxToolRounds).IsEqualTo(7);
         _ = await Assert.That(profile.HardRule).IsEqualTo(
             "The plan directory is the only writable location; do not modify workspace files.");
-        _ = await Assert.That(profile.Status).IsEqualTo(
-            "Plan mode: inspect the project and write the designated plan artifact without changing other files.");
         _ = await Assert.That(profile.ReadOnly).IsTrue();
         _ = await Assert.That(profile.SandboxRules).IsEmpty();
     }
@@ -152,6 +148,7 @@ internal sealed class ConfigurationTests : IDisposable
 
     [Test]
     [Arguments("profiles:\n  query:\n    read_ony: true\n")]
+    [Arguments("profiles:\n  query:\n    status: retired\n")]
     [Arguments("sandbox_rules:\n  - path: /workspace\n    rules: allow_write\n")]
     public async Task Security_configuration_rejects_unknown_keys(string content)
     {
@@ -163,7 +160,6 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     [Arguments("profiles:\n  build:\n    prompt: ''\n")]
     [Arguments("profiles:\n  build:\n    hard_rule: []\n")]
-    [Arguments("profiles:\n  build:\n    status: '   '\n")]
     [Arguments("profiles:\n  build:\n    max_tool_rounds: 0\n")]
     [Arguments("profiles:\n  build:\n    max_tool_rounds: -1\n")]
     [Arguments("profiles:\n  build:\n    max_tool_rounds: not-a-number\n")]

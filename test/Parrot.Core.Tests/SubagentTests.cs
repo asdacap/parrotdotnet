@@ -377,7 +377,7 @@ internal sealed class SubagentTests : IDisposable
         IReadOnlyList<SandboxRule> runtimeCapabilities) =>
         new(
             id,
-            new ProfileConfig("Test prompt", "Test rule", "Test status", 1, readOnly, []),
+            new ProfileConfig("Test prompt", "Test rule", 1, readOnly, []),
             static () => "Test prompt",
             static () => string.Empty,
             SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities),
