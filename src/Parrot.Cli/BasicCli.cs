@@ -137,7 +137,7 @@ internal sealed class BasicCli(
                     break;
 
                 case Event.PayloadOneofCase.StatusInjected:
-                    await output.WriteLineAsync("  ↻ Status prompt injected".AsMemory(), cancellationToken)
+                    await output.WriteLineAsync("↻ Status prompt injected".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 
