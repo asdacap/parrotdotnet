@@ -6,6 +6,7 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
 {
     private const int StandardInput = 0;
     private const int SetNow = 0;
+    private const int InterruptedSystemCall = 4;
 
     private const uint LinuxCharacterSize = 0x00000030U;
     private const uint LinuxEightBits = 0x00000030U;
@@ -16,35 +17,27 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
     private const ulong DarwinRawInputFlags = 0x00000332UL;
     private const ulong DarwinRawLocalFlags = 0x00000588UL;
 
+    private readonly int _descriptor;
     private readonly Action _ensureRaw;
-    private readonly Stream _input;
     private readonly Action _restore;
     private bool _disposed;
 
-    private UnixRawTerminal(Stream input, Action ensureRaw, Action restore)
+    private UnixRawTerminal(int descriptor, Action ensureRaw, Action restore)
     {
-        _input = input;
+        _descriptor = descriptor;
         _ensureRaw = ensureRaw;
         _restore = restore;
     }
 
-    public static UnixRawTerminal? Open()
-    {
-        if (string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
-            || IsTerminal(StandardInput) != 1)
-        {
-            return null;
-        }
-
-        return OperatingSystem.IsLinux()
-            ? OpenLinux()
-            : OperatingSystem.IsMacOS() ? OpenDarwin() : null;
-    }
+    public static UnixRawTerminal? Open() =>
+        string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
+            ? null
+            : Open(StandardInput);
 
     public ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken)
     {
         _ensureRaw();
-        return _input.ReadAsync(buffer.AsMemory(), cancellationToken);
+        return new(Task.Run(() => ReadInput(_descriptor, buffer), cancellationToken));
     }
 
     public void Dispose()
@@ -55,14 +48,19 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
         }
 
         _disposed = true;
-        try
+        _restore();
+    }
+
+    internal static UnixRawTerminal? Open(int descriptor)
+    {
+        if (IsTerminal(descriptor) != 1)
         {
-            _restore();
+            return null;
         }
-        finally
-        {
-            _input.Dispose();
-        }
+
+        return OperatingSystem.IsLinux()
+            ? OpenLinux(descriptor)
+            : OperatingSystem.IsMacOS() ? OpenDarwin(descriptor) : null;
     }
 
     internal static unsafe LinuxTermios MakeLinuxRaw(LinuxTermios original)
@@ -91,89 +89,113 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     private static partial int IsTerminal(int descriptor);
 
-    private static unsafe UnixRawTerminal? OpenLinux()
+    [LibraryImport("libc", EntryPoint = "read", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
+    private static partial nint ReadDescriptor(int descriptor, byte[] buffer, nuint count);
+
+    // Not Console.OpenStandardInput: on a terminal that stream is a UnixConsoleStream with
+    // useReadLine, so every read goes through StdInReader, which re-implements canonical mode
+    // in managed code and software-echoes each keystroke to stdout in the default colours,
+    // whatever termios says.
+    //
+    // MakeLinuxRaw and MakeDarwinRaw set VMIN=0/VTIME=1, so read(2) returns zero bytes after
+    // 100ms of silence. That zero is a poll tick -- EnhancedCli flushes a pending lone ESC and
+    // rechecks cancellation on it -- and never end of input, so nothing may latch it.
+    private static int ReadInput(int descriptor, byte[] buffer)
     {
-        var input = Console.OpenStandardInput();
-        if (GetLinuxAttributes(StandardInput, out var original) != 0)
+        while (true)
         {
-            input.Dispose();
+            var count = ReadDescriptor(descriptor, buffer, (nuint)buffer.Length);
+            if (count >= 0)
+            {
+                return (int)count;
+            }
+
+            var error = Marshal.GetLastPInvokeError();
+            if (error != InterruptedSystemCall)
+            {
+                throw new IOException($"failed to read terminal input (errno {error})");
+            }
+        }
+    }
+
+    private static unsafe UnixRawTerminal? OpenLinux(int descriptor)
+    {
+        if (GetLinuxAttributes(descriptor, out var original) != 0)
+        {
             return null;
         }
 
         var raw = MakeLinuxRaw(original);
-        if (!TrySetLinuxRaw(raw))
+        if (!TrySetLinuxRaw(descriptor, raw))
         {
-            RestoreLinux(original);
-            input.Dispose();
+            RestoreLinux(descriptor, original);
             return null;
         }
 
         return new UnixRawTerminal(
-            input,
-            () => EnsureLinuxRaw(raw),
-            () => RestoreLinux(original));
+            descriptor,
+            () => EnsureLinuxRaw(descriptor, raw),
+            () => RestoreLinux(descriptor, original));
     }
 
-    private static unsafe UnixRawTerminal? OpenDarwin()
+    private static unsafe UnixRawTerminal? OpenDarwin(int descriptor)
     {
-        var input = Console.OpenStandardInput();
-        if (GetDarwinAttributes(StandardInput, out var original) != 0)
+        if (GetDarwinAttributes(descriptor, out var original) != 0)
         {
-            input.Dispose();
             return null;
         }
 
         var raw = MakeDarwinRaw(original);
-        if (!TrySetDarwinRaw(raw))
+        if (!TrySetDarwinRaw(descriptor, raw))
         {
-            RestoreDarwin(original);
-            input.Dispose();
+            RestoreDarwin(descriptor, original);
             return null;
         }
 
         return new UnixRawTerminal(
-            input,
-            () => EnsureDarwinRaw(raw),
-            () => RestoreDarwin(original));
+            descriptor,
+            () => EnsureDarwinRaw(descriptor, raw),
+            () => RestoreDarwin(descriptor, original));
     }
 
-    private static void EnsureLinuxRaw(LinuxTermios raw)
+    private static void EnsureLinuxRaw(int descriptor, LinuxTermios raw)
     {
-        if (!TrySetLinuxRaw(raw))
+        if (!TrySetLinuxRaw(descriptor, raw))
         {
             throw new IOException($"failed to enable raw terminal mode (errno {Marshal.GetLastPInvokeError()})");
         }
     }
 
-    private static void EnsureDarwinRaw(DarwinTermios raw)
+    private static void EnsureDarwinRaw(int descriptor, DarwinTermios raw)
     {
-        if (!TrySetDarwinRaw(raw))
+        if (!TrySetDarwinRaw(descriptor, raw))
         {
             throw new IOException($"failed to enable raw terminal mode (errno {Marshal.GetLastPInvokeError()})");
         }
     }
 
-    private static bool TrySetLinuxRaw(LinuxTermios raw) =>
-        SetLinuxAttributes(StandardInput, SetNow, in raw) == 0
-        && GetLinuxAttributes(StandardInput, out var applied) == 0
+    private static bool TrySetLinuxRaw(int descriptor, LinuxTermios raw) =>
+        SetLinuxAttributes(descriptor, SetNow, in raw) == 0
+        && GetLinuxAttributes(descriptor, out var applied) == 0
         && (applied.LocalFlags & LinuxRawLocalFlags) == 0;
 
-    private static bool TrySetDarwinRaw(DarwinTermios raw) =>
-        SetDarwinAttributes(StandardInput, SetNow, in raw) == 0
-        && GetDarwinAttributes(StandardInput, out var applied) == 0
+    private static bool TrySetDarwinRaw(int descriptor, DarwinTermios raw) =>
+        SetDarwinAttributes(descriptor, SetNow, in raw) == 0
+        && GetDarwinAttributes(descriptor, out var applied) == 0
         && (applied.LocalFlags & DarwinRawLocalFlags) == 0;
 
-    private static void RestoreLinux(LinuxTermios original)
+    private static void RestoreLinux(int descriptor, LinuxTermios original)
     {
-        if (SetLinuxAttributes(StandardInput, SetNow, in original) != 0)
+        if (SetLinuxAttributes(descriptor, SetNow, in original) != 0)
         {
             throw new IOException($"failed to restore terminal attributes (errno {Marshal.GetLastPInvokeError()})");
         }
     }
 
-    private static void RestoreDarwin(DarwinTermios original)
+    private static void RestoreDarwin(int descriptor, DarwinTermios original)
     {
-        if (SetDarwinAttributes(StandardInput, SetNow, in original) != 0)
+        if (SetDarwinAttributes(descriptor, SetNow, in original) != 0)
         {
             throw new IOException($"failed to restore terminal attributes (errno {Marshal.GetLastPInvokeError()})");
         }

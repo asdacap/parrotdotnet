@@ -8,17 +8,17 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
 {
     private const int OpenReadWrite = 0x00000002;
     private const int OpenNoControllingTerminal = 0x00000100;
-    private const int SetNow = 0;
     private const short PollInput = 0x0001;
     private readonly int _master;
-    private readonly int _slave;
     private bool _disposed;
 
     private LinuxPseudoTerminal(int master, int slave)
     {
         _master = master;
-        _slave = slave;
+        SlaveDescriptor = slave;
     }
+
+    public int SlaveDescriptor { get; }
 
     public static LinuxPseudoTerminal Open()
     {
@@ -67,21 +67,12 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
     {
         EnsureNotDisposed();
         var attributes = default(LinuxTermios);
-        if (GetAttributes(_slave, (nint)(&attributes)) != 0)
+        if (GetAttributes(SlaveDescriptor, (nint)(&attributes)) != 0)
         {
             throw NativeFailure("failed to read PTY slave attributes");
         }
 
         return attributes;
-    }
-
-    public unsafe void SetSlaveAttributes(LinuxTermios attributes)
-    {
-        EnsureNotDisposed();
-        if (SetAttributes(_slave, SetNow, (nint)(&attributes)) != 0)
-        {
-            throw NativeFailure("failed to set PTY slave attributes");
-        }
     }
 
     public void WriteMaster(byte value)
@@ -91,23 +82,6 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
         {
             throw NativeFailure("failed to write PTY master");
         }
-    }
-
-    public byte ReadSlave()
-    {
-        EnsureNotDisposed();
-        if (!HasInput(_slave, 500))
-        {
-            throw new IOException("Timed out waiting for PTY slave input.");
-        }
-
-        var buffer = new byte[1];
-        if (ReadFile(_slave, buffer, 1) != 1)
-        {
-            throw NativeFailure("failed to read PTY slave");
-        }
-
-        return buffer[0];
     }
 
     public bool MasterHasOutput(int timeoutMilliseconds)
@@ -124,7 +98,7 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
         }
 
         _disposed = true;
-        _ = CloseFile(_slave);
+        _ = CloseFile(SlaveDescriptor);
         _ = CloseFile(_master);
         GC.SuppressFinalize(this);
     }
@@ -176,10 +150,6 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     private static partial int CloseFile(int descriptor);
 
-    [LibraryImport("libc", EntryPoint = "read", SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
-    private static partial nint ReadFile(int descriptor, byte[] buffer, nuint count);
-
     [LibraryImport("libc", EntryPoint = "write", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     private static partial nint WriteFile(int descriptor, byte[] buffer, nuint count);
@@ -191,10 +161,6 @@ internal sealed partial class LinuxPseudoTerminal : IDisposable
     [LibraryImport("libc", EntryPoint = "tcgetattr", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     private static partial int GetAttributes(int descriptor, nint attributes);
-
-    [LibraryImport("libc", EntryPoint = "tcsetattr", SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
-    private static partial int SetAttributes(int descriptor, int actions, nint attributes);
 
     private void EnsureNotDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
