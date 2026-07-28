@@ -100,12 +100,6 @@ internal sealed class ProviderRegistryBuilder(
     private static string FirstNonEmpty(string? first, string? second) =>
         !string.IsNullOrEmpty(first) ? first : second ?? string.Empty;
 
-    private static BuiltProvider Built(OpenCodeGoProvider provider) => new(provider, provider.SeedModels());
-
-    private static BuiltProvider Built(KimiProvider provider) => new(provider, provider.SeedModels());
-
-    private static BuiltProvider Built(OpenAICompatibleProvider provider) => new(provider, provider.SeedModels());
-
     private ProviderModel? ResolveDefaultModel(
         IReadOnlyList<ILLMProvider> providers,
         IReadOnlyDictionary<string, IReadOnlyList<LLMModel>> catalogues)
@@ -178,13 +172,20 @@ internal sealed class ProviderRegistryBuilder(
 
         return id switch
         {
-            "opencode-go" => Built(new OpenCodeGoProvider(options, httpClient)),
-            "kimi-api" => Built(new KimiProvider(options, httpClient)),
-            _ => Built(new OpenAICompatibleProvider(options, httpClient)),
+            "opencode-go" => BuiltProvider.From(new OpenCodeGoProvider(options, httpClient)),
+            "kimi-api" => BuiltProvider.From(new KimiProvider(options, httpClient)),
+            _ => BuiltProvider.From(new OpenAICompatibleProvider(options, httpClient)),
         };
     }
 
     // A provider and the catalogue it is selectable with before its endpoint is
     // reached; the registry owns both from here on.
-    private sealed record BuiltProvider(ILLMProvider Provider, IReadOnlyList<LLMModel> Seed);
+    private sealed record BuiltProvider(ILLMProvider Provider, IReadOnlyList<LLMModel> Seed)
+    {
+        public static BuiltProvider From(OpenCodeGoProvider provider) => new(provider, provider.SeedModels());
+
+        public static BuiltProvider From(KimiProvider provider) => new(provider, provider.SeedModels());
+
+        public static BuiltProvider From(OpenAICompatibleProvider provider) => new(provider, provider.SeedModels());
+    }
 }

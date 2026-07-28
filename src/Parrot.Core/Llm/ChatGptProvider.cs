@@ -230,21 +230,12 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
             new("xhigh", "xhigh"),
         };
 
-        LLMModel Build(string id, string name, int context) =>
-            new(id, ProviderId)
-            {
-                Name = name,
-                ContextWindow = context,
-                MaxOutputTokens = 128000,
-                Capabilities = new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants),
-            };
-
         return
         [
-            Build("gpt-5.4", "GPT-5.4", 400000),
-            Build("gpt-5.4-mini", "GPT-5.4 Mini", 400000),
-            Build("gpt-5.5", "GPT-5.5", 400000),
-            Build("gpt-5.6-sol", "GPT-5.6 Sol", 500000),
+            LLMModel.Create("gpt-5.4", ProviderId, "GPT-5.4", 400000, 128000, new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants)),
+            LLMModel.Create("gpt-5.4-mini", ProviderId, "GPT-5.4 Mini", 400000, 128000, new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants)),
+            LLMModel.Create("gpt-5.5", ProviderId, "GPT-5.5", 400000, 128000, new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants)),
+            LLMModel.Create("gpt-5.6-sol", ProviderId, "GPT-5.6 Sol", 500000, 128000, new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants)),
         ];
     }
 }

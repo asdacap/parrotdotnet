@@ -16,6 +16,8 @@
 - Interfaces and implementations are fine and in fact preferable.
 - NEVER turn of lint rules repo wide or project wide. Exception is test project can have lint rules disabled AFTER user
   explicit permission.
+- Suffix the class name properly. If a class is an event, suffix it with Event.
+- Do not make a method/function just to create another class, unless that method is on that class. Dont do CreateEvent(something). Do Event.Create(something).
 
 ## Async lifecycle
 

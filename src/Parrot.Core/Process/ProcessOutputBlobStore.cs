@@ -10,7 +10,7 @@ internal sealed class ProcessOutputBlobStore
     private readonly Func<string> _nextName;
 
     public ProcessOutputBlobStore(string directory)
-        : this(directory, CreateHaikunatorNameGenerator())
+        : this(directory, new HaikunatorNameGenerator().Next)
     {
     }
 
@@ -42,7 +42,19 @@ internal sealed class ProcessOutputBlobStore
 
             try
             {
-                await using var stream = new FileStream(path, FileOptions());
+                var fileOptions = new FileStreamOptions
+                {
+                    Access = FileAccess.Write,
+                    Mode = FileMode.CreateNew,
+                    Options = System.IO.FileOptions.Asynchronous,
+                };
+
+                if (!OperatingSystem.IsWindows())
+                {
+                    fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                }
+
+                await using var stream = new FileStream(path, fileOptions);
 
                 try
                 {
@@ -74,29 +86,6 @@ internal sealed class ProcessOutputBlobStore
                 directory,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
-    }
-
-    private static FileStreamOptions FileOptions()
-    {
-        var options = new FileStreamOptions
-        {
-            Access = FileAccess.Write,
-            Mode = FileMode.CreateNew,
-            Options = System.IO.FileOptions.Asynchronous,
-        };
-
-        if (!OperatingSystem.IsWindows())
-        {
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-
-        return options;
-    }
-
-    private static Func<string> CreateHaikunatorNameGenerator()
-    {
-        var haikunator = new Haikunator.Haikunator();
-        return () => $"{haikunator.Haikunate(tokenLength: 0)}-arse.dat";
     }
 
     private static async Task Write(

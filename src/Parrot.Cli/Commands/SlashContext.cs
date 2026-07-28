@@ -1,5 +1,6 @@
 using Parrot.Auth;
 using Parrot.Config;
+using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Commands;
@@ -40,4 +41,27 @@ internal sealed class SlashContext(
     public TextWriter Output { get; } = output;
 
     public TextWriter Error { get; } = error;
+
+    public static SlashContext Create(
+        GeneratedParrot.ParrotClient client,
+        ICredentialStore credentials,
+        OpenAiOAuthClient oauth,
+        Configuration configuration,
+        IReadOnlyList<string> providerIds,
+        UserSession session,
+        TextReader input,
+        TextWriter output,
+        TextWriter error) =>
+        new(
+            client,
+            credentials,
+            oauth,
+            configuration,
+            providerIds,
+            session.Id,
+            session.Model,
+            session.Mode,
+            input,
+            output,
+            error);
 }

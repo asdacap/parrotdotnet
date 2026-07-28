@@ -11,7 +11,6 @@ internal sealed class CliLifecycleDriver : IDisposable
     private readonly bool _enhanced;
     private readonly SynchronizedStringWriter _output = new();
     private readonly SynchronizedStringWriter _error = new();
-    private readonly HttpClient _http = new();
 
     public CliLifecycleDriver(bool enhanced)
     {
@@ -26,6 +25,8 @@ internal sealed class CliLifecycleDriver : IDisposable
     public CancellationTokenSource Stopping { get; } = new();
 
     public Interrupts Interrupts { get; }
+
+    public HttpClient Http { get; } = new();
 
     public async Task OutputContains(string text, CancellationToken cancellationToken)
     {
@@ -51,41 +52,29 @@ internal sealed class CliLifecycleDriver : IDisposable
         }
     }
 
-    public EnhancedCli CreateEnhancedCli() =>
-        CreateEnhancedCli(new TestTerminal(Input, _output, _error, 80));
-
-    public EnhancedCli CreateEnhancedCli(ITerminal terminal)
-    {
-        var client = new GeneratedParrot.ParrotClient(Invoker);
-        return new EnhancedCli(
-            client,
-            new SlashCommandRegistry([new ExitCommand()]),
-            Interrupts,
-            new EnhancedChatRequest(
-                new() { Model = "provider/model", Mode = "build" },
-                string.Empty),
-            new EnhancedSlashContextFactory(
-                client,
-                new UnusedCredentials(),
-                new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-                new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
-                ["provider"],
-                terminal),
-            terminal);
-    }
-
     public Task<int> Drive(CancellationToken cancellationToken)
     {
         var client = new GeneratedParrot.ParrotClient(Invoker);
 
         return _enhanced
-            ? CreateEnhancedCli().Run(cancellationToken)
+            ? new EnhancedCli(
+                client,
+                new SlashCommandRegistry([new ExitCommand()]),
+                Interrupts,
+                new EnhancedChatRequest(
+                    new() { Model = "provider/model", Mode = "build" },
+                    string.Empty),
+                new UnusedCredentials(),
+                new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+                new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+                ["provider"],
+                new TestTerminal(Input, _output, _error, 80)).Run(cancellationToken)
             : new BasicCli(
                 client,
                 new SlashCommandRegistry([new ExitCommand()]),
                 Interrupts,
                 new UnusedCredentials(),
-                new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+                new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
                 new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
                 ["provider"],
                 "provider/model",
@@ -102,7 +91,7 @@ internal sealed class CliLifecycleDriver : IDisposable
         Input.Dispose();
         _output.Dispose();
         _error.Dispose();
-        _http.Dispose();
+        Http.Dispose();
         Stopping.Dispose();
     }
 

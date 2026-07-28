@@ -1,6 +1,10 @@
 using System.Text.RegularExpressions;
+using Parrot.Auth;
+using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
+using Parrot.Config;
 using Parrot.Protocol;
+using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Tests;
 
@@ -133,7 +137,16 @@ internal sealed class EnhancedCliTests
 
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 80);
-        var completed = await driver.CreateEnhancedCli(terminal).RenderTurn(stream.Reader, cancellationToken);
+        var completed = await new EnhancedCli(
+            new GeneratedParrot.ParrotClient(driver.Invoker),
+            new SlashCommandRegistry([new ExitCommand()]),
+            driver.Interrupts,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            new UnusedCredentials(),
+            new OpenAiOAuthClient(driver.Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+            ["provider"],
+            terminal).RenderTurn(stream.Reader, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
@@ -177,8 +190,16 @@ internal sealed class EnhancedCliTests
 
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 80);
-        var completed = await driver.CreateEnhancedCli(terminal)
-            .RenderTurn(stream.Reader, cancellationToken, BeforeRender);
+        var completed = await new EnhancedCli(
+            new GeneratedParrot.ParrotClient(driver.Invoker),
+            new SlashCommandRegistry([new ExitCommand()]),
+            driver.Interrupts,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            new UnusedCredentials(),
+            new OpenAiOAuthClient(driver.Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+            ["provider"],
+            terminal).RenderTurn(stream.Reader, cancellationToken, BeforeRender);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))
@@ -310,7 +331,16 @@ internal sealed class EnhancedCliTests
         using var error = new StringWriter();
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 8);
-        var completed = await driver.CreateEnhancedCli(terminal).RenderTurn(stream.Reader, cancellationToken);
+        var completed = await new EnhancedCli(
+            new GeneratedParrot.ParrotClient(driver.Invoker),
+            new SlashCommandRegistry([new ExitCommand()]),
+            driver.Interrupts,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            new UnusedCredentials(),
+            new OpenAiOAuthClient(driver.Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+            ["provider"],
+            terminal).RenderTurn(stream.Reader, cancellationToken);
         return (completed, output.ToString(), error.ToString());
     }
 

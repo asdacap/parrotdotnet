@@ -30,7 +30,8 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
 
     public static UnixRawTerminal? Open()
     {
-        if (IsTerminal(StandardInput) != 1)
+        if (string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
+            || IsTerminal(StandardInput) != 1)
         {
             return null;
         }

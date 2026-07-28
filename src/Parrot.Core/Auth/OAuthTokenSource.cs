@@ -42,7 +42,7 @@ internal sealed class OAuthTokenSource(ICredentialStore store, IOAuthClient clie
 
         if (current.ExpiresAt > client.Now().Add(RefreshMargin))
         {
-            return Access(current);
+            return OAuthAccess.From(current);
         }
 
         Task<OAuthCredential> flight;
@@ -61,7 +61,7 @@ internal sealed class OAuthTokenSource(ICredentialStore store, IOAuthClient clie
 
                 if (latest.ExpiresAt > client.Now().Add(RefreshMargin))
                 {
-                    return Access(latest);
+                    return OAuthAccess.From(latest);
                 }
 
                 flight = RefreshAndStore(latest, cancellationToken);
@@ -73,11 +73,8 @@ internal sealed class OAuthTokenSource(ICredentialStore store, IOAuthClient clie
             _ = _gate.Release();
         }
 
-        return Access(await flight.ConfigureAwait(false));
+        return OAuthAccess.From(await flight.ConfigureAwait(false));
     }
-
-    private static OAuthAccess Access(OAuthCredential credential) =>
-        new(credential.AccessToken.Value, credential.AccountId);
 
     private async Task<OAuthCredential> RefreshAndStore(OAuthCredential current, CancellationToken cancellationToken)
     {

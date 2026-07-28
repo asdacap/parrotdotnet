@@ -28,11 +28,20 @@ internal sealed class ProcessRunner(string bubblewrapPath)
                 "bubblewrap is required; install bwrap and enable unprivileged user namespaces");
         }
 
-        using var process = new System.Diagnostics.Process
+        var startInfo = new ProcessStartInfo
         {
-            StartInfo = StartInfo(command, workingDirectory),
+            FileName = bubblewrapPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
         };
 
+        foreach (var argument in SandboxArguments(command, workingDirectory))
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
         _ = process.Start();
 
         var stdoutTask = ReadBounded(process.StandardOutput, blobDirectory);
@@ -159,7 +168,19 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         ReadOnlyMemory<char> firstOverflow,
         string path)
     {
-        await using var stream = new FileStream(path, TemporaryFileOptions());
+        var fileOptions = new FileStreamOptions
+        {
+            Access = FileAccess.Write,
+            Mode = FileMode.CreateNew,
+            Options = FileOptions.Asynchronous,
+        };
+
+        if (!OperatingSystem.IsWindows())
+        {
+            fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+
+        await using var stream = new FileStream(path, fileOptions);
         await using var writer = new StreamWriter(stream);
         await writer.WriteAsync(initial.ToString()).ConfigureAwait(false);
         await writer.WriteAsync(firstOverflow).ConfigureAwait(false);
@@ -176,23 +197,6 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
             await writer.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
         }
-    }
-
-    private static FileStreamOptions TemporaryFileOptions()
-    {
-        var options = new FileStreamOptions
-        {
-            Access = FileAccess.Write,
-            Mode = FileMode.CreateNew,
-            Options = FileOptions.Asynchronous,
-        };
-
-        if (!OperatingSystem.IsWindows())
-        {
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-
-        return options;
     }
 
     private static string TemporaryPath(string blobDirectory) =>
@@ -340,23 +344,5 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         }
 
         return string.Empty;
-    }
-
-    private ProcessStartInfo StartInfo(string command, string workingDirectory)
-    {
-        var start = new ProcessStartInfo
-        {
-            FileName = bubblewrapPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-
-        foreach (var argument in SandboxArguments(command, workingDirectory))
-        {
-            start.ArgumentList.Add(argument);
-        }
-
-        return start;
     }
 }

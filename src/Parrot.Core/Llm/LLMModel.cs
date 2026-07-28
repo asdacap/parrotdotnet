@@ -14,4 +14,19 @@ internal sealed record LLMModel(string Id, string ProviderId)
     public double OutputPrice { get; init; }
 
     public ModelCapabilities Capabilities { get; init; } = ModelCapabilities.None;
+
+    public static LLMModel Create(
+        string id,
+        string providerId,
+        string name,
+        int contextWindow,
+        int maxOutputTokens,
+        ModelCapabilities capabilities) =>
+        new(id, providerId)
+        {
+            Name = name,
+            ContextWindow = contextWindow,
+            MaxOutputTokens = maxOutputTokens,
+            Capabilities = capabilities,
+        };
 }

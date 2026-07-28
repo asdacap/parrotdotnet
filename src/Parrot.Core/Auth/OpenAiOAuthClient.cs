@@ -154,7 +154,7 @@ internal sealed class OpenAiOAuthClient(HttpClient client, IBrowserOpener browse
         };
 
         var tokens = await TokenRequest(form, cancellationToken).ConfigureAwait(false);
-        return BuildCredential(tokens, current.AccountId);
+        return Credential(tokens, current.AccountId);
     }
 
     public async Task<DeviceAuthorization> StartDeviceAuthorization(CancellationToken cancellationToken)
@@ -408,7 +408,7 @@ internal sealed class OpenAiOAuthClient(HttpClient client, IBrowserOpener browse
         };
 
         var tokens = await TokenRequest(form, cancellationToken).ConfigureAwait(false);
-        return BuildCredential(tokens, string.Empty);
+        return Credential(tokens, string.Empty);
     }
 
     // Returns null while the authorization is still pending.
@@ -478,7 +478,7 @@ internal sealed class OpenAiOAuthClient(HttpClient client, IBrowserOpener browse
         return new TokenResponse(ReadString(root, "id_token"), access, refresh, ReadLong(root, "expires_in"));
     }
 
-    private OAuthCredential BuildCredential(TokenResponse tokens, string fallbackAccount)
+    private OAuthCredential Credential(TokenResponse tokens, string fallbackAccount)
     {
         var expires = tokens.ExpiresIn > 0 ? tokens.ExpiresIn : 3600;
         var account = ExtractAccountId(tokens.IdToken);
@@ -493,13 +493,7 @@ internal sealed class OpenAiOAuthClient(HttpClient client, IBrowserOpener browse
             account = fallbackAccount;
         }
 
-        return new OAuthCredential
-        {
-            AccessToken = new Secret(tokens.AccessToken),
-            RefreshToken = new Secret(tokens.RefreshToken),
-            ExpiresAt = Now().AddSeconds(expires),
-            AccountId = account,
-        };
+        return OAuthCredential.Create(tokens.AccessToken, tokens.RefreshToken, Now().AddSeconds(expires), account);
     }
 
     private string Issuer() => options.Issuer.TrimEnd('/');

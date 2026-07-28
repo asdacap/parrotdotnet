@@ -1,6 +1,8 @@
 using System.Threading.Channels;
 using Grpc.Core;
+using Parrot.Auth;
 using Parrot.Cli.Commands;
+using Parrot.Config;
 using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -11,7 +13,10 @@ internal sealed class EnhancedCli(
     SlashCommandRegistry commands,
     Interrupts interrupts,
     EnhancedChatRequest request,
-    EnhancedSlashContextFactory contexts,
+    ICredentialStore credentials,
+    OpenAiOAuthClient oauthClient,
+    Configuration configuration,
+    IReadOnlyList<string> providerIds,
     ITerminal terminal) : IInterruptListener
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
@@ -43,7 +48,16 @@ internal sealed class EnhancedCli(
             return CommandDispatcher.ExitFailure;
         }
 
-        var context = contexts.Create(session);
+        var context = SlashContext.Create(
+            client,
+            credentials,
+            oauthClient,
+            configuration,
+            providerIds,
+            session,
+            terminal.Input,
+            terminal.Output,
+            terminal.Error);
 
         return await Loop(context, text, terminal.Output, text.Length > 0, cancellationToken).ConfigureAwait(false);
     }

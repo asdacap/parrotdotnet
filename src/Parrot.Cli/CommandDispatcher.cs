@@ -138,7 +138,12 @@ internal static class CommandDispatcher
             try
             {
                 await AuthFlows
-                    .OAuthLogin(OAuthClient(), store, arguments.Contains("--device"), output, cancellationToken)
+                    .OAuthLogin(
+                        new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
+                        store,
+                        arguments.Contains("--device"),
+                        output,
+                        cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (AuthException failure)
@@ -195,7 +200,7 @@ internal static class CommandDispatcher
             return ExitFailure;
         }
 
-        var listed = await ClientFor(composition.Service)
+        var listed = await new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service))
             .ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
 
         foreach (var model in listed.Models)
@@ -238,8 +243,6 @@ internal static class CommandDispatcher
             return null;
         }
     }
-
-    private static OpenAiOAuthClient OAuthClient() => new(Http, Browser, new OpenAiOAuthOptions());
 
     private static async Task<int> Serve(
         IReadOnlyList<string> arguments,
@@ -333,11 +336,6 @@ internal static class CommandDispatcher
         }
     }
 
-    // Local mode opens no socket: the generated client reaches the service
-    // through the in-process invoker.
-    private static GeneratedParrot.ParrotClient ClientFor(ParrotService service) =>
-        new(new InProcessCallInvoker(service));
-
     private static async Task<int> Chat(
         IReadOnlyList<string> arguments,
         Interrupts interrupts,
@@ -402,7 +400,7 @@ internal static class CommandDispatcher
                     BuildRegistry(model),
                     interrupts,
                     remoteCredentials,
-                    OAuthClient(),
+                    new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
                     configuration,
                     remoteProviderIds,
                     model,
@@ -415,7 +413,7 @@ internal static class CommandDispatcher
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
 
-            using var remoteRawTerminal = OpenRawTerminal();
+            using var remoteRawTerminal = UnixRawTerminal.Open();
             if (remoteRawTerminal is null)
             {
                 var cli = new BasicCli(
@@ -423,7 +421,7 @@ internal static class CommandDispatcher
                     BuildRegistry(model),
                     interrupts,
                     remoteCredentials,
-                    OAuthClient(),
+                    new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
                     configuration,
                     remoteProviderIds,
                     model,
@@ -442,7 +440,7 @@ internal static class CommandDispatcher
                 BuildRegistry(model),
                 interrupts,
                 remoteCredentials,
-                OAuthClient(),
+                new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
                 configuration,
                 remoteProviderIds,
                 new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
@@ -459,7 +457,7 @@ internal static class CommandDispatcher
             return ExitFailure;
         }
 
-        var client = ClientFor(composition.Service);
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service));
         var providerIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
 
         if (basic || Console.IsOutputRedirected)
@@ -469,7 +467,7 @@ internal static class CommandDispatcher
                 BuildRegistry(model),
                 interrupts,
                 credentials,
-                OAuthClient(),
+                new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
                 configuration,
                 providerIds,
                 model,
@@ -482,7 +480,7 @@ internal static class CommandDispatcher
             return await cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
-        using var rawTerminal = OpenRawTerminal();
+        using var rawTerminal = UnixRawTerminal.Open();
         if (rawTerminal is null)
         {
             var cli = new BasicCli(
@@ -490,7 +488,7 @@ internal static class CommandDispatcher
                 BuildRegistry(model),
                 interrupts,
                 credentials,
-                OAuthClient(),
+                new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
                 configuration,
                 providerIds,
                 model,
@@ -509,16 +507,11 @@ internal static class CommandDispatcher
             BuildRegistry(model),
             interrupts,
             credentials,
-            OAuthClient(),
+            new OpenAiOAuthClient(Http, Browser, new OpenAiOAuthOptions()),
             configuration,
             providerIds,
             new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
             terminal);
         return await enhancedChat.Cli.Run(cancellationToken).ConfigureAwait(false);
     }
-
-    private static UnixRawTerminal? OpenRawTerminal() =>
-        string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal)
-            ? null
-            : UnixRawTerminal.Open();
 }

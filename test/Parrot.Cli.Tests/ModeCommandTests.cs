@@ -16,7 +16,18 @@ internal sealed class ModeCommandTests : IDisposable
     public async Task Mode_commands_and_clear_use_the_protocol_contract(CancellationToken cancellationToken)
     {
         var invoker = new ScriptedInvoker();
-        var context = Context(invoker, "query");
+        var context = new SlashContext(
+            new GeneratedParrot.ParrotClient(invoker),
+            new UnusedCredentials(),
+            new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-mode-command-tests.yaml")),
+            [],
+            "user-session",
+            "provider/model",
+            "query",
+            _input,
+            _output,
+            _error);
 
         _ = await new ModeCommand().Run(context, "plan", cancellationToken);
         _ = await Assert.That(context.Mode).IsEqualTo("plan");
@@ -41,18 +52,4 @@ internal sealed class ModeCommandTests : IDisposable
         _error.Dispose();
         _http.Dispose();
     }
-
-    private SlashContext Context(ScriptedInvoker invoker, string mode) =>
-        new(
-            new GeneratedParrot.ParrotClient(invoker),
-            new UnusedCredentials(),
-            new OpenAiOAuthClient(_http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-mode-command-tests.yaml")),
-            [],
-            "user-session",
-            "provider/model",
-            mode,
-            _input,
-            _output,
-            _error);
 }

@@ -78,7 +78,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
 
         _ = _userSessions.TryAdd(created.Id, created);
 
-        return Task.FromResult(Describe(created));
+        return Task.FromResult(UserSession.From(created));
     }
 
     public override Task<UserSession> UpdateSession(UpdateSessionRequest request, ServerCallContext context)
@@ -116,7 +116,7 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
             selectedMode);
         store.Publish(found);
 
-        return Task.FromResult(Describe(found));
+        return Task.FromResult(UserSession.From(found));
     }
 
     public override async Task<SendMessageResponse> SendMessage(
@@ -212,9 +212,6 @@ internal sealed class ParrotService(ProviderRegistry registry, SessionStore stor
         var slash = selection.IndexOf('/', StringComparison.Ordinal);
         return slash < 0 ? (string.Empty, selection) : (selection[..slash], selection[(slash + 1)..]);
     }
-
-    private static UserSession Describe(Agent.UserSession session) =>
-        new() { Id = session.Id, Model = $"{session.ProviderId}/{session.Model}", Mode = session.Mode.Id };
 
     private Agent.UserSession Find(string userSessionId) =>
         _userSessions.TryGetValue(userSessionId, out var found)

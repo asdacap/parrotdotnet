@@ -307,7 +307,7 @@ internal sealed class AgentSession(
 
     internal Event Translate(LLMEvent llmEvent)
     {
-        var published = NewEvent();
+        var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
 
         switch (llmEvent.Kind)
         {
@@ -414,11 +414,15 @@ internal sealed class AgentSession(
         await Task.Yield();
 
         AgentExecution completed;
-        var started = NewEvent();
-        started.AgentStarted = new AgentStarted
+        var started = new Event
         {
-            ParentAgentSessionId = identity.ParentSessionId,
-            Name = Name,
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            AgentStarted = new AgentStarted
+            {
+                ParentAgentSessionId = identity.ParentSessionId,
+                Name = Name,
+            },
         };
 
         try
@@ -432,7 +436,7 @@ internal sealed class AgentSession(
             completed = AgentExecution.Failed(BoundResult(failure.Message));
         }
 
-        var terminal = NewEvent();
+        var terminal = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
         if (completed.Status == AgentExecutionStatus.Succeeded)
         {
             terminal.AgentFinished = new AgentFinished
@@ -466,7 +470,23 @@ internal sealed class AgentSession(
     private async Task<(Admission Admission, bool FollowUp)> AdmitAndWake(
         string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
     {
-        var admission = eventRepository.Admit(SessionId, messageId, text, delivery, Announce);
+        var admission = eventRepository.Admit(
+            SessionId,
+            messageId,
+            text,
+            delivery,
+            input => new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                InputAdmitted = new InputAdmitted
+                {
+                    InputId = input.Id,
+                    MessageId = input.MessageId,
+                    Content = input.Content,
+                    Delivery = input.Delivery,
+                },
+            });
 
         // Only a real admission has an event; a re-send of one already taken
         // has nothing new to publish, but still wakes, because the sender
@@ -575,8 +595,12 @@ internal sealed class AgentSession(
                     activeSelection = Selection();
                     activeSelection.Mode?.Prepare();
                     turnOpen = true;
-                    var started = NewEvent();
-                    started.TurnStarted = new TurnStarted { Model = activeSelection.Model };
+                    var started = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        TurnStarted = new TurnStarted { Model = activeSelection.Model },
+                    };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
                 }
@@ -621,12 +645,16 @@ internal sealed class AgentSession(
                 _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
                 answer = completed.AssistantText;
 
-                var ended = NewEvent();
-                ended.TurnEnded = new TurnEnded
+                var ended = new Event
                 {
-                    FinishReason = completed.FinishReason,
-                    InputTokens = completed.InputTokens,
-                    OutputTokens = completed.OutputTokens,
+                    Id = Identifier.EventId(),
+                    AgentSessionId = SessionId,
+                    TurnEnded = new TurnEnded
+                    {
+                        FinishReason = completed.FinishReason,
+                        InputTokens = completed.InputTokens,
+                        OutputTokens = completed.OutputTokens,
+                    },
                 };
                 await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
                     .ConfigureAwait(false);
@@ -646,8 +674,12 @@ internal sealed class AgentSession(
             {
                 _history.Add(LLMMessage.Assistant(InterruptedNote, []));
 
-                var ended = NewEvent();
-                ended.TurnEnded = new TurnEnded { FinishReason = InterruptedFinish };
+                var ended = new Event
+                {
+                    Id = Identifier.EventId(),
+                    AgentSessionId = SessionId,
+                    TurnEnded = new TurnEnded { FinishReason = InterruptedFinish },
+                };
                 await EmitEvent(ended, "assistant", InterruptedNote, CancellationToken.None)
                     .ConfigureAwait(false);
             }
@@ -669,11 +701,25 @@ internal sealed class AgentSession(
     // makes it a turn of its own rather than a second voice in this one.
     private async Task<int> Promote(CancellationToken cancellationToken)
     {
-        var promoted = eventRepository.PromoteSteers(SessionId, Promoted);
+        var promoted = eventRepository.PromoteSteers(
+            SessionId,
+            input => new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                InputPromoted = new InputPromoted { InputId = input.Id, MessageId = input.MessageId },
+            });
 
         if (promoted.Count == 0 && !Answerable())
         {
-            promoted = eventRepository.PromoteNextQueue(SessionId, Promoted);
+            promoted = eventRepository.PromoteNextQueue(
+                SessionId,
+                input => new Event
+                {
+                    Id = Identifier.EventId(),
+                    AgentSessionId = SessionId,
+                    InputPromoted = new InputPromoted { InputId = input.Id, MessageId = input.MessageId },
+                });
         }
 
         foreach (var promotion in promoted)
@@ -779,8 +825,12 @@ internal sealed class AgentSession(
             }
 
             var content = await status.Observe(this, selection, mode, cancellationToken).ConfigureAwait(false);
-            var published = NewEvent();
-            published.StatusInjected = new StatusInjected();
+            var published = new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                StatusInjected = new StatusInjected(),
+            };
             if (!eventRepository.AppendStatusPrompt(published, pending, content))
             {
                 selection = Selection();
@@ -831,7 +881,12 @@ internal sealed class AgentSession(
     private async Task<string> Invoke(
         ToolSnapshot snapshot, LLMToolCall call, CancellationToken cancellationToken)
     {
-        var started = NewEvent(new ToolStarted { ToolCallId = call.Id, ToolName = call.Name });
+        var started = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            ToolStarted = new ToolStarted { ToolCallId = call.Id, ToolName = call.Name },
+        };
         await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
 
         var tool = snapshot.Find(call.Name);
@@ -845,7 +900,12 @@ internal sealed class AgentSession(
         try
         {
             var result = await tool.Execute(call.ArgumentsJson, cancellationToken).ConfigureAwait(false);
-            var finished = NewEvent(new ToolFinished { ToolCallId = call.Id, ToolName = call.Name });
+            var finished = new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                ToolFinished = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name },
+            };
             await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
             return result;
         }
@@ -863,21 +923,34 @@ internal sealed class AgentSession(
 
     private async Task EmitToolCancelled(LLMToolCall call)
     {
-        var cancelled = NewEvent(new ToolCancelled { ToolCallId = call.Id, ToolName = call.Name });
+        var cancelled = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            ToolCancelled = new ToolCancelled { ToolCallId = call.Id, ToolName = call.Name },
+        };
         await EmitEvent(cancelled, null, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task EmitToolError(LLMToolCall call, string message)
     {
-        var failed = NewEvent(
-            new ToolError { ToolCallId = call.Id, ToolName = call.Name, Message = message });
+        var failed = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            ToolError = new ToolError { ToolCallId = call.Id, ToolName = call.Name, Message = message },
+        };
         await EmitEvent(failed, null, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task Fail(string message, CancellationToken cancellationToken)
     {
-        var failed = NewEvent();
-        failed.TurnFailed = new TurnFailed { Message = message };
+        var failed = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            TurnFailed = new TurnFailed { Message = message },
+        };
         await EmitEvent(failed, null, null, cancellationToken).ConfigureAwait(false);
     }
 
@@ -893,46 +966,4 @@ internal sealed class AgentSession(
         eventRepository.Append(published, role, content);
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
     }
-
-    // The two shapes an input takes on the stream. Composed here rather than in
-    // the repository because the repository owns the transaction, not what the
-    // session says about itself.
-    private Event Announce(AdmittedInput input)
-    {
-        var published = NewEvent();
-
-        published.InputAdmitted = new InputAdmitted
-        {
-            InputId = input.Id,
-            MessageId = input.MessageId,
-            Content = input.Content,
-            Delivery = input.Delivery,
-        };
-
-        return published;
-    }
-
-    private Event Promoted(AdmittedInput input)
-    {
-        var published = NewEvent();
-
-        published.InputPromoted = new InputPromoted { InputId = input.Id, MessageId = input.MessageId };
-
-        return published;
-    }
-
-    private Event NewEvent() =>
-        new() { Id = Identifier.EventId(), AgentSessionId = SessionId };
-
-    private Event NewEvent(ToolStarted payload) =>
-        new() { Id = Identifier.EventId(), AgentSessionId = SessionId, ToolStarted = payload };
-
-    private Event NewEvent(ToolFinished payload) =>
-        new() { Id = Identifier.EventId(), AgentSessionId = SessionId, ToolFinished = payload };
-
-    private Event NewEvent(ToolCancelled payload) =>
-        new() { Id = Identifier.EventId(), AgentSessionId = SessionId, ToolCancelled = payload };
-
-    private Event NewEvent(ToolError payload) =>
-        new() { Id = Identifier.EventId(), AgentSessionId = SessionId, ToolError = payload };
 }

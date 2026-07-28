@@ -63,8 +63,10 @@ internal sealed class WebFetcher(
         }
     }
 
-    private SocketsHttpHandler Handler(ConcurrentDictionary<string, IPAddress[]> pins) =>
-        new()
+    private async Task<WebFetchResult> FetchCore(Uri address, HttpMethod method, CancellationToken cancellationToken)
+    {
+        var pins = new ConcurrentDictionary<string, IPAddress[]>(StringComparer.OrdinalIgnoreCase);
+        using var handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = false,
             AutomaticDecompression = DecompressionMethods.None,
@@ -74,11 +76,6 @@ internal sealed class WebFetcher(
             SslOptions = new SslClientAuthenticationOptions(),
             UseProxy = false,
         };
-
-    private async Task<WebFetchResult> FetchCore(Uri address, HttpMethod method, CancellationToken cancellationToken)
-    {
-        var pins = new ConcurrentDictionary<string, IPAddress[]>(StringComparer.OrdinalIgnoreCase);
-        using var handler = Handler(pins);
         using var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
         var current = address;
 
