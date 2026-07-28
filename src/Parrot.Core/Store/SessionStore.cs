@@ -31,25 +31,33 @@ internal sealed class SessionStore(
         var id = claimed.Disposition == ClaimDisposition.Live ? Identifier.UserSession() : claimed.SessionId;
 
         var existing = Index.Find(id);
-        var names = new RootAgentNameStore(
-            stateDirectory,
-            hostKey,
-            Environment.ProcessId,
-            ProcessIsAlive,
-            Index);
-        var reserved = names.Reserve(id, existing?.RootAgentName ?? string.Empty);
+        var rootAgentName = existing?.RootAgentName;
+
+        if (string.IsNullOrEmpty(rootAgentName))
+        {
+            var names = Index.List()
+                .Select(meta => meta.RootAgentName)
+                .ToHashSet(StringComparer.Ordinal);
+            rootAgentName = "main";
+
+            for (var suffix = 2; !names.Add(rootAgentName); suffix++)
+            {
+                rootAgentName = $"main-{suffix}";
+            }
+        }
+
         SessionDatabase? database = null;
 
         try
         {
             database = SessionDatabase.Open(Index.DatabaseFor(id));
-            var session = userSessions.Create(id, reserved.RootAgentName, model, mode, new EventRepository(database));
+            var session = userSessions.Create(id, rootAgentName, model, mode, new EventRepository(database));
             Index.Publish(new SessionMeta
             {
                 Id = id,
                 WorkingDirectory = workingDirectory,
                 HostKey = hostKey,
-                RootAgentName = reserved.RootAgentName,
+                RootAgentName = rootAgentName,
                 ProviderId = session.ProviderId,
                 Model = session.Model,
                 Mode = session.Mode.Id,
@@ -63,7 +71,6 @@ internal sealed class SessionStore(
         catch
         {
             database?.Dispose();
-            names.Release(reserved);
             throw;
         }
     }

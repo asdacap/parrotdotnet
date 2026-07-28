@@ -27,6 +27,7 @@ internal sealed class SessionStoreTests : IDisposable
         var legacyWork = Path.Combine(_root, "legacy-work");
         var index = new SessionIndex(_root);
         index.Publish(Meta(namedId, "main", namedWork, "2026-07-27T01:00:00Z"));
+        index.Publish(Meta("user-session-other", "main-2", "/other-work", "2026-07-27T01:30:00Z"));
         index.Publish(Meta(legacyId, string.Empty, legacyWork, "2026-07-27T02:00:00Z"));
         PublishOwner(namedWork, namedId);
         PublishOwner(legacyWork, legacyId);
@@ -43,13 +44,13 @@ internal sealed class SessionStoreTests : IDisposable
         using (legacyStore)
         await using (legacy)
         {
-            _ = await Assert.That(index.Find(legacyId)?.RootAgentName).IsEqualTo("main-2");
+            _ = await Assert.That(index.Find(legacyId)?.RootAgentName).IsEqualTo("main-3");
             _ = await Assert.That(index.Find(legacyId)?.CreatedAt).IsEqualTo("2026-07-27T02:00:00Z");
         }
     }
 
     [Test]
-    public async Task Failed_session_construction_releases_its_unpublished_root_agent_name()
+    public async Task Failed_session_construction_does_not_consume_a_root_agent_name()
     {
         using (var failing = new SessionStore(
             _root,
