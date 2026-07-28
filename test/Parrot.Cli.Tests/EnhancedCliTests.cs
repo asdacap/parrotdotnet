@@ -13,6 +13,48 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedCliTests
 {
     [Test]
+    [Arguments("\u001b")]
+    [Arguments("\u0003")]
+    public async Task Interrupt_keys_preserve_draft_input(string key, CancellationToken cancellationToken)
+    {
+        using var terminal = new ScriptedTerminal(80);
+        using var stopping = new CancellationTokenSource();
+        using var http = new HttpClient();
+        var invoker = new ScriptedInvoker();
+        var cli = new EnhancedCli(
+            new GeneratedParrot.ParrotClient(invoker),
+            new Interrupts(stopping),
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            new UnusedCredentials(),
+            new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+            ["provider"],
+            terminal,
+            Presenters());
+        var running = cli.Run(cancellationToken);
+
+        terminal.Type("first prompt\r");
+        await Sent(invoker, 1, cancellationToken);
+        terminal.Type("draft prompt");
+        terminal.Type(key);
+        terminal.Tick();
+
+        while (invoker.Interrupts < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        _ = await Assert.That(stopping.IsCancellationRequested).IsFalse();
+        terminal.Type("\r");
+        await Sent(invoker, 2, cancellationToken);
+        terminal.End();
+        _ = await running;
+
+        _ = await Assert.That(invoker.Interrupts).IsEqualTo(1);
+        _ = await Assert.That(string.Join('|', invoker.Sent)).IsEqualTo("first prompt|draft prompt");
+    }
+
+    [Test]
     public async Task Plan_completion_renders_markdown_and_approves_with_picker(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
@@ -855,6 +897,14 @@ internal sealed class EnhancedCliTests
     }
 
     private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
+
+    private static async Task Sent(ScriptedInvoker invoker, int count, CancellationToken cancellationToken)
+    {
+        while (invoker.Sent.Count < count)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+    }
 
     private static bool UntrustedEscape(string output)
     {

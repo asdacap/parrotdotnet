@@ -505,17 +505,9 @@ internal sealed class EnhancedCli(
                 }
 
                 var key = await keyTask.ConfigureAwait(false);
-                if (key.Kind == TerminalKeyKind.Interrupt)
+                if (key.Kind is TerminalKeyKind.Escape or TerminalKeyKind.Interrupt)
                 {
-                    if (!editor.IsEmpty)
-                    {
-                        editor.Clear();
-                        await DrawPrompt(cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        _ = Interrupted();
-                    }
+                    _ = Interrupted();
                 }
                 else if (key.Kind == TerminalKeyKind.EndOfFile && editor.IsEmpty)
                 {
