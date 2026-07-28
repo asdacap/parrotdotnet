@@ -375,12 +375,14 @@ internal sealed class TerminalFrameRenderer(
             }
         }
 
-        for (var row = frame.Lines.Count; row < previousHeight; row++)
+        var removedRows = previousHeight - frame.Lines.Count;
+        if (removedRows > 0)
         {
-            await output.WriteAsync("\u001b[B\r\u001b[2K".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteAsync($"\u001b[B\r\u001b[{removedRows}M".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        var currentRow = Math.Max(previousHeight, frame.Lines.Count) - 1;
+        var currentRow = removedRows > 0 ? frame.Lines.Count : frame.Lines.Count - 1;
         if (currentRow > frame.Caret.Row)
         {
             await output.WriteAsync($"\u001b[{currentRow - frame.Caret.Row}A".AsMemory(), cancellationToken)
