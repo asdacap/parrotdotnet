@@ -34,7 +34,6 @@ internal sealed class AgentSessionFactory(
             new GlobToolFactory(_workspace),
             new GrepToolFactory(_workspace),
             new ApplyPatchToolFactory(workingDirectory),
-            new GitDiffToolFactory(workingDirectory),
             new WebFetchToolFactory(webFetcher),
             new AgentSpawnToolFactory(owner.Registry),
             new AgentSendToolFactory(owner.Registry),

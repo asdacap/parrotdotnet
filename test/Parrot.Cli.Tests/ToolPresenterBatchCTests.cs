@@ -11,7 +11,6 @@ internal sealed class ToolPresenterBatchCTests
 
     public static IEnumerable<object[]> Presenters()
     {
-        yield return [new GitDiffToolPresenter(), "{\"target\":\"base\",\"ref\":\"origin/main\"}", "main: git diff base origin/main"];
         yield return [new GlobToolPresenter(), "{\"pattern\":\"src/**/*.cs\"}", "main: glob \"src/**/*.cs\""];
         yield return [new GrepToolPresenter(), "{\"pattern\":\"TODO\",\"path\":\"src\"}", "main: grep \"TODO\" in src"];
         yield return [new ReadToolPresenter(), "{\"path\":\"README.md\"}", "main: read README.md"];
@@ -20,7 +19,6 @@ internal sealed class ToolPresenterBatchCTests
 
     public static IEnumerable<object[]> PresenterInstances()
     {
-        yield return [new GitDiffToolPresenter()];
         yield return [new GlobToolPresenter()];
         yield return [new GrepToolPresenter()];
         yield return [new ReadToolPresenter()];

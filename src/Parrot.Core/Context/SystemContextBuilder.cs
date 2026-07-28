@@ -16,8 +16,8 @@ internal sealed class SystemContextBuilder(
 {
     private const string BasePrompt =
         "You are parrot, a coding agent. You work in the user's project directory. "
-        + "Prefer read, glob, and grep for inspection; apply_patch for edits; git_diff for review; "
-        + "and exec_command only for shell commands. Filesystem access is determined by the active "
+        + "Prefer read, glob, and grep for inspection; apply_patch for edits; and exec_command only "
+        + "for shell commands. Filesystem access is determined by the active "
         + "security policy. Prefer small, verifiable steps.";
 
     public string Build()

@@ -26,7 +26,6 @@ internal partial class EnhancedComposition
                     new AgentSpawnToolPresenter(),
                     new ApplyPatchToolPresenter(),
                     new ExecCommandToolPresenter(),
-                    new GitDiffToolPresenter(),
                     new GlobToolPresenter(),
                     new GrepToolPresenter(),
                     new InterruptProcessToolPresenter(),
