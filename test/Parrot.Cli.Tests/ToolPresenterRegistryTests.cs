@@ -60,8 +60,8 @@ internal sealed class ToolPresenterRegistryTests
         var boundedLabel = new ToolLiveValue(new string('界', 8_000), [], 0)
             .Render(LiveContext).Lines[0].Text;
 
-        _ = await Assert.That(scrollback.Count).IsEqualTo(11);
-        _ = await Assert.That(scrollback[0]).IsEqualTo("! safe[31m");
+        _ = await Assert.That(scrollback.Count).IsEqualTo(10);
+        _ = await Assert.That(scrollback[0]).IsEqualTo("✗ safe[31m");
         _ = await Assert.That(scrollback[^1]).IsEqualTo("  … display truncated");
         _ = await Assert.That(string.Join('|', scrollback)).DoesNotContain('\u001b');
         _ = await Assert.That(large[^1]).IsEqualTo("  … display truncated");
@@ -70,6 +70,52 @@ internal sealed class ToolPresenterRegistryTests
         _ = await Assert.That(live[1]).IsEqualTo("  detail[2J");
         _ = await Assert.That(Encoding.UTF8.GetByteCount(boundedLabel)).IsLessThanOrEqualTo(1_032);
         _ = await Assert.That(boundedLabel).EndsWith("…");
+        _ = await Assert.That(new ToolScrollbackValue(
+            "wrap",
+            [new string('x', 100)],
+            ToolTerminalStatus.Succeeded).Render(new ScrollbackRenderContext(4, new TerminalPalette(false))).Count)
+            .IsLessThanOrEqualTo(10);
+    }
+
+    [Test]
+    public async Task Reports_expose_semantic_blocks_and_presenter_metadata()
+    {
+        var patch = new ApplyPatchToolPresenter().PresentTerminal(
+            new ToolCallPresentation("main", "apply_patch", "{\"patchText\":\"file.cs\\n-old\\n+new\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Applied patch", string.Empty));
+        var spawn = new AgentSpawnToolPresenter().PresentTerminal(
+            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"ship it\",\"name\":\"worker\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty));
+        var read = new ReadToolPresenter().PresentTerminal(
+            new ToolCallPresentation("main", "read", "{\"path\":\"src/App.cs\",\"offset\":12}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "12: class App", string.Empty));
+        var todos = new TodoReadToolPresenter().PresentTerminal(
+            new ToolCallPresentation("main", "todoread", "{}"),
+            new ToolTerminalPresentation(
+                ToolTerminalStatus.Succeeded,
+                true,
+                "[{\"content\":\"ship it\",\"status\":\"in_progress\"}]",
+                string.Empty));
+        var wait = new WaitAgentToolPresenter();
+
+        var patchReport = ((IToolPresentationValue)(patch
+            ?? throw new InvalidOperationException("Patch report missing."))).Report;
+        var spawnReport = ((IToolPresentationValue)(spawn
+            ?? throw new InvalidOperationException("Spawn report missing."))).Report;
+        var readReport = ((IToolPresentationValue)read).Report;
+        var todoReport = ((IToolPresentationValue)todos).Report;
+
+        _ = await Assert.That(patchReport.Block.Kind).IsEqualTo(ToolBlockKind.Diff);
+        _ = await Assert.That(spawnReport.Block.Kind).IsEqualTo(ToolBlockKind.CompletedInput);
+        _ = await Assert.That(readReport.Block.Kind).IsEqualTo(ToolBlockKind.Code);
+        _ = await Assert.That(readReport.Block.Language).IsEqualTo("csharp");
+        _ = await Assert.That(readReport.Block.Path).IsEqualTo("src/App.cs");
+        _ = await Assert.That(readReport.Block.Line).IsEqualTo(12);
+        _ = await Assert.That(todoReport.Block.Kind).IsEqualTo(ToolBlockKind.Todos);
+        _ = await Assert.That(spawnReport.Metadata.SuccessIcon).IsEqualTo("♟");
+        _ = await Assert.That(spawnReport.Metadata.TerminalOnly).IsTrue();
+        _ = await Assert.That(wait.Metadata.LiveOnly).IsTrue();
+        _ = await Assert.That(wait.Metadata.Modeline).IsTrue();
     }
 
     private sealed class LiveOnlyToolPresenter : IToolPresenter

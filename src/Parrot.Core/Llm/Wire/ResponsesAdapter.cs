@@ -6,8 +6,7 @@ using System.Text.Json.Serialization;
 namespace Parrot.Llm.Wire;
 
 // Adapts the OpenAI Responses API wire protocol to the neutral LLMEvent stream.
-// Port of Go's protocol/responses. Reasoning-summary and reasoning-text deltas
-// both fold onto ReasoningDelta; the terminal Completed event carries the
+// Port of Go's protocol/responses. The terminal Completed event carries the
 // assembled assistant text and tool calls.
 internal static class ResponsesAdapter
 {
@@ -156,12 +155,20 @@ internal static class ResponsesAdapter
             case "response.reasoning_summary_text.delta":
             case "response.reasoning_text.delta":
             case "response.output_text.annotation.added":
+            case "response.reasoning_summary_text.done":
+            case "response.reasoning_text.done":
             {
                 var delta = ReadString(root, "delta");
+                var completed = type.EndsWith(".done", StringComparison.Ordinal);
+                var reasoningKind = type is "response.reasoning_summary_text.delta"
+                    or "response.reasoning_summary_text.done"
+                    ? LLMReasoningKind.Summary
+                    : LLMReasoningKind.Raw;
 
-                if (delta.Length > 0)
+                if (delta.Length > 0 || completed)
                 {
-                    yield return LLMEvent.ReasoningDelta(delta);
+                    yield return LLMEvent.ReasoningDelta(
+                        delta, reasoningKind, ReadReasoningPartId(root, type), completed);
                 }
 
                 break;
@@ -312,6 +319,30 @@ internal static class ResponsesAdapter
         scope.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
             ? value.GetInt32()
             : 0;
+
+    private static string ReadReasoningPartId(JsonElement root, string type)
+    {
+        var itemId = ReadString(root, "item_id");
+        var indexName = type switch
+        {
+            "response.reasoning_summary_text.delta" or "response.reasoning_summary_text.done" => "summary_index",
+            "response.reasoning_text.delta" or "response.reasoning_text.done" => "content_index",
+            "response.output_text.annotation.added" => "annotation_index",
+            _ => string.Empty,
+        };
+        var index = indexName.Length > 0
+            && root.TryGetProperty(indexName, out var value)
+            && value.ValueKind == JsonValueKind.Number
+                ? value.GetRawText()
+                : string.Empty;
+
+        if (itemId.Length == 0)
+        {
+            return index;
+        }
+
+        return index.Length > 0 ? $"{itemId}:{index}" : itemId;
+    }
 
     private static int ReadCachedInputTokens(JsonElement usage) =>
         usage.TryGetProperty("input_tokens_details", out var details)

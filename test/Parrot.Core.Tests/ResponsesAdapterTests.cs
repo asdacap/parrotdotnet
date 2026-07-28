@@ -38,6 +38,12 @@ internal sealed class ResponsesAdapterTests
         const string stream = """
             data: {"type":"response.reasoning_summary_text.delta","item_id":"r","summary_index":0,"delta":"pondering"}
 
+            data: {"type":"response.reasoning_summary_text.done","item_id":"r","summary_index":0,"text":"pondering"}
+
+            data: {"type":"response.reasoning_text.delta","item_id":"raw","content_index":0,"delta":"raw thought"}
+
+            data: {"type":"response.output_text.annotation.added","item_id":"annotation","annotation_index":0,"delta":"citation"}
+
             data: {"type":"response.output_text.delta","delta":"hello"}
 
             data: {"type":"response.output_text.delta","delta":" world"}
@@ -51,7 +57,13 @@ internal sealed class ResponsesAdapterTests
 
         _ = await Assert.That(string.Concat(events.Where(e => e.Kind == LLMEventKind.TextDelta).Select(e => e.Text)))
             .IsEqualTo("hello world");
-        _ = await Assert.That(events.Count(e => e.Kind == LLMEventKind.ReasoningDelta)).IsEqualTo(1);
+        var reasoning = events.Where(e => e.Kind == LLMEventKind.ReasoningDelta).ToArray();
+        _ = await Assert.That(
+            string.Join(" | ", reasoning.Select(e =>
+                $"{e.ReasoningKind}:{e.ReasoningPartId}:{e.ReasoningCompleted}:{e.Text}")))
+            .IsEqualTo(
+                "Summary:r:0:False:pondering | Summary:r:0:True: | Raw:raw:0:False:raw thought | "
+                + "Raw:annotation:0:False:citation");
         _ = await Assert.That(completed.FinishReason).IsEqualTo("stop");
         _ = await Assert.That(completed.AssistantText).IsEqualTo("hello world");
         _ = await Assert.That(completed.InputTokens).IsEqualTo(7);

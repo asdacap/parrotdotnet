@@ -98,9 +98,8 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(output).Contains("  turn started: model");
         _ = await Assert.That(output).Contains("Status prompt injected");
         _ = await Assert.That(output).Contains("  queued: next[2J    line");
-        _ = await Assert.That(output).Contains("think]0;title\n");
-        _ = await Assert.That(output).Contains("abcdefgh\r\n");
-        _ = await Assert.That(output).Contains("ij\r\n");
+        _ = await Assert.That(output).DoesNotContain("think]0;title");
+        _ = await Assert.That(output).Contains("● abcdef\r\n  ghij\r\n");
         _ = await Assert.That(output).Contains("  tool call unrendered:");
         _ = await Assert.That(output).Contains("  * shell[31m started");
         _ = await Assert.That(output).Contains("  + shell[31m finished");
@@ -109,9 +108,9 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(output).Contains("  * agent explorer[31m started");
         _ = await Assert.That(output).Contains("  + agent explorer[31m finished");
         _ = await Assert.That(output).Contains("  ! agent reviewer[31m: boom[2J");
-        _ = await Assert.That(output).Contains("tail\r\n");
+        _ = await Assert.That(output).Contains("● tail\r\n");
         _ = await Assert.That(output).Contains("  stop[2J - 3 total in / 4 total out");
-        _ = await Assert.That(Count(output, "abcdefgh\r\n")).IsEqualTo(1);
+        _ = await Assert.That(Count(output, "● abcdef\r\n")).IsEqualTo(1);
         _ = await Assert.That(UntrustedEscape(output)).IsFalse();
         _ = await Assert.That(output).DoesNotContain("\u001b[?1049");
     }
@@ -239,6 +238,14 @@ internal sealed class EnhancedCliTests
         await view.Render(
             new Event
             {
+                AgentSessionId = "main-session",
+                TurnStarted = new TurnStarted { Model = "model" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "main-session",
                 ToolCallChunk = new ToolCallChunk
                 {
                     ToolCallId = "call-1",
@@ -250,6 +257,7 @@ internal sealed class EnhancedCliTests
         await view.Render(
             new Event
             {
+                AgentSessionId = "main-session",
                 ToolFinished = new ToolFinished
                 {
                     ToolCallId = "call-1",
@@ -260,9 +268,8 @@ internal sealed class EnhancedCliTests
             cancellationToken);
 
         var rendered = output.ToString();
-        _ = await Assert.That(Count(rendered, "+ main: $ dotnet test\r\n")).IsEqualTo(1);
-        _ = await Assert.That(Count(rendered, "  dotnet test\r\n")).IsEqualTo(1);
-        _ = await Assert.That(rendered).Contains("  Process exited with code 0\r\n  all tests passed\r\n");
+        _ = await Assert.That(rendered).Contains("✓ $ dotnet test\r\n");
+        _ = await Assert.That(rendered).Contains("Process exited with code 0\r\nall tests passed\r\n");
         _ = await Assert.That(rendered).DoesNotContain("exec_command finished");
     }
 
@@ -364,9 +371,9 @@ internal sealed class EnhancedCliTests
         var live = draws.Last();
         _ = await Assert.That(live).Contains("answer");
         _ = await Assert.That(live).Contains("⠋ agent main");
-        _ = await Assert.That(live).Contains("⠋ agent explorer[31m (1.2m in / 800 cached / 300 out, 1.5k/? ctx)");
-        _ = await Assert.That(live).Contains("⠋ main: exec_command");
-        _ = await Assert.That(live).Contains("⠋ explorer[31m: read[2J");
+        _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] agent explorer[31m (1.2m in / 800 cached / 300 out, 1.5k/? ctx)");
+        _ = await Assert.That(live).Contains("⠋ exec_command");
+        _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] read[2J");
 
         await ticks.Writer.WriteAsync(true, cancellationToken);
         while (!draws.Any(value => value.Contains("⠙ agent main", StringComparison.Ordinal)))
@@ -418,9 +425,9 @@ internal sealed class EnhancedCliTests
 
         _ = await Assert.That(beforeAgentFinished).IsEqualTo(5);
         _ = await Assert.That(committed.Count).IsEqualTo(5);
-        _ = await Assert.That(string.Join('|', committed)).Contains("+ main: tool call exec_command|  dotnet test");
-        _ = await Assert.That(string.Join('|', committed)).Contains("! explorer[31m: tool call read[2J|  denied[2J");
-        _ = await Assert.That(string.Join('|', committed)).Contains("+ agent explorer[31m finished");
+        _ = await Assert.That(string.Join('|', committed)).Contains("✓ tool call exec_command|dotnet test");
+        _ = await Assert.That(string.Join('|', committed)).Contains("  ✗ [explorer[31m] tool call read[2J|  [explorer[31m] denied[2J");
+        _ = await Assert.That(string.Join('|', committed)).Contains("  ♟ [explorer[31m] agent finished");
         _ = await Assert.That(draws.Last()).IsEmpty();
     }
 
@@ -472,7 +479,11 @@ internal sealed class EnhancedCliTests
                 {
                     Id = "child-started",
                     AgentSessionId = "child-session",
-                    AgentStarted = new AgentStarted { Name = "explorer" },
+                    AgentStarted = new AgentStarted
+                    {
+                        ParentAgentSessionId = "main-session",
+                        Name = "explorer",
+                    },
                 },
                 new Event
                 {
@@ -504,10 +515,10 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error).IsEmpty();
         var childEnded = output.IndexOf("child-stop", StringComparison.Ordinal);
-        var mainContinued = output.IndexOf("main con", StringComparison.Ordinal);
+        var mainContinued = output.IndexOf("● main c", StringComparison.Ordinal);
         var mainEnded = output.IndexOf("main-stop", StringComparison.Ordinal);
-        _ = await Assert.That(childEnded).IsGreaterThanOrEqualTo(0);
-        _ = await Assert.That(mainContinued).IsGreaterThan(childEnded);
+        _ = await Assert.That(childEnded).IsEqualTo(-1);
+        _ = await Assert.That(mainContinued).IsGreaterThanOrEqualTo(0);
         _ = await Assert.That(mainEnded).IsGreaterThan(mainContinued);
     }
 
@@ -671,7 +682,7 @@ internal sealed class EnhancedCliTests
             cancellationToken);
 
         _ = await Assert.That(completed).IsFalse();
-        _ = await Assert.That(output).Contains("partial\r\n");
+        _ = await Assert.That(output).Contains("● partia\r\n  l\r\n");
         _ = await Assert.That(error).Contains("  bad[2J    request");
         _ = await Assert.That(error).DoesNotContain("\u001b[2J");
     }

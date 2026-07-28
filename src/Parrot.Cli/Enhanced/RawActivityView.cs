@@ -14,12 +14,16 @@ internal sealed class RawActivityView(
 
     private readonly List<(AgentSessionState State, string ActivityId)> _activities = [];
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
+    private readonly AgentSessionHierarchy _hierarchy = new();
+    private readonly Dictionary<string, (string ActivityId, string Response, string Line)> _pendingCompletions =
+        new(StringComparer.Ordinal);
+
     private readonly StringBuilder _reasoning = new();
     private readonly SemaphoreSlim _rendering = new(1, 1);
 
     private IReadOnlyList<ILiveBufferItem> _content = [];
+    private bool _reasoningSummary;
     private int _frame;
-    private string? _mainSessionId;
 
     public RawActivityView(
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
@@ -129,10 +133,15 @@ internal sealed class RawActivityView(
             {
                 var reasoning = _reasoning.ToString();
                 _ = _reasoning.Clear();
-                await commit(
-                    ImmediateScrollbackValue.Muted([reasoning]),
-                    Snapshot(),
-                    cancellationToken).ConfigureAwait(false);
+                if (_reasoningSummary)
+                {
+                    await commit(
+                        ImmediateScrollbackValue.Muted([$"✦ {reasoning}"]),
+                        Snapshot(),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                _reasoningSummary = false;
             }
         }
         finally
@@ -148,6 +157,7 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            _hierarchy.Observe(published);
             switch (published.PayloadCase)
             {
                 case Event.PayloadOneofCase.AgentStarted:
@@ -176,6 +186,10 @@ internal sealed class RawActivityView(
                 case Event.PayloadOneofCase.ToolCallChunk:
                     ToolCall(published.AgentSessionId, published.ToolCallChunk);
                     break;
+                case Event.PayloadOneofCase.TextChunk when _hierarchy.IsChild(published.AgentSessionId):
+                    GetNamedAgentSession(published.AgentSessionId).CollectResponse(published.TextChunk.Fragment);
+                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    break;
                 case Event.PayloadOneofCase.ToolStarted:
                     StartTool(published);
                     await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
@@ -185,8 +199,9 @@ internal sealed class RawActivityView(
                 case Event.PayloadOneofCase.ToolError:
                     await FinishTool(published, cancellationToken).ConfigureAwait(false);
                     break;
-                case Event.PayloadOneofCase.ReasoningChunk:
+                case Event.PayloadOneofCase.ReasoningChunk when _hierarchy.IsRoot(published.AgentSessionId):
                     _ = _reasoning.Append(TerminalText.Sanitize(published.ReasoningChunk.Fragment));
+                    _reasoningSummary |= published.ReasoningChunk.Kind == ReasoningKind.Summary;
                     await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 default:
@@ -205,11 +220,17 @@ internal sealed class RawActivityView(
         items.AddRange(_content);
         if (_reasoning.Length > 0)
         {
-            items.Add(new LiveTextValue(_reasoning.ToString()));
+            items.Add(_reasoningSummary
+                ? new SpinnerValue("✦ " + _reasoning, _frame)
+                : new SpinnerValue("Thinking…", _frame));
         }
 
-        items.AddRange(_activities.Select(activity =>
-            activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters)));
+        var order = _hierarchy.GetPostOrder(_activities.Select(static activity => activity.State.AgentSessionId));
+        items.AddRange(_activities
+            .OrderBy(activity => order[activity.State.AgentSessionId])
+            .ThenBy(static activity => string.Equals(activity.ActivityId, "agent", StringComparison.Ordinal) ? 1 : 0)
+            .ThenBy(static activity => activity.ActivityId, StringComparer.Ordinal)
+            .Select(CreateActivityItem));
         return items;
     }
 
@@ -233,10 +254,9 @@ internal sealed class RawActivityView(
             return state;
         }
 
-        _mainSessionId ??= agentSessionId;
-        state.UpdateName(string.Equals(_mainSessionId, agentSessionId, StringComparison.Ordinal)
+        state.UpdateName(agentSessionId.Length == 0 || _hierarchy.IsRoot(agentSessionId)
             ? "main"
-            : agentSessionId);
+            : _hierarchy.GetLabel(agentSessionId) ?? agentSessionId);
         return state;
     }
 
@@ -257,11 +277,12 @@ internal sealed class RawActivityView(
             return;
         }
 
-        _ = _activities.Remove((state, completion.ActivityId));
-        await commit(
-            ImmediateScrollbackValue.Muted([completion.Line]),
-            Snapshot(),
-            cancellationToken).ConfigureAwait(false);
+        _ = _pendingCompletions.TryAdd(state.AgentSessionId, completion);
+        await FlushCompletions(cancellationToken).ConfigureAwait(false);
+        if (_pendingCompletions.ContainsKey(state.AgentSessionId))
+        {
+            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task FinishAgent(Event published, bool failed, CancellationToken cancellationToken)
@@ -272,11 +293,12 @@ internal sealed class RawActivityView(
             return;
         }
 
-        _ = _activities.Remove((state, completion.ActivityId));
-        await commit(
-            ImmediateScrollbackValue.Muted([completion.Line]),
-            Snapshot(),
-            cancellationToken).ConfigureAwait(false);
+        _ = _pendingCompletions.TryAdd(state.AgentSessionId, completion);
+        await FlushCompletions(cancellationToken).ConfigureAwait(false);
+        if (_pendingCompletions.ContainsKey(state.AgentSessionId))
+        {
+            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private void ToolCall(string agentSessionId, ToolCallChunk chunk) =>
@@ -285,7 +307,10 @@ internal sealed class RawActivityView(
     private void StartTool(Event published)
     {
         var state = GetNamedAgentSession(published.AgentSessionId);
-        if (state.StartTool(published.ToolStarted) is { } activityId)
+        var metadata = presenters.Describe(published.ToolStarted.ToolName);
+        if (state.StartTool(published.ToolStarted) is { } activityId
+            && !metadata.TerminalOnly
+            && !(metadata.Modeline && _hierarchy.IsRoot(published.AgentSessionId)))
         {
             _activities.Add((state, activityId));
         }
@@ -302,7 +327,80 @@ internal sealed class RawActivityView(
         }
         else
         {
-            await commit(scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
+            await commit(Wrap(state, scrollback, null), Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
+
+        await FlushCompletions(cancellationToken).ConfigureAwait(false);
+    }
+
+    private ILiveBufferItem CreateActivityItem((AgentSessionState State, string ActivityId) activity)
+    {
+        var value = _pendingCompletions.TryGetValue(activity.State.AgentSessionId, out var completion)
+            && string.Equals(completion.ActivityId, activity.ActivityId, StringComparison.Ordinal)
+                ? new LiveTextValue(completion.Line)
+                : activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters);
+        return new HierarchicalLiveValue(
+            value,
+            _hierarchy.GetDepth(activity.State.AgentSessionId),
+            _hierarchy.GetLabel(activity.State.AgentSessionId),
+            activity.State.Name,
+            "♟");
+    }
+
+    private HierarchicalScrollbackValue Wrap(
+        AgentSessionState state,
+        IScrollbackItem value,
+        string? successfulIcon) =>
+        new(
+            value,
+            _hierarchy.GetDepth(state.AgentSessionId),
+            _hierarchy.GetLabel(state.AgentSessionId),
+            state.Name,
+            successfulIcon);
+
+    private async Task FlushCompletions(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var ready = _pendingCompletions.Keys
+                .Where(sessionId => !_activities.Any(activity =>
+                    string.Equals(activity.State.AgentSessionId, sessionId, StringComparison.Ordinal)
+                        ? !string.Equals(
+                            activity.ActivityId,
+                            _pendingCompletions[sessionId].ActivityId,
+                            StringComparison.Ordinal)
+                        : _hierarchy.IsDescendant(activity.State.AgentSessionId, sessionId)))
+                .OrderByDescending(_hierarchy.GetDepth)
+                .ThenBy(static sessionId => sessionId, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (ready is null)
+            {
+                if (_pendingCompletions.Count > 0)
+                {
+                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                }
+
+                return;
+            }
+
+            var (activityId, response, line) = _pendingCompletions[ready];
+            _ = _pendingCompletions.Remove(ready);
+            var state = _agentSessions[ready];
+            _ = _activities.Remove((state, activityId));
+            if (response.Length > 0)
+            {
+                var responseLines = response.Split('\n');
+                responseLines[0] = $"● {responseLines[0]}";
+                await commit(
+                    Wrap(state, ImmediateScrollbackValue.Muted(responseLines), null),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            await commit(
+                Wrap(state, ImmediateScrollbackValue.Muted([line]), "♟"),
+                Snapshot(),
+                cancellationToken).ConfigureAwait(false);
         }
     }
 }

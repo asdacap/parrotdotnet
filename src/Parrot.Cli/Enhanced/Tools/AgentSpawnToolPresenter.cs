@@ -6,51 +6,59 @@ internal sealed class AgentSpawnToolPresenter : IToolPresenter
 {
     public string ToolName => "agent_spawn";
 
+    public ToolPresentationMetadata Metadata { get; } = ToolPresentationMetadata.Default with
+    {
+        SuccessIcon = "♟",
+        TerminalOnly = true,
+    };
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         using var arguments = JsonDocument.Parse(call.ArgumentsJson);
-        return new ToolLiveValue($"{call.Owner}: Start agent", [.. Details(arguments.RootElement)], frame);
+        var label = arguments.RootElement.TryGetProperty("name", out var name)
+            && name.GetString() is { Length: > 0 } value
+                ? $"{call.Owner}: Start agent {value}"
+                : $"{call.Owner}: Start agent";
+        return new ToolLiveValue(label, [], Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
         using var arguments = JsonDocument.Parse(call.ArgumentsJson);
-        return new ToolScrollbackValue(
-            $"{call.Owner}: Start agent",
-            [.. TerminalDetails(arguments.RootElement, terminal)],
-            Status(terminal));
+        var status = terminal.ResolveStatus();
+        var label = arguments.RootElement.TryGetProperty("name", out var name)
+            && name.GetString() is { Length: > 0 } value
+                ? $"{call.Owner}: Start agent {value}"
+                : $"{call.Owner}: Start agent";
+        var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
+            ? terminal.DescribeBlock(ToolBlockKind.None)
+            : ToolBlock.FromCompletedInput(CompletedInput(arguments.RootElement));
+        return new ToolScrollbackValue(label, block, status, Metadata);
     }
 
-    private static IEnumerable<string> Details(JsonElement arguments)
+    private static string CompletedInput(JsonElement arguments)
     {
-        if (arguments.TryGetProperty("name", out var name) && name.GetString() is { Length: > 0 } value)
+        var values = new List<string>();
+        AddScalar(values, arguments, "name");
+        AddScalar(values, arguments, "agent");
+        AddScalar(values, arguments, "model");
+        if (arguments.GetProperty("prompt").GetString() is { Length: > 0 } prompt)
         {
-            yield return value;
+            values.Add(prompt.Contains('\n', StringComparison.Ordinal)
+                ? $"prompt: |-\n{string.Join('\n', prompt.Split('\n').Select(line => $"  {line}"))}"
+                : $"prompt: {prompt}");
         }
 
-        yield return arguments.GetProperty("prompt").GetString() ?? string.Empty;
+        return string.Join('\n', values);
     }
 
-    private static IEnumerable<string> TerminalDetails(JsonElement arguments, ToolTerminalPresentation terminal)
+    private static void AddScalar(List<string> values, JsonElement arguments, string name)
     {
-        foreach (var detail in Details(arguments))
+        if (arguments.TryGetProperty(name, out var property)
+            && property.ValueKind == JsonValueKind.String
+            && property.GetString() is { Length: > 0 } value)
         {
-            yield return detail;
-        }
-
-        if (terminal.ResultPresent)
-        {
-            yield return terminal.Result;
-        }
-
-        if (terminal.Error.Length > 0)
-        {
-            yield return terminal.Error;
+            values.Add($"{name}: {value}");
         }
     }
-
-    private static ToolTerminalStatus Status(ToolTerminalPresentation terminal) =>
-        terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal)
-            ? ToolTerminalStatus.ReportedFailure
-            : terminal.Status;
 }

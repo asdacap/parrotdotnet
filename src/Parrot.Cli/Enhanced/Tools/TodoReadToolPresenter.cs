@@ -6,27 +6,28 @@ internal sealed class TodoReadToolPresenter : IToolPresenter
 {
     public string ToolName => "todoread";
 
-    public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: Todo list", [], frame);
+    public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
 
-    public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) =>
-        new ToolScrollbackValue($"{call.Owner}: Todo list", [.. Details(terminal)], Status(terminal));
+    public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
+        new ToolLiveValue($"{call.Owner}: Todo list", [], Metadata, frame);
+
+    public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
+    {
+        var status = terminal.ResolveStatus();
+        var block = status == ToolTerminalStatus.Succeeded
+            ? ToolBlock.FromTodos(string.Join('\n', Details(terminal)))
+            : terminal.DescribeBlock(ToolBlockKind.None);
+        return new ToolScrollbackValue($"{call.Owner}: Todo list", block, status, Metadata);
+    }
 
     private static IEnumerable<string> Details(ToolTerminalPresentation terminal)
     {
-        if (terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal))
+        using var result = JsonDocument.Parse(terminal.Result);
+        foreach (var todo in result.RootElement.EnumerateArray())
         {
-            yield return terminal.Result;
-        }
-        else if (terminal.ResultPresent)
-        {
-            using var result = JsonDocument.Parse(terminal.Result);
-            foreach (var todo in result.RootElement.EnumerateArray())
-            {
-                var status = todo.GetProperty("status").GetString() ?? string.Empty;
-                var content = todo.GetProperty("content").GetString() ?? string.Empty;
-                yield return $"[{status}] {content}";
-            }
+            var status = todo.GetProperty("status").GetString() ?? string.Empty;
+            var content = todo.GetProperty("content").GetString() ?? string.Empty;
+            yield return $"{Marker(status)} {content}";
         }
 
         if (terminal.Error.Length > 0)
@@ -35,8 +36,11 @@ internal sealed class TodoReadToolPresenter : IToolPresenter
         }
     }
 
-    private static ToolTerminalStatus Status(ToolTerminalPresentation terminal) =>
-        terminal.ResultPresent && terminal.Result.StartsWith("error: ", StringComparison.Ordinal)
-            ? ToolTerminalStatus.ReportedFailure
-            : terminal.Status;
+    private static string Marker(string status) => status switch
+    {
+        "in_progress" => "◐",
+        "completed" => "✓",
+        "cancelled" => "■",
+        _ => "○",
+    };
 }

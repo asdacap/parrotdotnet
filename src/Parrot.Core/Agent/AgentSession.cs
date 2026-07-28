@@ -66,7 +66,7 @@ internal sealed class AgentSession(
     private readonly Lock _selectionGate = new();
 
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
-        ?? new AgentStatistics(0, 0, 0, 0, model.Model.ContextWindow);
+        ?? new AgentStatistics(0, 0, 0, 0, model.Model.ContextWindow, 0, 0);
 
     private AgentSelection _selection = new(model, mode, securityProfile);
     private string _epochContext = string.Empty;
@@ -316,7 +316,15 @@ internal sealed class AgentSession(
                 break;
 
             case LLMEventKind.ReasoningDelta:
-                published.ReasoningChunk = new ReasoningChunk { Fragment = llmEvent.Text };
+                published.ReasoningChunk = new ReasoningChunk
+                {
+                    Fragment = llmEvent.Text,
+                    Kind = llmEvent.ReasoningKind == LLMReasoningKind.Summary
+                        ? ReasoningKind.Summary
+                        : ReasoningKind.Raw,
+                    PartId = llmEvent.ReasoningPartId,
+                    Completed = llmEvent.ReasoningCompleted,
+                };
                 break;
 
             case LLMEventKind.ToolCallDelta:
@@ -884,7 +892,7 @@ internal sealed class AgentSession(
         {
             if (llmEvent.Kind == LLMEventKind.Completed)
             {
-                var statistics = _statistics.Add(llmEvent, selectedModel.Model.ContextWindow);
+                var statistics = _statistics.Add(llmEvent, selectedModel.Model);
                 var published = new Event
                 {
                     Id = Identifier.EventId(),

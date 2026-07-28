@@ -33,6 +33,28 @@ internal static class ToolDisplayText
         return TruncateUtf8(label, MaximumLabelBytes - LabelTruncatedBytes, out _) + LabelTruncated;
     }
 
+    public static IReadOnlyList<string> LayoutDetails(
+        IEnumerable<string> details,
+        int columns,
+        int maximumLines)
+    {
+        var rendered = Details(details)
+            .SelectMany(detail => TerminalText.Layout($"  {detail}", columns))
+            .ToList();
+        if (rendered.Count <= maximumLines)
+        {
+            return rendered;
+        }
+
+        var bounded = rendered.Take(Math.Max(0, maximumLines - 1)).ToList();
+        if (maximumLines > 0)
+        {
+            bounded.AddRange(TerminalText.Layout($"  {Truncated}", columns).Take(1));
+        }
+
+        return bounded;
+    }
+
     public static IReadOnlyList<string> Details(IEnumerable<string> values)
     {
         ArgumentNullException.ThrowIfNull(values);

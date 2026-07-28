@@ -196,11 +196,13 @@ message TodoState {
 message StatusInjected {}
 
 message AgentStatisticsUpdatedEvent {
-  int64 input_tokens        = 1;
-  int64 cached_input_tokens = 2;
-  int64 output_tokens       = 3;
-  int64 context_size        = 4;
-  int64 context_limit       = 5;
+  int64  input_tokens        = 1;
+  int64  cached_input_tokens = 2;
+  int64  output_tokens       = 3;
+  int64  context_size        = 4;
+  int64  context_limit       = 5;
+  double input_cost          = 6;
+  double output_cost         = 7;
 }
 
 // The user's own prompt, accepted but not yet part of the conversation. It is
@@ -228,8 +230,16 @@ message TextChunk {
   string fragment = 1;
 }
 
+enum ReasoningKind {
+  REASONING_KIND_RAW     = 0;
+  REASONING_KIND_SUMMARY = 1;
+}
+
 message ReasoningChunk {
-  string fragment = 1;
+  string        fragment  = 1;
+  ReasoningKind kind      = 2;
+  string        part_id   = 3;
+  bool          completed = 4;
 }
 
 message ToolCallChunk {

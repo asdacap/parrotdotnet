@@ -159,7 +159,8 @@ internal static class ChatCompletionsAdapter
 
             if (reasoning.Length > 0)
             {
-                yield return LLMEvent.ReasoningDelta(reasoning);
+                yield return LLMEvent.ReasoningDelta(
+                    reasoning, LLMReasoningKind.Raw, string.Empty, completed: false);
             }
 
             if (delta.TryGetProperty("tool_calls", out var toolCalls) && toolCalls.ValueKind == JsonValueKind.Array)

@@ -172,8 +172,8 @@ internal sealed class TerminalInputTests
         var spinner = new SpinnerValue("work\u001b[2J", 0).Render(context);
         var text = new LiveTextValue("one\ntwo").Render(context);
 
-        _ = await Assert.That(string.Join('|', prompt.Lines.Select(value => value.Text))).IsEqualTo("> a|界|b");
-        _ = await Assert.That(prompt.Caret).IsEqualTo(new LiveBufferCaret(2, 0));
+        _ = await Assert.That(string.Join('|', prompt.Lines.Select(value => value.Text))).IsEqualTo("> a|  界|  b");
+        _ = await Assert.That(prompt.Caret).IsEqualTo(new LiveBufferCaret(2, 2));
         _ = await Assert.That(prompt.Retention).IsEqualTo(LiveBufferRetention.Caret);
         _ = await Assert.That(modeline.Retention).IsEqualTo(LiveBufferRetention.Fixed);
         _ = await Assert.That(spinner.Lines[0].Text).IsEqualTo("⠋ work[2J");
@@ -182,9 +182,9 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
-    [Arguments("chat", "working", "provider/model", 34, "chat · working      provider/model")]
-    [Arguments("chat", "", "provider/model", 8, "provider")]
-    [Arguments("chat", "idle", "", 4, "chat")]
+    [Arguments("chat", "working", "provider/model", 34, "─ mode: chat ─ wo provider/model ")]
+    [Arguments("chat", "", "provider/model", 8, "─ provi")]
+    [Arguments("chat", "idle", "", 4, "─ ─")]
     public async Task Modeline_aligns_or_clips_terminal_safe_values(
         string mode, string activity, string model, int width, string expected)
     {

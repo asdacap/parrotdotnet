@@ -26,9 +26,9 @@ internal sealed class TerminalFrameRendererTests
         _ = await Assert.That(Count(draw, "\u001b[2K")).IsEqualTo(5);
         _ = await Assert.That(draw).Contains("\u001b[2Klive[2J     \r\n");
         _ = await Assert.That(draw).Contains("\u001b[2K⠋ thinking  \r\n");
-        _ = await Assert.That(draw).Contains("\u001b[2Kchat   model\r\n");
+        _ = await Assert.That(draw).Contains("\u001b[2K─ mo model");
         _ = await Assert.That(draw).Contains("\u001b[2K> ab        \r\n");
-        _ = await Assert.That(draw).Contains("\u001b[2K界x         \u001b[1A");
+        _ = await Assert.That(draw).Contains("\u001b[2K  界x       \u001b[1A");
         _ = await Assert.That(Count(clear, "\u001b[2K")).IsEqualTo(5);
         _ = await Assert.That(rendered).DoesNotContain("\u001b[?1049");
     }
@@ -60,7 +60,7 @@ internal sealed class TerminalFrameRendererTests
         await renderer.Clear(cancellationToken);
 
         var rendered = output.ToString();
-        _ = await Assert.That(rendered).Contains("\u001b[2Kmodel   \r\n");
+        _ = await Assert.That(rendered).Contains("\u001b[2K─ model \r\n");
         _ = await Assert.That(Count(rendered, "\u001b[?7l")).IsEqualTo(2);
         _ = await Assert.That(Count(rendered, "\u001b[?7h")).IsEqualTo(2);
     }
@@ -151,7 +151,7 @@ internal sealed class TerminalFrameRendererTests
         var final = sequence.Complete([]);
         var other = otherSequence.Append(["other"]);
 
-        _ = await Assert.That(string.Join('|', immediate.Render(context))).IsEqualTo("› ab|界");
+        _ = await Assert.That(string.Join('|', immediate.Render(context))).IsEqualTo("$ ab|  界");
         _ = await Assert.That(immediate.IsCompleted).IsTrue();
         _ = await Assert.That(immediate.Continues(first)).IsFalse();
         _ = await Assert.That(first.IsCompleted).IsFalse();

@@ -12,10 +12,10 @@ internal sealed class ToolPresenterBatchCTests
     public static IEnumerable<object[]> Presenters()
     {
         yield return [new GitDiffToolPresenter(), "{\"target\":\"base\",\"ref\":\"origin/main\"}", "main: git diff base origin/main"];
-        yield return [new GlobToolPresenter(), "{\"pattern\":\"src/**/*.cs\"}", "main: glob src/**/*.cs"];
-        yield return [new GrepToolPresenter(), "{\"pattern\":\"TODO\",\"path\":\"src\"}", "main: grep TODO in src"];
+        yield return [new GlobToolPresenter(), "{\"pattern\":\"src/**/*.cs\"}", "main: glob \"src/**/*.cs\""];
+        yield return [new GrepToolPresenter(), "{\"pattern\":\"TODO\",\"path\":\"src\"}", "main: grep \"TODO\" in src"];
         yield return [new ReadToolPresenter(), "{\"path\":\"README.md\"}", "main: read README.md"];
-        yield return [new WebFetchToolPresenter(), "{\"url\":\"https://example.com/path\"}", "main: web fetch example.com"];
+        yield return [new WebFetchToolPresenter(), "{\"url\":\"https://example.com/path\"}", "main: web fetch GET https://example.com/path"];
     }
 
     public static IEnumerable<object[]> PresenterInstances()
@@ -47,8 +47,9 @@ internal sealed class ToolPresenterBatchCTests
         var completed = item.Render(ScrollbackContext);
 
         _ = await Assert.That(live[0]).IsEqualTo($"⠋ {expectedLabel}");
-        _ = await Assert.That(completed[0]).IsEqualTo($"! {expectedLabel}");
+        _ = await Assert.That(completed[0]).IsEqualTo($"✗ {expectedLabel}");
         _ = await Assert.That(completed[1]).IsEqualTo("  error: tool failure");
+        _ = await Assert.That(((IToolPresentationValue)item).Report.Block.Kind).IsEqualTo(ToolBlockKind.Error);
     }
 
     [Test]

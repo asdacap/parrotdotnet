@@ -7,10 +7,12 @@ internal sealed class ExecCommandToolPresenter : IToolPresenter
 {
     public string ToolName => "exec_command";
 
+    public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
+
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var command = Command(call.ArgumentsJson);
-        return new ToolLiveValue($"{call.Owner}: $ {command}", [command], frame);
+        return new ToolLiveValue($"{call.Owner}: $ {command}", [], Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
@@ -22,7 +24,13 @@ internal sealed class ExecCommandToolPresenter : IToolPresenter
         var label = yielded
             ? $"{call.Owner}: $ {command} (process {processName} running)"
             : $"{call.Owner}: $ {command}";
-        return new ToolScrollbackValue(label, Details(command, terminal, yielded), terminal.ResolveProcessStatus());
+        var status = terminal.ResolveProcessStatus();
+        var block = yielded
+            ? ToolBlock.Empty
+            : status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
+                ? ToolBlock.FromError(ToolOutputText.Tail(terminal.ResultPresent ? terminal.Result : terminal.Error, 10))
+                : ToolBlock.FromText(ToolOutputText.Tail(terminal.Result, 10));
+        return new ToolScrollbackValue(label, block, status, Metadata);
     }
 
     private static string Command(string argumentsJson)
@@ -43,20 +51,6 @@ internal sealed class ExecCommandToolPresenter : IToolPresenter
             && name.ValueKind == JsonValueKind.String
             ? name.GetString() ?? string.Empty
             : string.Empty;
-    }
-
-    private static IEnumerable<string> Details(string command, ToolTerminalPresentation terminal, bool yielded)
-    {
-        yield return command;
-        if (terminal.ResultPresent && !yielded)
-        {
-            yield return terminal.Result;
-        }
-
-        if (terminal.Error.Length > 0)
-        {
-            yield return terminal.Error;
-        }
     }
 
     private static bool IsYielded(string result, string requestedName) =>
