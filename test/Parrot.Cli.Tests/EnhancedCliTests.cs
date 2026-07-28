@@ -71,6 +71,59 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Initial_plan_turn_shows_the_completion_dialog(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(
+            true,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "plan" }, "draft plan"));
+        var running = driver.Drive(cancellationToken);
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnStarted = new TurnStarted { Model = "model" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            PlanCompleted = new PlanCompleted
+            {
+                Markdown = "# Written plan\n\n- change code",
+                Dialog = new TurnCompleteDialog
+                {
+                    Prompt = "Plan complete: ",
+                    Choices =
+                    {
+                        new DialogChoice
+                        {
+                            Value = "yes",
+                            Description = "Implement it",
+                            Action = new ChoiceAction { Mode = "build", Prompt = "Implement the approved plan." },
+                        },
+                    },
+                },
+            },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
+        });
+
+        await driver.OutputContains("Written plan", cancellationToken);
+        await driver.OutputContains("Plan complete:", cancellationToken);
+        driver.Input.Type("yes");
+        await driver.Sent(2, cancellationToken);
+
+        _ = await Assert.That(driver.Invoker.Updated).Count().IsEqualTo(1);
+        _ = await Assert.That(driver.Invoker.Updated[0].Mode).IsEqualTo("build");
+        _ = await Assert.That(driver.Invoker.Sent[1]).IsEqualTo("Implement the approved plan.");
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
     public async Task Typed_turn_events_render_cumulative_text_and_sanitize_terminal_content(
         CancellationToken cancellationToken)
     {

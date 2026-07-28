@@ -466,15 +466,17 @@ internal sealed class EnhancedCli(
             if (initialPrompt.Length > 0)
             {
                 await StartTurn(initialPrompt, call).ConfigureAwait(false);
-                if (exitOnFirstCompletion)
-                {
-                    await rendering.ConfigureAwait(false);
-                    exiting = true;
-                }
             }
 
             while (!cancellationToken.IsCancellationRequested && !exiting)
             {
+                if (exitOnFirstCompletion && rendering.IsCompleted)
+                {
+                    await rendering.ConfigureAwait(false);
+                    exiting = true;
+                    continue;
+                }
+
                 if (planRequests.Reader.TryRead(out var planRequest))
                 {
                     await CompletePlan(planRequest, dialog, session, cancellationToken).ConfigureAwait(false);
@@ -484,7 +486,8 @@ internal sealed class EnhancedCli(
                 using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var keyTask = liveInput.ReadKey(reading.Token).AsTask();
                 var planTask = planRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
-                _ = await Task.WhenAny(keyTask, planTask).ConfigureAwait(false);
+                var completionTask = exitOnFirstCompletion ? rendering : Task.Delay(Timeout.Infinite, cancellationToken);
+                _ = await Task.WhenAny(keyTask, planTask, completionTask).ConfigureAwait(false);
                 if (!keyTask.IsCompleted)
                 {
                     await reading.CancelAsync().ConfigureAwait(false);
@@ -743,9 +746,9 @@ internal sealed class EnhancedCli(
                     foreground,
                     cancellationToken).ConfigureAwait(false);
 
-                if ((!completed && !failed) || exitOnFirstCompletion)
+                if (!completed && !failed)
                 {
-                    return completed;
+                    return false;
                 }
 
                 _busy = false;
@@ -761,6 +764,11 @@ internal sealed class EnhancedCli(
                     }
 
                     await completePlan(plan, cancellationToken).ConfigureAwait(false);
+                }
+
+                if (exitOnFirstCompletion)
+                {
+                    return completed;
                 }
 
                 if (!cancellationToken.IsCancellationRequested && !_busy)
