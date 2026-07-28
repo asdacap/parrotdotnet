@@ -20,4 +20,5 @@ internal enum TerminalKeyKind
     Interrupt,
     EndOfFile,
     Mode,
+    Plan,
 }

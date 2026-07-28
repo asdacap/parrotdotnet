@@ -156,7 +156,7 @@ internal sealed class TerminalKeyDecoder
             ["\u001b[3~"] = TerminalKeyKind.Delete,
             ["\u001b[13;2u"] = TerminalKeyKind.Newline,
             ["\u001b[27;2;13~"] = TerminalKeyKind.Newline,
-            ["\u001b[Z"] = TerminalKeyKind.Mode,
+            ["\u001b[Z"] = TerminalKeyKind.Plan,
             ["\u001bOH"] = TerminalKeyKind.Home,
             ["\u001bOF"] = TerminalKeyKind.End,
 

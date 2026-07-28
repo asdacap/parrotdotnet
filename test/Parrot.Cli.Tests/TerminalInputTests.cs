@@ -38,6 +38,15 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    public async Task Decoder_maps_shift_tab_to_plan()
+    {
+        var decoded = new TerminalKeyDecoder().Feed(Encoding.ASCII.GetBytes("\u001b[Z"));
+
+        _ = await Assert.That(decoded).HasSingleItem();
+        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.Plan));
+    }
+
+    [Test]
     public async Task Decoder_preserves_incremental_sequences_and_sanitizes_paste()
     {
         var decoder = new TerminalKeyDecoder();

@@ -506,6 +506,25 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Shift_tab_switches_to_plan_mode(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("\u001b[Z");
+        while (driver.Invoker.Updated.Count == 0)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        driver.Input.End();
+        _ = await driving;
+
+        _ = await Assert.That(driver.Invoker.Updated).HasSingleItem();
+        _ = await Assert.That(driver.Invoker.Updated[0].Mode).IsEqualTo("plan");
+    }
+
+    [Test]
     public async Task Interactive_chat_accepts_another_turn_after_a_failure(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);

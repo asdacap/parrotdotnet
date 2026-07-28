@@ -408,6 +408,10 @@ internal sealed class EnhancedCli(
                     exiting = true;
                     break;
                 }
+                else if (key.Kind == TerminalKeyKind.Plan)
+                {
+                    await session.SelectMode("plan", cancellationToken).ConfigureAwait(false);
+                }
                 else
                 {
                     var entered = editor.Apply(key);
