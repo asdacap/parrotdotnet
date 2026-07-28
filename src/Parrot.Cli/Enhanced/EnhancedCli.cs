@@ -134,7 +134,7 @@ internal sealed class EnhancedCli(
             await terminal.Output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
-        var view = new EnhancedTurnView(
+        await using var view = new EnhancedTurnView(
             draw ?? NoLiveDraw,
             commit ?? CommitStandalone,
             terminal.Error,

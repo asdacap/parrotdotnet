@@ -5,6 +5,7 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
 {
     private const int DefaultColumns = 80;
+    private const int MaximumPreviewRows = 3;
 
     private readonly StringBuilder _pending = new();
     private string _id = string.Empty;
@@ -53,7 +54,7 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
         _started |= promoted.Count > 0;
         return new MarkdownLiveUpdate(
             promoted.Count == 0 ? null : _sequence.Append(promoted),
-            preview);
+            [.. preview.TakeLast(MaximumPreviewRows)]);
     }
 
     public MarkdownLiveUpdate Commit()
