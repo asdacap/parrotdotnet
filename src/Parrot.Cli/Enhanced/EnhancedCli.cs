@@ -191,6 +191,38 @@ internal sealed class EnhancedCli(
             Delivery = Delivery.Steer,
         };
 
+    private static async Task<string?> NextMode(
+        GeneratedParrot.ParrotClient client,
+        string current,
+        EnhancedSlashDialog dialog,
+        CancellationToken cancellationToken)
+    {
+        var listed = await client
+            .ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        if (listed.Modes.Count == 0)
+        {
+            await dialog.ShowError("no modes are available", cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
+        var next = 0;
+
+        for (var index = 0; index < listed.Modes.Count; index++)
+        {
+            if (!string.Equals(listed.Modes[index].Id, current, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            next = (index + 1) % listed.Modes.Count;
+            break;
+        }
+
+        return listed.Modes[next].Id;
+    }
+
     private async Task<int> Loop(
         UserSession initialSession,
         string initialPrompt,
@@ -523,8 +555,12 @@ internal sealed class EnhancedCli(
                 }
                 else if (key.Kind == TerminalKeyKind.Mode)
                 {
-                    var mode = session.Mode == "plan" ? "build" : "plan";
-                    await session.SelectMode(mode, cancellationToken).ConfigureAwait(false);
+                    var mode = await NextMode(client, session.Mode, dialog, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (mode is not null)
+                    {
+                        await session.SelectMode(mode, cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 else
                 {

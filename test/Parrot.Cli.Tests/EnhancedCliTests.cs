@@ -768,7 +768,7 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
-    public async Task Shift_tab_toggles_between_build_and_plan_modes(CancellationToken cancellationToken)
+    public async Task Shift_tab_cycles_through_foreground_modes(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
         var driving = driver.Drive(cancellationToken);
@@ -785,12 +785,42 @@ internal sealed class EnhancedCliTests
             await Task.Delay(5, cancellationToken);
         }
 
+        driver.Input.Type("\u001b[Z");
+        while (driver.Invoker.Updated.Count < 3)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
         driver.Input.End();
         _ = await driving;
 
-        _ = await Assert.That(driver.Invoker.Updated.Count).IsEqualTo(2);
+        _ = await Assert.That(driver.Invoker.Updated.Count).IsEqualTo(3);
         _ = await Assert.That(driver.Invoker.Updated[0].Mode).IsEqualTo("plan");
-        _ = await Assert.That(driver.Invoker.Updated[1].Mode).IsEqualTo("build");
+        _ = await Assert.That(driver.Invoker.Updated[1].Mode).IsEqualTo("query");
+        _ = await Assert.That(driver.Invoker.Updated[2].Mode).IsEqualTo("build");
+    }
+
+    [Test]
+    public async Task Shift_tab_from_query_wraps_to_build(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(
+            enhanced: true,
+            new EnhancedChatRequest(
+                new CreateSessionRequest { Model = "provider/model", Mode = "query" },
+                string.Empty));
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("\u001b[Z");
+        while (driver.Invoker.Updated.Count < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        driver.Input.End();
+        _ = await driving;
+
+        _ = await Assert.That(driver.Invoker.Updated).HasSingleItem();
+        _ = await Assert.That(driver.Invoker.Updated[0].Mode).IsEqualTo("build");
     }
 
     [Test]
