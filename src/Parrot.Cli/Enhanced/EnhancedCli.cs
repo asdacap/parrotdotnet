@@ -224,6 +224,7 @@ internal sealed class EnhancedCli(
         var firstTurnCompleted = false;
         var streaming = (CancellationTokenSource?)null;
         var call = (AsyncServerStreamingCall<Event>?)null;
+        var planRequests = Channel.CreateUnbounded<PlanCompletionRequest>();
 
         IReadOnlyList<ILiveBufferItem> Snapshot() => [.. currentBody, currentModeline, .. currentInput];
 
@@ -398,6 +399,12 @@ internal sealed class EnhancedCli(
                             await DrawState(CreateModeline(), token).ConfigureAwait(false);
                         },
                         stopSpinner,
+                        async (completed, eventToken) =>
+                        {
+                            var pending = new PlanCompletionRequest(completed);
+                            await planRequests.Writer.WriteAsync(pending, eventToken).ConfigureAwait(false);
+                            await pending.Answered.Task.WaitAsync(eventToken).ConfigureAwait(false);
+                        },
                         exitOnFirstCompletion,
                         token).ConfigureAwait(false),
                     streaming?.Token ?? cancellationToken);
@@ -468,7 +475,31 @@ internal sealed class EnhancedCli(
 
             while (!cancellationToken.IsCancellationRequested && !exiting)
             {
-                var key = await liveInput.ReadKey(cancellationToken).ConfigureAwait(false);
+                if (planRequests.Reader.TryRead(out var planRequest))
+                {
+                    await CompletePlan(planRequest, dialog, session, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var keyTask = liveInput.ReadKey(reading.Token).AsTask();
+                var planTask = planRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
+                _ = await Task.WhenAny(keyTask, planTask).ConfigureAwait(false);
+                if (!keyTask.IsCompleted)
+                {
+                    await reading.CancelAsync().ConfigureAwait(false);
+                    try
+                    {
+                        _ = await keyTask.ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+
+                    continue;
+                }
+
+                var key = await keyTask.ConfigureAwait(false);
                 if (key.Kind == TerminalKeyKind.Interrupt)
                 {
                     if (!editor.IsEmpty)
@@ -571,6 +602,84 @@ internal sealed class EnhancedCli(
             : CommandDispatcher.ExitSuccess;
     }
 
+    private async Task CompletePlan(
+        PlanCompletionRequest request,
+        EnhancedSlashDialog dialog,
+        SlashSession session,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var completed = request.Completed;
+            if (completed.Dialog is null)
+            {
+                return;
+            }
+
+            var definition = completed.Dialog;
+            var choices = definition.Choices
+                .Select(choice => new SlashDialogOption(choice.Value, choice.Value, choice.Description))
+                .ToList();
+            if (definition.CustomChoice.Length > 0)
+            {
+                var description = definition.CustomDescription.Length > 0
+                    ? definition.CustomDescription
+                    : "Provide feedback and revise";
+                choices.Add(new SlashDialogOption(
+                    definition.CustomChoice,
+                    definition.CustomChoice,
+                    description));
+            }
+
+            if (choices.Count == 0)
+            {
+                return;
+            }
+
+            var selected = await dialog.Select(definition.Prompt, choices, cancellationToken).ConfigureAwait(false);
+            if (selected is null)
+            {
+                return;
+            }
+
+            if (selected.Id == definition.CustomChoice)
+            {
+                var feedback = await dialog.ReadText(definition.CustomPrompt, cancellationToken).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(feedback))
+                {
+                    return;
+                }
+
+                _busy = true;
+                _ = await client.SendMessageAsync(
+                    Message(session.Id, feedback.Trim()), cancellationToken: cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var choice = definition.Choices.FirstOrDefault(item => item.Value == selected.Id);
+            if (choice is null)
+            {
+                return;
+            }
+
+            if (choice.Action?.Mode.Length > 0)
+            {
+                await session.SelectMode(choice.Action.Mode, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (choice.Action?.Prompt.Length > 0)
+            {
+                _busy = true;
+                _ = await client.SendMessageAsync(
+                    Message(session.Id, choice.Action.Prompt), cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _ = request.Answered.TrySetResult();
+        }
+    }
+
     private async Task<bool> RenderRaw(
         IAsyncStreamReader<Event> stream,
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
@@ -578,6 +687,7 @@ internal sealed class EnhancedCli(
         Func<Event, CancellationToken, Task> observe,
         Func<CancellationToken, Task> ready,
         Func<Task> stopSpinner,
+        Func<PlanCompleted, CancellationToken, Task> completePlan,
         bool exitOnFirstCompletion,
         CancellationToken cancellationToken)
     {
@@ -592,6 +702,7 @@ internal sealed class EnhancedCli(
             while (!cancellationToken.IsCancellationRequested)
             {
                 var failed = false;
+                PlanCompleted? plan = null;
 
                 async Task BeforeRender(Event published, CancellationToken token)
                 {
@@ -605,6 +716,11 @@ internal sealed class EnhancedCli(
                              && foreground.IsTerminal(published))
                     {
                         failed = true;
+                    }
+                    else if (published.PayloadCase == Event.PayloadOneofCase.PlanCompleted
+                             && foreground.IsMain(published.AgentSessionId))
+                    {
+                        plan = published.PlanCompleted;
                     }
 
                     await observe(published, token).ConfigureAwait(false);
@@ -634,7 +750,20 @@ internal sealed class EnhancedCli(
 
                 _busy = false;
                 _interruptRequested = false;
-                if (!cancellationToken.IsCancellationRequested)
+                if (plan is not null)
+                {
+                    if (plan.Markdown.Length > 0)
+                    {
+                        await activity.CommitContent(
+                            new MarkdownScrollbackValue(plan.Markdown),
+                            [],
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
+                    await completePlan(plan, cancellationToken).ConfigureAwait(false);
+                }
+
+                if (!cancellationToken.IsCancellationRequested && !_busy)
                 {
                     await ready(cancellationToken).ConfigureAwait(false);
                     await activity.Redraw(cancellationToken).ConfigureAwait(false);
