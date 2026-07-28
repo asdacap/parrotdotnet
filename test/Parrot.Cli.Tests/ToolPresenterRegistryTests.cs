@@ -80,9 +80,16 @@ internal sealed class ToolPresenterRegistryTests
     [Test]
     public async Task Reports_expose_semantic_blocks_and_presenter_metadata()
     {
-        var patch = new ApplyPatchToolPresenter().PresentTerminal(
-            new ToolCallPresentation("main", "apply_patch", "{\"patchText\":\"file.cs\\n-old\\n+new\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Applied patch", string.Empty));
+        const string patchResult = "--- a/file.cs\n+++ b/file.cs\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+        var patchPresenter = new ApplyPatchToolPresenter();
+        var patchCall = new ToolCallPresentation(
+            "main",
+            "apply_patch",
+            "{\"patchText\":\"file.cs\\n<<<<<<< SEARCH\\nold\\n=======\\nnew\\n>>>>>>> REPLACE\"}");
+        var patch = patchPresenter.PresentTerminal(
+            patchCall,
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, patchResult, string.Empty));
+        var patchLive = ((IToolPresentationValue)patchPresenter.PresentLive(patchCall, 0)).Report;
         var spawn = new AgentSpawnToolPresenter().PresentTerminal(
             new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"ship it\",\"name\":\"worker\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty));
@@ -107,6 +114,8 @@ internal sealed class ToolPresenterRegistryTests
         var todoReport = ((IToolPresentationValue)todos).Report;
 
         _ = await Assert.That(patchReport.Block.Kind).IsEqualTo(ToolBlockKind.Diff);
+        _ = await Assert.That(patchReport.Block.Text).IsEqualTo(patchResult);
+        _ = await Assert.That(patchLive.Block).IsEqualTo(ToolBlock.Empty);
         _ = await Assert.That(spawnReport.Block.Kind).IsEqualTo(ToolBlockKind.CompletedInput);
         _ = await Assert.That(readReport.Block.Kind).IsEqualTo(ToolBlockKind.None);
         _ = await Assert.That(readReport.Block.Text).IsEmpty();

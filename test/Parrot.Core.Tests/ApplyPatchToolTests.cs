@@ -78,7 +78,85 @@ internal sealed class ApplyPatchToolTests : IDisposable
 
         var allowed = await new ApplyPatchTool(linkedRoot, physicalProfile).Execute(patch, cancellationToken);
 
-        _ = await Assert.That(allowed).IsEqualTo("Applied patch to plan.md");
+        _ = await Assert.That(allowed).IsEqualTo(
+            "--- a/plan.md\n+++ b/plan.md\n@@ -1,1 +1,1 @@\n-old\n+new\n");
         _ = await Assert.That(await File.ReadAllTextAsync(physicalFile, cancellationToken)).IsEqualTo("new\n");
+    }
+
+    [Test]
+    public async Task Execute_returns_focused_unified_diff_for_an_update(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "file.txt");
+        await File.WriteAllTextAsync(
+            path,
+            "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n",
+            cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"file.txt\n<<<<<<< SEARCH\nline 4\n=======\nchanged\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo(
+            "--- a/file.txt\n+++ b/file.txt\n@@ -1,7 +1,7 @@\n line 1\n line 2\n line 3\n-line 4\n+changed\n line 5\n line 6\n line 7\n");
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("changed\n");
+    }
+
+    [Test]
+    public async Task Execute_returns_creation_and_deletion_diffs(CancellationToken cancellationToken)
+    {
+        var deleted = Path.Combine(_root, "deleted.txt");
+        await File.WriteAllTextAsync(deleted, "remove\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var created = await tool.Execute(
+            """
+            {"format":"unified","patchText":"--- /dev/null\n+++ b/created.txt\n@@ -0,0 +1,1 @@\n+created\n"}
+            """,
+            cancellationToken);
+        var removed = await tool.Execute(
+            """
+            {"format":"unified","patchText":"--- a/deleted.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-remove\n"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(created).IsEqualTo(
+            "--- /dev/null\n+++ b/created.txt\n@@ -0,0 +1,1 @@\n+created\n");
+        _ = await Assert.That(removed).IsEqualTo(
+            "--- a/deleted.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-remove\n");
+    }
+
+    [Test]
+    public async Task Execute_returns_diffs_in_patch_operation_order(CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(Path.Combine(_root, "first.txt"), "before\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"first.txt\n<<<<<<< SEARCH\nbefore\n=======\nafter\n>>>>>>> REPLACE\nsecond.txt\n<<<<<<< SEARCH\n=======\ncreated\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo(
+            "--- a/first.txt\n+++ b/first.txt\n@@ -1,1 +1,1 @@\n-before\n+after\n--- /dev/null\n+++ b/second.txt\n@@ -0,0 +1,1 @@\n+created\n");
+    }
+
+    [Test]
+    public async Task Execute_reports_an_existing_empty_file_as_an_update(CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(Path.Combine(_root, "empty.txt"), string.Empty, cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"empty.txt\n<<<<<<< SEARCH\n=======\nfilled\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo(
+            "--- a/empty.txt\n+++ b/empty.txt\n@@ -0,0 +1,1 @@\n+filled\n");
     }
 }

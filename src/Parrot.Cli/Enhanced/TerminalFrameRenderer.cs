@@ -7,7 +7,8 @@ internal sealed class TerminalFrameRenderer(
     Func<int> columns,
     TerminalPalette palette,
     int maxLiveRows,
-    int maxInputRows)
+    int maxInputRows,
+    bool inlineDiff)
 {
     internal const int DefaultInputRows = 12;
     internal const int DefaultLiveRows = 10;
@@ -80,7 +81,7 @@ internal sealed class TerminalFrameRenderer(
         {
             var width = Math.Max(1, columns());
             var frame = Render(items, width);
-            var context = new ScrollbackRenderContext(width, palette);
+            var context = new ScrollbackRenderContext(width, palette, inlineDiff);
             var active = _activeScrollback;
             var pending = new List<IScrollbackItem>(_pendingScrollback);
             var emitted = new List<IScrollbackItem>();

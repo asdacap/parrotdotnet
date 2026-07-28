@@ -123,7 +123,8 @@ internal sealed class EnhancedCli(
             token.ThrowIfCancellationRequested();
             var context = new ScrollbackRenderContext(
                 Math.Max(1, terminal.GetColumns()),
-                new TerminalPalette(terminal.Color));
+                new TerminalPalette(terminal.Color),
+                configuration.InlineDiff);
             foreach (var line in scrollback.Render(context))
             {
                 await terminal.Output.WriteAsync(line.AsMemory(), CancellationToken.None).ConfigureAwait(false);
@@ -218,7 +219,8 @@ internal sealed class EnhancedCli(
             terminal.GetColumns,
             palette,
             TerminalFrameRenderer.DefaultLiveRows,
-            TerminalFrameRenderer.DefaultInputRows);
+            TerminalFrameRenderer.DefaultInputRows,
+            configuration.InlineDiff);
         var spinner = new TerminalSpinner(DrawBody);
         var exiting = false;
         var firstTurnCompleted = false;

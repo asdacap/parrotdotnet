@@ -33,6 +33,26 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Inline_diff_defaults_to_true_and_accepts_boolean_configuration()
+    {
+        var missing = Configuration.Load(Path.Combine(_directory, "missing.yaml"));
+        var enabled = Configuration.Load(Write("inline_diff: true\n"));
+        var disabled = Configuration.Load(Write("inline_diff: false\n"));
+
+        _ = await Assert.That(missing.InlineDiff).IsTrue();
+        _ = await Assert.That(enabled.InlineDiff).IsTrue();
+        _ = await Assert.That(disabled.InlineDiff).IsFalse();
+    }
+
+    [Test]
+    public async Task Inline_diff_rejects_non_boolean_values()
+    {
+        var path = Write("inline_diff: yes\n");
+
+        _ = await Assert.That(() => Configuration.Load(path)).Throws<InvalidDataException>();
+    }
+
+    [Test]
     public async Task Web_fetch_private_access_is_opt_in()
     {
         var missing = Configuration.Load(Path.Combine(_directory, "missing.yaml"));
