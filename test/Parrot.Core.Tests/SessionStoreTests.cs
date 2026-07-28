@@ -19,7 +19,7 @@ internal sealed class SessionStoreTests : IDisposable
     }
 
     [Test]
-    public async Task Resumed_and_legacy_sessions_retain_or_receive_a_durable_name()
+    public async Task Resumed_and_legacy_sessions_retain_or_receive_a_durable_root_agent_name()
     {
         const string namedId = "user-session-named";
         const string legacyId = "user-session-legacy";
@@ -35,7 +35,7 @@ internal sealed class SessionStoreTests : IDisposable
         using (namedStore)
         await using (named)
         {
-            _ = await Assert.That(named.Name).IsEqualTo("main");
+            _ = await Assert.That(index.Find(namedId)?.RootAgentName).IsEqualTo("main");
             _ = await Assert.That(index.Find(namedId)?.CreatedAt).IsEqualTo("2026-07-27T01:00:00Z");
         }
 
@@ -43,14 +43,13 @@ internal sealed class SessionStoreTests : IDisposable
         using (legacyStore)
         await using (legacy)
         {
-            _ = await Assert.That(legacy.Name).IsEqualTo("main-2");
-            _ = await Assert.That(index.Find(legacyId)?.Name).IsEqualTo("main-2");
+            _ = await Assert.That(index.Find(legacyId)?.RootAgentName).IsEqualTo("main-2");
             _ = await Assert.That(index.Find(legacyId)?.CreatedAt).IsEqualTo("2026-07-27T02:00:00Z");
         }
     }
 
     [Test]
-    public async Task Failed_session_construction_releases_its_unpublished_name()
+    public async Task Failed_session_construction_releases_its_unpublished_root_agent_name()
     {
         using (var failing = new SessionStore(
             _root,
@@ -65,15 +64,15 @@ internal sealed class SessionStoreTests : IDisposable
         using (store)
         await using (session)
         {
-            _ = await Assert.That(session.Name).IsEqualTo("main");
+            _ = await Assert.That(store.Index.Find(session.Id)?.RootAgentName).IsEqualTo("main");
         }
     }
 
-    private static SessionMeta Meta(string id, string name, string workingDirectory, string createdAt) =>
+    private static SessionMeta Meta(string id, string rootAgentName, string workingDirectory, string createdAt) =>
         new()
         {
             Id = id,
-            Name = name,
+            RootAgentName = rootAgentName,
             WorkingDirectory = workingDirectory,
             HostKey = "host",
             ProviderId = "unused",
@@ -120,7 +119,7 @@ internal sealed class SessionStoreTests : IDisposable
     {
         public UserSession Create(
             string id,
-            string name,
+            string rootAgentName,
             ProviderModel model,
             string mode,
             EventRepository eventRepository) =>

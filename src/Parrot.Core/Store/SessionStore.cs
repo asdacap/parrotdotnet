@@ -37,19 +37,19 @@ internal sealed class SessionStore(
             Environment.ProcessId,
             ProcessIsAlive,
             Index);
-        var reserved = names.Reserve(id, existing?.Name ?? string.Empty);
+        var reserved = names.Reserve(id, existing?.RootAgentName ?? string.Empty);
         SessionDatabase? database = null;
 
         try
         {
             database = SessionDatabase.Open(Index.DatabaseFor(id));
-            var session = userSessions.Create(id, reserved.Name, model, mode, new EventRepository(database));
+            var session = userSessions.Create(id, reserved.RootAgentName, model, mode, new EventRepository(database));
             Index.Publish(new SessionMeta
             {
                 Id = id,
                 WorkingDirectory = workingDirectory,
                 HostKey = hostKey,
-                Name = session.Name,
+                RootAgentName = reserved.RootAgentName,
                 ProviderId = session.ProviderId,
                 Model = session.Model,
                 Mode = session.Mode.Id,
@@ -73,7 +73,6 @@ internal sealed class SessionStore(
         var current = Index.List().Single(meta => string.Equals(meta.Id, session.Id, StringComparison.Ordinal));
         Index.Publish(current with
         {
-            Name = session.Name,
             ProviderId = session.ProviderId,
             Model = session.Model,
             Mode = session.Mode.Id,

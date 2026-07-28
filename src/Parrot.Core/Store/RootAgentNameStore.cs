@@ -17,15 +17,15 @@ internal sealed partial class RootAgentNameStore(
     private const int FileExistsError = 17;
     private const string FirstName = "main";
 
-    public RootAgentNameReservationToken Reserve(string sessionId, string requestedName)
+    public RootAgentNameReservationToken Reserve(string sessionId, string requestedRootAgentName)
     {
         ArgumentException.ThrowIfNullOrEmpty(sessionId);
-        ArgumentNullException.ThrowIfNull(requestedName);
+        ArgumentNullException.ThrowIfNull(requestedRootAgentName);
 
-        if (requestedName.Length > 0)
+        if (requestedRootAgentName.Length > 0)
         {
-            ValidateName(requestedName);
-            return ReserveExact(sessionId, requestedName);
+            ValidateName(requestedRootAgentName);
+            return ReserveExact(sessionId, requestedRootAgentName);
         }
 
         for (var suffix = 1; ; suffix++)
@@ -53,12 +53,12 @@ internal sealed partial class RootAgentNameStore(
     {
         ArgumentNullException.ThrowIfNull(token);
 
-        if (!token.Acquired || HasPublishedName(token.Name))
+        if (!token.Acquired || HasPublishedName(token.RootAgentName))
         {
             return;
         }
 
-        var directory = DirectoryFor(token.Name);
+        var directory = DirectoryFor(token.RootAgentName);
         var chain = LoadChain(directory);
 
         if (chain.Current is not { } current
@@ -166,17 +166,17 @@ internal sealed partial class RootAgentNameStore(
         }
     }
 
-    private static void ValidateName(string name)
+    private static void ValidateName(string rootAgentName)
     {
-        if (string.Equals(name, FirstName, StringComparison.Ordinal))
+        if (string.Equals(rootAgentName, FirstName, StringComparison.Ordinal))
         {
             return;
         }
 
         const string prefix = "main-";
-        var valid = name.StartsWith(prefix, StringComparison.Ordinal)
+        var valid = rootAgentName.StartsWith(prefix, StringComparison.Ordinal)
             && int.TryParse(
-                name.AsSpan(prefix.Length),
+                rootAgentName.AsSpan(prefix.Length),
                 System.Globalization.NumberStyles.None,
                 System.Globalization.CultureInfo.InvariantCulture,
                 out var suffix)
@@ -184,15 +184,17 @@ internal sealed partial class RootAgentNameStore(
 
         if (!valid)
         {
-            throw new ArgumentException("Root agent names must be main or main-N for N >= 2.", nameof(name));
+            throw new ArgumentException(
+                "Root agent names must be main or main-N for N >= 2.",
+                nameof(rootAgentName));
         }
     }
 
-    private RootAgentNameReservationToken ReserveExact(string sessionId, string name)
+    private RootAgentNameReservationToken ReserveExact(string sessionId, string rootAgentName)
     {
         while (true)
         {
-            var result = ReserveCandidate(sessionId, name, exact: true);
+            var result = ReserveCandidate(sessionId, rootAgentName, exact: true);
 
             if (result.Reservation is not null)
             {
@@ -202,21 +204,21 @@ internal sealed partial class RootAgentNameStore(
             if (!result.Contended)
             {
                 throw new InvalidOperationException(
-                    $"Root agent name '{name}' is not owned by user session '{sessionId}'.");
+                    $"Root agent name '{rootAgentName}' is not owned by user session '{sessionId}'.");
             }
         }
     }
 
-    private ReservationAttempt ReserveCandidate(string sessionId, string name, bool exact)
+    private ReservationAttempt ReserveCandidate(string sessionId, string rootAgentName, bool exact)
     {
-        var publishedOwner = PublishedOwner(name);
+        var publishedOwner = PublishedOwner(rootAgentName);
 
         if (publishedOwner is not null && !string.Equals(publishedOwner, sessionId, StringComparison.Ordinal))
         {
             return new ReservationAttempt(null, false);
         }
 
-        var directory = DirectoryFor(name);
+        var directory = DirectoryFor(rootAgentName);
         _ = Directory.CreateDirectory(directory);
         var chain = LoadChain(directory);
         var current = chain.Current;
@@ -226,7 +228,7 @@ internal sealed partial class RootAgentNameStore(
             if (string.Equals(current.SessionId, sessionId, StringComparison.Ordinal))
             {
                 return new ReservationAttempt(
-                    new RootAgentNameReservationToken(name, sessionId, current.Version, false), false);
+                    new RootAgentNameReservationToken(rootAgentName, sessionId, current.Version, false), false);
             }
 
             if (publishedOwner is not null || !CanReclaim(current))
@@ -241,7 +243,7 @@ internal sealed partial class RootAgentNameStore(
         {
             return exact
                 ? new ReservationAttempt(
-                    new RootAgentNameReservationToken(name, sessionId, 0, false), false)
+                    new RootAgentNameReservationToken(rootAgentName, sessionId, 0, false), false)
                 : new ReservationAttempt(null, false);
         }
 
@@ -262,23 +264,24 @@ internal sealed partial class RootAgentNameStore(
         }
 
         return new ReservationAttempt(
-            new RootAgentNameReservationToken(name, sessionId, version, true), false);
+            new RootAgentNameReservationToken(rootAgentName, sessionId, version, true), false);
     }
 
-    private string? PublishedOwner(string name)
+    private string? PublishedOwner(string rootAgentName)
     {
         string? owner = null;
 
         foreach (var meta in sessions.List())
         {
-            if (!string.Equals(meta.Name, name, StringComparison.Ordinal))
+            if (!string.Equals(meta.RootAgentName, rootAgentName, StringComparison.Ordinal))
             {
                 continue;
             }
 
             if (owner is not null && !string.Equals(owner, meta.Id, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException($"Published root agent name '{name}' has multiple owners.");
+                throw new InvalidOperationException(
+                    $"Published root agent name '{rootAgentName}' has multiple owners.");
             }
 
             owner = meta.Id;
@@ -287,16 +290,16 @@ internal sealed partial class RootAgentNameStore(
         return owner;
     }
 
-    private bool HasPublishedName(string name) => PublishedOwner(name) is not null;
+    private bool HasPublishedName(string rootAgentName) => PublishedOwner(rootAgentName) is not null;
 
     private bool CanReclaim(RootAgentNameReservation reservation) =>
         string.Equals(reservation.HostKey, hostKey, StringComparison.Ordinal)
         && !processIsAlive(reservation.ProcessId);
 
-    private string DirectoryFor(string name)
+    private string DirectoryFor(string rootAgentName)
     {
-        ValidateName(name);
-        return Path.Combine(stateDirectory, "session-names", name);
+        ValidateName(rootAgentName);
+        return Path.Combine(stateDirectory, "session-names", rootAgentName);
     }
 
     private sealed partial class AtomicLink

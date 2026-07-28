@@ -14,6 +14,6 @@ internal sealed class SessionsCommand(SessionIndex index, ISlashSession session,
                 .OrderBy(meta => meta.CreatedAt, StringComparer.Ordinal)
                 .Select(meta =>
                     $"{(string.Equals(meta.Id, session.Id, StringComparison.Ordinal) ? "*" : " ")} " +
-                    $"{(meta.Name.Length == 0 ? "<unnamed>" : meta.Name)}  {meta.Id}  {meta.Model}")],
+                    $"{(meta.RootAgentName.Length == 0 ? "<unnamed>" : meta.RootAgentName)}  {meta.Id}  {meta.Model}")],
             cancellationToken);
 }

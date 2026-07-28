@@ -35,8 +35,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
         var admitted = await service.SendMessage(Send(session.Id, "hello", "msg-1"), context);
 
-        _ = await Assert.That(session.Name).IsEqualTo("main");
-        _ = await Assert.That(sessions.Identities.Single().Name).IsEqualTo(session.Name);
+        _ = await Assert.That(sessions.Identities.Single().Name).IsEqualTo("main");
         _ = await Assert.That(admitted.Created).IsTrue();
         _ = await Assert.That(admitted.MessageId).IsEqualTo("msg-1");
         _ = await Assert.That(admitted.InputId).IsNotEmpty();
@@ -74,13 +73,9 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(string.Join(",", listed.Modes.Select(mode => mode.Id)))
             .IsEqualTo("build,plan,query");
         _ = await Assert.That(defaulted.Mode).IsEqualTo(ModeRegistry.Build);
-        _ = await Assert.That(defaulted.Name).IsEqualTo("main");
         _ = await Assert.That(created.Mode).IsEqualTo(ModeRegistry.Plan);
-        _ = await Assert.That(created.Name).IsEqualTo("main-2");
         _ = await Assert.That(updated.Mode).IsEqualTo(ModeRegistry.Query);
-        _ = await Assert.That(updated.Name).IsEqualTo(created.Name);
         _ = await Assert.That(carried.Mode).IsEqualTo(ModeRegistry.Query);
-        _ = await Assert.That(carried.Name).IsEqualTo(created.Name);
         _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(afterRefusal.Mode).IsEqualTo(ModeRegistry.Query);
     }
@@ -109,7 +104,7 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(updated.Model).IsEqualTo(Selection);
         _ = await Assert.That(unlisted.Model).IsEqualTo("scripted/model/missing");
         _ = await Assert.That(meta.Model).IsEqualTo("scripted/model/missing");
-        _ = await Assert.That(meta.Name).IsEqualTo(created.Name);
+        _ = await Assert.That(meta.RootAgentName).IsEqualTo("main");
     }
 
     [Test]

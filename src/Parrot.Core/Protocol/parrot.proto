@@ -34,7 +34,6 @@ message UserSession {
   string id    = 1;
   string model = 2;
   string mode  = 3;
-  string name  = 4;
 }
 
 message CreateSessionRequest {
