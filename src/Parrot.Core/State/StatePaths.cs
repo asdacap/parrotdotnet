@@ -10,6 +10,8 @@ internal sealed class StatePaths(string state, string config, string data)
 
     public string ConfigFile => Path.Combine(Config, "config.yaml");
 
+    public string PredefinedConfigFile => Path.Combine(Config, "predefined_config.yaml");
+
     public string CredentialsFile => Path.Combine(Config, "credentials.json");
 
     public static StatePaths Resolve(IReadOnlyDictionary<string, string> environment)

@@ -3,25 +3,13 @@ using YamlDotNet.RepresentationModel;
 
 namespace Parrot.Config;
 
-// config.yaml: the shared, hand-editable configuration. Model-only today; a
-// nested providers: map arrives with the provider registry.
-//
-// A write edits the YAML representation model and rewrites the file atomically,
-// so changing one field keeps the other keys and their order. Comments are not
-// preserved -- the representation model drops them -- which is the one way this
-// is less faithful than upstream's update.go. Acceptable while the file is a
-// handful of scalars; revisit when it gains structure worth commenting.
+// The user-owned config.yaml is layered over a generated, agent-readable copy
+// of the predefined defaults. Writes intentionally touch only the user layer.
 internal sealed class Configuration(string path)
 {
     private const string ModelAliasesKey = "model_aliases";
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
-    private const string XhighAugmentation =
-        "For complex work, delegate focused exploration or implementation when the active profile permits it. " +
-        "Do not duplicate a task already handled by a running agent.";
-
-    private const string XhighUsage = "Strategic work spanning multiple modules or parties, ambiguous or open-ended " +
-        "requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.";
 
     private readonly Lock _writeLock = new();
 
@@ -50,9 +38,10 @@ internal sealed class Configuration(string path)
     public IReadOnlyDictionary<string, ProfileSecurityConfig> Profiles { get; private set; } =
         new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal);
 
-    public static Configuration Load(string path)
+    public static Configuration Load(string path, string predefinedPath)
     {
-        var root = LoadRoot(path);
+        CopyPredefined(predefinedPath);
+        var root = Merge(LoadRoot(predefinedPath), LoadRoot(path));
 
         return new(path)
         {
@@ -108,6 +97,81 @@ internal sealed class Configuration(string path)
         }
     }
 
+    private static void CopyPredefined(string destination)
+    {
+        var source = Path.Combine(AppContext.BaseDirectory, "Config", "predefined_config.yaml");
+        var directory = Path.GetDirectoryName(destination);
+
+        ArgumentException.ThrowIfNullOrEmpty(destination);
+        ArgumentException.ThrowIfNullOrEmpty(source);
+
+        try
+        {
+            if (!string.IsNullOrEmpty(directory))
+            {
+                _ = Directory.CreateDirectory(directory);
+            }
+
+            var temporary = Path.Combine(directory ?? string.Empty, Path.GetRandomFileName());
+            File.Copy(source, temporary);
+            File.Move(temporary, destination, overwrite: true);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidDataException("unable to write predefined configuration", failure);
+        }
+    }
+
+    private static YamlMappingNode Merge(YamlMappingNode defaults, YamlMappingNode overrides)
+    {
+        foreach (var entry in overrides.Children)
+        {
+            if (defaults.Children.TryGetValue(entry.Key, out var current) &&
+                current is YamlMappingNode baseMapping && entry.Value is YamlMappingNode overrideMapping)
+            {
+                _ = Merge(baseMapping, overrideMapping);
+            }
+            else
+            {
+                defaults.Children[Clone(entry.Key)] = Clone(entry.Value);
+            }
+        }
+
+        return defaults;
+    }
+
+    private static YamlNode Clone(YamlNode node) => node switch
+    {
+        YamlMappingNode mapping => CloneMapping(mapping),
+        YamlSequenceNode sequence => CloneSequence(sequence),
+        YamlScalarNode scalar => new YamlScalarNode(scalar.Value),
+        _ => throw new InvalidDataException("configuration contains an unsupported YAML node"),
+    };
+
+    private static YamlMappingNode CloneMapping(YamlMappingNode source)
+    {
+        var clone = new YamlMappingNode();
+
+        foreach (var entry in source.Children)
+        {
+            clone.Add(Clone(entry.Key), Clone(entry.Value));
+        }
+
+        return clone;
+    }
+
+    private static YamlSequenceNode CloneSequence(YamlSequenceNode source)
+    {
+        var clone = new YamlSequenceNode();
+
+        foreach (var item in source.Children)
+        {
+            clone.Add(Clone(item));
+        }
+
+        return clone;
+    }
+
     private static string Serialize(YamlMappingNode root)
     {
         var stream = new YamlStream(new YamlDocument(root));
@@ -129,7 +193,7 @@ internal sealed class Configuration(string path)
 
     private static SortedDictionary<string, ModelAliasConfig> ReadModelAliases(YamlMappingNode root)
     {
-        var aliases = PredefinedModelAliases();
+        var aliases = new SortedDictionary<string, ModelAliasConfig>(StringComparer.Ordinal);
 
         if (!Child(root, ModelAliasesKey, out var node))
         {
@@ -156,19 +220,20 @@ internal sealed class Configuration(string path)
             }
 
             ValidateAliasKeys(fields, name);
-            _ = aliases.TryGetValue(name, out var predefined);
+            _ = aliases.TryGetValue(name, out var inherited);
             var modelString = Child(fields, "model_string", out _)
                 ? ScalarValue(fields, "model_string", $"{ModelAliasesKey}.{name}.model_string")
-                : predefined?.ModelString ?? string.Empty;
+                : inherited?.ModelString ?? string.Empty;
             var usage = Child(fields, "usage", out _)
                 ? ScalarValue(fields, "usage", $"{ModelAliasesKey}.{name}.usage")
-                : predefined?.Usage ?? string.Empty;
+                : inherited?.Usage ?? string.Empty;
             string? augmentation;
 
             if (Child(fields, "augment_system_prompt", out var augmentationNode))
             {
                 augmentation = augmentationNode switch
                 {
+                    YamlScalarNode { Value: "null" } => null,
                     YamlScalarNode scalar => scalar.Value,
                     _ => throw new InvalidDataException(
                         $"{ModelAliasesKey}.{name}.augment_system_prompt must be a string or null"),
@@ -176,7 +241,7 @@ internal sealed class Configuration(string path)
             }
             else
             {
-                augmentation = predefined?.AugmentSystemPrompt;
+                augmentation = inherited?.AugmentSystemPrompt;
             }
 
             if (usage.Length == 0)
@@ -190,24 +255,6 @@ internal sealed class Configuration(string path)
 
         return aliases;
     }
-
-    private static SortedDictionary<string, ModelAliasConfig> PredefinedModelAliases() =>
-        new(StringComparer.Ordinal)
-        {
-            ["low_llm"] = new(
-                string.Empty,
-                "mechanical, single file task, text or code processing when no suitable cli tool available.",
-                null),
-            ["medium_llm"] = new(
-                string.Empty,
-                "Decently capable, specific clear task, component level task, two or three file window",
-                null),
-            ["high_llm"] = new(
-                string.Empty,
-                "General purpose, agent spawner, tactical decision making and planning, debugging, colaborator",
-                null),
-            ["xhigh_llm"] = new(string.Empty, XhighUsage, XhighAugmentation),
-        };
 
     private static SortedDictionary<string, string> ReadModelAugmentSystemPrompts(YamlMappingNode root)
     {

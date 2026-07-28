@@ -160,6 +160,22 @@ different from `null`. Direct canonical selectors retain the same exact-then-
 base augmentation behavior, and remain compatible with unlisted models that
 the provider accepts.
 
+## Configuration
+
+Parrot keeps its configuration under `$XDG_CONFIG_HOME/parrotdotnet` (or
+`~/.config/parrotdotnet` when `XDG_CONFIG_HOME` is unset). The shipped
+`predefined_config.yaml` is copied there at startup and replaced whenever the
+running binary changes. It is the complete, agent-readable reference for the
+active defaults; do not edit it.
+
+Put personal settings in `config.yaml` in the same directory. It is never
+created or overwritten by loading configuration. Parrot recursively merges its
+mapping over `predefined_config.yaml`: nested mappings combine by key, while
+scalars and sequences replace their corresponding defaults. Thus a
+`model_aliases.low_llm.model_string` entry can override that target without
+repeating its predefined usage, and mode security overrides can change one
+field without materializing the rest.
+
 ## Build And Run
 
 The quickest way to run it, no dev shell needed:

@@ -17,11 +17,20 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task A_missing_file_yields_an_empty_model()
+    public async Task A_missing_user_file_is_layered_over_the_generated_predefined_configuration(
+        CancellationToken cancellationToken)
     {
-        var configuration = Configuration.Load(Path.Combine(_directory, "config.yaml"));
+        var path = Path.Combine(_directory, "config.yaml");
+        var predefined = Path.Combine(_directory, "predefined_config.yaml");
+        var configuration = Load(path);
 
+        _ = await Assert.That(File.Exists(path)).IsFalse();
         _ = await Assert.That(configuration.Model).IsEmpty();
+        _ = await Assert.That(configuration.InlineDiff).IsTrue();
+        _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
+        _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
+        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
+            .Contains("Predefined Parrot configuration.");
     }
 
     [Test]
@@ -29,15 +38,15 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var path = Write("# parrot config\nmodel: deepseek-v4-pro\n");
 
-        _ = await Assert.That(Configuration.Load(path).Model).IsEqualTo("deepseek-v4-pro");
+        _ = await Assert.That(Load(path).Model).IsEqualTo("deepseek-v4-pro");
     }
 
     [Test]
     public async Task Inline_diff_defaults_to_true_and_accepts_boolean_configuration()
     {
-        var missing = Configuration.Load(Path.Combine(_directory, "missing.yaml"));
-        var enabled = Configuration.Load(Write("inline_diff: true\n"));
-        var disabled = Configuration.Load(Write("inline_diff: false\n"));
+        var missing = Load(Path.Combine(_directory, "missing.yaml"));
+        var enabled = Load(Write("inline_diff: true\n"));
+        var disabled = Load(Write("inline_diff: false\n"));
 
         _ = await Assert.That(missing.InlineDiff).IsTrue();
         _ = await Assert.That(enabled.InlineDiff).IsTrue();
@@ -49,14 +58,14 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var path = Write("inline_diff: yes\n");
 
-        _ = await Assert.That(() => Configuration.Load(path)).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
     }
 
     [Test]
     public async Task Web_fetch_private_access_is_opt_in()
     {
-        var missing = Configuration.Load(Path.Combine(_directory, "missing.yaml"));
-        var configured = Configuration.Load(Write("web_fetch:\n  allow_private: true\n"));
+        var missing = Load(Path.Combine(_directory, "missing.yaml"));
+        var configured = Load(Write("web_fetch:\n  allow_private: true\n"));
 
         _ = await Assert.That(missing.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configured.WebFetch.AllowPrivate).IsTrue();
@@ -65,7 +74,7 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     public async Task Security_configuration_is_strict_and_ordered()
     {
-        var configuration = Configuration.Load(Write("""
+        var configuration = Load(Write("""
             sandbox_rules:
               - path: /workspace
                 rule: allow_write
@@ -90,7 +99,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules[0].Action)
             .IsEqualTo(SandboxRuleAction.DenyWrite);
-        _ = await Assert.That(configuration.Profiles["plan"].ReadOnly).IsNull();
+        _ = await Assert.That(configuration.Profiles["plan"].ReadOnly).IsTrue();
         _ = await Assert.That(configuration.Profiles["query"].ReadOnly).IsTrue();
     }
 
@@ -98,16 +107,16 @@ internal sealed class ConfigurationTests : IDisposable
     public async Task Invalid_security_configuration_fails_closed()
     {
         var relativePath = Write("sandbox_rules:\n  - path: relative\n    rule: allow_write\n");
-        _ = await Assert.That(() => Configuration.Load(relativePath)).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(relativePath)).Throws<InvalidDataException>();
 
         var invalidAction = Write("sandbox_rules:\n  - path: /workspace\n    rule: unknown\n");
-        _ = await Assert.That(() => Configuration.Load(invalidAction)).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(invalidAction)).Throws<InvalidDataException>();
 
         var invalidProfile = Write("profiles:\n  worker:\n    read_only: true\n");
-        _ = await Assert.That(() => Configuration.Load(invalidProfile)).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(invalidProfile)).Throws<InvalidDataException>();
 
         var invalidBoolean = Write("profiles:\n  query:\n    read_only: yes\n");
-        _ = await Assert.That(() => Configuration.Load(invalidBoolean)).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(invalidBoolean)).Throws<InvalidDataException>();
     }
 
     [Test]
@@ -117,13 +126,13 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var path = Write(content);
 
-        _ = await Assert.That(() => Configuration.Load(path)).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
     }
 
     [Test]
     public async Task Model_aliases_have_four_exact_defaults()
     {
-        var aliases = Configuration.Load(Path.Combine(_directory, "config.yaml")).ModelAliases;
+        var aliases = Load(Path.Combine(_directory, "config.yaml")).ModelAliases;
 
         _ = await Assert.That(aliases).Count().IsEqualTo(4);
         _ = await Assert.That(aliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
@@ -147,7 +156,7 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     public async Task Model_aliases_partially_override_defaults_and_add_custom_aliases()
     {
-        var aliases = Configuration.Load(Write("""
+        var aliases = Load(Write("""
             model_aliases:
               low_llm:
                 model_string: openai/gpt-5
@@ -174,7 +183,7 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     public async Task Model_alias_augmentation_distinguishes_null_from_an_explicit_empty_string()
     {
-        var aliases = Configuration.Load(Write("""
+        var aliases = Load(Write("""
             model_aliases:
               custom:
                 usage: Custom work
@@ -189,7 +198,7 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     public async Task Model_augment_system_prompts_are_a_canonical_selector_map()
     {
-        var prompts = Configuration.Load(Write("""
+        var prompts = Load(Write("""
             model_augment_system_prompts:
               openai/gpt-5: First prompt
               anthropic/claude-sonnet: Second prompt
@@ -219,7 +228,7 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var path = Write(content);
 
-        _ = await Assert.That(() => Configuration.Load(path)).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
     }
 
     [Test]
@@ -232,10 +241,10 @@ internal sealed class ConfigurationTests : IDisposable
                 usage: Fast local work
             """);
 
-        var configuration = Configuration.Load(path);
+        var configuration = Load(path);
         configuration.SetModelAlias("low_llm", "openai/gpt-5.6");
 
-        var reloaded = Configuration.Load(path);
+        var reloaded = Load(path);
         var rewritten = await File.ReadAllTextAsync(path);
         _ = await Assert.That(reloaded.ModelAliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             "openai/gpt-5.6", "Fast local work", null));
@@ -243,9 +252,51 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task User_configuration_recursively_overrides_predefined_mappings(CancellationToken cancellationToken)
+    {
+        var path = Write("""
+            model_aliases:
+              low_llm:
+                model_string: openai/gpt-5
+            profiles:
+              build:
+                sandbox_rules:
+                  - path: /workspace
+                    rule: allow_write
+            """);
+        var configuration = Load(path);
+
+        _ = await Assert.That(configuration.ModelAliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
+            "openai/gpt-5",
+            "mechanical, single file task, text or code processing when no suitable cli tool available.",
+            null));
+        _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
+        _ = await Assert.That(configuration.Profiles["build"].SandboxRules.Count).IsEqualTo(1);
+        _ = await Assert.That(configuration.Profiles["build"].SandboxRules[0])
+            .IsEqualTo(new SandboxRule("/workspace", SandboxRuleAction.AllowWrite));
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("model_string: openai/gpt-5");
+    }
+
+    [Test]
+    public async Task Loading_replaces_the_predefined_reference_without_rewriting_the_user_configuration(
+        CancellationToken cancellationToken)
+    {
+        var path = Write("model: openai/gpt-5\n");
+        var predefined = Path.Combine(_directory, "predefined_config.yaml");
+        _ = Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(predefined, "model: stale/model\n", cancellationToken);
+
+        _ = Load(path);
+
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("model: openai/gpt-5\n");
+        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
+            .Contains("Predefined Parrot configuration.");
+    }
+
+    [Test]
     public async Task Set_model_alias_rejects_an_undefined_alias()
     {
-        var configuration = Configuration.Load(Path.Combine(_directory, "config.yaml"));
+        var configuration = Load(Path.Combine(_directory, "config.yaml"));
 
         _ = await Assert.That(() => configuration.SetModelAlias("undefined", "openai/gpt-5.6"))
             .Throws<InvalidDataException>();
@@ -256,9 +307,9 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var path = Path.Combine(_directory, "config.yaml");
 
-        Configuration.Load(path).SetModel("glm-5.2");
+        Load(path).SetModel("glm-5.2");
 
-        _ = await Assert.That(Configuration.Load(path).Model).IsEqualTo("glm-5.2");
+        _ = await Assert.That(Load(path).Model).IsEqualTo("glm-5.2");
     }
 
     [Test]
@@ -266,7 +317,7 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var path = Write("model: old\ntheme: dark\n");
 
-        Configuration.Load(path).SetModel("new");
+        Load(path).SetModel("new");
 
         var rewritten = await File.ReadAllTextAsync(path, cancellationToken);
 
@@ -280,11 +331,14 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var path = Write("theme: dark\n");
 
-        Configuration.Load(path).SetModel("added");
+        Load(path).SetModel("added");
 
-        _ = await Assert.That(Configuration.Load(path).Model).IsEqualTo("added");
+        _ = await Assert.That(Load(path).Model).IsEqualTo("added");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("theme: dark");
     }
+
+    private Configuration Load(string path) =>
+        Configuration.Load(path, Path.Combine(_directory, "predefined_config.yaml"));
 
     private string Write(string content)
     {
