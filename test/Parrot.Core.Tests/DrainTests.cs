@@ -111,7 +111,7 @@ internal sealed class DrainTests : IDisposable
         using var provider = new SteppedProvider(
             Answer(string.Empty, new LLMToolCall("call-1", "settled", "{}")), Answer("done"));
         var repository = new EventRepository(_database);
-        var session = Session(provider, repository, [new FixedToolFactory(new SettledTool())], cancellationToken);
+        var session = Session(provider, repository, [new FixedToolFactory(new SettledTool("settled"))], cancellationToken);
 
         _ = await session.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -132,6 +132,34 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | steer");
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
             "started:call-1:settled | finished:call-1:settled");
+        _ = await Assert.That(repository.Replay().Single(published =>
+            published.PayloadCase == Event.PayloadOneofCase.ToolFinished).ToolFinished.Result).IsEqualTo("settled");
+    }
+
+    [Test]
+    public async Task Tool_finished_persists_empty_and_large_results_exactly(CancellationToken cancellationToken)
+    {
+        var results = new[] { string.Empty, new string('x', 2 * 1024 * 1024) };
+
+        foreach (var result in results)
+        {
+            using var provider = new SteppedProvider(
+                Answer(string.Empty, new LLMToolCall("call", "settled", "{}")), Answer("done"));
+            var repository = new EventRepository(_database);
+            var session = Session(provider, repository, [new FixedToolFactory(new SettledTool(result))], cancellationToken);
+
+            _ = await session.Admit("prompt", $"msg-{result.Length}", Delivery.Steer, cancellationToken);
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            await session.Settled();
+
+            var finished = repository.Replay().Last(published =>
+                published.PayloadCase == Event.PayloadOneofCase.ToolFinished).ToolFinished;
+            _ = await Assert.That(finished.HasResult).IsTrue();
+            _ = await Assert.That(finished.Result).IsEqualTo(result);
+        }
     }
 
     [Test]
@@ -145,7 +173,7 @@ internal sealed class DrainTests : IDisposable
             LLMEvent.Completed("stop", 7, 2, 5, "first", [])))
         {
             var firstSession = Session(
-                firstProvider, repository, [new FixedToolFactory(new SettledTool())], 128, cancellationToken);
+                firstProvider, repository, [new FixedToolFactory(new SettledTool("settled"))], 128, cancellationToken);
             _ = await firstSession.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
             await firstProvider.Arrived(cancellationToken);
             firstProvider.Release();

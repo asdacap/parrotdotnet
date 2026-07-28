@@ -57,6 +57,24 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.StatusInjected);
     }
 
+    [Test]
+    public async Task Tool_finished_result_preserves_absent_empty_and_nonempty_presence()
+    {
+        var absent = new Event { ToolFinished = new ToolFinished() };
+        var empty = new Event { ToolFinished = new ToolFinished { Result = string.Empty } };
+        var nonempty = new Event { ToolFinished = new ToolFinished { Result = "done" } };
+
+        var roundtrippedAbsent = Event.Parser.ParseFrom(absent.ToByteArray());
+        var roundtrippedEmpty = Event.Parser.ParseFrom(empty.ToByteArray());
+        var roundtrippedNonempty = Event.Parser.ParseFrom(nonempty.ToByteArray());
+
+        _ = await Assert.That(roundtrippedAbsent.ToolFinished.HasResult).IsFalse();
+        _ = await Assert.That(roundtrippedEmpty.ToolFinished.HasResult).IsTrue();
+        _ = await Assert.That(roundtrippedEmpty.ToolFinished.Result).IsEqualTo(string.Empty);
+        _ = await Assert.That(roundtrippedNonempty.ToolFinished.HasResult).IsTrue();
+        _ = await Assert.That(roundtrippedNonempty.ToolFinished.Result).IsEqualTo("done");
+    }
+
     // The payload is the only discriminator, so this is what pins the mapping.
     [Test]
     [Arguments(LLMEventKind.TextDelta, Event.PayloadOneofCase.TextChunk)]

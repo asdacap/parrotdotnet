@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced;
@@ -12,6 +13,8 @@ internal sealed class AgentSessionState(string agentSessionId)
     private readonly HashSet<string> _activities = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (string Name, StringBuilder Arguments)> _toolCalls =
         new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, ILiveBufferItem> _toolLive = new(StringComparer.Ordinal);
 
     private bool _completedTurn;
     private string? _name;
@@ -74,6 +77,7 @@ internal sealed class AgentSessionState(string agentSessionId)
 
         _ = toolCall.Arguments.Append(chunk.ArgumentsFragment);
         _toolCalls[chunk.ToolCallId] = toolCall;
+        _ = _toolLive.Remove(chunk.ToolCallId);
     }
 
     public string? StartTool(ToolStarted tool)
@@ -89,45 +93,72 @@ internal sealed class AgentSessionState(string agentSessionId)
             _toolCalls[tool.ToolCallId] = toolCall;
         }
 
+        _ = _toolLive.Remove(tool.ToolCallId);
         var activityId = ToolActivityPrefix + tool.ToolCallId;
         return _activities.Add(activityId) ? activityId : null;
     }
 
-    public (string ActivityId, string Line) FinishTool(Event published)
+    public (string ActivityId, IScrollbackItem? Scrollback) FinishTool(
+        Event published,
+        ToolPresenterRegistry presenters)
     {
         var (toolCallId, toolName) = GetTerminalTool(published);
+        _ = _toolLive.Remove(toolCallId);
         if (!_toolCalls.Remove(toolCallId, out var toolCall))
         {
             toolCall = (toolName, new StringBuilder());
         }
+        else if (toolCall.Name.Length == 0)
+        {
+            toolCall.Name = toolName;
+        }
 
         var activityId = ToolActivityPrefix + toolCallId;
         _ = _activities.Remove(activityId);
-        var description = DescribeToolCall(toolCall);
-        var line = published.PayloadCase switch
+        var call = new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString());
+        var terminal = published.PayloadCase switch
         {
-            Event.PayloadOneofCase.ToolFinished => $"+ {Name}: {description}",
-            Event.PayloadOneofCase.ToolCancelled => $"- {Name}: {description} cancelled",
-            Event.PayloadOneofCase.ToolError =>
-                $"! {Name}: {description}: {TerminalText.Sanitize(published.ToolError.Message)}",
-            _ => string.Empty,
+            Event.PayloadOneofCase.ToolFinished => new ToolTerminalPresentation(
+                ToolTerminalStatus.Succeeded,
+                published.ToolFinished.HasResult,
+                published.ToolFinished.Result,
+                string.Empty),
+            Event.PayloadOneofCase.ToolCancelled => new ToolTerminalPresentation(
+                ToolTerminalStatus.Cancelled,
+                false,
+                string.Empty,
+                string.Empty),
+            Event.PayloadOneofCase.ToolError => new ToolTerminalPresentation(
+                ToolTerminalStatus.Errored,
+                false,
+                string.Empty,
+                published.ToolError.Message),
+            _ => throw new InvalidOperationException("The tool event is not terminal."),
         };
-        return (activityId, line);
+        return (activityId, presenters.PresentTerminal(call, terminal));
     }
 
-    public ILiveBufferItem CreateLiveBufferItem(string activityId, int frame)
+    public ILiveBufferItem CreateLiveBufferItem(
+        string activityId,
+        int frame,
+        ToolPresenterRegistry presenters)
     {
-        var label = string.Equals(activityId, AgentActivity, StringComparison.Ordinal)
-            ? CreateAgentLabel()
-            : CreateToolLabel(activityId);
-        return new SpinnerValue(label, frame);
-    }
+        if (string.Equals(activityId, AgentActivity, StringComparison.Ordinal))
+        {
+            return new SpinnerValue(CreateAgentLabel(), frame);
+        }
 
-    private static string DescribeToolCall((string Name, StringBuilder Arguments) toolCall)
-    {
-        var name = TerminalText.Sanitize(toolCall.Name);
-        var arguments = TerminalText.Sanitize(toolCall.Arguments.ToString());
-        return arguments.Length == 0 ? name : $"tool call {name}: {arguments}";
+        var toolCallId = activityId[ToolActivityPrefix.Length..];
+        if (!_toolLive.TryGetValue(toolCallId, out var live))
+        {
+            var toolCall = _toolCalls[toolCallId];
+            live = presenters.PresentLive(
+                new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString()),
+                frame);
+            _toolLive.Add(toolCallId, live);
+        }
+
+        return live is ToolLiveValue value ? value.Animate(frame) : live;
     }
 
     private static (string ToolCallId, string ToolName) GetTerminalTool(Event published) =>
@@ -157,10 +188,4 @@ internal sealed class AgentSessionState(string agentSessionId)
           $"{FormatTokenCount(statistics.OutputTokens)} out, " +
           $"{FormatTokenCount(statistics.ContextSize)}/{FormatContextLimit(statistics.ContextLimit)} ctx)"
         : $"agent {Name}";
-
-    private string CreateToolLabel(string activityId)
-    {
-        var toolCallId = activityId[ToolActivityPrefix.Length..];
-        return $"{Name}: {_toolCalls[toolCallId].Name}";
-    }
 }

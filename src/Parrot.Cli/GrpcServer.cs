@@ -20,7 +20,11 @@ internal static class GrpcServer
         _ = builder.WebHost.ConfigureKestrel(options =>
             options.ListenAnyIP(port, listen => listen.Protocols = HttpProtocols.Http2));
 
-        _ = builder.Services.AddGrpc();
+        _ = builder.Services.AddGrpc(options =>
+        {
+            options.MaxReceiveMessageSize = GrpcTransportLimits.MessageBytes;
+            options.MaxSendMessageSize = GrpcTransportLimits.MessageBytes;
+        });
         _ = builder.Services.AddSingleton(service);
 
         await using var app = builder.Build();

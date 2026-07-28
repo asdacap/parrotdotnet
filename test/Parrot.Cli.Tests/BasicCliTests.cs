@@ -14,7 +14,15 @@ internal sealed class BasicCliTests
             new Event { ToolStarted = new ToolStarted { ToolCallId = "call-1", ToolName = "read" } },
             cancellationToken);
         await stream.WriteAsync(
-            new Event { ToolFinished = new ToolFinished { ToolCallId = "call-1", ToolName = "read" } },
+            new Event
+            {
+                ToolFinished = new ToolFinished
+                {
+                    ToolCallId = "call-1",
+                    ToolName = "read",
+                    Result = "enhanced-only result",
+                },
+            },
             cancellationToken);
         await stream.WriteAsync(
             new Event { ToolCancelled = new ToolCancelled { ToolCallId = "call-2", ToolName = "write" } },
@@ -46,6 +54,7 @@ internal sealed class BasicCliTests
             $"  agent started: explorer{Environment.NewLine}" +
             $"  agent finished: explorer{Environment.NewLine}" +
             $"  agent failed: reviewer: boom{Environment.NewLine}");
+        _ = await Assert.That(output.ToString()).DoesNotContain("enhanced-only result");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 

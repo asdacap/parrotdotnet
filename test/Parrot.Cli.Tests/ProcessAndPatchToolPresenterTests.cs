@@ -1,0 +1,103 @@
+using Parrot.Cli.Enhanced;
+using Parrot.Cli.Enhanced.Tools;
+
+namespace Parrot.Cli.Tests;
+
+internal sealed class ProcessAndPatchToolPresenterTests
+{
+    private static readonly LiveBufferRenderContext LiveContext = new(32_768, new TerminalPalette(false));
+    private static readonly ScrollbackRenderContext ScrollbackContext = new(32_768, new TerminalPalette(false));
+
+    public static IEnumerable<Func<object?[]>> Presentations()
+    {
+        yield return () =>
+        [
+            new ExecCommandToolPresenter(),
+            new ToolCallPresentation("main", "exec_command", "{\"command\":\"git status\",\"name\":\"git\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "git", string.Empty),
+            "$ git status",
+            "process git running",
+        ];
+        yield return () =>
+        [
+            new ExecCommandToolPresenter(),
+            new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\",\"yield_after_ms\":0}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "shell-42", string.Empty),
+            "$ compile",
+            "process shell-42 running",
+        ];
+        yield return () =>
+        [
+            new ExecCommandToolPresenter(),
+            new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 7", string.Empty),
+            "$ compile",
+            "! main: $ compile",
+        ];
+        yield return () =>
+        [
+            new InterruptProcessToolPresenter(),
+            new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Shell process 'build' interrupted.", string.Empty),
+            "interrupt build",
+            "interrupt build",
+        ];
+        yield return () =>
+        [
+            new WaitProcessToolPresenter(),
+            new ToolCallPresentation("main", "wait_process", "{\"name\":\"build\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "build", string.Empty),
+            "wait build",
+            "build still running",
+        ];
+        yield return () =>
+        [
+            new WaitProcessToolPresenter(),
+            new ToolCallPresentation("main", "wait_process", "{\"name\":\"build\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2", string.Empty),
+            "wait build",
+            "! main: wait build",
+        ];
+        yield return () =>
+        [
+            new InterruptProcessToolPresenter(),
+            new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2", string.Empty),
+            "interrupt build",
+            "! main: interrupt build",
+        ];
+        yield return () =>
+        [
+            new ApplyPatchToolPresenter(),
+            new ToolCallPresentation("main", "apply_patch", "{\"patchText\":\"file.txt\\n<<<<<<< SEARCH\\na\\n=======\\nb\\n>>>>>>> REPLACE\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Applied patch to file.txt", string.Empty),
+            "apply patch",
+            "apply patch",
+        ];
+        yield return () =>
+        [
+            new ApplyPatchToolPresenter(),
+            new ToolCallPresentation("main", "apply_patch", "{\"patchText\":\"file.txt\"}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "error: rejected", string.Empty),
+            "apply patch",
+            "! main: apply patch",
+        ];
+    }
+
+    [Test]
+    [MethodDataSource(nameof(Presentations))]
+    public async Task Presenters_render_tool_specific_labels_details_and_reported_failures(
+        IToolPresenter presenter,
+        ToolCallPresentation call,
+        ToolTerminalPresentation terminal,
+        string liveExpected,
+        string terminalExpected)
+    {
+        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text);
+        var terminalLines = (presenter.PresentTerminal(call, terminal)
+            ?? throw new InvalidOperationException("Presenter did not render terminal output")).Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('\n', live)).Contains(liveExpected);
+        _ = await Assert.That(string.Join('\n', terminalLines)).Contains(terminalExpected);
+    }
+}

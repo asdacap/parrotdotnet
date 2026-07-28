@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Parrot.Auth;
 using Parrot.Cli.Enhanced;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -146,7 +147,8 @@ internal sealed class EnhancedCliTests
             new OpenAiOAuthClient(driver.Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
-            terminal).RenderTurn(stream.Reader, cancellationToken);
+            terminal,
+            Presenters()).RenderTurn(stream.Reader, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
@@ -198,7 +200,8 @@ internal sealed class EnhancedCliTests
             new OpenAiOAuthClient(driver.Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
-            terminal).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
+            terminal,
+            Presenters()).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))
@@ -228,7 +231,10 @@ internal sealed class EnhancedCliTests
             IScrollbackItem scrollback,
             IReadOnlyList<ILiveBufferItem> items,
             CancellationToken token) => renderer.Commit(scrollback, [.. items, .. fixedItems], token);
-        using var view = new RawActivityView(Draw, Commit);
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([new ExecCommandToolPresenter()], new GenericToolPresenter()));
 
         await view.Render(
             new Event
@@ -244,13 +250,19 @@ internal sealed class EnhancedCliTests
         await view.Render(
             new Event
             {
-                ToolFinished = new ToolFinished { ToolCallId = "call-1", ToolName = "exec_command" },
+                ToolFinished = new ToolFinished
+                {
+                    ToolCallId = "call-1",
+                    ToolName = "exec_command",
+                    Result = "Process exited with code 0\nall tests passed",
+                },
             },
             cancellationToken);
 
         var rendered = output.ToString();
-        var command = "tool call exec_command: {\"command\":\"dotnet test\"}";
-        _ = await Assert.That(Count(rendered, "+ main: " + command + "\r\n")).IsEqualTo(1);
+        _ = await Assert.That(Count(rendered, "+ main: $ dotnet test\r\n")).IsEqualTo(1);
+        _ = await Assert.That(Count(rendered, "  dotnet test\r\n")).IsEqualTo(1);
+        _ = await Assert.That(rendered).Contains("  Process exited with code 0\r\n  all tests passed\r\n");
         _ = await Assert.That(rendered).DoesNotContain("exec_command finished");
     }
 
@@ -287,7 +299,7 @@ internal sealed class EnhancedCliTests
         string RenderItems(IReadOnlyList<ILiveBufferItem> items) =>
             string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(line => line.Text));
 
-        using var view = new RawActivityView(Draw, Commit, Delay);
+        using var view = new RawActivityView(Draw, Commit, Delay, Presenters());
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = view.Run(animating.Token);
 
@@ -406,8 +418,8 @@ internal sealed class EnhancedCliTests
 
         _ = await Assert.That(beforeAgentFinished).IsEqualTo(5);
         _ = await Assert.That(committed.Count).IsEqualTo(5);
-        _ = await Assert.That(string.Join('|', committed)).Contains("+ main: tool call exec_command: dotnet test");
-        _ = await Assert.That(string.Join('|', committed)).Contains("! explorer[31m: read[2J: denied[2J");
+        _ = await Assert.That(string.Join('|', committed)).Contains("+ main: tool call exec_command|  dotnet test");
+        _ = await Assert.That(string.Join('|', committed)).Contains("! explorer[31m: tool call read[2J|  denied[2J");
         _ = await Assert.That(string.Join('|', committed)).Contains("+ agent explorer[31m finished");
         _ = await Assert.That(draws.Last()).IsEmpty();
     }
@@ -688,9 +700,12 @@ internal sealed class EnhancedCliTests
             new OpenAiOAuthClient(driver.Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
-            terminal).RenderTurn(stream.Reader, cancellationToken);
+            terminal,
+            Presenters()).RenderTurn(stream.Reader, cancellationToken);
         return (completed, output.ToString(), error.ToString());
     }
+
+    private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
 
     private static bool UntrustedEscape(string output)
     {

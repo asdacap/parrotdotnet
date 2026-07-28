@@ -1,4 +1,5 @@
 using System.Text;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced;
@@ -6,7 +7,8 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class RawActivityView(
     Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
     Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
-    Func<CancellationToken, Task> delay) : IDisposable
+    Func<CancellationToken, Task> delay,
+    ToolPresenterRegistry presenters) : IDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
 
@@ -21,11 +23,13 @@ internal sealed class RawActivityView(
 
     public RawActivityView(
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
-        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit)
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        ToolPresenterRegistry presenters)
         : this(
             draw,
             commit,
-            static cancellationToken => Task.Delay(SpinnerIntervalMilliseconds, cancellationToken))
+            static cancellationToken => Task.Delay(SpinnerIntervalMilliseconds, cancellationToken),
+            presenters)
     {
     }
 
@@ -205,7 +209,7 @@ internal sealed class RawActivityView(
         }
 
         items.AddRange(_activities.Select(activity =>
-            activity.State.CreateLiveBufferItem(activity.ActivityId, _frame)));
+            activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters)));
         return items;
     }
 
@@ -290,11 +294,15 @@ internal sealed class RawActivityView(
     private async Task FinishTool(Event published, CancellationToken cancellationToken)
     {
         var state = GetNamedAgentSession(published.AgentSessionId);
-        var (activityId, line) = state.FinishTool(published);
+        var (activityId, scrollback) = state.FinishTool(published, presenters);
         _ = _activities.Remove((state, activityId));
-        await commit(
-            ImmediateScrollbackValue.Muted([line]),
-            Snapshot(),
-            cancellationToken).ConfigureAwait(false);
+        if (scrollback is null)
+        {
+            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await commit(scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
     }
 }

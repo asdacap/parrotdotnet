@@ -929,7 +929,7 @@ internal sealed class AgentSession(
             {
                 Id = Identifier.EventId(),
                 AgentSessionId = SessionId,
-                ToolFinished = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name },
+                ToolFinished = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name, Result = result },
             };
             await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
             return result;

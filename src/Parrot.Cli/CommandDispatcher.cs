@@ -391,7 +391,13 @@ internal sealed class CommandDispatcher(
         // process is only a client of the same contract (principle 11).
         if (connect.Length > 0)
         {
-            using var channel = GrpcChannel.ForAddress(NormalizeRemoteAddress(connect));
+            using var channel = GrpcChannel.ForAddress(
+                NormalizeRemoteAddress(connect),
+                new GrpcChannelOptions
+                {
+                    MaxReceiveMessageSize = GrpcTransportLimits.MessageBytes,
+                    MaxSendMessageSize = GrpcTransportLimits.MessageBytes,
+                });
             var remote = new GeneratedParrot.ParrotClient(channel);
             if (variant is not null)
             {

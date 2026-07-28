@@ -1,4 +1,5 @@
 using Parrot.Auth;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Pure.DI;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -18,5 +19,24 @@ internal partial class EnhancedComposition
             .Arg<IReadOnlyList<string>>("providerIds")
             .Arg<EnhancedChatRequest>("request")
             .Arg<ITerminal>("terminal")
+            .Bind<ToolPresenterRegistry>()
+            .To(static _ => new ToolPresenterRegistry(
+                [
+                    new AgentSendToolPresenter(),
+                    new AgentSpawnToolPresenter(),
+                    new ApplyPatchToolPresenter(),
+                    new ExecCommandToolPresenter(),
+                    new GitDiffToolPresenter(),
+                    new GlobToolPresenter(),
+                    new GrepToolPresenter(),
+                    new InterruptProcessToolPresenter(),
+                    new ReadToolPresenter(),
+                    new TodoReadToolPresenter(),
+                    new TodoWriteToolPresenter(),
+                    new WaitAgentToolPresenter(),
+                    new WaitProcessToolPresenter(),
+                    new WebFetchToolPresenter(),
+                ],
+                new GenericToolPresenter()))
             .Root<EnhancedCli>("Cli");
 }

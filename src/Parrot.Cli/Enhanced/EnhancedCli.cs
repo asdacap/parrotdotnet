@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Grpc.Core;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
 using Parrot.State;
@@ -18,7 +19,8 @@ internal sealed class EnhancedCli(
     OpenAiOAuthClient oauthClient,
     Configuration configuration,
     IReadOnlyList<string> providerIds,
-    ITerminal terminal) : IInterruptListener, ISlashSessionBinding
+    ITerminal terminal,
+    ToolPresenterRegistry toolPresenters) : IInterruptListener, ISlashSessionBinding
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
     private const string DisableKeyboardEnhancement = "\u001b[<u";
@@ -505,7 +507,7 @@ internal sealed class EnhancedCli(
     {
         var spinning = true;
         var foreground = new ForegroundTurn();
-        using var activity = new RawActivityView(draw, commit);
+        using var activity = new RawActivityView(draw, commit, toolPresenters);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = activity.Run(animating.Token);
 

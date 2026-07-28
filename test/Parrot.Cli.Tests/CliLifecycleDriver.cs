@@ -1,5 +1,6 @@
 using Parrot.Auth;
 using Parrot.Cli.Enhanced;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -68,7 +69,8 @@ internal sealed class CliLifecycleDriver : IDisposable
                 new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
                 new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
                 ["provider"],
-                new TestTerminal(Input, _output, _error, 80)).Run(cancellationToken)
+                new TestTerminal(Input, _output, _error, 80),
+                new ToolPresenterRegistry([], new GenericToolPresenter())).Run(cancellationToken)
             : new BasicCli(
                 client,
                 Interrupts,
