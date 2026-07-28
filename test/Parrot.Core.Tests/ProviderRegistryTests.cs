@@ -1,3 +1,7 @@
+using System.Net;
+using System.Text;
+using Parrot.Auth;
+using Parrot.Config;
 using Parrot.Llm;
 
 namespace Parrot.Core.Tests;
@@ -9,7 +13,7 @@ internal sealed class ProviderRegistryTests
     {
         var registry = Build(
             [("openrouter", ["openai/gpt-4o", "z"]), ("opencode-go", ["glm-5.2"])],
-            new ProviderModel(new FakeProvider("openrouter", true, null), new LLMModel("openai/gpt-4o", "openrouter")));
+            "openrouter/openai/gpt-4o");
 
         var explicitModel = registry.Resolve("openrouter/openai/gpt-4o");
         var defaultModel = registry.Resolve(string.Empty);
@@ -48,7 +52,7 @@ internal sealed class ProviderRegistryTests
         var registry = new ProviderRegistry(
             [provider],
             new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { ["p"] = models },
-            null);
+            string.Empty);
 
         var selected = registry.Resolve("p/vendor/model/high");
         var exact = registry.Resolve("p/plain/high");
@@ -65,21 +69,84 @@ internal sealed class ProviderRegistryTests
 
     [Test]
     [Arguments("nope/m")]
-    [Arguments("p/missing")]
     [Arguments("p")]
     [Arguments("p/")]
     [Arguments("/m")]
     [Arguments("p//m")]
-    public async Task Resolve_rejects_unknown_and_malformed_selectors(string selector)
+    public async Task Resolve_rejects_unknown_providers_and_malformed_selectors(string selector)
     {
-        var registry = Build([("p", ["m"])], null);
+        var registry = Build([("p", ["m"])], string.Empty);
 
         _ = await Assert.That(() => registry.Resolve(selector)).Throws<LLMProviderException>();
     }
 
     [Test]
+    public async Task Resolve_passes_unlisted_models_to_the_provider_and_preserves_known_variant_syntax()
+    {
+        var provider = new FakeProvider("p", true, null);
+        var registry = new ProviderRegistry(
+            [provider],
+            new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal)
+            {
+                ["p"] =
+                [
+                    new LLMModel("listed", "p")
+                    {
+                        Capabilities = ModelCapabilities.Create(tools: true, reasoning: true, ["medium"]),
+                    },
+                ],
+            },
+            string.Empty);
+
+        var plain = registry.Resolve("p/not-listed");
+        var variant = registry.Resolve("p/new-model/medium");
+
+        _ = await Assert.That(plain.ModelId).IsEqualTo("not-listed");
+        _ = await Assert.That(plain.Variant).IsNull();
+        _ = await Assert.That(variant.ModelId).IsEqualTo("new-model");
+        _ = await Assert.That(variant.Variant?.Name).IsEqualTo("medium");
+        _ = await Assert.That(variant.Reasoning?.Effort).IsEqualTo("medium");
+    }
+
+    [Test]
+    public async Task Build_refreshes_catalogues_without_validating_the_configured_model(
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-provider-registry", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                "model: configured/not-listed\nproviders:\n  configured:\n    base_url: https://example.test/v1\n",
+                cancellationToken);
+            var store = new InMemoryCredentialStore();
+            await store.Set("configured", Credential.ForApiKey("key"), cancellationToken);
+            using var handler = new ModelsHandler();
+            using var client = new HttpClient(handler, disposeHandler: false);
+            var registry = await new ProviderRegistryBuilder(
+                Configuration.Load(path),
+                store,
+                client,
+                new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
+
+            var selected = registry.Resolve(string.Empty);
+
+            _ = await Assert.That(registry.Models("configured").Single().Id).IsEqualTo("live-model");
+            _ = await Assert.That(selected.ModelId).IsEqualTo("not-listed");
+            _ = await Assert.That(handler.Requests).IsGreaterThanOrEqualTo(1);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Duplicate_ids_are_rejected_at_construction() =>
-        _ = await Assert.That(() => Build([("p", []), ("p", [])], null)).Throws<LLMProviderException>();
+        _ = await Assert.That(() => Build([("p", []), ("p", [])], string.Empty)).Throws<LLMProviderException>();
 
     [Test]
     public async Task Available_models_skips_uncredentialed_providers_and_keeps_seed_on_refresh_failure(
@@ -95,7 +162,7 @@ internal sealed class ProviderRegistryTests
             ["b"] = [new LLMModel("seed-b", "b")],
             ["c"] = [new LLMModel("seed-c", "c")],
         };
-        var registry = new ProviderRegistry(providers, catalogues, null);
+        var registry = new ProviderRegistry(providers, catalogues, string.Empty);
 
         var listed = await registry.AvailableModels(cancellationToken);
 
@@ -116,7 +183,7 @@ internal sealed class ProviderRegistryTests
 
     private static ProviderRegistry Build(
         IReadOnlyList<(string Id, string[] Models)> providers,
-        ProviderModel? defaultModel)
+        string defaultSelector)
     {
         var builtProviders = providers.Select(entry => (ILLMProvider)new FakeProvider(entry.Id, true, null)).ToList();
         var catalogues = new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal);
@@ -126,12 +193,25 @@ internal sealed class ProviderRegistryTests
             catalogues[id] = [.. models.Select(model => new LLMModel(model, id))];
         }
 
-        var resolvedDefault = defaultModel is null
-            ? null
-            : new ProviderModel(
-                builtProviders.First(provider => provider.Id == defaultModel.Provider.Id),
-                new LLMModel(defaultModel.Model.Id, defaultModel.Provider.Id));
-        return new ProviderRegistry(builtProviders, catalogues, resolvedDefault);
+        return new ProviderRegistry(builtProviders, catalogues, defaultSelector);
+    }
+
+    private sealed class ModelsHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"data":[{"id":"live-model","context_window":321}]}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+        }
     }
 
     private sealed class FakeProvider(string id, bool hasCredential, object? listResult) : ILLMProvider

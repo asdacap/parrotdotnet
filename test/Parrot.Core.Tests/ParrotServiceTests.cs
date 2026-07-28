@@ -79,7 +79,8 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
-    public async Task Model_variants_are_listed_selected_persisted_and_validated(CancellationToken cancellationToken)
+    public async Task Model_variants_are_listed_selected_and_unlisted_models_are_persisted(
+        CancellationToken cancellationToken)
     {
         using var store = Store();
         await using var service = new ParrotService(Registry(), store, Modes());
@@ -90,11 +91,8 @@ internal sealed class ParrotServiceTests : IDisposable
             new CreateSessionRequest { Model = "scripted/vendor/model/high" }, context);
         var updated = await service.UpdateSession(
             new UpdateSessionRequest { UserSessionId = created.Id, Model = Selection }, context);
-        var refused = await Assert.That(async () => await service.UpdateSession(
-            new UpdateSessionRequest { UserSessionId = created.Id, Model = "scripted/model/missing" }, context))
-            .Throws<RpcException>();
-        var unchanged = await service.UpdateSession(
-            new UpdateSessionRequest { UserSessionId = created.Id }, context);
+        var unlisted = await service.UpdateSession(
+            new UpdateSessionRequest { UserSessionId = created.Id, Model = "scripted/model/missing" }, context);
         var meta = store.Index.List().Single(item => item.Id == created.Id);
 
         _ = await Assert.That(string.Join(",", listed.Models.Single(model => model.Id == "vendor/model")
@@ -102,9 +100,8 @@ internal sealed class ParrotServiceTests : IDisposable
             .IsEqualTo("low:low,high:xhigh");
         _ = await Assert.That(created.Model).IsEqualTo("scripted/vendor/model/high");
         _ = await Assert.That(updated.Model).IsEqualTo(Selection);
-        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(unchanged.Model).IsEqualTo(Selection);
-        _ = await Assert.That(meta.Model).IsEqualTo(Selection);
+        _ = await Assert.That(unlisted.Model).IsEqualTo("scripted/model/missing");
+        _ = await Assert.That(meta.Model).IsEqualTo("scripted/model/missing");
     }
 
     [Test]
@@ -172,7 +169,7 @@ internal sealed class ParrotServiceTests : IDisposable
         return new ProviderRegistry(
             [provider],
             new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { ["scripted"] = models },
-            new ProviderModel(provider, new LLMModel("model", "scripted")));
+            "scripted/model");
     }
 
     private ModeRegistry Modes() => new(Path.Combine(_root, "plans"));

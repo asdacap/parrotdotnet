@@ -32,7 +32,7 @@ internal sealed class ProviderRegistryBuilder(
         ];
     }
 
-    public Task<ProviderRegistry> Build()
+    public async Task<ProviderRegistry> Build(CancellationToken cancellationToken)
     {
         var chatgpt = new ChatGptProvider(ChatGptTokens(), httpClient);
         var providers = new List<ILLMProvider> { new RetryingProvider(chatgpt) };
@@ -55,9 +55,9 @@ internal sealed class ProviderRegistryBuilder(
             }
         }
 
-        var registry = new ProviderRegistry(providers, catalogues, null);
-        var defaultModel = string.IsNullOrEmpty(configuration.Model) ? null : registry.Resolve(configuration.Model);
-        return Task.FromResult(new ProviderRegistry(providers, catalogues, defaultModel));
+        var registry = new ProviderRegistry(providers, catalogues, configuration.Model);
+        _ = await registry.AvailableModels(cancellationToken).ConfigureAwait(false);
+        return registry;
     }
 
     private static string ProviderPreferences(ProviderConfig? config, ProviderPreset? preset) =>

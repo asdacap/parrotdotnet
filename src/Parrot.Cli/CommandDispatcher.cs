@@ -253,7 +253,7 @@ internal sealed class CommandDispatcher(
         {
             var registry = await new ProviderRegistryBuilder(
                 Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile), credentials, httpClient, browserOpener)
-                .Build().ConfigureAwait(false);
+                .Build(cancellationToken).ConfigureAwait(false);
 
             return new Composition(
                 registry, Directory.GetCurrentDirectory(), Environment.MachineName);

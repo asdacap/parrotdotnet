@@ -54,11 +54,13 @@ assembly needs a reason recorded in `MIGRATION.md`.
 ## Model Selection
 
 A model selection is a canonical `provider/model[/effort-variant]` selector.
-The provider is the first path segment; the model is resolved against that
-provider's catalog and may itself contain slashes. The optional final segment is
-therefore treated as an effort variant only when the complete remainder is not
-an exact model ID. This makes selectors stable even when a provider offers
-slash-containing model IDs.
+The provider is the first path segment, and the model may itself contain
+slashes. The refreshed provider catalog supplies autocomplete and model
+metadata, but it is not an allowlist: an unlisted model ID is passed to the
+provider and can fail when called. The optional final segment is treated as an
+effort variant only when the complete remainder is not an exact catalog model
+ID. This makes selectors stable even when a provider offers slash-containing
+model IDs.
 
 A variant has a stable catalog name and a provider-facing `reasoning_effort`
 value. They are intentionally distinct: selecting `high`, for example, can map

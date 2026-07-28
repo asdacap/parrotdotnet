@@ -24,6 +24,7 @@
 - Dont share or deduplicate unnecessarily especially at the expense of coupling and code indirection
 - Prefer async workflow over manual state machine.
 - No optional parameter.
+- Robust lazy validation. Try not to validate early, rather make later validation handling robust.
 
 ## Async lifecycle
 

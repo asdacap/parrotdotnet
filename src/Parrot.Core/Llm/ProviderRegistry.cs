@@ -9,12 +9,12 @@ internal sealed class ProviderRegistry
     private readonly Dictionary<string, ILLMProvider> _byId;
     private readonly IReadOnlyList<ILLMProvider> _ordered;
     private readonly Dictionary<string, IReadOnlyList<LLMModel>> _catalogues;
-    private readonly ProviderModel? _defaultModel;
+    private readonly string _defaultSelector;
 
     public ProviderRegistry(
         IReadOnlyList<ILLMProvider> providers,
         IReadOnlyDictionary<string, IReadOnlyList<LLMModel>> catalogues,
-        ProviderModel? defaultModel)
+        string defaultSelector)
     {
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(catalogues);
@@ -29,15 +29,10 @@ internal sealed class ProviderRegistry
             }
         }
 
-        if (defaultModel is not null && !ReferenceEquals(defaultModel.Provider, byId.GetValueOrDefault(defaultModel.Provider.Id)))
-        {
-            throw new LLMProviderException($"provider: default provider \"{defaultModel.Provider.Id}\" is not registered");
-        }
-
         _byId = byId;
         _ordered = [.. providers.OrderBy(provider => provider.Id, StringComparer.Ordinal)];
         _catalogues = new Dictionary<string, IReadOnlyList<LLMModel>>(catalogues, StringComparer.Ordinal);
-        _defaultModel = defaultModel;
+        _defaultSelector = defaultSelector;
     }
 
     public IReadOnlyList<ILLMProvider> List() => _ordered;
@@ -87,7 +82,7 @@ internal sealed class ProviderRegistry
 
     // Resolves one complete canonical selector. Model IDs may contain slashes,
     // so an exact model match wins before the final segment is considered as a
-    // variant name.
+    // variant name. Unlisted model IDs pass through to the provider.
     public ProviderModel Resolve(string selector)
     {
         if (_ordered.Count == 0)
@@ -97,12 +92,9 @@ internal sealed class ProviderRegistry
 
         if (selector.Length == 0)
         {
-            if (_defaultModel is not null)
-            {
-                return _defaultModel;
-            }
-
-            return ResolveDefaultForProvider(_ordered[0]);
+            return _defaultSelector.Length > 0
+                ? Resolve(_defaultSelector)
+                : ResolveDefaultForProvider(_ordered[0]);
         }
 
         var slash = selector.IndexOf('/', StringComparison.Ordinal);
@@ -132,12 +124,37 @@ internal sealed class ProviderRegistry
             .Take(2)
             .ToList();
 
-        return matches.Count switch
+        if (matches.Count == 1)
         {
-            1 => matches[0],
-            > 1 => throw new LLMProviderException($"provider: ambiguous model selector \"{selector}\""),
-            _ => throw new LLMProviderException($"provider: unknown model \"{selector}\""),
-        };
+            return matches[0];
+        }
+
+        if (matches.Count > 1)
+        {
+            throw new LLMProviderException($"provider: ambiguous model selector \"{selector}\"");
+        }
+
+        var variantSlash = modelSelector.LastIndexOf('/');
+        if (variantSlash > 0)
+        {
+            var variantName = modelSelector[(variantSlash + 1)..];
+            var variants = models
+                .SelectMany(model => model.Capabilities.Variants)
+                .Where(variant => variant.Name == variantName)
+                .Distinct()
+                .Take(2)
+                .ToList();
+
+            if (variants.Count == 1)
+            {
+                return new ProviderModel(
+                    provider,
+                    new LLMModel(modelSelector[..variantSlash], provider.Id),
+                    variants[0]);
+            }
+        }
+
+        return new ProviderModel(provider, new LLMModel(modelSelector, provider.Id));
     }
 
     private static bool IsRefreshFailure(Exception failure) =>
