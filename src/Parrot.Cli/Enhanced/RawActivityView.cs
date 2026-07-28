@@ -21,7 +21,6 @@ internal sealed class RawActivityView(
     private readonly SemaphoreSlim _rendering = new(1, 1);
 
     private IReadOnlyList<ILiveBufferItem> _content = [];
-    private bool _reasoningSummary;
     private int _frame;
 
     public RawActivityView(
@@ -128,20 +127,7 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_reasoning.Length > 0)
-            {
-                var reasoning = _reasoning.ToString();
-                _ = _reasoning.Clear();
-                if (_reasoningSummary)
-                {
-                    await commit(
-                        ImmediateScrollbackValue.Muted([$"✦ {reasoning}"]),
-                        Snapshot(),
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                _reasoningSummary = false;
-            }
+            _ = _reasoning.Clear();
         }
         finally
         {
@@ -199,10 +185,28 @@ internal sealed class RawActivityView(
                     await FinishTool(published, cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.ReasoningChunk when _hierarchy.IsRoot(published.AgentSessionId):
-                    _ = _reasoning.Append(TerminalText.Sanitize(published.ReasoningChunk.Fragment));
-                    _reasoningSummary |= published.ReasoningChunk.Kind == ReasoningKind.Summary;
-                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                {
+                    var fragment = TerminalText.Sanitize(published.ReasoningChunk.Fragment);
+                    if (published.ReasoningChunk.Kind == ReasoningKind.Summary)
+                    {
+                        _ = _reasoning.Clear();
+                        if (fragment.Length > 0)
+                        {
+                            await commit(
+                                ImmediateScrollbackValue.Muted([$"✦ {fragment}"]),
+                                Snapshot(),
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                    else
+                    {
+                        _ = _reasoning.Append(fragment);
+                        await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    }
+
                     break;
+                }
+
                 default:
                     break;
             }
@@ -219,9 +223,7 @@ internal sealed class RawActivityView(
         items.AddRange(_content);
         if (_reasoning.Length > 0)
         {
-            items.Add(_reasoningSummary
-                ? new SpinnerValue("✦ " + _reasoning, _frame)
-                : new SpinnerValue("Thinking…", _frame));
+            items.Add(new SpinnerValue("Thinking…", _frame));
         }
 
         var order = _hierarchy.GetPostOrder(_activities.Select(static activity => activity.State.AgentSessionId));

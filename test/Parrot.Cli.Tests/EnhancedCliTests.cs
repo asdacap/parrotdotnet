@@ -175,6 +175,32 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Summary_reasoning_chunks_are_committed_individually(CancellationToken cancellationToken)
+    {
+        var (completed, output, error) = await Render(
+            [
+                new Event { Id = "start", TurnStarted = new TurnStarted { Model = "model" } },
+                new Event
+                {
+                    Id = "summary-1",
+                    ReasoningChunk = new ReasoningChunk { Fragment = "a", Kind = ReasoningKind.Summary },
+                },
+                new Event
+                {
+                    Id = "summary-2",
+                    ReasoningChunk = new ReasoningChunk { Fragment = "b", Kind = ReasoningKind.Summary },
+                },
+                new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            ],
+            cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(error).IsEmpty();
+        _ = await Assert.That(output).Contains("✦ a\r\n✦ b\r\n");
+        _ = await Assert.That(output).DoesNotContain("✦ ab");
+    }
+
+    [Test]
     public async Task Split_markdown_chunks_are_promoted_to_scrollback_once(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();
