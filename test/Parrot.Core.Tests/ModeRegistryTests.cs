@@ -1,4 +1,6 @@
 using Parrot.Agent;
+using Parrot.Config;
+using Parrot.Security;
 
 namespace Parrot.Core.Tests;
 
@@ -70,6 +72,34 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.HardRule).Contains(ruleFragment);
         _ = await Assert.That(profile.Status).IsNotEmpty();
         _ = await Assert.That(profile.PlanArtifact.Length > 0).IsEqualTo(id == ModeRegistry.Plan);
+    }
+
+    [Test]
+    public async Task Configured_profiles_compose_defaults_and_plan_keeps_an_exact_runtime_capability()
+    {
+        var denied = Path.Combine(_root, "denied");
+        var allowed = Path.Combine(_root, "allowed");
+        var registry = new ModeRegistry(
+            Path.Combine(_root, "plans"),
+            [new SandboxRule(denied, SandboxRuleAction.DenyWrite)],
+            new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal)
+            {
+                [ModeRegistry.Build] = new()
+                {
+                    ReadOnly = true,
+                    SandboxRules = [new SandboxRule(allowed, SandboxRuleAction.AllowWrite)],
+                },
+            });
+
+        var build = registry.Resolve(ModeRegistry.Build, "session");
+        var plan = registry.Resolve(ModeRegistry.Plan, "session");
+
+        _ = await Assert.That(build.ReadOnly).IsTrue();
+        _ = await Assert.That(build.SecurityProfile.AllowsWrite(allowed)).IsTrue();
+        _ = await Assert.That(build.SecurityProfile.AllowsWrite(denied)).IsFalse();
+        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(plan.PlanArtifact)).IsTrue();
+        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(plan.PlanArtifact + ".other")).IsFalse();
+        _ = await Assert.That(plan.SecurityProfile.WithoutRuntimeCapabilities().AllowsWrite(plan.PlanArtifact)).IsFalse();
     }
 
     private ModeRegistry Registry() => new(Path.Combine(_root, "plans"));

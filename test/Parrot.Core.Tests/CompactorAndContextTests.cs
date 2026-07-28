@@ -3,6 +3,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Security;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -52,6 +53,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new SystemContextBuilder(_workspace, "2026-07-24", string.Empty),
             new Compactor(tokenBudget: 0),
             mode: null,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             cancellationToken);
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Parrot.Security;
 
 namespace Parrot.Process;
 
@@ -9,6 +10,7 @@ namespace Parrot.Process;
 internal sealed class ProcessRunner(string bubblewrapPath)
 {
     private const int MaxOutputCharacters = 64 << 10;
+    private const string HostRoot = "/tmp/.parrot-host-root";
 
     // An empty path means bubblewrap was not found. Kept as a value rather than
     // a null so the fail-closed check is explicit.
@@ -20,6 +22,7 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         string command,
         string workingDirectory,
         string blobDirectory,
+        SecurityProfile securityProfile,
         CancellationToken cancellationToken)
     {
         if (!SandboxAvailable)
@@ -36,7 +39,7 @@ internal sealed class ProcessRunner(string bubblewrapPath)
             UseShellExecute = false,
         };
 
-        foreach (var argument in SandboxArguments(command, workingDirectory))
+        foreach (var argument in SandboxArguments(command, workingDirectory, securityProfile))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -202,10 +205,13 @@ internal sealed class ProcessRunner(string bubblewrapPath)
     private static string TemporaryPath(string blobDirectory) =>
         Path.Combine(blobDirectory, $".process-{Guid.NewGuid():n}.tmp");
 
-    // Read-only host root first, then the writable Git repository and working
-    // directory over it. --unshare-* and --cap-drop are the containment;
-    // --die-with-parent stops an orphan outliving the turn.
-    private static List<string> SandboxArguments(string command, string workingDirectory)
+    // Read-only host root first, followed by policy mounts in order.
+    // --unshare-* and --cap-drop are the containment; --die-with-parent stops
+    // an orphan outliving the turn.
+    private static List<string> SandboxArguments(
+        string command,
+        string workingDirectory,
+        SecurityProfile securityProfile)
     {
         var arguments = new List<string>
         {
@@ -218,9 +224,28 @@ internal sealed class ProcessRunner(string bubblewrapPath)
             "--dev", "/dev",
             "--proc", "/proc",
             "--tmpfs", "/tmp",
+            "--bind", "/", HostRoot,
         };
-        AddWritableUserDirectory(arguments, ".cache");
 
+        if (!securityProfile.ReadOnly)
+        {
+            AddWritableUserDirectory(arguments, ".cache");
+            AddWritableWorkspace(arguments, workingDirectory);
+        }
+
+        AddSecurityRules(arguments, securityProfile);
+        arguments.AddRange(
+        [
+            "--tmpfs", HostRoot,
+            "--chmod", "000", HostRoot,
+            "--chdir", workingDirectory,
+            "--", "/bin/sh", "-c", command,
+        ]);
+        return arguments;
+    }
+
+    private static void AddWritableWorkspace(List<string> arguments, string workingDirectory)
+    {
         var repositoryRoot = FindGitRepositoryRoot(workingDirectory);
 
         if (repositoryRoot is not null
@@ -229,13 +254,54 @@ internal sealed class ProcessRunner(string bubblewrapPath)
             arguments.AddRange(["--bind", repositoryRoot, repositoryRoot]);
         }
 
-        arguments.AddRange(
-        [
-            "--bind", workingDirectory, workingDirectory,
-            "--chdir", workingDirectory,
-            "--", "/bin/sh", "-c", command,
-        ]);
-        return arguments;
+        arguments.AddRange(["--bind", workingDirectory, workingDirectory]);
+    }
+
+    private static void AddSecurityRules(List<string> arguments, SecurityProfile securityProfile)
+    {
+        var applied = new List<SandboxRule>();
+
+        foreach (var rule in securityProfile.Rules)
+        {
+            applied.Add(rule);
+            var path = Path.GetFullPath(rule.Path);
+            var (read, write) = EvaluateAccess(path, securityProfile.ReadOnly, applied);
+
+            if (!read)
+            {
+                AddReadMask(arguments, path);
+            }
+            else
+            {
+                arguments.AddRange([write ? "--bind" : "--ro-bind", HostPath(path), path]);
+            }
+        }
+    }
+
+    private static (bool Read, bool Write) EvaluateAccess(
+        string path,
+        bool readOnly,
+        IEnumerable<SandboxRule> rules)
+    {
+        var profile = SecurityProfile.Compose(readOnly, rules, [], []);
+        return (profile.AllowsRead(path), profile.AllowsWrite(path));
+    }
+
+    private static string HostPath(string path) =>
+        path == Path.DirectorySeparatorChar.ToString()
+            ? HostRoot
+            : HostRoot + path;
+
+    private static void AddReadMask(List<string> arguments, string path)
+    {
+        if (Directory.Exists(path))
+        {
+            arguments.AddRange(["--tmpfs", path, "--chmod", "000", path]);
+        }
+        else
+        {
+            arguments.AddRange(["--ro-bind", "/dev/null", path]);
+        }
     }
 
     private static void AddWritableUserDirectory(List<string> arguments, string name)

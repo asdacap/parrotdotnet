@@ -3,7 +3,10 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentSendTool(AgentRegistry agents) : ITool
+internal sealed class AgentSendTool(
+    AgentRegistry agents,
+    AgentSession session,
+    AgentSelection caller) : ITool
 {
     public string Name => "agent_send";
 
@@ -33,7 +36,15 @@ internal sealed class AgentSendTool(AgentRegistry agents) : ITool
 
         try
         {
-            return (await agents.Get(sessionId).Send(message, cancellationToken).ConfigureAwait(false)).Format();
+            var target = agents.Get(sessionId);
+
+            if (!string.Equals(target.SessionId, session.ParentSessionId, StringComparison.Ordinal)
+                && !caller.SecurityProfile.AllowsDelegationTo(target.Selection().SecurityProfile))
+            {
+                return "error: cannot delegate to a more permissive agent";
+            }
+
+            return (await target.Send(message, cancellationToken).ConfigureAwait(false)).Format();
         }
         catch (AgentRegistryException failure)
         {

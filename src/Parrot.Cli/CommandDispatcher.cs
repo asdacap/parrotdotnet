@@ -7,6 +7,7 @@ using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
+using YamlDotNet.Core;
 
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -214,8 +215,15 @@ internal sealed class CommandDispatcher(
 
     private async Task<int> ListModels(CancellationToken cancellationToken)
     {
+        var configuration = await LoadConfiguration(cancellationToken).ConfigureAwait(false);
+
+        if (configuration is null)
+        {
+            return ExitFailure;
+        }
+
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, cancellationToken)
+        await using var composition = await BuildComposition(credentials, configuration, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -247,16 +255,16 @@ internal sealed class CommandDispatcher(
     // OAuth providers refresh through it, so the caller owns both.
     private async Task<Composition?> BuildComposition(
         ICredentialStore credentials,
+        Configuration configuration,
         CancellationToken cancellationToken)
     {
         try
         {
-            var registry = await new ProviderRegistryBuilder(
-                Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile), credentials, httpClient, browserOpener)
+            var registry = await new ProviderRegistryBuilder(configuration, credentials, httpClient, browserOpener)
                 .Build(cancellationToken).ConfigureAwait(false);
 
             return new Composition(
-                registry, Directory.GetCurrentDirectory(), Environment.MachineName);
+                registry, configuration, Directory.GetCurrentDirectory(), Environment.MachineName);
         }
         catch (LLMProviderException failure)
         {
@@ -283,8 +291,15 @@ internal sealed class CommandDispatcher(
             }
         }
 
+        var configuration = await LoadConfiguration(cancellationToken).ConfigureAwait(false);
+
+        if (configuration is null)
+        {
+            return ExitFailure;
+        }
+
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, cancellationToken)
+        await using var composition = await BuildComposition(credentials, configuration, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -298,12 +313,31 @@ internal sealed class CommandDispatcher(
         return await GrpcServer.Run(composition.Service, port, cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task<Configuration?> LoadConfiguration(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Configuration.Load(StatePaths.ResolveFromEnvironment().ConfigFile);
+        }
+        catch (Exception failure) when (failure is InvalidDataException or YamlException)
+        {
+            await error.WriteLineAsync($"parrot: invalid configuration: {failure.Message}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return null;
+        }
+    }
+
     private async Task<int> RunChat(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
         var paths = StatePaths.ResolveFromEnvironment();
-        var configuration = Configuration.Load(paths.ConfigFile);
+        var configuration = await LoadConfiguration(cancellationToken).ConfigureAwait(false);
+
+        if (configuration is null)
+        {
+            return ExitFailure;
+        }
 
         // The saved model is the default; the built-in one is only the fallback
         // for a fresh install with no config yet.
@@ -427,7 +461,7 @@ internal sealed class CommandDispatcher(
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, cancellationToken)
+        await using var composition = await BuildComposition(credentials, configuration, cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)

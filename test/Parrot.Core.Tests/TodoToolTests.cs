@@ -3,6 +3,7 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -114,6 +115,7 @@ internal sealed class TodoToolTests : IDisposable
             new SystemContextBuilder("/workspace", "2026-07-24", string.Empty),
             new Compactor(120_000),
             null,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             CancellationToken.None);
 }

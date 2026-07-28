@@ -1,9 +1,10 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Parrot.Security;
 
 namespace Parrot.Tools;
 
-internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
+internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
 {
     private const int MaxResults = 1000;
     private const int MaxVisited = 100_000;
@@ -64,7 +65,15 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
         {
             var results = new List<string>();
             var visited = 0;
-            Walk(workspace.Root, workspace.Root, regex, results, ref visited, timeoutCancellation.Token);
+            Walk(
+                workspace,
+                workspace.Root,
+                workspace.Root,
+                regex,
+                results,
+                ref visited,
+                securityProfile,
+                timeoutCancellation.Token);
 
             if (results.Count == 0)
             {
@@ -89,14 +98,21 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
     }
 
     private static void Walk(
+        ToolWorkspace workspace,
         string root,
         string current,
         Regex regex,
         List<string> results,
         ref int visited,
+        SecurityProfile securityProfile,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (!securityProfile.AllowsRead(current))
+        {
+            return;
+        }
 
         string[] entries;
 
@@ -123,6 +139,22 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
             }
 
             var relative = Path.GetRelativePath(root, entry).Replace(Path.DirectorySeparatorChar, '/');
+            (string Lexical, string Physical) resolved;
+
+            try
+            {
+                resolved = workspace.ResolveRead(relative);
+            }
+            catch (Exception failure) when (failure is InvalidOperationException or IOException)
+            {
+                continue;
+            }
+
+            if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
+            {
+                continue;
+            }
+
             var attributes = File.GetAttributes(entry);
             var isSymlink = (attributes & FileAttributes.ReparsePoint) != 0;
             var isRealDirectory = (attributes & FileAttributes.Directory) != 0 && !isSymlink;
@@ -134,7 +166,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
 
             if (isRealDirectory)
             {
-                Walk(root, entry, regex, results, ref visited, cancellationToken);
+                Walk(workspace, root, entry, regex, results, ref visited, securityProfile, cancellationToken);
             }
         }
     }

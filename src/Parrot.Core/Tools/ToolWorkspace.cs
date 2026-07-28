@@ -4,15 +4,14 @@ internal sealed class ToolWorkspace(string workingDirectory)
 {
     public string Root { get; } = Canonicalize(workingDirectory);
 
-    public string ResolveRead(string path)
+    public (string Lexical, string Physical) ResolveRead(string path)
     {
-        var full = Path.IsPathFullyQualified(path)
+        var lexical = Path.IsPathFullyQualified(path)
             ? Path.GetFullPath(path)
             : Path.GetFullPath(Path.Combine(Root, path));
 
-        RequireContained(full);
-        RequireNoLinkEscape(full, allowMissing: false);
-        return full;
+        RequireContained(lexical);
+        return (lexical, ResolveLinks(lexical));
     }
 
     public string ResolveMutation(string path)
@@ -49,6 +48,17 @@ internal sealed class ToolWorkspace(string workingDirectory)
 
     private void RequireNoLinkEscape(string full, bool allowMissing)
     {
+        try
+        {
+            _ = ResolveLinks(full);
+        }
+        catch (FileNotFoundException) when (allowMissing)
+        {
+        }
+    }
+
+    private string ResolveLinks(string full)
+    {
         var relative = Path.GetRelativePath(Root, full);
         var parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
         var current = Root;
@@ -59,11 +69,6 @@ internal sealed class ToolWorkspace(string workingDirectory)
 
             if (!Path.Exists(current))
             {
-                if (allowMissing)
-                {
-                    break;
-                }
-
                 continue;
             }
 
@@ -74,13 +79,21 @@ internal sealed class ToolWorkspace(string workingDirectory)
                 continue;
             }
 
-            var target = new FileInfo(current).ResolveLinkTarget(returnFinalTarget: true);
+            FileSystemInfo link = Directory.Exists(current)
+                ? new DirectoryInfo(current)
+                : new FileInfo(current);
+            var target = link.ResolveLinkTarget(returnFinalTarget: true)
+                ?? throw new FileNotFoundException($"Symbolic link target for '{current}' is missing.");
 
-            if (target is not null && !Contained(target.FullName))
+            if (!Contained(target.FullName))
             {
                 throw new InvalidOperationException("Path traverses a symbolic link outside the workspace.");
             }
+
+            current = target.FullName;
         }
+
+        return current;
     }
 
     private bool Contained(string path)

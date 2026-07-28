@@ -1,3 +1,4 @@
+using Parrot.Security;
 using YamlDotNet.RepresentationModel;
 
 namespace Parrot.Config;
@@ -26,6 +27,11 @@ internal sealed class Configuration(string path)
 
     public WebFetchConfig WebFetch { get; private set; } = new();
 
+    public IReadOnlyList<SandboxRule> SandboxRules { get; private set; } = [];
+
+    public IReadOnlyDictionary<string, ProfileSecurityConfig> Profiles { get; private set; } =
+        new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal);
+
     public static Configuration Load(string path)
     {
         var root = LoadRoot(path);
@@ -35,6 +41,8 @@ internal sealed class Configuration(string path)
             Model = Scalar(root, ModelKey),
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
+            SandboxRules = ReadSandboxRules(root, "sandbox_rules"),
+            Profiles = ReadProfiles(root),
         };
     }
 
@@ -76,6 +84,115 @@ internal sealed class Configuration(string path)
         }
 
         return text + "\n";
+    }
+
+    private static Dictionary<string, ProfileSecurityConfig> ReadProfiles(YamlMappingNode root)
+    {
+        var result = new Dictionary<string, ProfileSecurityConfig>(StringComparer.Ordinal);
+
+        if (!Child(root, "profiles", out var node))
+        {
+            return result;
+        }
+
+        if (node is not YamlMappingNode profiles)
+        {
+            throw new InvalidDataException("profiles must be a mapping");
+        }
+
+        foreach (var entry in profiles.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { Length: > 0 } id } ||
+                entry.Value is not YamlMappingNode profile)
+            {
+                throw new InvalidDataException("each profile must be a named mapping");
+            }
+
+            if (id is not ("build" or "plan" or "query"))
+            {
+                throw new InvalidDataException($"profiles.{id} is not supported");
+            }
+
+            ValidateKeys(profile, $"profiles.{id}", "read_only", "sandbox_rules");
+
+            result[id] = new ProfileSecurityConfig
+            {
+                ReadOnly = ReadOptionalBoolean(profile, $"profiles.{id}.read_only", "read_only"),
+                SandboxRules = ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules"),
+            };
+        }
+
+        return result;
+    }
+
+    private static List<SandboxRule> ReadSandboxRules(YamlMappingNode parent, string path)
+    {
+        if (!Child(parent, "sandbox_rules", out var node))
+        {
+            return [];
+        }
+
+        if (node is not YamlSequenceNode sequence)
+        {
+            throw new InvalidDataException($"{path} must be a sequence");
+        }
+
+        var result = new List<SandboxRule>(sequence.Children.Count);
+        for (var index = 0; index < sequence.Children.Count; index++)
+        {
+            if (sequence.Children[index] is not YamlMappingNode item)
+            {
+                throw new InvalidDataException($"{path}.{index} requires scalar path and rule fields");
+            }
+
+            ValidateKeys(item, $"{path}.{index}", "path", "rule");
+
+            if (!Child(item, "path", out var pathNode) || pathNode is not YamlScalarNode { Value: { } rulePath } ||
+                string.IsNullOrWhiteSpace(rulePath) || !Path.IsPathFullyQualified(rulePath) ||
+                !Child(item, "rule", out var actionNode) || actionNode is not YamlScalarNode { Value: { } action })
+            {
+                throw new InvalidDataException($"{path}.{index} requires scalar path and rule fields");
+            }
+
+            result.Add(new(rulePath, ParseAction(action, $"{path}.{index}.rule")));
+        }
+
+        return result;
+    }
+
+    private static void ValidateKeys(YamlMappingNode mapping, string path, string firstKey, string secondKey)
+    {
+        foreach (var key in mapping.Children.Keys)
+        {
+            if (key is not YamlScalarNode { Value: { } value } || (value != firstKey && value != secondKey))
+            {
+                throw new InvalidDataException($"{path} contains an unsupported key");
+            }
+        }
+    }
+
+    private static SandboxRuleAction ParseAction(string action, string path) => action switch
+    {
+        "allow_write" => SandboxRuleAction.AllowWrite,
+        "deny_read" => SandboxRuleAction.DenyRead,
+        "allow_read" => SandboxRuleAction.AllowRead,
+        "deny_write" => SandboxRuleAction.DenyWrite,
+        _ => throw new InvalidDataException($"{path} has invalid action {action}"),
+    };
+
+    private static bool? ReadOptionalBoolean(YamlMappingNode parent, string path, string key)
+    {
+        if (!Child(parent, key, out var node))
+        {
+            return null;
+        }
+
+        return node switch
+        {
+            YamlScalarNode { Value: "true" } => true,
+            YamlScalarNode { Value: "false" } => false,
+            _ => throw new InvalidDataException($"{path} must be true or false"),
+        };
     }
 
     private static WebFetchConfig ReadWebFetch(YamlMappingNode root) =>

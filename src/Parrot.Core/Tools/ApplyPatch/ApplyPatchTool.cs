@@ -1,9 +1,10 @@
 using System.Text;
 using System.Text.Json;
+using Parrot.Security;
 
 namespace Parrot.Tools.ApplyPatch;
 
-internal sealed class ApplyPatchTool(string workingDirectory) : ITool
+internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile security) : ITool
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
@@ -18,12 +19,13 @@ internal sealed class ApplyPatchTool(string workingDirectory) : ITool
         """;
 
     public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken) =>
-        Execution.Execute(workingDirectory, argumentsJson, cancellationToken);
+        Execution.Execute(workingDirectory, security, argumentsJson, cancellationToken);
 
     private static class Execution
     {
         public static async Task<string> Execute(
             string workingDirectory,
+            SecurityProfile security,
             string argumentsJson,
             CancellationToken cancellationToken)
         {
@@ -43,6 +45,8 @@ internal sealed class ApplyPatchTool(string workingDirectory) : ITool
 
             try
             {
+                Preflight(workingDirectory, security, patch.Operations);
+
                 foreach (var operation in patch.Operations)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -59,6 +63,25 @@ internal sealed class ApplyPatchTool(string workingDirectory) : ITool
             }
 
             return $"Applied patch to {string.Join(", ", written)}";
+        }
+
+        private static void Preflight(
+            string workingDirectory,
+            SecurityProfile security,
+            IReadOnlyList<PatchOperation> operations)
+        {
+            foreach (var operation in operations)
+            {
+                var path = Resolve(
+                    workingDirectory,
+                    operation.Path,
+                    operation.Kind == PatchOperationKind.Add);
+
+                if (!security.AllowsWrite(path))
+                {
+                    throw new PatchException($"Write access denied for '{operation.Path}'.");
+                }
+            }
         }
 
         private static (string Text, PatchFormat Format) ReadArguments(string json)

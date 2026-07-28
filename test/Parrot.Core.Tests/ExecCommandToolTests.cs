@@ -3,6 +3,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -42,6 +43,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             new SystemContextBuilder(_workspace, "2026-07-24", string.Empty),
             new Compactor(120_000),
             mode: null,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             CancellationToken.None);
         var processes = new ShellProcessOwner(
@@ -49,7 +51,10 @@ internal sealed class ExecCommandToolTests : IDisposable
             Path.Combine(_workspace, "blob"),
             new ProcessRunner(CreateSandboxPassThrough(_workspace)),
             CancellationToken.None);
-        var tool = new ExecCommandTool(processes, session);
+        var tool = new ExecCommandTool(
+            processes,
+            session,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
 
         var result = await tool.Execute(
             """{"command":"printf out; printf err >&2; exit 7"}""", cancellationToken);

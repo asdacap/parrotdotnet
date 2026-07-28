@@ -43,6 +43,7 @@ internal partial class Composition
             // roots are synchronous. The registry resolves the provider per
             // session, so no single provider is bound here.
             .Arg<ProviderRegistry>("registry")
+            .Arg<Configuration>("configuration")
             .Arg<string>("workingDirectory", "workingDirectory")
             .Arg<string>("hostKey", "hostKey")
 
@@ -53,12 +54,6 @@ internal partial class Composition
                 return new SessionIndex(paths.State);
             })
             .Bind().As(Lifetime.Singleton).To(_ => ProcessRunner.Locate())
-
-            .Bind().As(Lifetime.Singleton).To(ctx =>
-            {
-                ctx.Inject<StatePaths>(out var paths);
-                return Configuration.Load(paths.ConfigFile);
-            })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
@@ -77,7 +72,11 @@ internal partial class Composition
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<StatePaths>(out var paths);
-                return new ModeRegistry(Path.Combine(paths.State, "plans"));
+                ctx.Inject<Configuration>(out var configuration);
+                return new ModeRegistry(
+                    Path.Combine(paths.State, "plans"),
+                    configuration.SandboxRules,
+                    configuration.Profiles);
             })
 
             // The static half of an agent session is bound into the source

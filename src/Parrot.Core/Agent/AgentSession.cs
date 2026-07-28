@@ -4,6 +4,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -31,6 +32,7 @@ internal sealed class AgentSession(
     SystemContextBuilder systemContext,
     Compactor compactor,
     ModeProfile? mode,
+    SecurityProfile securityProfile,
     RuntimeStatus? status,
     CancellationToken lifetime)
 {
@@ -66,7 +68,7 @@ internal sealed class AgentSession(
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
         ?? new AgentStatistics(0, 0, 0, 0, model.Model.ContextWindow);
 
-    private AgentSelection _selection = new(model, mode);
+    private AgentSelection _selection = new(model, mode, securityProfile);
     private string _epochContext = string.Empty;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
@@ -84,6 +86,8 @@ internal sealed class AgentSession(
     public string SessionId => identity.SessionId;
 
     public string Name => identity.Name;
+
+    public string ParentSessionId => identity.ParentSessionId;
 
     public TodoCollection Todos { get; } = new(identity.SessionId, eventRepository, eventBroker);
 
@@ -120,7 +124,10 @@ internal sealed class AgentSession(
 
         lock (_selectionGate)
         {
-            _selection = new AgentSelection(selectedModel, mode);
+            _selection = new AgentSelection(
+                selectedModel,
+                mode,
+                mode?.SecurityProfile ?? _selection.SecurityProfile);
         }
     }
 

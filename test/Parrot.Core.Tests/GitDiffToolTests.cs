@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Parrot.Security;
 using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
@@ -19,6 +20,23 @@ internal sealed class GitDiffToolTests : IDisposable
     }
 
     [Test]
+    public async Task Denies_repository_diff_when_a_child_path_is_denied(CancellationToken cancellationToken)
+    {
+        await RunGit(cancellationToken, "init");
+        var denied = Path.Combine(_repository, "private");
+        _ = Directory.CreateDirectory(denied);
+        var profile = SecurityProfile.Compose(
+            readOnly: false,
+            [],
+            [new SandboxRule(denied, SandboxRuleAction.DenyRead)],
+            []);
+
+        var result = await new GitDiffTool(_repository, profile).Execute("{}", cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo("error: access denied");
+    }
+
+    [Test]
     public async Task Reads_supported_targets_and_rejects_option_refs(CancellationToken cancellationToken)
     {
         await RunGit(cancellationToken, "init");
@@ -28,7 +46,7 @@ internal sealed class GitDiffToolTests : IDisposable
             Path.Combine(_repository, "tracked.txt"), "before\n", cancellationToken);
         await RunGit(cancellationToken, "add", "tracked.txt");
         await RunGit(cancellationToken, "commit", "-m", "initial");
-        var tool = new GitDiffTool(_repository);
+        var tool = new GitDiffTool(_repository, SecurityProfile.Compose(readOnly: false, [], [], []));
         var cleanBase = await tool.Execute("""{"target":"base","ref":"HEAD"}""", cancellationToken);
         await File.WriteAllTextAsync(
             Path.Combine(_repository, "tracked.txt"), "after\n", cancellationToken);

@@ -4,6 +4,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -97,7 +98,7 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             sessions, _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        parent.UpdateSelection(parent.Selection().ResolvedModel, ModeProfile.Build());
+        parent.UpdateSelection(parent.Selection().ResolvedModel, ModeProfile.Build(readOnly: false, [], []));
         var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
         parent.UpdateSelection(
             new ProviderModel(replacement, new LLMModel("replacement", replacement.Id)),
@@ -122,9 +123,9 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
+        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
         _ = await spawned.Send("initial", cancellationToken);
-        var send = new AgentSendTool(registry);
+        var send = new AgentSendTool(registry, parent, parent.Selection());
 
         await provider.Arrived(cancellationToken);
         var steeredJson = await send.Execute(
@@ -173,11 +174,11 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = new AgentRegistry(
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
+        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
         _ = await spawned.Send("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
-        var sending = new AgentSendTool(registry).Execute(
+        var sending = new AgentSendTool(registry, parent, parent.Selection()).Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}""", cancellationToken);
         provider.Release();
         _ = await sending;
@@ -200,16 +201,16 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var stranger = Session(provider, 0, "stranger", cancellationToken);
-        var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
+        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
         _ = await spawned.Send("initial", cancellationToken);
-        var send = new AgentSendTool(registry);
+        var send = new AgentSendTool(registry, parent, parent.Selection());
 
         var malformed = await send.Execute("{}", cancellationToken);
         var blank = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":" "}""", cancellationToken);
         var missing = await send.Execute(
             """{"session_id":"missing","message":"hello"}""", cancellationToken);
-        var invisible = await new AgentSendTool(registry).Execute(
+        var invisible = await new AgentSendTool(registry, stranger, stranger.Selection()).Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}""", cancellationToken);
         var oversized = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (1024 * 1024) + 1)}}"}""",
@@ -221,6 +222,32 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(invisible).Contains($"\"session_id\":\"{spawned.SessionId}\"");
         _ = await Assert.That(oversized).IsEqualTo("error: agent message exceeds 1048576 bytes");
         provider.Release();
+    }
+
+    [Test]
+    public async Task Spawn_drops_runtime_capabilities_and_send_rejects_a_more_permissive_target(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        var sessions = new TestAgentSessions();
+        await using var registry = new AgentRegistry(sessions, _broker, _repository, cancellationToken);
+        var parent = Session(provider, 0, "parent", cancellationToken);
+        var planArtifact = Path.Combine(Path.GetTempPath(), "plan.md");
+        parent.UpdateSelection(
+            parent.Selection().ResolvedModel,
+            ModeProfile.Plan(planArtifact, readOnly: true, [], [], static () => { }));
+        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
+        parent.UpdateSelection(
+            parent.Selection().ResolvedModel,
+            ModeProfile.Build(readOnly: false, [], []));
+        var permissive = registry.Spawn(parent, parent.Selection(), "permissive");
+
+        var rejected = await new AgentSendTool(registry, spawned, spawned.Selection()).Execute(
+            $$"""{"session_id":"{{permissive.SessionId}}","message":"hello"}""",
+            cancellationToken);
+
+        _ = await Assert.That(sessions.SecurityProfiles[0].Rules).IsEmpty();
+        _ = await Assert.That(rejected).IsEqualTo("error: cannot delegate to a more permissive agent");
     }
 
     [Test]
@@ -237,7 +264,7 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(), _broker, _repository, cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, parent, parent.Selection());
-        var idle = registry.Spawn(parent, parent.Selection().ResolvedModel, "idle");
+        var idle = registry.Spawn(parent, parent.Selection(), "idle");
         _ = await idle.Send("become idle", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
@@ -263,12 +290,12 @@ internal sealed class SubagentTests : IDisposable
             _repository,
             cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, parent.Selection().ResolvedModel, "worker");
+        var spawned = registry.Spawn(parent, parent.Selection(), "worker");
         _ = await spawned.Send("first", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await spawned.Wait(0, cancellationToken);
-        var send = new AgentSendTool(registry);
+        var send = new AgentSendTool(registry, parent, parent.Selection());
         _ = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"wait forever"}""", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -284,7 +311,7 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.ParentAgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(failed.AgentFailed.Name).IsEqualTo("worker");
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
-        _ = await Assert.That(() => registry.Spawn(parent, parent.Selection().ResolvedModel, "worker"))
+        _ = await Assert.That(() => registry.Spawn(parent, parent.Selection(), "worker"))
             .Throws<AgentRegistryException>();
         var rejected = await send.Execute(
             $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}""", cancellationToken);
@@ -307,6 +334,7 @@ internal sealed class SubagentTests : IDisposable
             new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
             mode: null,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             cancellationToken);
 
@@ -322,18 +350,22 @@ internal sealed class SubagentTests : IDisposable
 
         public IReadOnlyList<ModeProfile?> Modes => _modes;
 
+        public List<SecurityProfile> SecurityProfiles { get; } = [];
+
         public AgentSession Create(
             AgentIdentity identity,
             ProviderModel model,
             EventBroker eventBroker,
             EventRepository eventRepository,
             ModeProfile? mode,
+            SecurityProfile securityProfile,
             RuntimeStatus? status,
             CancellationToken lifetime)
         {
             _identities.Add(identity);
             _models.Add(model);
             _modes.Add(mode);
+            SecurityProfiles.Add(securityProfile);
 
             return new AgentSession(
                 identity,
@@ -344,6 +376,7 @@ internal sealed class SubagentTests : IDisposable
                 new SystemContextBuilder(".", "2026-07-24", identity.Context),
                 new Compactor(120_000),
                 mode,
+                securityProfile,
                 status,
                 lifetime);
         }

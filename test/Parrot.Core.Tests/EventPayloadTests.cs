@@ -4,6 +4,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Security;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -80,6 +81,7 @@ internal sealed class EventPayloadTests
             new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
             mode: null,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             CancellationToken.None);
 

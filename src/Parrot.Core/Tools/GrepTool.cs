@@ -1,10 +1,11 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Parrot.Security;
 
 namespace Parrot.Tools;
 
-internal sealed class GrepTool(ToolWorkspace workspace) : ITool
+internal sealed class GrepTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
 {
     private const int MaxMatches = 1000;
     private const int MaxLineLength = 512;
@@ -57,16 +58,25 @@ internal sealed class GrepTool(ToolWorkspace workspace) : ITool
             return $"error: invalid regular expression: {failure.Message}";
         }
 
-        string full;
+        (string Lexical, string Physical) resolved;
 
         try
         {
-            full = path.Length == 0 ? workspace.Root : workspace.ResolveRead(path);
+            resolved = path.Length == 0
+                ? (workspace.Root, workspace.Root)
+                : workspace.ResolveRead(path);
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
             return $"error: {failure.Message}";
         }
+
+        if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
+        {
+            return "error: access denied";
+        }
+
+        var full = resolved.Physical;
 
         using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCancellation.CancelAfter(Timeout);
@@ -77,12 +87,19 @@ internal sealed class GrepTool(ToolWorkspace workspace) : ITool
 
             if (File.Exists(full))
             {
-                await SearchFile(workspace.Root, full, regex, state, timeoutCancellation.Token)
+                await SearchFile(workspace.Root, full, regex, state, securityProfile, timeoutCancellation.Token)
                     .ConfigureAwait(false);
             }
             else if (Directory.Exists(full))
             {
-                await SearchDirectory(workspace.Root, full, regex, state, timeoutCancellation.Token)
+                await SearchDirectory(
+                    workspace,
+                    workspace.Root,
+                    resolved,
+                    regex,
+                    state,
+                    securityProfile,
+                    timeoutCancellation.Token)
                     .ConfigureAwait(false);
             }
             else
@@ -107,14 +124,16 @@ internal sealed class GrepTool(ToolWorkspace workspace) : ITool
     }
 
     private static async Task SearchDirectory(
+        ToolWorkspace workspace,
         string root,
-        string directory,
+        (string Lexical, string Physical) directory,
         Regex regex,
         GrepState state,
+        SecurityProfile securityProfile,
         CancellationToken cancellationToken)
     {
         var files = new List<string>();
-        CollectFiles(directory, files, cancellationToken);
+        CollectFiles(workspace, directory, files, securityProfile, cancellationToken);
         files.Sort(StringComparer.Ordinal);
 
         foreach (var file in files)
@@ -124,11 +143,17 @@ internal sealed class GrepTool(ToolWorkspace workspace) : ITool
                 return;
             }
 
-            await SearchFile(root, file, regex, state, cancellationToken).ConfigureAwait(false);
+            await SearchFile(root, file, regex, state, securityProfile, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
-    private static void CollectFiles(string directory, List<string> files, CancellationToken cancellationToken)
+    private static void CollectFiles(
+        ToolWorkspace workspace,
+        (string Lexical, string Physical) directory,
+        List<string> files,
+        SecurityProfile securityProfile,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -141,7 +166,7 @@ internal sealed class GrepTool(ToolWorkspace workspace) : ITool
 
         try
         {
-            entries = [.. Directory.EnumerateFileSystemEntries(directory).Order(StringComparer.Ordinal)];
+            entries = [.. Directory.EnumerateFileSystemEntries(directory.Physical).Order(StringComparer.Ordinal)];
         }
         catch (IOException)
         {
@@ -154,6 +179,23 @@ internal sealed class GrepTool(ToolWorkspace workspace) : ITool
 
         foreach (var entry in entries)
         {
+            var lexical = Path.Combine(directory.Lexical, Path.GetFileName(entry));
+            (string Lexical, string Physical) resolved;
+
+            try
+            {
+                resolved = workspace.ResolveRead(lexical);
+            }
+            catch (Exception failure) when (failure is InvalidOperationException or IOException)
+            {
+                continue;
+            }
+
+            if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
+            {
+                continue;
+            }
+
             var attributes = File.GetAttributes(entry);
 
             if ((attributes & FileAttributes.ReparsePoint) != 0)
@@ -163,11 +205,11 @@ internal sealed class GrepTool(ToolWorkspace workspace) : ITool
 
             if ((attributes & FileAttributes.Directory) != 0)
             {
-                CollectFiles(entry, files, cancellationToken);
+                CollectFiles(workspace, resolved, files, securityProfile, cancellationToken);
             }
             else
             {
-                files.Add(entry);
+                files.Add(resolved.Physical);
             }
 
             if (files.Count >= MaxFiles)
@@ -182,9 +224,10 @@ internal sealed class GrepTool(ToolWorkspace workspace) : ITool
         string file,
         Regex regex,
         GrepState state,
+        SecurityProfile securityProfile,
         CancellationToken cancellationToken)
     {
-        if (IsBinary(file))
+        if (!securityProfile.AllowsRead(file) || IsBinary(file))
         {
             return;
         }

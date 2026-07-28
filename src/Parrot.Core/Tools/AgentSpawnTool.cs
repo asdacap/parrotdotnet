@@ -33,7 +33,7 @@ internal sealed class AgentSpawnTool(AgentRegistry agents, AgentSession session,
 
         try
         {
-            var agent = agents.Spawn(session, selection.ResolvedModel, requestedName);
+            var agent = agents.Spawn(session, selection, requestedName);
             _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
             return new SpawnAgentResult(agent.SessionId, agent.Name, agent.Depth).Format();
         }

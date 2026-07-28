@@ -1,10 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Parrot.Security;
 
 namespace Parrot.Tools;
 
-internal sealed class ReadTool(ToolWorkspace workspace) : ITool
+internal sealed class ReadTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
 {
     private const int MaxLines = 2000;
     private const int MaxOutputBytes = 1 << 20;
@@ -49,25 +50,30 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
             return $"error: limit must be between 1 and {MaxLines}";
         }
 
-        string full;
+        (string Lexical, string Physical) resolved;
 
         try
         {
-            full = workspace.ResolveRead(path);
+            resolved = workspace.ResolveRead(path);
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
             return $"error: {failure.Message}";
         }
 
-        if (Directory.Exists(full))
+        if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
         {
-            return ListDirectory(full);
+            return "error: access denied";
         }
 
-        return !File.Exists(full)
+        if (Directory.Exists(resolved.Physical))
+        {
+            return ListDirectory(workspace, resolved, securityProfile);
+        }
+
+        return !File.Exists(resolved.Physical)
             ? "error: no such file or directory"
-            : await ReadFile(full, offset, limit, cancellationToken).ConfigureAwait(false);
+            : await ReadFile(resolved.Physical, offset, limit, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<string> ReadFile(
@@ -133,13 +139,33 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
         return output.ToString();
     }
 
-    private static string ListDirectory(string full)
+    private static string ListDirectory(
+        ToolWorkspace workspace,
+        (string Lexical, string Physical) directory,
+        SecurityProfile securityProfile)
     {
         var output = new StringBuilder();
         var count = 0;
 
-        foreach (var entry in Directory.EnumerateFileSystemEntries(full).Order(StringComparer.Ordinal))
+        foreach (var entry in Directory.EnumerateFileSystemEntries(directory.Physical).Order(StringComparer.Ordinal))
         {
+            var lexical = Path.Combine(directory.Lexical, Path.GetFileName(entry));
+            (string Lexical, string Physical) resolved;
+
+            try
+            {
+                resolved = workspace.ResolveRead(lexical);
+            }
+            catch (Exception failure) when (failure is InvalidOperationException or IOException)
+            {
+                continue;
+            }
+
+            if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
+            {
+                continue;
+            }
+
             if (count >= MaxLines || output.Length >= MaxOutputBytes)
             {
                 _ = output.Append("[listing truncated]\n");

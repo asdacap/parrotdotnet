@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Parrot.Agent;
 using Parrot.Process;
+using Parrot.Security;
 
 namespace Parrot.Tools;
 
@@ -8,7 +10,8 @@ namespace Parrot.Tools;
 // the fail-closed property, surfaced as a tool error the model can react to.
 internal sealed class ExecCommandTool(
     ShellProcessOwner processes,
-    Parrot.Agent.AgentSession session) : ITool
+    AgentSession session,
+    SecurityProfile securityProfile) : ITool
 {
     public string Name => "exec_command";
 
@@ -56,7 +59,7 @@ internal sealed class ExecCommandTool(
 
         try
         {
-            var process = processes.Start(name, command, session);
+            var process = processes.Start(name, command, session, securityProfile);
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 
             return outcome.Yielded

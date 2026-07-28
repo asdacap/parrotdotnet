@@ -3,6 +3,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -330,6 +331,7 @@ internal sealed class DrainTests : IDisposable
             new SystemContextBuilder(".", "2026-07-24", string.Empty),
             new Compactor(120_000),
             mode: null,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             lifetime);
 }

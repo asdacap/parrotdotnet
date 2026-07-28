@@ -190,6 +190,7 @@ internal sealed class UserSession : IAsyncDisposable
                     _eventBroker,
                     _eventRepository,
                     Mode,
+                    Mode.SecurityProfile,
                     _status,
                     _lifetime.Token);
                 _agents.Add(_main);

@@ -1,4 +1,5 @@
 using Parrot.Process;
+using Parrot.Security;
 
 namespace Parrot.Core.Tests;
 
@@ -30,6 +31,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                     $"touch {marker}",
                     _workspace,
                     Path.Combine(_workspace, "blob"),
+                    WritableProfile(),
                     CancellationToken.None))
             .Throws<SandboxUnavailableException>();
 
@@ -52,6 +54,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             + "for (i = 0; i < 70000; i++) printf \"e\" > \"/dev/stderr\"; exit 7 }'",
             _workspace,
             Path.Combine(_workspace, "blob"),
+            WritableProfile(),
             cancellationToken);
 
         _ = await Assert.That(result.ExitCode).IsEqualTo(7);
@@ -89,6 +92,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                     "awk 'BEGIN { for (i = 0; i < 1000000; i++) printf \"x\" }'",
                     _workspace,
                     notDirectory,
+                    WritableProfile(),
                     cancellationToken))
             .Throws<IOException>();
     }
@@ -108,6 +112,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             "sh -c 'while :; do sleep 1; done' & echo $! > child.pid; wait",
             _workspace,
             Path.Combine(_workspace, "blob"),
+            WritableProfile(),
             cancellation.Token);
         var childPid = await ReadPid(pidPath);
 
@@ -153,7 +158,12 @@ internal sealed class ProcessRunnerTests : IDisposable
         var argumentsPath = Path.Combine(worktree, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(worktree, argumentsPath));
 
-        _ = await runner.Run("true", worktree, Path.Combine(worktree, "blob"), cancellationToken);
+        _ = await runner.Run(
+            "true",
+            worktree,
+            Path.Combine(worktree, "blob"),
+            WritableProfile(),
+            cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         var repositoryBind = Array.FindIndex(
@@ -162,6 +172,20 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(repositoryBind).IsGreaterThan(0);
         _ = await Assert.That(arguments[repositoryBind - 1]).IsEqualTo("--bind");
         _ = await Assert.That(arguments[repositoryBind + 1]).IsEqualTo(repository);
+
+        _ = await runner.Run(
+            "true",
+            worktree,
+            Path.Combine(worktree, "blob"),
+            SecurityProfile.Compose(true, [], [], []),
+            cancellationToken);
+
+        arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(FindMounts(arguments, repository)).IsEmpty();
+        _ = await Assert.That(FindMounts(arguments, worktree)).IsEmpty();
+        _ = await Assert.That(FindMounts(
+            arguments,
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"))).IsEmpty();
     }
 
     [Test]
@@ -175,11 +199,63 @@ internal sealed class ProcessRunnerTests : IDisposable
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
-        _ = await runner.Run("true", _workspace, Path.Combine(_workspace, "blob"), cancellationToken);
+        _ = await runner.Run(
+            "true",
+            _workspace,
+            Path.Combine(_workspace, "blob"),
+            WritableProfile(),
+            cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         await AssertWritableBind(arguments, Path.Combine(home, ".cache"));
+    }
+
+    [Test]
+    public async Task Security_profile_controls_baseline_and_applies_rules_in_order(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var nested = Directory.CreateDirectory(Path.Combine(_workspace, "nested")).FullName;
+        var hidden = Directory.CreateDirectory(Path.Combine(_workspace, "hidden")).FullName;
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var profile = SecurityProfile.Compose(
+            readOnly: true,
+            modeRules:
+            [
+                new SandboxRule(_workspace, SandboxRuleAction.AllowWrite),
+                new SandboxRule(_workspace, SandboxRuleAction.DenyWrite),
+                new SandboxRule(nested, SandboxRuleAction.AllowWrite),
+                new SandboxRule(hidden, SandboxRuleAction.DenyRead),
+                new SandboxRule(hidden, SandboxRuleAction.AllowRead),
+            ],
+            globalRules: [],
+            runtimeCapabilities: []);
+
+        _ = await runner.Run(
+            "true",
+            _workspace,
+            Path.Combine(_workspace, "blob"),
+            profile,
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        var workspaceRules = FindMounts(arguments, _workspace);
+        var nestedRules = FindMounts(arguments, nested);
+        var hiddenRules = FindMounts(arguments, hidden);
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        _ = await Assert.That(string.Join(',', workspaceRules)).IsEqualTo("--bind,--ro-bind");
+        _ = await Assert.That(string.Join(',', nestedRules)).IsEqualTo("--bind");
+        _ = await Assert.That(string.Join(',', hiddenRules)).IsEqualTo("--tmpfs,--ro-bind");
+        _ = await Assert.That(Array.IndexOf(arguments, _workspace))
+            .IsLessThan(Array.LastIndexOf(arguments, _workspace));
+        _ = await Assert.That(arguments).DoesNotContain(Path.Combine(home, ".cache"));
     }
 
     [Test]
@@ -198,11 +274,36 @@ internal sealed class ProcessRunnerTests : IDisposable
             "echo hi > inside.txt && (touch /host-write 2>&1 || echo blocked)",
             _workspace,
             Path.Combine(_workspace, "blob"),
+            WritableProfile(),
             cancellationToken);
 
         _ = await Assert.That(File.Exists(Path.Combine(_workspace, "inside.txt"))).IsTrue();
         _ = await Assert.That(result.Stdout).Contains("blocked");
         _ = await Assert.That(File.Exists("/host-write")).IsFalse();
+    }
+
+    private static SecurityProfile WritableProfile() => SecurityProfile.Compose(false, [], [], []);
+
+    private static string[] FindMounts(string[] arguments, string path)
+    {
+        var mounts = new List<string>();
+
+        for (var index = 0; index < arguments.Length - 1; index++)
+        {
+            if (arguments[index] == "--tmpfs"
+                && string.Equals(arguments[index + 1], path, StringComparison.Ordinal))
+            {
+                mounts.Add(arguments[index]);
+            }
+            else if (index < arguments.Length - 2
+                && (arguments[index] == "--bind" || arguments[index] == "--ro-bind")
+                && string.Equals(arguments[index + 2], path, StringComparison.Ordinal))
+            {
+                mounts.Add(arguments[index]);
+            }
+        }
+
+        return [.. mounts];
     }
 
     private static async Task AssertWritableBind(string[] arguments, string directory)

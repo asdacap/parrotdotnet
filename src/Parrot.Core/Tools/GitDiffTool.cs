@@ -1,10 +1,11 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Parrot.Security;
 
 namespace Parrot.Tools;
 
-internal sealed class GitDiffTool(string workingDirectory) : ITool
+internal sealed class GitDiffTool(string workingDirectory, SecurityProfile securityProfile) : ITool
 {
     private const int MaxOutputCharacters = 4 << 20;
     private const int MaxErrorCharacters = 64 << 10;
@@ -27,6 +28,13 @@ internal sealed class GitDiffTool(string workingDirectory) : ITool
         if (arguments.Error.Length > 0)
         {
             return $"error: {arguments.Error}";
+        }
+
+        if (!securityProfile.AllowsRead(workingDirectory) ||
+            securityProfile.Rules.Any(rule =>
+                rule.Action == SandboxRuleAction.DenyRead && Overlaps(workingDirectory, rule.Path)))
+        {
+            return "error: access denied";
         }
 
         try
@@ -117,6 +125,18 @@ internal sealed class GitDiffTool(string workingDirectory) : ITool
         }
 
         return value.GetString() ?? string.Empty;
+    }
+
+    private static bool Overlaps(string first, string second) =>
+        Contains(first, second) || Contains(second, first);
+
+    private static bool Contains(string root, string path)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return relative == "." ||
+            (!Path.IsPathRooted(relative) && relative != ".." &&
+             !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+             !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
     }
 
     private static bool ValidRef(string reference) =>
