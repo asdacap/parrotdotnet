@@ -18,6 +18,8 @@
   explicit permission.
 - Suffix the class name properly. If a class is an event, suffix it with Event.
 - Do not make a method/function just to create another class, unless that method is on that class. Dont do CreateEvent(something). Do Event.Create(something).
+- Class name are noun and declarative. Method name are imperative. Its an action (unless its the class constructor). So
+  method name MUST have action please, come on man...
 - Reduce coupling, as in the public method count.
 - Dont share or deduplicate unnecessarily especially at the expense of coupling and code indirection
 
