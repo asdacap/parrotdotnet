@@ -3,14 +3,18 @@ using Parrot.Llm;
 
 namespace Parrot.Context;
 
-internal sealed class ModelPromptContext(IReadOnlyDictionary<string, string> augmentations)
+internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentations) : ISystemPrompt
 {
-    private readonly Dictionary<string, string> _augmentations =
-        new(augmentations, StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _augmentations = new(augmentations, StringComparer.Ordinal);
 
-    public string Build(string epochContext, AgentTurnSelection selection)
+    public void RenewEpoch()
     {
-        var sections = new List<string> { epochContext };
+    }
+
+    public string Build(AgentTurnSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        var sections = new List<string>();
         var aliases = selection.ResolvedModel.AliasSnapshot.Definitions.Values
             .Where(alias => alias.ModelString.Length > 0)
             .Select(alias => $"- {alias.Name}: {alias.ModelString} — {alias.Usage}")

@@ -16,12 +16,10 @@ namespace Parrot.Agent;
 internal sealed class AgentSessionFactory(
     UserSession owner,
     string workingDirectory,
-    string configDirectory,
-    string date,
     Compactor compactor,
     WebFetcher webFetcher,
     ModelRouter router,
-    ModelPromptContext modelPromptContext,
+    ISystemPromptProvider systemPromptProvider,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactory
 {
     private readonly ToolWorkspace _workspace = new(workingDirectory);
@@ -60,10 +58,7 @@ internal sealed class AgentSessionFactory(
             eventBroker,
             eventRepository,
             ToolFactories,
-            workingDirectory,
-            configDirectory,
-            date,
-            modelPromptContext,
+            systemPromptProvider,
             compactor,
             profile,
             securityProfile,

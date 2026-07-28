@@ -1,18 +1,15 @@
 using System.Runtime.InteropServices;
+using Parrot.Agent;
 
 namespace Parrot.Context;
 
-// Builds the system prompt from typed sources. Sampled once per context epoch,
-// not per turn, so the baseline is immutable within an epoch (principle 4).
-//
-// M4 sources: a base prompt, the date, the platform, the working directory, and
-// the global AGENTS.md file and the files found from the working directory upward.
-// Skills and richer project metadata arrive with the milestones that own them.
-internal sealed class SystemContextBuilder(
+// Builds the epoch-scoped baseline from typed sources. It is sampled once per
+// epoch, so files and environment information are stable within that epoch.
+internal sealed class SystemContextPrompt(
     string workingDirectory,
     string configDirectory,
     string date,
-    string sessionContext)
+    string sessionContext) : ISystemPrompt
 {
     private const string BasePrompt =
         "You are parrot, a coding agent. You work in the user's project directory. "
@@ -20,7 +17,10 @@ internal sealed class SystemContextBuilder(
         + "for shell commands. Filesystem access is determined by the active "
         + "security policy. Prefer small, verifiable steps.";
 
-    public string Build()
+    private string _epochContext = string.Empty;
+    private bool _renewed;
+
+    public void RenewEpoch()
     {
         var text = new System.Text.StringBuilder();
         _ = text.Append(BasePrompt).Append("\n\n");
@@ -38,7 +38,17 @@ internal sealed class SystemContextBuilder(
             _ = text.Append("\n--- ").Append(path).Append(" ---\n").Append(content);
         }
 
-        return text.ToString();
+        _epochContext = text.ToString();
+        _renewed = true;
+    }
+
+    public string Build(AgentTurnSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+
+        return _renewed
+            ? _epochContext
+            : throw new InvalidOperationException("The system context has not been sampled for this epoch.");
     }
 
     // From the working directory upward to the filesystem root, nearest last so
