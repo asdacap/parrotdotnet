@@ -62,9 +62,9 @@ internal sealed class ToolPresenterRegistryTests
 
         _ = await Assert.That(scrollback.Count).IsEqualTo(10);
         _ = await Assert.That(scrollback[0]).IsEqualTo("✗ safe[31m");
-        _ = await Assert.That(scrollback[^1]).IsEqualTo("  … display truncated");
+        _ = await Assert.That(scrollback[^1]).IsEqualTo("  .. 2 lines truncated.");
         _ = await Assert.That(string.Join('|', scrollback)).DoesNotContain('\u001b');
-        _ = await Assert.That(large[^1]).IsEqualTo("  … display truncated");
+        _ = await Assert.That(large[^1]).IsEqualTo("  .. 1 lines truncated.");
         _ = await Assert.That(Encoding.UTF8.GetByteCount(string.Concat(large))).IsLessThanOrEqualTo((16 * 1024) + 32);
         _ = await Assert.That(live[0]).IsEqualTo("⠋ live[31m");
         _ = await Assert.That(live[1]).IsEqualTo("  detail[2J");

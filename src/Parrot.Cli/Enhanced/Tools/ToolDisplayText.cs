@@ -8,9 +8,7 @@ internal static class ToolDisplayText
     private const int MaximumDetailLines = 10;
     private const int MaximumLabelBytes = 1024;
     private const string LabelTruncated = "…";
-    private const string Truncated = "… display truncated";
     private static readonly int LabelTruncatedBytes = Encoding.UTF8.GetByteCount(LabelTruncated);
-    private static readonly int TruncatedBytes = Encoding.UTF8.GetByteCount(Truncated);
 
     public static string Label(string value)
     {
@@ -49,7 +47,8 @@ internal static class ToolDisplayText
         var bounded = rendered.Take(Math.Max(0, maximumLines - 1)).ToList();
         if (maximumLines > 0)
         {
-            bounded.AddRange(TerminalText.Layout($"  {Truncated}", columns).Take(1));
+            var truncated = rendered.Count - bounded.Count;
+            bounded.AddRange(TerminalText.Layout($"  .. {truncated} lines truncated.", columns).Take(1));
         }
 
         return bounded;
@@ -63,13 +62,18 @@ internal static class ToolDisplayText
         var line = new StringBuilder();
         var bytes = 0;
         var truncated = false;
-        foreach (var value in values)
+        var truncatedLines = 0;
+        using var enumerator = values.GetEnumerator();
+        while (enumerator.MoveNext())
         {
+            var value = enumerator.Current;
+            var offset = 0;
             foreach (var rune in value.EnumerateRunes())
             {
                 if (lines.Count == MaximumDetailLines)
                 {
                     truncated = true;
+                    truncatedLines = CountLines(value.AsSpan(offset)) + CountRemainingLines(enumerator);
                     break;
                 }
 
@@ -85,6 +89,7 @@ internal static class ToolDisplayText
                     if (bytes + 4 > MaximumDetailBytes)
                     {
                         truncated = true;
+                        truncatedLines = CountLines(value.AsSpan(offset)) + CountRemainingLines(enumerator);
                         break;
                     }
 
@@ -96,12 +101,15 @@ internal static class ToolDisplayText
                     if (bytes + rune.Utf8SequenceLength > MaximumDetailBytes)
                     {
                         truncated = true;
+                        truncatedLines = CountLines(value.AsSpan(offset)) + CountRemainingLines(enumerator);
                         break;
                     }
 
                     _ = line.Append(rune);
                     bytes += rune.Utf8SequenceLength;
                 }
+
+                offset += rune.Utf16SequenceLength;
             }
 
             if (truncated)
@@ -112,6 +120,7 @@ internal static class ToolDisplayText
             if (lines.Count == MaximumDetailLines)
             {
                 truncated = true;
+                truncatedLines = CountRemainingLines(enumerator);
                 break;
             }
 
@@ -130,13 +139,16 @@ internal static class ToolDisplayText
             {
                 bytes -= Encoding.UTF8.GetByteCount(lines[^1]);
                 lines.RemoveAt(lines.Count - 1);
+                truncatedLines++;
             }
 
-            while (bytes + TruncatedBytes > MaximumDetailBytes)
+            var truncation = $".. {truncatedLines} lines truncated.";
+            var truncationBytes = Encoding.UTF8.GetByteCount(truncation);
+            while (bytes + truncationBytes > MaximumDetailBytes)
             {
                 var last = lines[^1];
                 var lastBytes = Encoding.UTF8.GetByteCount(last);
-                var allowed = MaximumDetailBytes - TruncatedBytes - (bytes - lastBytes);
+                var allowed = MaximumDetailBytes - truncationBytes - (bytes - lastBytes);
                 if (allowed > 0)
                 {
                     lines[^1] = TruncateUtf8(last, allowed);
@@ -147,10 +159,35 @@ internal static class ToolDisplayText
                 lines.RemoveAt(lines.Count - 1);
             }
 
-            lines.Add(Truncated);
+            lines.Add(truncation);
         }
 
         return lines;
+    }
+
+    private static int CountRemainingLines(IEnumerator<string> values)
+    {
+        var count = 0;
+        while (values.MoveNext())
+        {
+            count += CountLines(values.Current);
+        }
+
+        return count;
+    }
+
+    private static int CountLines(ReadOnlySpan<char> value)
+    {
+        var count = 1;
+        foreach (var character in value)
+        {
+            if (character == '\n')
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private static string TruncateUtf8(string value, int maximumBytes) =>

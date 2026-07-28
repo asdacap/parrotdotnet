@@ -4,6 +4,7 @@ internal enum ToolBlockKind
 {
     None,
     Text,
+    Output,
     Diff,
     Code,
     Todos,

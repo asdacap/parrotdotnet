@@ -69,6 +69,20 @@ internal sealed class ProcessAndPatchToolPresenterTests
     }
 
     [Test]
+    public async Task Exec_process_output_is_not_colored()
+    {
+        var presenter = new ExecCommandToolPresenter();
+        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"echo output\"}");
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "output", string.Empty);
+
+        var rendered = presenter.PresentTerminal(call, terminal)
+            .Render(new ScrollbackRenderContext(32_768, new TerminalPalette(true)));
+
+        _ = await Assert.That(rendered[0]).Contains("\u001b[32m");
+        _ = await Assert.That(rendered[1]).IsEqualTo("  output");
+    }
+
+    [Test]
     public async Task Wait_process_is_live_only_and_modeline_eligible()
     {
         var presenter = new WaitProcessToolPresenter();

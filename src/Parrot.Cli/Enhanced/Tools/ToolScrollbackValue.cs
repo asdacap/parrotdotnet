@@ -114,6 +114,8 @@ internal sealed class ToolScrollbackValue(
             ToolBlockKind.CompletedInput => RenderCompletedInput(context, maximumLines),
             ToolBlockKind.Error => ToolDisplayText.LayoutDetails(
                 [Report.Block.Text], context.Columns, maximumLines).Select(statusStyle.Apply),
+            ToolBlockKind.Output => ToolDisplayText.LayoutDetails(
+                [Report.Block.Text], context.Columns, maximumLines),
             _ => ToolDisplayText.LayoutDetails([Report.Block.Text], context.Columns, maximumLines)
                 .Select(statusStyle.Apply),
         };

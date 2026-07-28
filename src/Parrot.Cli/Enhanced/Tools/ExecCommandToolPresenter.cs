@@ -28,8 +28,8 @@ internal sealed class ExecCommandToolPresenter : IToolPresenter
         var block = yielded
             ? ToolBlock.Empty
             : status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
-                ? ToolBlock.FromError(ToolOutputText.Tail(terminal.ResultPresent ? terminal.Result : terminal.Error, 10))
-                : ToolBlock.FromText(ToolOutputText.Tail(terminal.Result, 10));
+                ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? terminal.Result : terminal.Error, 10))
+                : ToolBlock.FromOutput(ToolOutputText.Tail(terminal.Result, 10));
         return new ToolScrollbackValue(label, block, status, Metadata);
     }
 

@@ -12,6 +12,9 @@ internal readonly record struct ToolBlock(
     public static ToolBlock FromText(string text) =>
         text.Length == 0 ? Empty : new(ToolBlockKind.Text, text, string.Empty, string.Empty, 0);
 
+    public static ToolBlock FromOutput(string text) =>
+        text.Length == 0 ? Empty : new(ToolBlockKind.Output, text, string.Empty, string.Empty, 0);
+
     public static ToolBlock FromDetails(IEnumerable<string> details)
     {
         var values = details.Where(value => value.Length > 0).ToArray();
