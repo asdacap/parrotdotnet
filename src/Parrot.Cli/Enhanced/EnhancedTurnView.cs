@@ -4,7 +4,8 @@ using Parrot.Protocol;
 namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedTurnView(
-    TerminalFrameRenderer renderer,
+    Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
+    Func<IReadOnlyList<string>, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
     TextWriter error,
     Func<int> columns,
     bool renderActivityEvents,
@@ -127,7 +128,7 @@ internal sealed class EnhancedTurnView(
         if (_textActive)
         {
             _live.Clear();
-            await renderer.UpdateRows([], cancellationToken).ConfigureAwait(false);
+            await draw([], cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -149,17 +150,16 @@ internal sealed class EnhancedTurnView(
         return Commit([$"{style}  {EnhancedActivity.Format(published, _started)}{Reset}"], cancellationToken);
     }
 
-    private async Task Apply(MarkdownLiveUpdate update, CancellationToken cancellationToken)
+    private Task Apply(MarkdownLiveUpdate update, CancellationToken cancellationToken)
     {
-        await renderer.UpdateRows(update.Preview, cancellationToken).ConfigureAwait(false);
-        if (update.Scrollback.Count > 0)
-        {
-            await renderer.CommitScrollback(update.Scrollback, cancellationToken).ConfigureAwait(false);
-        }
+        var items = update.Preview.Select(value => (ILiveBufferItem)new LiveTextValue(value)).ToList();
+        return update.Scrollback.Count > 0
+            ? commit(update.Scrollback, items, cancellationToken)
+            : draw(items, cancellationToken);
     }
 
     private Task Commit(IReadOnlyList<string> lines, CancellationToken cancellationToken) =>
-        renderer.CommitScrollback(lines, cancellationToken);
+        commit(lines, [], cancellationToken);
 
     private async Task CommitText(CancellationToken cancellationToken)
     {
@@ -171,7 +171,7 @@ internal sealed class EnhancedTurnView(
     private Task RenderReasoning(string fragment, CancellationToken cancellationToken)
     {
         _ = _reasoning.Append(TerminalText.Sanitize(fragment));
-        return renderer.UpdateRows([_reasoning.ToString()], cancellationToken);
+        return draw([new LiveTextValue(_reasoning.ToString())], cancellationToken);
     }
 
     private async Task EndReasoning(CancellationToken cancellationToken)

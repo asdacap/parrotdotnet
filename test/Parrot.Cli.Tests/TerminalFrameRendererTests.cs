@@ -10,9 +10,8 @@ internal sealed class TerminalFrameRendererTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
-        var frame = new TerminalFrame(
-            ["live\u001b[2J"],
-            new SpinnerValue("thinking", 0),
+        var frame = Items(
+            [new LiveTextValue("live\u001b[2J"), new SpinnerValue("thinking", 0)],
             new ModelineValue("chat", string.Empty, "model"),
             new PromptValue("> ", "ab\n界x", 1));
 
@@ -41,11 +40,7 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
 
         await renderer.Draw(
-            new TerminalFrame(
-                [],
-                null,
-                new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", string.Empty, 0)),
+            Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0)),
             cancellationToken);
 
         var rendered = output.ToString();
@@ -60,11 +55,7 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 10, 12);
 
         await renderer.Draw(
-            new TerminalFrame(
-                [],
-                null,
-                new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", string.Empty, 0)),
+            Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0)),
             cancellationToken);
         await renderer.Clear(cancellationToken);
 
@@ -81,9 +72,8 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(true), 10, 12);
 
         await renderer.Draw(
-            new TerminalFrame(
-                ["busy"],
-                null,
+            Items(
+                [new LiveTextValue("busy")],
                 new ModelineValue("chat", string.Empty, "model"),
                 new PromptValue("> ", string.Empty, 0)),
             cancellationToken);
@@ -94,48 +84,52 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
-    public async Task Flushing_activities_redraws_the_live_frame(CancellationToken cancellationToken)
+    public async Task Committing_scrollback_redraws_the_replacement_frame(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
-        var initial = new TerminalFrame(
-            ["running"],
-            null,
+        var initial = Items(
+            [new LiveTextValue("running")],
             new ModelineValue("build", "working", "model"),
             new PromptValue("> ", "edit", 2));
-        var redrawn = new TerminalFrame(
+        var redrawn = Items(
             [],
-            null,
             new ModelineValue("build", "working", "model"),
-            new PromptValue("> ", "edit", 2));
+            new PromptValue("> ", "latest", 6));
 
         await renderer.Draw(initial, cancellationToken);
         var boundary = output.GetStringBuilder().Length;
-        await renderer.FlushActivitiesAndDraw(["+ shell finished"], redrawn, cancellationToken);
+        await renderer.Commit(["+ shell finished"], redrawn, cancellationToken);
         var flushed = output.ToString()[boundary..];
 
         _ = await Assert.That(flushed).Contains("+ shell finished\r\n");
         _ = await Assert.That(flushed).Contains("build");
-        _ = await Assert.That(flushed).Contains("> edit");
-        _ = await Assert.That(flushed).EndsWith("\r\u001b[4C\u001b[?7h\u001b[?25h");
+        _ = await Assert.That(flushed).Contains("> latest");
+        _ = await Assert.That(flushed).DoesNotContain("> edit");
+        _ = await Assert.That(flushed).EndsWith("\r\u001b[8C\u001b[?7h\u001b[?25h");
     }
 
     [Test]
-    public async Task Committing_user_input_clears_the_owned_frame_before_writing_scrollback(
+    public async Task Committing_multiline_scrollback_clears_the_owned_frame_before_writing(
         CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 10, 12);
         await renderer.Draw(
-            new TerminalFrame(
-                ["working"],
-                null,
+            Items(
+                [new LiveTextValue("working")],
                 new ModelineValue("build", "working", "model"),
                 new PromptValue("> ", "first\nsecond", 7)),
             cancellationToken);
         var boundary = output.GetStringBuilder().Length;
 
-        await renderer.CommitUserMessage("› ", "first\nsecond", cancellationToken);
+        await renderer.Commit(
+            ["› first", "second"],
+            Items(
+                [new LiveTextValue("working")],
+                new ModelineValue("build", "working", "model"),
+                new PromptValue("> ", "first\nsecond", 7)),
+            cancellationToken);
 
         var committed = output.ToString()[boundary..];
         var user = committed.IndexOf("› first\r\nsecond\r\n", StringComparison.Ordinal);
@@ -147,27 +141,30 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
-    public async Task Updating_input_preserves_the_live_frame(CancellationToken cancellationToken)
+    public async Task Complete_snapshot_updates_input_and_live_frame(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12);
         await renderer.Draw(
-            new TerminalFrame(
-                ["tool running"],
-                new SpinnerValue("working", 0),
+            Items(
+                [new LiveTextValue("tool running"), new SpinnerValue("working", 0)],
                 new ModelineValue("build", "working", "model"),
                 new PromptValue("> ", string.Empty, 0)),
             cancellationToken);
         var boundary = output.GetStringBuilder().Length;
 
-        await renderer.UpdatePrompt(new PromptValue("> ", "unmanaged no more", 17), cancellationToken);
+        await renderer.Draw(
+            Items(
+                [new LiveTextValue("tool running"), new SpinnerValue("working", 0)],
+                new ModelineValue("build", "working", "model"),
+                new PromptValue("> ", "unmanaged no more", 17)),
+            cancellationToken);
 
         await renderer.Draw(
-            new TerminalFrame(
-                ["next event"],
-                null,
+            Items(
+                [new LiveTextValue("next event")],
                 new ModelineValue("build", "working", "model"),
-                new PromptValue("> ", string.Empty, 0)),
+                new PromptValue("> ", "unmanaged no more", 17)),
             cancellationToken);
 
         var updated = output.ToString()[boundary..];
@@ -185,9 +182,8 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 8, new TerminalPalette(false), 2, 12);
 
         await renderer.Draw(
-            new TerminalFrame(
-                ["oldest", "middle", "newest"],
-                null,
+            Items(
+                [new LiveTextValue("oldest\nmiddle"), new LiveTextValue("newest")],
                 new ModelineValue("chat", string.Empty, "model"),
                 new PromptValue("> ", string.Empty, 0)),
             cancellationToken);
@@ -209,9 +205,8 @@ internal sealed class TerminalFrameRendererTests
         var renderer = new TerminalFrameRenderer(output, static () => 12, new TerminalPalette(false), 2, 2);
 
         await renderer.Draw(
-            new TerminalFrame(
-                ["live one", "live two"],
-                null,
+            Items(
+                [new LiveTextValue("live one\nlive two")],
                 new ModelineValue("chat", string.Empty, "model"),
                 new PromptValue("> ", "one\ntwo\nthree\nfour", 18)),
             cancellationToken);
@@ -227,13 +222,26 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
+    public async Task Complete_buffer_requires_exactly_one_caret(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
+
+        _ = await Assert.That(async () => await renderer.Draw(
+            [new ModelineValue("chat", string.Empty, "model")],
+            cancellationToken)).Throws<InvalidOperationException>();
+        _ = await Assert.That(async () => await renderer.Draw(
+            [new PromptValue("> ", string.Empty, 0), new PromptValue("$ ", string.Empty, 0)],
+            cancellationToken)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
     public async Task Concurrent_draws_are_serialized(CancellationToken cancellationToken)
     {
         using var output = new TrackingTextWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
-        var frame = new TerminalFrame(
+        var frame = Items(
             [],
-            null,
             new ModelineValue("chat", string.Empty, "model"),
             new PromptValue("> ", string.Empty, 0));
 
@@ -241,6 +249,11 @@ internal sealed class TerminalFrameRendererTests
 
         _ = await Assert.That(output.MaximumConcurrentWrites).IsEqualTo(1);
     }
+
+    private static IReadOnlyList<ILiveBufferItem> Items(
+        IReadOnlyList<ILiveBufferItem> body,
+        ModelineValue modeline,
+        PromptValue prompt) => [.. body, modeline, prompt];
 
     private static int Count(string value, string part)
     {

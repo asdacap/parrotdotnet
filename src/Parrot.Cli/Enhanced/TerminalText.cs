@@ -26,6 +26,37 @@ internal static class TerminalText
         return clean.ToString();
     }
 
+    public static List<string> Layout(string value, int width)
+    {
+        var rows = new List<string>();
+        var row = new StringBuilder();
+        var cells = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (rune.Value == '\n')
+            {
+                rows.Add(row.ToString());
+                _ = row.Clear();
+                cells = 0;
+                continue;
+            }
+
+            var runeWidth = Width(rune);
+            if (cells > 0 && cells + runeWidth > width)
+            {
+                rows.Add(row.ToString());
+                _ = row.Clear();
+                cells = 0;
+            }
+
+            _ = row.Append(rune);
+            cells += runeWidth;
+        }
+
+        rows.Add(row.ToString());
+        return rows;
+    }
+
     public static int Width(Rune rune)
     {
         var category = Rune.GetUnicodeCategory(rune);

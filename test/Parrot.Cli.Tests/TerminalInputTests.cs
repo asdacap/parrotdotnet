@@ -143,6 +143,36 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    [Arguments("one\ntwo", 80, "one|two")]
+    [Arguments("abcdef", 3, "abc|def")]
+    [Arguments("a界b", 3, "a界|b")]
+    public async Task Text_layout_preserves_newlines_and_wraps_at_cell_width(
+        string value, int width, string expected)
+    {
+        var rows = TerminalText.Layout(value, width);
+
+        _ = await Assert.That(string.Join('|', rows)).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task Live_buffer_values_render_rich_multiline_results()
+    {
+        var context = new LiveBufferRenderContext(4, new TerminalPalette(false));
+        var prompt = new PromptValue("> ", "a界\nb", 3).Render(context);
+        var modeline = new ModelineValue("chat", string.Empty, "model").Render(context);
+        var spinner = new SpinnerValue("work\u001b[2J", 0).Render(context);
+        var text = new LiveTextValue("one\ntwo").Render(context);
+
+        _ = await Assert.That(string.Join('|', prompt.Lines.Select(value => value.Text))).IsEqualTo("> a|界|b");
+        _ = await Assert.That(prompt.Caret).IsEqualTo(new LiveBufferCaret(2, 0));
+        _ = await Assert.That(prompt.Retention).IsEqualTo(LiveBufferRetention.Caret);
+        _ = await Assert.That(modeline.Retention).IsEqualTo(LiveBufferRetention.Fixed);
+        _ = await Assert.That(spinner.Lines[0].Text).IsEqualTo("⠋ work[2J");
+        _ = await Assert.That(text.Lines.Count).IsEqualTo(2);
+        _ = await Assert.That(text.Retention).IsEqualTo(LiveBufferRetention.Tail);
+    }
+
+    [Test]
     [Arguments("chat", "working", "provider/model", 34, "chat · working      provider/model")]
     [Arguments("chat", "", "provider/model", 8, "provider")]
     [Arguments("chat", "idle", "", 4, "chat")]

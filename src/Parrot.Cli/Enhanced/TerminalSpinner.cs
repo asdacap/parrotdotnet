@@ -1,20 +1,20 @@
 namespace Parrot.Cli.Enhanced;
 
 internal sealed class TerminalSpinner(
-    TerminalFrameRenderer renderer,
+    Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
     Func<CancellationToken, Task> delay)
 {
     private const int IntervalMilliseconds = 80;
 
-    public TerminalSpinner(TerminalFrameRenderer renderer)
+    public TerminalSpinner(Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw)
         : this(
-            renderer,
+            draw,
             static cancellationToken => Task.Delay(IntervalMilliseconds, cancellationToken))
     {
     }
 
     public async Task Run(
-        Func<int, TerminalFrame> frame,
+        Func<int, ILiveBufferItem> frame,
         Func<Func<Task>, CancellationToken, Task> lifetime,
         CancellationToken cancellationToken)
     {
@@ -40,13 +40,13 @@ internal sealed class TerminalSpinner(
         }
     }
 
-    private async Task Animate(Func<int, TerminalFrame> frame, CancellationToken cancellationToken)
+    private async Task Animate(Func<int, ILiveBufferItem> frame, CancellationToken cancellationToken)
     {
         try
         {
             for (var index = 0; ; index++)
             {
-                await renderer.Draw(frame(index), cancellationToken).ConfigureAwait(false);
+                await draw([frame(index)], cancellationToken).ConfigureAwait(false);
                 await delay(cancellationToken).ConfigureAwait(false);
             }
         }
@@ -55,7 +55,7 @@ internal sealed class TerminalSpinner(
         }
         finally
         {
-            await renderer.Clear(CancellationToken.None).ConfigureAwait(false);
+            await draw([], CancellationToken.None).ConfigureAwait(false);
         }
     }
 }

@@ -14,16 +14,19 @@ internal sealed class TerminalSpinnerTests
         var delayCount = 0;
         var indices = new ConcurrentQueue<int>();
         var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
-        var spinner = new TerminalSpinner(renderer, Delay);
+        var fixedItems = new ILiveBufferItem[]
+        {
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", string.Empty, 0),
+        };
+        var spinner = new TerminalSpinner(
+            (items, token) => renderer.Draw([.. items, .. fixedItems], token),
+            Delay);
 
-        TerminalFrame Frame(int index)
+        ILiveBufferItem Frame(int index)
         {
             indices.Enqueue(index);
-            return new TerminalFrame(
-                [],
-                new SpinnerValue("thinking", index),
-                new ModelineValue("chat", string.Empty, "model"),
-                new PromptValue("> ", string.Empty, 0));
+            return new SpinnerValue("thinking", index);
         }
 
         async Task Delay(CancellationToken token)
@@ -40,7 +43,8 @@ internal sealed class TerminalSpinnerTests
 
         _ = await Assert.That(string.Join(',', indices)).IsEqualTo("0,0");
         _ = await Assert.That(output.GetStringBuilder().Length).IsGreaterThan(afterFirstRun);
-        _ = await Assert.That(output.ToString()).EndsWith("\r\u001b[?7h\u001b[?25h");
+        _ = await Assert.That(output.ToString()).Contains("model");
+        _ = await Assert.That(output.ToString()).EndsWith("\u001b[?7h\u001b[?25h");
 
         async Task Lifetime(Func<Task> stop, CancellationToken token)
         {

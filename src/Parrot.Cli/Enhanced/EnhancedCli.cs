@@ -95,18 +95,28 @@ internal sealed class EnhancedCli(
         Func<Event, CancellationToken, Task>? beforeRender = null,
         bool renderActivityEvents = true,
         Func<Event, CancellationToken, Task>? afterRender = null,
-        TerminalFrameRenderer? renderer = null)
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? draw = null,
+        Func<IReadOnlyList<string>, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task>? commit = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
-        var turnRenderer = renderer ?? new TerminalFrameRenderer(
-            terminal.Output,
-            terminal.GetColumns,
-            new TerminalPalette(terminal.Color),
-            TerminalFrameRenderer.DefaultLiveRows,
-            TerminalFrameRenderer.DefaultInputRows);
+        async Task CommitStandalone(
+            IReadOnlyList<string> scrollback,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            foreach (var line in scrollback)
+            {
+                await terminal.Output.WriteAsync(line.AsMemory(), token).ConfigureAwait(false);
+                await terminal.Output.WriteAsync("\r\n".AsMemory(), token).ConfigureAwait(false);
+            }
+
+            await terminal.Output.FlushAsync(token).ConfigureAwait(false);
+        }
+
         var view = new EnhancedTurnView(
-            turnRenderer,
+            draw ?? NoLiveDraw,
+            commit ?? CommitStandalone,
             terminal.Error,
             terminal.GetColumns,
             renderActivityEvents,
@@ -144,6 +154,9 @@ internal sealed class EnhancedCli(
         }
     }
 
+    private static Task NoLiveDraw(IReadOnlyList<ILiveBufferItem> items, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
     private static SendMessageRequest Message(string userSessionId, string text) =>
         new()
         {
@@ -165,58 +178,132 @@ internal sealed class EnhancedCli(
         var interrupting = Interrupting(context, listening.Token);
         var decoder = new TerminalKeyDecoder();
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
-        var promptSync = new object();
         var currentPrompt = editor.Prompt;
+        var currentBody = (IReadOnlyList<ILiveBufferItem>)[];
+        var currentModeline = new ModelineValue(context.Mode, "ready", context.Model);
+        using var composing = new SemaphoreSlim(1, 1);
+        var palette = new TerminalPalette(terminal.Color);
         var renderer = new TerminalFrameRenderer(
             output,
             terminal.GetColumns,
-            new TerminalPalette(terminal.Color),
+            palette,
             TerminalFrameRenderer.DefaultLiveRows,
             TerminalFrameRenderer.DefaultInputRows);
-        var spinner = new TerminalSpinner(renderer);
+        var spinner = new TerminalSpinner(DrawBody);
         var buffer = new byte[4096];
         var exiting = false;
         var firstTurnCompleted = false;
         var streaming = (CancellationTokenSource?)null;
         var call = (AsyncServerStreamingCall<Event>?)null;
 
-        PromptValue CurrentPrompt()
+        IReadOnlyList<ILiveBufferItem> Snapshot() => [.. currentBody, currentModeline, currentPrompt];
+
+        async Task DrawBody(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
-            lock (promptSync)
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
             {
-                return currentPrompt;
+                currentBody = [.. items];
+                await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = composing.Release();
             }
         }
 
-        void UpdatePrompt()
+        async Task CommitBody(
+            IReadOnlyList<string> scrollback,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
         {
-            lock (promptSync)
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                currentBody = [.. items];
+                await renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+        }
+
+        async Task DrawPrompt(CancellationToken token)
+        {
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
             {
                 currentPrompt = editor.Prompt;
+                await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+        }
+
+        async Task DrawState(ModelineValue modeline, CancellationToken token)
+        {
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                currentBody = [];
+                currentModeline = modeline;
+                currentPrompt = editor.Prompt;
+                await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+        }
+
+        async Task Clear(CancellationToken token)
+        {
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                await renderer.Clear(CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = composing.Release();
             }
         }
 
         async Task StartTurn(string entered, AsyncServerStreamingCall<Event> activeCall)
         {
             _busy = true;
-            await renderer.CommitUserMessage("› ", entered, cancellationToken).ConfigureAwait(false);
+            var clean = TerminalText.Sanitize("› " + entered).TrimEnd('\r', '\n');
+            var committed = TerminalText.Layout(clean, Math.Max(1, terminal.GetColumns()))
+                .Select(palette.User.Apply)
+                .ToList();
+            await composing.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                currentBody = [];
+                currentModeline = new ModelineValue(context.Mode, "working", context.Model);
+                currentPrompt = editor.Prompt;
+                await renderer.Commit(committed, Snapshot(), CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+
             _ = await client.SendMessageAsync(
                 Message(context.UserSessionId, entered), cancellationToken: cancellationToken);
             if (rendering.IsCompleted)
             {
-                var model = context.Model;
-                var mode = context.Mode;
                 rendering = spinner.Run(
-                    index => new TerminalFrame(
-                        [],
-                        new SpinnerValue("thinking", index),
-                        new ModelineValue(mode, "working", model),
-                        CurrentPrompt()),
+                    index => new SpinnerValue("thinking", index),
                     async (stopSpinner, token) => firstTurnCompleted = await RenderRaw(
                         activeCall.ResponseStream,
-                        renderer,
-                        CurrentPrompt,
-                        context,
+                        palette.Muted,
+                        DrawBody,
+                        CommitBody,
+                        token => DrawState(new ModelineValue(context.Mode, "ready", context.Model), token),
                         stopSpinner,
                         exitOnFirstCompletion,
                         token).ConfigureAwait(false),
@@ -233,12 +320,8 @@ internal sealed class EnhancedCli(
             streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
             call = client.Listen(
                 new ListenRequest { UserSessionId = listeningTo }, cancellationToken: streaming.Token);
-            await renderer.Draw(
-                new TerminalFrame(
-                    [],
-                    null,
-                    new ModelineValue(context.Mode, "ready", context.Model),
-                    CurrentPrompt()),
+            await DrawState(
+                new ModelineValue(context.Mode, "ready", context.Model),
                 cancellationToken).ConfigureAwait(false);
             if (initialPrompt.Length > 0)
             {
@@ -261,7 +344,7 @@ internal sealed class EnhancedCli(
                         if (!editor.IsEmpty)
                         {
                             editor.Clear();
-                            UpdatePrompt();
+                            await DrawPrompt(cancellationToken).ConfigureAwait(false);
                         }
                         else
                         {
@@ -276,8 +359,7 @@ internal sealed class EnhancedCli(
                     else
                     {
                         var entered = editor.Apply(key);
-                        UpdatePrompt();
-                        await renderer.UpdatePrompt(CurrentPrompt(), cancellationToken).ConfigureAwait(false);
+                        await DrawPrompt(cancellationToken).ConfigureAwait(false);
                         if (entered is not null)
                         {
                             if (entered.Length == 0)
@@ -285,7 +367,7 @@ internal sealed class EnhancedCli(
                                 continue;
                             }
 
-                            await renderer.Clear(cancellationToken).ConfigureAwait(false);
+                            await Clear(cancellationToken).ConfigureAwait(false);
                             if (entered.StartsWith('/'))
                             {
                                 if (await Dispatch(context, entered, cancellationToken).ConfigureAwait(false)
@@ -320,12 +402,8 @@ internal sealed class EnhancedCli(
 
                     if (!_busy && !exiting)
                     {
-                        await renderer.Draw(
-                            new TerminalFrame(
-                                [],
-                                null,
-                                new ModelineValue(context.Mode, "ready", context.Model),
-                                CurrentPrompt()),
+                        await DrawState(
+                            new ModelineValue(context.Mode, "ready", context.Model),
                             cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -346,7 +424,7 @@ internal sealed class EnhancedCli(
                 {
                     try
                     {
-                        await renderer.Clear(CancellationToken.None).ConfigureAwait(false);
+                        await Clear(CancellationToken.None).ConfigureAwait(false);
                     }
                     finally
                     {
@@ -370,9 +448,10 @@ internal sealed class EnhancedCli(
 
     private async Task<bool> RenderRaw(
         IAsyncStreamReader<Event> stream,
-        TerminalFrameRenderer renderer,
-        Func<PromptValue> prompt,
-        SlashContext context,
+        TerminalStyle muted,
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
+        Func<IReadOnlyList<string>, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        Func<CancellationToken, Task> ready,
         Func<Task> stopSpinner,
         bool exitOnFirstCompletion,
         CancellationToken cancellationToken)
@@ -382,10 +461,7 @@ internal sealed class EnhancedCli(
         while (!cancellationToken.IsCancellationRequested)
         {
             var failed = false;
-            using var activity = new RawActivityView(
-                renderer,
-                prompt,
-                () => new ModelineValue(context.Mode, "working", context.Model));
+            using var activity = new RawActivityView(draw, commit, muted);
             using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var animation = activity.Run(animating.Token);
 
@@ -418,7 +494,8 @@ internal sealed class EnhancedCli(
                     BeforeRender,
                     false,
                     activity.Render,
-                    renderer).ConfigureAwait(false);
+                    draw,
+                    commit).ConfigureAwait(false);
             }
             finally
             {
@@ -435,13 +512,7 @@ internal sealed class EnhancedCli(
             _interruptRequested = false;
             if (!cancellationToken.IsCancellationRequested)
             {
-                await renderer.Draw(
-                    new TerminalFrame(
-                        [],
-                        null,
-                        new ModelineValue(context.Mode, "ready", context.Model),
-                        prompt()),
-                    cancellationToken).ConfigureAwait(false);
+                await ready(cancellationToken).ConfigureAwait(false);
             }
         }
 

@@ -4,9 +4,9 @@ using Parrot.Protocol;
 namespace Parrot.Cli.Enhanced;
 
 internal sealed class RawActivityView(
-    TerminalFrameRenderer renderer,
-    Func<PromptValue> prompt,
-    Func<ModelineValue> modeline) : IDisposable
+    Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
+    Func<IReadOnlyList<string>, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+    TerminalStyle muted) : IDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
 
@@ -32,12 +32,8 @@ internal sealed class RawActivityView(
                     if (_activeToolCallId is not null
                         && _toolCalls.TryGetValue(_activeToolCallId, out var toolCall))
                     {
-                        await renderer.Draw(
-                            new TerminalFrame(
-                                [],
-                                new SpinnerValue(FormatToolCall(toolCall), frame),
-                                modeline(),
-                                prompt()),
+                        await draw(
+                            [new SpinnerValue(FormatToolCall(toolCall), frame)],
                             cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -108,13 +104,10 @@ internal sealed class RawActivityView(
                 _rows = [];
             }
 
-            await renderer.Draw(
-                new TerminalFrame(
-                    _rows,
-                    spinner,
-                    modeline(),
-                    prompt()),
-                cancellationToken).ConfigureAwait(false);
+            var items = spinner is { } current
+                ? [(ILiveBufferItem)current]
+                : _rows.Select(value => (ILiveBufferItem)new LiveTextValue(value)).ToList();
+            await draw(items, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -198,19 +191,12 @@ internal sealed class RawActivityView(
     {
         var activities = _rows;
         _rows = [];
-        if (redraw)
-        {
-            await renderer.FlushActivitiesAndDraw(
-                activities,
-                new TerminalFrame(
-                    _rows,
-                    null,
-                    modeline(),
-                    prompt()),
-                cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        await renderer.FlushActivities(activities, cancellationToken).ConfigureAwait(false);
+        var scrollback = activities
+            .Select(value => muted.Apply(TerminalText.Sanitize(value)))
+            .ToList();
+        var items = redraw
+            ? _rows.Select(value => (ILiveBufferItem)new LiveTextValue(value)).ToList()
+            : [];
+        await commit(scrollback, items, cancellationToken).ConfigureAwait(false);
     }
 }

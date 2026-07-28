@@ -1,6 +1,6 @@
 namespace Parrot.Cli.Enhanced;
 
-internal readonly record struct ModelineValue(string Mode, string Activity, string Model)
+internal readonly record struct ModelineValue(string Mode, string Activity, string Model) : ILiveBufferItem
 {
     public string Render(int width)
     {
@@ -18,6 +18,11 @@ internal readonly record struct ModelineValue(string Mode, string Activity, stri
 
         return left + new string(' ', width - TerminalText.Width(left) - TerminalText.Width(right)) + right;
     }
+
+    public MultiLine Render(LiveBufferRenderContext context) => new(
+        [new TerminalLine(Render(context.Columns), context.Palette.Modeline)],
+        null,
+        LiveBufferRetention.Fixed);
 
     private static string Clip(string value, int width)
     {

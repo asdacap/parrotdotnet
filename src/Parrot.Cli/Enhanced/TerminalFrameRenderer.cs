@@ -20,43 +20,19 @@ internal sealed class TerminalFrameRenderer(
     private int _caretRow;
     private TerminalFrame? _frame;
     private int _renderedHeight;
-    private PromptValue? _prompt;
 
-    public async Task Draw(TerminalFrame frame, CancellationToken cancellationToken)
+    public async Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken cancellationToken)
     {
-        _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var current = frame with { Prompt = _prompt ?? frame.Prompt };
-            _prompt = current.Prompt;
-            var availableRows = Math.Max(1, _renderedHeight);
-            await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(current, availableRows, CancellationToken.None).ConfigureAwait(false);
-            _frame = current;
-        }
-        finally
-        {
-            await _drawing.Writer.WriteAsync(true, CancellationToken.None).ConfigureAwait(false);
-        }
-    }
-
-    public async Task UpdateRows(IReadOnlyList<string> rowsToDraw, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(rowsToDraw);
+        ArgumentNullException.ThrowIfNull(items);
 
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_frame is not { } frame)
-            {
-                return;
-            }
-
-            var updated = frame with { Rows = rowsToDraw };
-            var availableRows = Math.Max(1, _renderedHeight);
+            var (frame, width) = Render(items);
+            var availableRows = Math.Max(1, _frame?.Lines.Count ?? 0);
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(updated, availableRows, CancellationToken.None).ConfigureAwait(false);
-            _frame = updated;
+            await DrawFrame(frame, width, availableRows, CancellationToken.None).ConfigureAwait(false);
+            _frame = frame;
         }
         finally
         {
@@ -79,46 +55,18 @@ internal sealed class TerminalFrameRenderer(
         }
     }
 
-    public Task FlushActivities(IReadOnlyList<string> activities, CancellationToken cancellationToken) =>
-        CommitScrollback([.. activities.Select(value => palette.Muted.Apply(TerminalText.Sanitize(value)))], cancellationToken);
-
-    public async Task FlushActivitiesAndDraw(
-        IReadOnlyList<string> activities,
-        TerminalFrame frame,
+    public async Task Commit(
+        IReadOnlyList<string> scrollback,
+        IReadOnlyList<ILiveBufferItem> items,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(activities);
-
-        _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var availableRows = activities.Count == 0 ? Math.Max(1, _renderedHeight) : 1;
-            await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await WriteActivities(activities, CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(frame, availableRows, CancellationToken.None).ConfigureAwait(false);
-            _frame = frame;
-        }
-        finally
-        {
-            await _drawing.Writer.WriteAsync(true, CancellationToken.None).ConfigureAwait(false);
-        }
-    }
-
-    public async Task CommitUserMessage(string prefix, string text, CancellationToken cancellationToken)
-    {
-        var clean = TerminalText.Sanitize(prefix + text).TrimEnd('\r', '\n');
-        var width = Math.Max(1, columns());
-        var committed = Layout(clean, width).Select(palette.User.Apply).ToList();
-        await CommitScrollback(committed, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task CommitScrollback(IReadOnlyList<string> scrollback, CancellationToken cancellationToken)
-    {
         ArgumentNullException.ThrowIfNull(scrollback);
+        ArgumentNullException.ThrowIfNull(items);
 
         _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var (frame, width) = Render(items);
             var availableRows = scrollback.Count == 0 ? Math.Max(1, _renderedHeight) : 1;
             await ClearFrame(CancellationToken.None).ConfigureAwait(false);
             foreach (var line in scrollback)
@@ -127,37 +75,8 @@ internal sealed class TerminalFrameRenderer(
                 await output.WriteAsync("\r\n".AsMemory(), CancellationToken.None).ConfigureAwait(false);
             }
 
-            if (_frame is { } frame)
-            {
-                await DrawFrame(frame, availableRows, CancellationToken.None).ConfigureAwait(false);
-            }
-            else
-            {
-                await output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            await _drawing.Writer.WriteAsync(true, CancellationToken.None).ConfigureAwait(false);
-        }
-    }
-
-    public async Task UpdatePrompt(PromptValue prompt, CancellationToken cancellationToken)
-    {
-        _ = await _drawing.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _prompt = prompt;
-            if (_frame is not { } frame)
-            {
-                return;
-            }
-
-            var updated = frame with { Prompt = prompt };
-            var availableRows = Math.Max(1, _renderedHeight);
-            await ClearFrame(CancellationToken.None).ConfigureAwait(false);
-            await DrawFrame(updated, availableRows, CancellationToken.None).ConfigureAwait(false);
-            _frame = updated;
+            await DrawFrame(frame, width, availableRows, CancellationToken.None).ConfigureAwait(false);
+            _frame = frame;
         }
         finally
         {
@@ -176,89 +95,92 @@ internal sealed class TerminalFrameRenderer(
         return gate;
     }
 
-    private static List<string> Layout(string value, int width)
-    {
-        var rows = new List<string>();
-        var row = new System.Text.StringBuilder();
-        var cells = 0;
-        foreach (var rune in value.EnumerateRunes())
-        {
-            if (rune.Value == '\n')
-            {
-                rows.Add(row.ToString());
-                _ = row.Clear();
-                cells = 0;
-                continue;
-            }
-
-            var runeWidth = TerminalText.Width(rune);
-            if (cells > 0 && cells + runeWidth > width)
-            {
-                rows.Add(row.ToString());
-                _ = row.Clear();
-                cells = 0;
-            }
-
-            _ = row.Append(rune);
-            cells += runeWidth;
-        }
-
-        rows.Add(row.ToString());
-        return rows;
-    }
-
-    private static (int Row, int Cells) Cursor(PromptValue prompt, int width)
-    {
-        var before = prompt.Prefix + string.Concat(prompt.Text.EnumerateRunes().Take(prompt.Cursor));
-        var rows = Layout(before, width);
-        return (rows.Count - 1, TerminalText.Width(rows[^1]));
-    }
-
-    private async Task WriteActivities(IReadOnlyList<string> activities, CancellationToken cancellationToken)
-    {
-        foreach (var activity in activities)
-        {
-            var clean = TerminalText.Sanitize(activity);
-            await output.WriteAsync(palette.Muted.Apply(clean).AsMemory(), cancellationToken).ConfigureAwait(false);
-            await output.WriteAsync("\r\n".AsMemory(), cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private async Task DrawFrame(TerminalFrame frame, int availableRows, CancellationToken cancellationToken)
+    private (TerminalFrame Frame, int Width) Render(IReadOnlyList<ILiveBufferItem> items)
     {
         var width = Math.Max(1, columns());
-        var prompt = frame.Prompt.Sanitize();
-        var promptRows = Layout(prompt.Prefix + prompt.Text, width);
-        var (cursorRow, cursorCells) = Cursor(prompt, width);
-        var inputLimit = Math.Max(1, maxInputRows);
-        if (promptRows.Count > inputLimit)
+        var context = new LiveBufferRenderContext(width, palette);
+        var rendered = items.Select(item => item.Render(context)).ToList();
+        var carets = rendered.Where(value => value.Caret is not null).ToList();
+        if (carets.Count != 1)
         {
-            var promptStart = Math.Clamp(cursorRow - inputLimit + 1, 0, promptRows.Count - inputLimit);
-            promptRows = promptRows.GetRange(promptStart, inputLimit);
-            cursorRow -= promptStart;
+            throw new InvalidOperationException("The live buffer must contain exactly one caret.");
         }
 
-        var liveRows = frame.Rows
-            .SelectMany(value => Layout(TerminalText.Sanitize(value), width))
-            .Select(value => new RenderedRow(value, palette.LiveSurface))
-            .ToList();
-        if (frame.Spinner is { } spinner)
+        var tailRows = rendered
+            .Where(value => value.Retention == LiveBufferRetention.Tail)
+            .Sum(value => value.Lines.Count);
+        var tailToSkip = Math.Max(0, tailRows - Math.Max(1, maxLiveRows));
+        var lines = new List<TerminalLine>();
+        LiveBufferCaret? caret = null;
+
+        foreach (var item in rendered)
         {
-            liveRows.Add(new RenderedRow(spinner.Render(), palette.Marker));
+            var itemCaret = item.Caret;
+            if (itemCaret is { } position
+                && (position.Row < 0 || position.Row >= item.Lines.Count))
+            {
+                throw new InvalidOperationException("The live buffer caret is outside its item.");
+            }
+
+            var start = 0;
+            var count = item.Lines.Count;
+            if (item.Retention == LiveBufferRetention.Tail)
+            {
+                var skipped = Math.Min(tailToSkip, count);
+                start = skipped;
+                count -= skipped;
+                tailToSkip -= skipped;
+            }
+            else if (item.Retention == LiveBufferRetention.Caret && count > Math.Max(1, maxInputRows))
+            {
+                if (itemCaret is not { } caretPosition)
+                {
+                    throw new InvalidOperationException("Caret-retained live buffer content requires a caret.");
+                }
+
+                var limit = Math.Max(1, maxInputRows);
+                start = Math.Clamp(caretPosition.Row - limit + 1, 0, count - limit);
+                count = limit;
+            }
+
+            if (itemCaret is { } currentCaret)
+            {
+                if (currentCaret.Row < start || currentCaret.Row >= start + count)
+                {
+                    throw new InvalidOperationException("The live buffer caret was removed by retention.");
+                }
+
+                caret = new LiveBufferCaret(
+                    lines.Count + currentCaret.Row - start,
+                    Math.Clamp(currentCaret.Cells, 0, width - 1));
+            }
+
+            for (var index = start; index < start + count; index++)
+            {
+                var line = item.Lines[index];
+                var text = TerminalText.Sanitize(line.Text).Replace("\n", string.Empty, StringComparison.Ordinal);
+                lines.Add(new TerminalLine(text, line.Style));
+            }
         }
 
-        var content = liveRows.TakeLast(Math.Max(1, maxLiveRows)).ToList();
-        content.Add(new RenderedRow(frame.Modeline.Render(width), palette.Modeline));
-        var promptStartRow = content.Count;
-        content.AddRange(promptRows.Select(value => new RenderedRow(value, palette.Prompt)));
+        return (new TerminalFrame(
+            lines,
+            caret ?? throw new InvalidOperationException("The live buffer has no caret.")), width);
+    }
 
-        _renderedHeight = content.Count;
-        _caretRow = promptStartRow + cursorRow;
+    private async Task DrawFrame(
+        TerminalFrame frame,
+        int width,
+        int availableRows,
+        CancellationToken cancellationToken)
+    {
+        _renderedHeight = frame.Lines.Count;
+        _caretRow = frame.Caret.Row;
         _surface.Resize(width, _renderedHeight);
         _surface.Clear();
-        for (var row = 0; row < content.Count; row++)
+        for (var row = 0; row < frame.Lines.Count; row++)
         {
-            _surface.Write(row, 0, content[row].Text, content[row].Style);
+            _surface.Write(row, 0, frame.Lines[row].Text, frame.Lines[row].Style);
         }
 
         await output.WriteAsync($"\u001b[?25l{DisableAutowrap}".AsMemory(), cancellationToken)
@@ -294,9 +216,9 @@ internal sealed class TerminalFrameRenderer(
         }
 
         await output.WriteAsync("\r".AsMemory(), cancellationToken).ConfigureAwait(false);
-        if (cursorCells > 0)
+        if (frame.Caret.Cells > 0)
         {
-            await output.WriteAsync($"\u001b[{Math.Min(cursorCells, width - 1)}C".AsMemory(), cancellationToken)
+            await output.WriteAsync($"\u001b[{frame.Caret.Cells}C".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -348,6 +270,4 @@ internal sealed class TerminalFrameRenderer(
         _renderedHeight = 0;
         _caretRow = 0;
     }
-
-    private readonly record struct RenderedRow(string Text, TerminalStyle Style);
 }

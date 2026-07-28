@@ -218,10 +218,18 @@ internal sealed class EnhancedCliTests
     {
         using var output = new StringWriter();
         var renderer = new TerminalFrameRenderer(output, static () => 80, new TerminalPalette(false), 10, 12);
-        using var view = new RawActivityView(
-            renderer,
-            static () => new PromptValue("> ", string.Empty, 0),
-            static () => new ModelineValue("build", "working", "provider/model"));
+        var fixedItems = new ILiveBufferItem[]
+        {
+            new ModelineValue("build", "working", "provider/model"),
+            new PromptValue("> ", string.Empty, 0),
+        };
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token) =>
+            renderer.Draw([.. items, .. fixedItems], token);
+        Task Commit(
+            IReadOnlyList<string> scrollback,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token) => renderer.Commit(scrollback, [.. items, .. fixedItems], token);
+        using var view = new RawActivityView(Draw, Commit, new TerminalPalette(false).Muted);
 
         await view.Render(
             new Event
