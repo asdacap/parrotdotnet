@@ -22,8 +22,8 @@ internal static class PatchDiff
 
     private static void RenderFile(StringBuilder output, FileChange change)
     {
-        var beforePath = change.Before is null ? "/dev/null" : $"a/{change.Path}";
-        var afterPath = change.After is null ? "/dev/null" : $"b/{change.Path}";
+        var beforePath = change.Before is null ? "/dev/null" : HeaderPath("a", change.Path);
+        var afterPath = change.After is null ? "/dev/null" : HeaderPath("b", change.Path);
         _ = output.Append("--- ").Append(beforePath).Append('\n');
         _ = output.Append("+++ ").Append(afterPath).Append('\n');
 
@@ -35,6 +35,11 @@ internal static class PatchDiff
 
         WriteHunks(output, ShortestEditScript(Lines(change.Before), Lines(change.After)));
     }
+
+    private static string HeaderPath(string prefix, string path) =>
+        path == ".." || path.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            ? path
+            : $"{prefix}/{path}";
 
     private static bool ContainsNul(byte[]? data) => data is not null && Array.IndexOf(data, (byte)0) >= 0;
 

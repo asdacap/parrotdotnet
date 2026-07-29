@@ -4,33 +4,35 @@ using Parrot.Security;
 
 namespace Parrot.Tools.ApplyPatch;
 
-internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile security) : ITool
+internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile security) : ITool
 {
-    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    public ApplyPatchTool(string workingDirectory, SecurityProfile security)
+        : this(new ToolWorkspace(workingDirectory), security)
+    {
+    }
 
     public string Name => "apply_patch";
 
     public string Description =>
-        "Apply reviewed workspace edits written as aider SEARCH/REPLACE blocks: a file path on its own line, then '<<<<<<< SEARCH', the exact existing lines, '=======', the replacement lines, and '>>>>>>> REPLACE'. An empty SEARCH section creates the file. Set format to \"unified\" to supply git-style unified diff text instead.";
+        "Apply reviewed edits written as aider SEARCH/REPLACE blocks or git-style unified diffs. Aider paths may be repeated for non-overlapping edits; an empty SEARCH creates a missing file or fills an existing empty regular file. Paths are workspace-relative or explicitly security-authorized absolute paths. Existing line endings and UTF-8 BOMs are preserved.";
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"patchText":{"type":"string","description":"The patch text, written in the format named by the format field."},"format":{"type":"string","enum":["aider","unified"],"description":"Edit syntax of patchText, defaulting to aider. \"aider\": one or more SEARCH/REPLACE blocks, each a workspace-relative file path on its own line, then <<<<<<< SEARCH, the exact lines to replace, =======, the replacement lines, and >>>>>>> REPLACE; repeat blocks under the same path for several edits to one file, and leave the SEARCH section empty to create a new file. \"unified\": git diff text with --- and +++ headers and @@ hunks; a /dev/null source creates the file and a /dev/null target deletes it, and renames are rejected."}},"required":["patchText"],"additionalProperties":false}
+        {"type":"object","properties":{"patchText":{"type":"string","description":"The patch text."},"format":{"type":"string","enum":["aider","unified"],"description":"Patch syntax; aider is the default."}},"required":["patchText"],"additionalProperties":false}
         """;
 
     public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken) =>
-        Execution.Execute(workingDirectory, security, argumentsJson, cancellationToken);
+        Execution.Execute(workspace, security, argumentsJson, cancellationToken);
 
     private static class Execution
     {
         public static async Task<string> Execute(
-            string workingDirectory,
+            ToolWorkspace workspace,
             SecurityProfile security,
             string argumentsJson,
             CancellationToken cancellationToken)
         {
             Patch patch;
-
             try
             {
                 var (text, format) = ReadArguments(argumentsJson);
@@ -41,47 +43,142 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
                 return $"error: {failure.Message}";
             }
 
-            var written = new List<string>();
-            var changes = new List<PatchDiff.FileChange>();
-
+            PatchApplicationPlan plan;
             try
             {
-                Preflight(workingDirectory, security, patch.Operations);
+                plan = await Plan(workspace, security, patch, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (PatchException failure)
+            {
+                return $"error: {failure.Message}";
+            }
 
-                foreach (var operation in patch.Operations)
+            var written = new List<string>();
+            try
+            {
+                foreach (var mutation in plan.Mutations)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    changes.Add(await Apply(workingDirectory, operation, cancellationToken).ConfigureAwait(false));
-                    written.Add(operation.Path);
+                    var path = workspace.ResolvePatchMutation(
+                        mutation.Operation.Path,
+                        mutation.Operation.Kind == PatchOperationKind.Add,
+                        security);
+                    await Commit(path.Physical, mutation, cancellationToken).ConfigureAwait(false);
+                    written.Add(mutation.Operation.Path);
                 }
             }
-            catch (Exception failure) when (failure is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception failure)
             {
                 var report = $"error: {failure.Message}";
-                return written.Count == 0
-                    ? report
-                    : $"{report}\nFiles written before failure: {string.Join(", ", written)}";
+                return written.Count == 0 ? report : $"{report}\nFiles written before failure: {string.Join(", ", written)}";
             }
 
-            return PatchDiff.Render(changes);
+            return PatchDiff.Render([.. plan.Mutations.Select(mutation => mutation.Change)]);
         }
 
-        private static void Preflight(
-            string workingDirectory,
+        private static async Task<PatchApplicationPlan> Plan(
+            ToolWorkspace workspace,
             SecurityProfile security,
-            IReadOnlyList<PatchOperation> operations)
+            Patch patch,
+            CancellationToken cancellationToken)
         {
-            foreach (var operation in operations)
-            {
-                var path = Resolve(
-                    workingDirectory,
-                    operation.Path,
-                    operation.Kind == PatchOperationKind.Add);
+            List<string> errors = [];
+            List<PatchMutation> mutations = [];
 
-                if (!security.AllowsWrite(path))
+            foreach (var operation in patch.Operations)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
                 {
-                    throw new PatchException($"Write access denied for '{operation.Path}'.");
+                    var resolved = workspace.ResolvePatchMutation(
+                        operation.Path,
+                        operation.Kind == PatchOperationKind.Add,
+                        security);
+                    var mutation = await PlanOperation(operation, resolved, cancellationToken).ConfigureAwait(false);
+                    mutations.Add(mutation);
                 }
+                catch (Exception failure) when (failure is PatchException or IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    errors.Add($"{operation.Kind.ToString().ToLowerInvariant()} '{operation.Path}': {failure.Message}");
+                }
+            }
+
+            if (errors.Count > 0)
+            {
+                throw new PatchException($"patch planning failed with {errors.Count} errors:\n" + string.Join("\n", errors.Select((error, index) => $"{index + 1}. {error}")));
+            }
+
+            return new PatchApplicationPlan(mutations);
+        }
+
+        private static async Task<PatchMutation> PlanOperation(
+            PatchOperation operation,
+            PatchMutationPath resolved,
+            CancellationToken cancellationToken)
+        {
+            switch (operation.Kind)
+            {
+                case PatchOperationKind.Add:
+                {
+                    EnsureRegularFileOrMissing(resolved.Physical);
+                    var exists = File.Exists(resolved.Physical);
+                    var before = exists
+                        ? await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false)
+                        : null;
+                    if (before is not null && before.Length != 0)
+                    {
+                        throw new PatchException("Empty SEARCH may only create a missing file or replace an empty file.");
+                    }
+
+                    return new PatchMutation(operation, resolved, before, Encoding.UTF8.GetBytes(operation.Data));
+                }
+
+                case PatchOperationKind.Update:
+                {
+                    EnsureRegularFile(resolved.Physical);
+                    var before = await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false);
+                    return new PatchMutation(operation, resolved, before, PatchApplicator.Apply(before, operation.Hunks));
+                }
+
+                case PatchOperationKind.Delete:
+                    EnsureRegularFile(resolved.Physical);
+                    return new PatchMutation(
+                        operation,
+                        resolved,
+                        await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false),
+                        null);
+
+                default:
+                    throw new PatchException($"Unknown operation for '{operation.Path}'.");
+            }
+        }
+
+        private static async Task Commit(string path, PatchMutation mutation, CancellationToken cancellationToken)
+        {
+            if (mutation.After is null)
+            {
+                EnsureRegularFile(path);
+                File.Delete(path);
+                return;
+            }
+
+            var existed = File.Exists(path);
+            EnsureRegularFileOrMissing(path);
+            var parent = Path.GetDirectoryName(path) ?? throw new PatchException($"Destination '{mutation.Operation.Path}' has no parent directory.");
+            _ = Directory.CreateDirectory(parent);
+            EnsureRegularFileOrMissing(path);
+            await File.WriteAllBytesAsync(path, mutation.After, cancellationToken).ConfigureAwait(false);
+            if (!existed && OperatingSystem.IsLinux())
+            {
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
         }
 
@@ -89,7 +186,6 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("patchText", out var textElement)
                 || textElement.ValueKind != JsonValueKind.String)
@@ -98,7 +194,6 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
             }
 
             var format = PatchFormat.Aider;
-
             if (root.TryGetProperty("format", out var formatElement))
             {
                 if (formatElement.ValueKind != JsonValueKind.String)
@@ -115,258 +210,6 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
             }
 
             return (textElement.GetString() ?? string.Empty, format);
-        }
-
-        private static async Task<PatchDiff.FileChange> Apply(
-            string workingDirectory,
-            PatchOperation operation,
-            CancellationToken cancellationToken)
-        {
-            var path = Resolve(workingDirectory, operation.Path, operation.Kind == PatchOperationKind.Add);
-
-            switch (operation.Kind)
-            {
-                case PatchOperationKind.Add:
-                    EnsureRegularFileOrMissing(path);
-                    var beforeExists = File.Exists(path);
-                    var addBefore = beforeExists
-                        ? await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false)
-                        : null;
-                    var parent = Path.GetDirectoryName(path)
-                        ?? throw new PatchException($"Destination '{operation.Path}' has no parent directory.");
-                    _ = Directory.CreateDirectory(parent);
-                    path = Resolve(workingDirectory, operation.Path, create: true);
-                    EnsureRegularFileOrMissing(path);
-                    var addAfter = StrictUtf8.GetBytes(operation.Data);
-                    await File.WriteAllBytesAsync(path, addAfter, cancellationToken).ConfigureAwait(false);
-                    return new PatchDiff.FileChange(operation.Path, addBefore, addAfter);
-
-                case PatchOperationKind.Update:
-                    EnsureRegularFile(path);
-                    var before = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-                    var after = ApplyHunks(before, operation.Hunks);
-                    path = Resolve(workingDirectory, operation.Path, create: false);
-                    EnsureRegularFile(path);
-                    await File.WriteAllBytesAsync(path, after, cancellationToken).ConfigureAwait(false);
-                    return new PatchDiff.FileChange(operation.Path, before, after);
-
-                case PatchOperationKind.Delete:
-                    EnsureRegularFile(path);
-                    var deleted = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-                    path = Resolve(workingDirectory, operation.Path, create: false);
-                    EnsureRegularFile(path);
-                    File.Delete(path);
-                    return new PatchDiff.FileChange(operation.Path, deleted, null);
-
-                default:
-                    throw new PatchException($"Unknown operation for '{operation.Path}'.");
-            }
-        }
-
-        private static byte[] ApplyHunks(byte[] data, IReadOnlyList<PatchHunk> hunks)
-        {
-            var bom = data.AsSpan().StartsWith(Encoding.UTF8.Preamble);
-            var content = bom ? data[Encoding.UTF8.Preamble.Length..] : data;
-            var text = StrictUtf8.GetString(content);
-            var lineEnding = text.Contains("\r\n", StringComparison.Ordinal)
-                && !text.Replace("\r\n", string.Empty, StringComparison.Ordinal).Contains('\n', StringComparison.Ordinal)
-                    ? "\r\n"
-                    : "\n";
-            var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
-
-            if (lines.Count > 0 && lines[^1].Length == 0)
-            {
-                lines.RemoveAt(lines.Count - 1);
-            }
-
-            var replacements = new List<Replacement>();
-            var lineIndex = 0;
-
-            foreach (var hunk in hunks)
-            {
-                var oldLines = hunk.Lines.Where(line => line.Kind != '+').Select(line => line.Text).ToArray();
-                var newLines = hunk.Lines.Where(line => line.Kind != '-').Select(line => line.Text).ToArray();
-
-                if (oldLines.Length == 0)
-                {
-                    replacements.Add(new Replacement(lines.Count, 0, newLines));
-                    continue;
-                }
-
-                var found = SeekSequence(lines, oldLines, lineIndex);
-                replacements.Add(new Replacement(found, oldLines.Length, newLines));
-                lineIndex = found + oldLines.Length;
-            }
-
-            foreach (var replacement in replacements.OrderByDescending(item => item.Start))
-            {
-                lines.RemoveRange(replacement.Start, replacement.OldCount);
-                lines.InsertRange(replacement.Start, replacement.Lines);
-            }
-
-            var output = lines.Count == 0 ? string.Empty : string.Join(lineEnding, lines) + lineEnding;
-            var encoded = StrictUtf8.GetBytes(output);
-
-            if (!bom)
-            {
-                return encoded;
-            }
-
-            var result = new byte[Encoding.UTF8.Preamble.Length + encoded.Length];
-            Encoding.UTF8.Preamble.CopyTo(result);
-            encoded.CopyTo(result, Encoding.UTF8.Preamble.Length);
-            return result;
-        }
-
-        private static int SeekSequence(List<string> lines, string[] pattern, int start)
-        {
-            Func<string, string, bool>[] comparisons =
-            [
-                static (left, right) => string.Equals(left, right, StringComparison.Ordinal),
-            static (left, right) => string.Equals(
-                left.TrimEnd(' ', '\t', '\r', '\n'),
-                right.TrimEnd(' ', '\t', '\r', '\n'),
-                StringComparison.Ordinal),
-            static (left, right) => string.Equals(left.Trim(), right.Trim(), StringComparison.Ordinal),
-            static (left, right) => string.Equals(
-                Normalize(left.Trim()), Normalize(right.Trim()), StringComparison.Ordinal),
-        ];
-
-            foreach (var equal in comparisons)
-            {
-                var found = -1;
-                var count = 0;
-
-                for (var index = start; index <= lines.Count - pattern.Length; index++)
-                {
-                    if (!SequenceEqual(lines, pattern, index, equal))
-                    {
-                        continue;
-                    }
-
-                    found = index;
-                    count++;
-                }
-
-                if (count > 1)
-                {
-                    throw new PatchException(
-                        $"Found {count} matches for {DescribePattern(pattern)}; include more surrounding lines.");
-                }
-
-                if (count == 1)
-                {
-                    return found;
-                }
-            }
-
-            throw new PatchException($"Failed to find expected lines {DescribePattern(pattern)}.");
-        }
-
-        private static bool SequenceEqual(
-            List<string> lines,
-            string[] pattern,
-            int start,
-            Func<string, string, bool> equal)
-        {
-            for (var index = 0; index < pattern.Length; index++)
-            {
-                if (!equal(lines[start + index], pattern[index]))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private static string DescribePattern(string[] pattern)
-        {
-            const int maxLength = 1024;
-            var text = string.Join("\n", pattern);
-
-            return text.Length <= maxLength
-                ? $"'{text}'"
-                : $"'{text[..maxLength]}' (... {text.Length - maxLength} characters omitted)";
-        }
-
-        private static string Normalize(string value) =>
-            value
-                .Replace('‘', '\'')
-                .Replace('’', '\'')
-                .Replace('‚', '\'')
-                .Replace('‛', '\'')
-                .Replace('“', '"')
-                .Replace('”', '"')
-                .Replace('„', '"')
-                .Replace('‟', '"')
-                .Replace('‐', '-')
-                .Replace('‑', '-')
-                .Replace('‒', '-')
-                .Replace('–', '-')
-                .Replace('—', '-')
-                .Replace('―', '-')
-                .Replace("…", "...", StringComparison.Ordinal)
-                .Replace(' ', ' ');
-
-        private static string Resolve(string workingDirectory, string requestedPath, bool create)
-        {
-            var root = CanonicalRoot(workingDirectory);
-            var path = Path.GetFullPath(Path.Combine(root, requestedPath));
-
-            if (!Contains(root, path))
-            {
-                throw new PatchException($"Path '{requestedPath}' escapes the working directory.");
-            }
-
-            var relative = Path.GetRelativePath(root, path);
-            var current = root;
-            var parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-            var lastExisting = create ? parts.Length - 1 : parts.Length;
-
-            for (var index = 0; index < lastExisting; index++)
-            {
-                current = Path.Combine(current, parts[index]);
-
-                if (!Path.Exists(current))
-                {
-                    if (create)
-                    {
-                        break;
-                    }
-
-                    throw new FileNotFoundException($"Source '{requestedPath}' is missing.");
-                }
-
-                var attributes = File.GetAttributes(current);
-
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw new PatchException($"Path '{requestedPath}' traverses a symbolic link.");
-                }
-
-                if (index < parts.Length - 1 && (attributes & FileAttributes.Directory) == 0)
-                {
-                    throw new PatchException($"Parent of '{requestedPath}' is not a directory.");
-                }
-            }
-
-            return path;
-        }
-
-        private static string CanonicalRoot(string workingDirectory)
-        {
-            var root = new DirectoryInfo(Path.GetFullPath(workingDirectory));
-            var target = root.ResolveLinkTarget(returnFinalTarget: true);
-            return Path.TrimEndingDirectorySeparator((target ?? root).FullName);
-        }
-
-        private static bool Contains(string root, string path)
-        {
-            var relative = Path.GetRelativePath(root, path);
-            return relative != ".."
-                && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-                && !Path.IsPathFullyQualified(relative);
         }
 
         private static void EnsureRegularFile(string path)
@@ -387,13 +230,10 @@ internal sealed class ApplyPatchTool(string workingDirectory, SecurityProfile se
             }
 
             var attributes = File.GetAttributes(path);
-
             if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
             {
                 throw new PatchException("Patches require regular files.");
             }
         }
-
-        private sealed record Replacement(int Start, int OldCount, string[] Lines);
     }
 }
