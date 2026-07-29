@@ -11,6 +11,7 @@ internal sealed class AgentRegistry(
     IAgentSessionFactory agentSessions,
     EventBroker eventBroker,
     EventRepository eventRepository,
+    ProfileRegistry profiles,
     CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource
 {
     private const int MaxDepth = 4;
@@ -40,11 +41,13 @@ internal sealed class AgentRegistry(
     public AgentSession Spawn(
         AgentSession parent,
         AgentTurnSelection selection,
+        string requestedProfile,
         Llm.ModelSelector model,
         string requestedName)
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(selection);
+        var profile = profiles.ResolveChild(requestedProfile);
 
         lock (_gate)
         {
@@ -67,17 +70,26 @@ internal sealed class AgentRegistry(
 
             _parents[parent.SessionId] = parent;
 
+            if (!selection.SecurityProfile.AllowsDelegationTo(profile.SecurityProfile))
+            {
+                throw new AgentRegistryException("the selected child profile exceeds the caller's security policy");
+            }
+
+            if (ProfileOccurrences(parent, profile.Id) >= profile.RecursionLimit)
+            {
+                throw new AgentRegistryException("subagent profile recursion limit reached");
+            }
+
             var sessionId = Identifier.AgentSession();
             var name = UniqueName(requestedName, sessionId);
-            var childSecurityProfile = selection.SecurityProfile.WithoutRuntimeCapabilities();
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, parent.Name, name, depth);
             var lease = agentSessions.Create(
                 identity,
                 model,
                 eventBroker,
                 eventRepository,
-                selection.Profile?.ForChild(childSecurityProfile),
-                childSecurityProfile,
+                profile.BuildChildSessionProfile(),
+                profile.SecurityProfile.WithoutRuntimeCapabilities(),
                 _status,
                 _lifetime.Token);
 
@@ -171,6 +183,24 @@ internal sealed class AgentRegistry(
         }
 
         return sanitized.ToString().TrimEnd('-');
+    }
+
+    private int ProfileOccurrences(AgentSession parent, string profileId)
+    {
+        var occurrences = 0;
+        var current = parent;
+
+        while (current is not null)
+        {
+            if (string.Equals(current.Selection().Profile?.Id, profileId, StringComparison.Ordinal))
+            {
+                occurrences++;
+            }
+
+            current = _entries.GetValueOrDefault(current.ParentSessionId)?.Session;
+        }
+
+        return occurrences;
     }
 
     private async Task Shutdown(IAgentSessionLease[] children)

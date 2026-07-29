@@ -54,12 +54,14 @@ internal sealed class SessionStoreTests : IDisposable
     public async Task Failed_session_construction_does_not_consume_a_root_agent_name()
     {
         var model = Model();
+        var modes = Modes();
         using (var failing = new SessionStore(
             _root,
             Path.Combine(_root, "failing-work"),
             "host",
             new ThrowingUserSessions(),
-            TestModels.Route(model)))
+            TestModels.Route(model),
+            modes))
         {
             _ = await Assert.That(() => failing.Open(TestModels.Resolve(model))).Throws<InvalidOperationException>();
         }
@@ -101,7 +103,8 @@ internal sealed class SessionStoreTests : IDisposable
             workingDirectory,
             "host",
             new UserSessionFactory(sessions, Modes()),
-            router);
+            router,
+            Modes());
         return store.Open(router.Resolve(model.Selector));
     }
 
@@ -110,7 +113,9 @@ internal sealed class SessionStoreTests : IDisposable
         var configuration = Configuration.Load(
             Path.Combine(_root, "config.yaml"),
             Path.Combine(_root, "predefined_config.yaml"));
-        return new ModeRegistry(Path.Combine(_root, "plans"), configuration.SandboxRules, configuration.Profiles);
+        return new ModeRegistry(
+            Path.Combine(_root, "plans"),
+            new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, configuration.DefaultProfile));
     }
 
     private void PublishOwner(string workingDirectory, string sessionId)

@@ -7,11 +7,17 @@ namespace Parrot.Tools;
 // rather than a comment.
 internal sealed class ToolSnapshot(IReadOnlyList<ITool> tools)
 {
-    public IReadOnlyList<ITool> Tools { get; } = tools;
+    private readonly ITool[] _tools = [.. tools];
+
+    public IReadOnlyList<ITool> Tools => Array.AsReadOnly(_tools);
 
     public IReadOnlyList<LLMToolDefinition> Definitions =>
         [.. Tools.Select(tool => new LLMToolDefinition(tool.Name, tool.Description, tool.ParametersJson))];
 
     public ITool? Find(string name) =>
         Tools.FirstOrDefault(tool => string.Equals(tool.Name, name, StringComparison.Ordinal));
+
+    public ToolSnapshot Only(IReadOnlyList<string>? allowedTools) => allowedTools is null
+        ? this
+        : new ToolSnapshot([.. _tools.Where(tool => allowedTools.Contains(tool.Name, StringComparer.Ordinal))]);
 }

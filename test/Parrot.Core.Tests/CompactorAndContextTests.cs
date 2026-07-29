@@ -38,7 +38,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_configDirectory, "AGENTS.md"), "GLOBAL RULE: be concise.");
         await File.WriteAllTextAsync(Path.Combine(_workspace, "AGENTS.md"), "PROJECT RULE: be terse.");
 
-        var prompt = new SystemContextProvider(_workspace, _configDirectory, "2026-07-24")
+        var prompt = new SystemContextProvider(_workspace, _configDirectory, "2026-07-24", TestModels.ProfileRegistry())
             .Materialize(AgentIdentity.Main("session", string.Empty));
         prompt.RenewEpoch();
         var built = prompt.Build(Selection());
@@ -142,7 +142,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     {
         var agents = Path.Combine(_workspace, "AGENTS.md");
         await File.WriteAllTextAsync(agents, "first");
-        var prompt = new SystemContextProvider(_workspace, _configDirectory, "2026-07-24")
+        var prompt = new SystemContextProvider(_workspace, _configDirectory, "2026-07-24", TestModels.ProfileRegistry())
             .Materialize(AgentIdentity.Main("session", string.Empty));
 
         prompt.RenewEpoch();

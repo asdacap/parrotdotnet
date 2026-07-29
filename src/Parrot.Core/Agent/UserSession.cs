@@ -62,7 +62,7 @@ internal sealed class UserSession : IAsyncDisposable
         Mode = modes.Resolve(state.Mode, id);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
-        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, _lifetime.Token);
+        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, modes.Profiles, _lifetime.Token);
         Status = new RuntimeStatus(this);
         Registry.AttachStatus(Status);
     }
@@ -82,8 +82,8 @@ internal sealed class UserSession : IAsyncDisposable
     public string Model => _model.Value;
 
     // The user-selected foreground mode. The resolved profile is applied only
-    // to this user session's main agent; child agents have no active profile.
-    public AgentProfile Mode { get; private set; }
+    // to this user session's main agent; child agents select their own profile.
+    public MainAgentProfile Mode { get; private set; }
 
     internal CancellationToken Lifetime => _lifetime.Token;
 
@@ -119,7 +119,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     public void UpdateSelection(ResolvedModelSelection model) => Update(model, null);
 
-    public void Update(ResolvedModelSelection? model, AgentProfile? profile)
+    public void Update(ResolvedModelSelection? model, MainAgentProfile? profile)
     {
         lock (_mainGate)
         {

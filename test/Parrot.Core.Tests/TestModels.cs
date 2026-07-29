@@ -10,34 +10,47 @@ internal static class TestModels
     public static IReadOnlyDictionary<string, ProfileConfig> Profiles { get; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
         {
-            [ModeRegistry.Build] = new(
+            [ModeRegistry.Build] = Profile(
                 "You are Parrot's build mode. Implement and verify the requested changes.",
                 "Keep tool side effects within the authorized workspace.",
-                "Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.",
-                64,
-                false,
-                []),
-            [ModeRegistry.Plan] = new(
+                readOnly: false),
+            [ModeRegistry.Plan] = Profile(
                 "You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown",
                 "The plan directory is the only writable location; do not modify workspace files.",
-                "Plan mode: inspect the project and write the designated plan artifact without changing other files.",
-                24,
-                true,
-                []),
-            [ModeRegistry.Query] = new(
+                readOnly: true),
+            [ModeRegistry.Query] = Profile(
                 "You are Parrot's query mode. Inspect the project and answer the user's question without making changes.",
                 "Read-only mode: do not modify the workspace.",
-                "Query mode: inspect the project and answer questions without changing files.",
-                24,
+                readOnly: true),
+            ["explorer"] = new ProfileConfig(
+                "You are an explorer agent.",
+                "Test read-only child profile.",
+                ["Do not modify files."],
+                null,
+                32,
+                3,
                 true,
+                false,
+                []),
+            ["worker"] = new ProfileConfig(
+                "You are a worker agent.",
+                "Test child profile.",
+                ["Keep changes contained."],
+                null,
+                64,
+                3,
+                false,
+                false,
                 []),
         };
+
+    public static ProfileRegistry ProfileRegistry() => new(Profiles, [], ModeRegistry.Build);
 
     public static ISystemPromptProvider PromptProvider(string workingDirectory, string configDirectory) =>
         new CompositeSystemPromptProvider(
             "test:system-prompt",
             [
-                new SystemContextProvider(workingDirectory, configDirectory, "2026-07-24"),
+                new SystemContextProvider(workingDirectory, configDirectory, "2026-07-24", ProfileRegistry()),
                 new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)),
             ]);
 
@@ -62,4 +75,15 @@ internal static class TestModels
     }
 
     public static ResolvedModelSelection Resolve(ProviderModel model) => Route(model).Resolve(model.Selector);
+
+    private static ProfileConfig Profile(string prompt, string hardRule, bool readOnly) => new(
+        prompt,
+        "Test profile.",
+        [hardRule],
+        null,
+        64,
+        3,
+        readOnly,
+        true,
+        []);
 }

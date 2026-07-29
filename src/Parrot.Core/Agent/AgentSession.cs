@@ -33,15 +33,12 @@ internal sealed class AgentSession(
     ISystemPromptProvider systemPromptProvider,
     TodoCollection todos,
     Compactor compactor,
-    AgentProfile? profile,
+    MainAgentProfile? profile,
     SecurityProfile securityProfile,
     RuntimeStatus? status,
     CancellationToken lifetime)
 {
-    // A turn that keeps calling tools without ever finishing is a runaway, not
-    // work. This bounds the provider calls a promoted prompt may make; new
-    // input resets it, so a long conversation is not a runaway.
-    private const string RunawayMessage = "the turn exceeded its tool-call limit";
+    private const string RunawayMessage = "the turn exceeded its provider-request limit";
 
     // What the model is told about a call the interrupt cut short. It is a tool
     // result like any other, because the provider requires one per call.
@@ -125,7 +122,7 @@ internal sealed class AgentSession(
         }
     }
 
-    public void UpdateSelection(ModelSelector selectedModel, AgentProfile? profile)
+    public void UpdateSelection(ModelSelector selectedModel, MainAgentProfile? profile)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
 
@@ -590,8 +587,8 @@ internal sealed class AgentSession(
         CancellationToken cancellationToken)
     {
         var answer = string.Empty;
-        var rounds = 0;
-        IReadOnlyList<ITool>? activeTools = null;
+        var providerRequests = 0;
+        ToolSnapshot? activeTools = null;
 
         try
         {
@@ -616,6 +613,7 @@ internal sealed class AgentSession(
                         resolved,
                         captured.Profile,
                         captured.SecurityProfile);
+                    providerRequests = 0;
                     turnOpen = true;
                     var started = new Event
                     {
@@ -625,25 +623,16 @@ internal sealed class AgentSession(
                     };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
-                    activeTools = [.. toolFactories
-                        .Where(factory => factory.Supports(this))
-                        .Select(factory => factory.Create(this, activeSelection))];
+                    activeTools = new ToolSnapshot(
+                        [.. toolFactories
+                            .Where(factory => factory.Supports(this))
+                            .Select(factory => factory.Create(this, activeSelection))])
+                        .Only(activeSelection.Profile?.AllowedTools);
                 }
 
                 // Status is committed before promotion, so sequenced history is
                 // epoch baseline, status, then the user input it describes.
-                var promoted = await Promote(cancellationToken).ConfigureAwait(false);
-
-                if (promoted > 0)
-                {
-                    rounds = 0;
-                }
-
-                if (rounds++ >= (activeSelection?.Profile?.MaxToolRounds ?? 24))
-                {
-                    await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
-                    return AgentExecution.Failed(RunawayMessage);
-                }
+                _ = await Promote(cancellationToken).ConfigureAwait(false);
 
                 await Epoch(activeSelection, cancellationToken).ConfigureAwait(false);
 
@@ -652,9 +641,16 @@ internal sealed class AgentSession(
                     throw new AgentRegistryException("turn selection is unavailable");
                 }
 
-                // One snapshot for the round, so what is offered to the model is
-                // what answers it (principle 4).
-                var snapshot = new ToolSnapshot(activeTools);
+                var maxTurns = activeSelection.Profile?.MaxTurns ?? 24;
+                if (providerRequests >= maxTurns)
+                {
+                    await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
+                    return AgentExecution.Failed(RunawayMessage);
+                }
+
+                var snapshot = providerRequests + 1 == maxTurns
+                    ? new ToolSnapshot([])
+                    : activeTools;
 
                 var messages = new List<LLMMessage>(_history.Count + 1)
                 {
@@ -662,6 +658,7 @@ internal sealed class AgentSession(
                 };
                 messages.AddRange(_history);
 
+                providerRequests++;
                 var completed = await Call(activeSelection, snapshot, messages, cancellationToken)
                     .ConfigureAwait(false);
 
@@ -669,6 +666,13 @@ internal sealed class AgentSession(
                 {
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
                     await SettleToolCalls(snapshot, completed.ToolCalls, cancellationToken).ConfigureAwait(false);
+
+                    if (snapshot.Tools.Count == 0)
+                    {
+                        await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
+                        return AgentExecution.Failed(RunawayMessage);
+                    }
+
                     continue;
                 }
 

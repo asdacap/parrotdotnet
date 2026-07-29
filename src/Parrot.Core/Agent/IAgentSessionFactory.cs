@@ -17,7 +17,7 @@ internal interface IAgentSessionFactory
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        AgentProfile? profile,
+        MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime);

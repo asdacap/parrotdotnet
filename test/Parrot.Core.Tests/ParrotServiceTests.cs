@@ -284,7 +284,9 @@ internal sealed class ParrotServiceTests : IDisposable
         store,
         Modes());
 
-    private ModeRegistry Modes() => new(Path.Combine(_root, "plans"), _configuration.SandboxRules, _configuration.Profiles);
+    private ModeRegistry Modes() => new(
+        Path.Combine(_root, "plans"),
+        new ProfileRegistry(_configuration.Profiles, _configuration.SandboxRules, _configuration.DefaultProfile));
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 
@@ -296,6 +298,7 @@ internal sealed class ParrotServiceTests : IDisposable
             Path.Combine(_root, "work"),
             "host",
             new UserSessionFactory(sessions, Modes()),
-            _router);
+            _router,
+            Modes());
     }
 }

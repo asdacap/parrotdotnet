@@ -1,44 +1,55 @@
 using Parrot.Config;
-using Parrot.Protocol;
 using Parrot.Security;
 
 namespace Parrot.Agent;
 
-internal sealed class AgentProfile(
-    string id,
-    ProfileConfig configuration,
-    Func<string> prompt,
-    Func<string> planArtifact,
-    SecurityProfile securityProfile,
-    Action prepare,
-    Func<string, string, PlanCompleted?> complete)
+internal sealed class AgentProfile
 {
-    public string Id { get; } = id;
+    private readonly string[] _hardRules;
+    private readonly string[]? _allowedTools;
 
-    public string Prompt => prompt();
+    public AgentProfile(string id, ProfileConfig configuration, IReadOnlyList<SandboxRule> globalRules)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(globalRules);
+        Id = id;
+        Prompt = configuration.Prompt;
+        Usage = configuration.Usage;
+        _hardRules = [.. configuration.HardRules];
+        _allowedTools = configuration.AllowedTools is null ? null : [.. configuration.AllowedTools];
+        MaxTurns = configuration.MaxTurns;
+        RecursionLimit = configuration.RecursionLimit;
+        ReadOnly = configuration.ReadOnly;
+        IsUserAgent = configuration.IsUserAgent;
+        SecurityProfile = SecurityProfile.Compose(ReadOnly, configuration.SandboxRules, globalRules, []);
+    }
 
-    public string HardRule { get; } = configuration.HardRule;
+    public string Id { get; }
 
-    public string Status { get; } = configuration.Status;
+    public string Prompt { get; }
 
-    public int MaxToolRounds { get; } = configuration.MaxToolRounds;
+    public string Usage { get; }
 
-    public bool ReadOnly { get; } = configuration.ReadOnly;
+    public IReadOnlyList<string> HardRules => [.. _hardRules];
 
-    public string PlanArtifact => planArtifact();
+    public IReadOnlyList<string>? AllowedTools => _allowedTools is null ? null : [.. _allowedTools];
 
-    public SecurityProfile SecurityProfile { get; } = securityProfile;
+    public int MaxTurns { get; }
 
-    public void Prepare() => prepare();
+    public int RecursionLimit { get; }
 
-    public PlanCompleted? Complete(string sessionId, string messageId) => complete(sessionId, messageId);
+    public bool ReadOnly { get; }
 
-    public AgentProfile ForChild(SecurityProfile childSecurityProfile) => new(
-        Id,
-        configuration,
-        () => configuration.Prompt,
+    public bool IsUserAgent { get; }
+
+    public SecurityProfile SecurityProfile { get; }
+
+    public MainAgentProfile BuildChildSessionProfile() => new(
+        this,
+        () => Prompt,
         static () => string.Empty,
-        childSecurityProfile,
+        SecurityProfile,
         static () => { },
         static (_, _) => null);
 }

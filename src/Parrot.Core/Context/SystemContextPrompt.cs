@@ -9,7 +9,8 @@ internal sealed class SystemContextPrompt(
     string workingDirectory,
     string configDirectory,
     string date,
-    string sessionContext) : ISystemPrompt
+    string sessionContext,
+    IReadOnlyList<AgentProfile> childProfiles) : ISystemPrompt
 {
     private const string BasePrompt =
         "You are parrot, a coding agent. You work in the user's project directory. "
@@ -31,6 +32,19 @@ internal sealed class SystemContextPrompt(
         if (sessionContext.Length > 0)
         {
             _ = text.Append(sessionContext).Append('\n');
+        }
+
+        if (childProfiles.Count == 0)
+        {
+            _ = text.Append("Available subagents: none\n");
+        }
+        else
+        {
+            _ = text.Append("Available subagents; delegate according to their configured usage:\n");
+            foreach (var profile in childProfiles)
+            {
+                _ = text.Append("- ").Append(profile.Id).Append(": ").Append(profile.Usage).Append('\n');
+            }
         }
 
         foreach (var (path, content) in AgentsFiles())

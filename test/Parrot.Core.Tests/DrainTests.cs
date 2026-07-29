@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -229,6 +230,66 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task A_profile_turn_omits_tools_on_its_final_provider_request_and_resets_for_queued_input(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "settled", "{}")),
+            Answer("first answer"),
+            Answer("queued answer"));
+        var repository = new EventRepository(_database);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            Profile(maxTurns: 2),
+            cancellationToken);
+
+        _ = await session.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await session.Admit("queued prompt", "msg-2", Delivery.Queue, cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[1].Tools).IsEmpty();
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[2].Tools).HasSingleItem();
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(Endings(repository)).IsEqualTo("stop | stop");
+        _ = await Assert.That(Conversation(repository)).IsEqualTo(
+            "user: first prompt | assistant: first answer | user: queued prompt | assistant: queued answer");
+    }
+
+    [Test]
+    public async Task A_tool_call_returned_after_tools_are_omitted_is_settled_and_fails_the_turn(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "settled", "{}")));
+        var repository = new EventRepository(_database);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            Profile(maxTurns: 1),
+            cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests.Single().Tools).IsEmpty();
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:call-1:settled | error:call-1:settled:unknown tool settled");
+        _ = await Assert.That(repository.Replay().Last(published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
+            .IsEqualTo("the turn exceeded its provider-request limit");
+    }
+
+    [Test]
     public async Task An_unknown_tool_emits_an_error_before_the_turn_continues(
         CancellationToken cancellationToken)
     {
@@ -349,6 +410,17 @@ internal sealed class DrainTests : IDisposable
                 _ => null,
             }).Where(value => value is not null));
 
+    private static MainAgentProfile Profile(int maxTurns) => new(
+        new AgentProfile(
+            "test",
+            new ProfileConfig("Test prompt", "Test profile.", ["Test rule"], null, maxTurns, 3, false, true, []),
+            []),
+        static () => "Test prompt",
+        static () => string.Empty,
+        SecurityProfile.Compose(readOnly: false, [], [], []),
+        static () => { },
+        static (_, _) => null);
+
     private AgentSession Session(
         SteppedProvider provider,
         EventRepository repository,
@@ -360,6 +432,25 @@ internal sealed class DrainTests : IDisposable
         SteppedProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
+        MainAgentProfile profile,
+        CancellationToken lifetime) =>
+        Session(provider, repository, toolFactories, profile, 0, 0, 0, lifetime);
+
+    private AgentSession Session(
+        SteppedProvider provider,
+        EventRepository repository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        int contextWindow,
+        double inputPrice,
+        double outputPrice,
+        CancellationToken lifetime) =>
+        Session(provider, repository, toolFactories, profile: null, contextWindow, inputPrice, outputPrice, lifetime);
+
+    private AgentSession Session(
+        SteppedProvider provider,
+        EventRepository repository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        MainAgentProfile? profile,
         int contextWindow,
         double inputPrice,
         double outputPrice,
@@ -381,7 +472,7 @@ internal sealed class DrainTests : IDisposable
             TestModels.PromptProvider(".", "."),
             new TodoCollection("agent", repository, _broker),
             new Compactor(120_000),
-            profile: null,
+            profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             lifetime);

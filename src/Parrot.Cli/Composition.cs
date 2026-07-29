@@ -94,27 +94,33 @@ internal partial class Composition
                 ctx.Inject<ModelAliasCatalog>(out var aliases);
                 return new ModelAliasConfigurator(configuration, aliases);
             })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<Configuration>(out var configuration);
+                return new ProfileRegistry(
+                    configuration.Profiles,
+                    configuration.SandboxRules,
+                    configuration.DefaultProfile);
+            })
             .Bind().As(Lifetime.Singleton).To<ISystemPromptProvider>(ctx =>
             {
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<string>("date", out var date);
+                ctx.Inject<ProfileRegistry>(out var profiles);
                 return new CompositeSystemPromptProvider(
                     "runtime:system-prompt",
                     [
-                        new SystemContextProvider(workingDirectory, paths.Config, date),
+                        new SystemContextProvider(workingDirectory, paths.Config, date, profiles),
                         new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
                     ]);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<StatePaths>(out var paths);
-                ctx.Inject<Configuration>(out var configuration);
-                return new ModeRegistry(
-                    Path.Combine(paths.State, "plan"),
-                    configuration.SandboxRules,
-                    configuration.Profiles);
+                ctx.Inject<ProfileRegistry>(out var profiles);
+                return new ModeRegistry(Path.Combine(paths.State, "plan"), profiles);
             })
 
             // The static half of an agent session is bound into the source
@@ -160,9 +166,10 @@ internal partial class Composition
                 ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<IUserSessionFactory>(out var userSessions);
                 ctx.Inject<ModelRouter>(out var router);
+                ctx.Inject<ModeRegistry>(out var modes);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<string>("hostKey", out var hostKey);
-                return new SessionStore(paths.State, workingDirectory, hostKey, userSessions, router);
+                return new SessionStore(paths.State, workingDirectory, hostKey, userSessions, router, modes);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

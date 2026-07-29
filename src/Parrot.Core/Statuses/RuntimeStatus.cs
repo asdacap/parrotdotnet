@@ -11,26 +11,17 @@ internal sealed class RuntimeStatus(UserSession owner)
     public Task<string> Observe(
         AgentSession session,
         AgentTurnSelection selection,
-        AgentProfile profile,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(profile);
-
-        var query = new StatusQuery(
-            session.SessionId,
-            session.ParentSessionId,
-            session.ParentSessionName,
-            profile.Id,
-            selection.ResolvedModel.CanonicalModel.Provider.Id,
-            selection.ResolvedModel.CanonicalModel.ModelId,
-            selection.ResolvedModel.CanonicalModel.Variant?.Name ?? string.Empty);
-        var status = new ProfileStatusProvider(
-            $"profile:{profile.Id}-mode",
-            profile.Prompt,
-            [profile.HardRule],
-            profile.Status);
-        return _registry.Observe(query, status, cancellationToken);
-    }
+        MainAgentProfile profile,
+        CancellationToken cancellationToken) =>
+        _registry.Observe(
+            new StatusQuery(
+                session.SessionId,
+                session.ParentSessionId,
+                session.ParentSessionName,
+                profile.Id,
+                selection.ResolvedModel.CanonicalModel.Provider.Id,
+                selection.ResolvedModel.CanonicalModel.ModelId,
+                selection.ResolvedModel.CanonicalModel.Variant?.Name ?? string.Empty),
+            null,
+            cancellationToken);
 }
