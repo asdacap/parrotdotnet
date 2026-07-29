@@ -68,6 +68,14 @@ internal sealed class IncrementalEditor(string prefix, int maximumRunes)
         _cursor = 0;
     }
 
+    public void Replace(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        Clear();
+        Insert(value);
+    }
+
     private void Insert(string value)
     {
         var runes = value.EnumerateRunes().Where(rune => rune.Value == '\n' || !Rune.IsControl(rune)).ToList();

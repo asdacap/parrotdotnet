@@ -781,6 +781,40 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Slash_command_completion_filters_selects_and_dispatches(CancellationToken cancellationToken)
+    {
+        using var terminal = new ScriptedTerminal(80);
+        using var stopping = new CancellationTokenSource();
+        using var http = new HttpClient();
+        var invoker = new ScriptedInvoker();
+        var cli = new EnhancedCli(
+            new GeneratedParrot.ParrotClient(invoker),
+            new Interrupts(stopping),
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            new UnusedCredentials(),
+            new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions()),
+            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+            ["provider"],
+            terminal,
+            Presenters());
+        var running = cli.Run(cancellationToken);
+
+        terminal.Type("/m");
+        await OutputContains(terminal, "Switch the mode for this session", cancellationToken);
+        await OutputContains(terminal, "Switch the model for this session", cancellationToken);
+        var filtered = terminal.Output.ToString() ?? throw new InvalidOperationException("terminal output is unavailable");
+        var filteredAt = filtered.LastIndexOf("Switch the mode for this session", StringComparison.Ordinal);
+        _ = await Assert.That(filtered[filteredAt..]).DoesNotContain("Leave the session");
+
+        terminal.Type("\u001b[B\t");
+        await OutputContains(terminal, "$ /model", cancellationToken);
+        _ = await Assert.That(invoker.Sent).IsEmpty();
+
+        terminal.Type("\u0001\u000b/exit\r");
+        _ = await running.WaitAsync(cancellationToken);
+    }
+
+    [Test]
     public async Task Shift_tab_cycles_through_foreground_modes(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
@@ -950,6 +984,15 @@ internal sealed class EnhancedCliTests
     }
 
     private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
+
+    private static async Task OutputContains(
+        ScriptedTerminal terminal, string text, CancellationToken cancellationToken)
+    {
+        while (!(terminal.Output.ToString() ?? string.Empty).Contains(text, StringComparison.Ordinal))
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+    }
 
     private static async Task Sent(ScriptedInvoker invoker, int count, CancellationToken cancellationToken)
     {

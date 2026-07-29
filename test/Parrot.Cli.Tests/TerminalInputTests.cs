@@ -76,6 +76,15 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    public async Task Decoder_maps_tab_to_completion()
+    {
+        var decoded = new TerminalKeyDecoder().Feed([0x09]);
+
+        _ = await Assert.That(decoded).HasSingleItem();
+        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.Complete));
+    }
+
+    [Test]
     [Arguments(0x0a)]
     [Arguments(0x0d)]
     public async Task Decoder_accepts_both_terminal_enter_encodings(int value)
@@ -149,6 +158,16 @@ internal sealed class TerminalInputTests
 
         _ = await Assert.That(submitted).IsEqualTo("a🙂");
         _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptValue("> ", string.Empty, 0));
+    }
+
+    [Test]
+    public async Task Editor_replaces_text_rune_aware_at_its_input_limit()
+    {
+        var editor = new IncrementalEditor("> ", 3);
+
+        editor.Replace("a🙂b\u001b[2Jc");
+
+        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptValue("> ", "a🙂b", 3));
     }
 
     [Test]

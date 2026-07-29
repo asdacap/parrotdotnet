@@ -29,6 +29,23 @@ internal sealed class SlashCommandTests
     }
 
     [Test]
+    public async Task Registry_completes_the_first_slash_token_in_ordinal_order()
+    {
+        var dialog = new TestSlashDialog();
+        var registry = new SlashCommandRegistry(
+            [new CompletionCommand("/model"), new CompletionCommand("/mode"), new CompletionCommand("/exit")], dialog);
+
+        _ = await Assert.That(string.Join('|', registry.Complete("/").Select(command => command.Name)))
+            .IsEqualTo("/exit|/mode|/model");
+        _ = await Assert.That(string.Join('|', registry.Complete("/mo").Select(command => command.Name)))
+            .IsEqualTo("/mode|/model");
+        _ = await Assert.That(string.Join('|', registry.Complete("/mo ignored").Select(command => command.Name)))
+            .IsEqualTo("/mode|/model");
+        _ = await Assert.That(registry.Complete("normal prompt")).IsEmpty();
+        _ = await Assert.That(registry.Complete("/unknown")).IsEmpty();
+    }
+
+    [Test]
     public async Task Registry_dispatches_by_name_while_ignoring_arguments(CancellationToken cancellationToken)
     {
         var dialog = new TestSlashDialog();
@@ -43,5 +60,14 @@ internal sealed class SlashCommandTests
         _ = await Assert.That(registry.Find("/test")).IsSameReferenceAs(command);
         _ = await Assert.That(registry.Find("/unknown")).IsNull();
         _ = await Assert.That(string.Join('|', dialog.Errors)).IsEqualTo("unknown command /unknown, try /help");
+    }
+
+    private sealed class CompletionCommand(string name) : ISlashCommand
+    {
+        public string Name { get; } = name;
+
+        public string Summary => "Completion command";
+
+        public Task Run(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }
