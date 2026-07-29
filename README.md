@@ -243,7 +243,10 @@ applying partial changes.
 The basic CLI prints choices and reads them as lines. The enhanced CLI replaces
 only its live input area with a filterable picker, so an active turn's output,
 activity, and modeline remain visible. Use Up/Down to navigate, type to filter,
-Enter to accept, and Escape or Ctrl-C to dismiss.
+Enter to accept, and Escape or Ctrl-C to dismiss. In the enhanced chat prompt,
+type `/` to show slash-command suggestions, type to filter them, use Up/Down to
+highlight one, and press Tab to complete it; Enter then runs the completed
+command.
 
 > **`git add` new files before `nix build`/`nix run`.** A flake sees only
 > git-tracked files, so an untracked `.cs` file is silently dropped from the

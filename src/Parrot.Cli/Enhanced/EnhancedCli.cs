@@ -26,6 +26,7 @@ internal sealed class EnhancedCli(
     private const string DisableKeyboardEnhancement = "\u001b[<u";
     private const string EnableBracketedPaste = "\u001b[?2004h";
     private const string EnableKeyboardEnhancement = "\u001b[>1u";
+    private const int MaximumVisibleCompletions = 8;
     private const string Prompt = "$ ";
 
     private readonly Channel<bool> _interrupts =
@@ -383,8 +384,6 @@ internal sealed class EnhancedCli(
             }
         }
 
-        Task DrawPrompt(CancellationToken token) => ReplaceInput([editor.Prompt], token);
-
         async Task DrawState(ModelineValue modeline, CancellationToken token)
         {
             await composing.WaitAsync(token).ConfigureAwait(false);
@@ -527,6 +526,26 @@ internal sealed class EnhancedCli(
             oauthClient,
             providerIds,
             new SessionIndex(StatePaths.ResolveFromEnvironment().State));
+        var completion = new SlashCommandCompletion(commands);
+
+        Task DrawPrompt(CancellationToken token)
+        {
+            completion.Refresh(editor.Prompt.Text);
+            var start = Math.Clamp(
+                completion.Selected - MaximumVisibleCompletions + 1,
+                0,
+                Math.Max(0, completion.Commands.Count - MaximumVisibleCompletions));
+            var items = completion.Commands
+                .Skip(start)
+                .Take(MaximumVisibleCompletions)
+                .Select((command, index) => (ILiveBufferItem)new PickerOptionValue(
+                    command.Name,
+                    command.Summary,
+                    start + index == completion.Selected))
+                .Append(editor.Prompt)
+                .ToList();
+            return ReplaceInput(items, token);
+        }
 
         interrupts.Install(this);
 
@@ -545,6 +564,7 @@ internal sealed class EnhancedCli(
             }
 
             await DrawState(CreateModeline(), cancellationToken).ConfigureAwait(false);
+            await DrawPrompt(cancellationToken).ConfigureAwait(false);
             if (initialPrompt.Length > 0)
             {
                 await StartTurn(initialPrompt, call).ConfigureAwait(false);
@@ -619,7 +639,32 @@ internal sealed class EnhancedCli(
                 }
                 else
                 {
-                    var entered = editor.Apply(key);
+                    string? entered;
+                    if (key.Kind == TerminalKeyKind.Up && completion.Commands.Count > 0)
+                    {
+                        completion.SelectPrevious();
+                        entered = null;
+                    }
+                    else if (key.Kind == TerminalKeyKind.Down && completion.Commands.Count > 0)
+                    {
+                        completion.SelectNext();
+                        entered = null;
+                    }
+                    else if (key.Kind == TerminalKeyKind.Complete)
+                    {
+                        var accepted = completion.Accept(editor.Prompt.Text);
+                        if (accepted is not null)
+                        {
+                            editor.Replace(accepted);
+                        }
+
+                        entered = null;
+                    }
+                    else
+                    {
+                        entered = editor.Apply(key);
+                    }
+
                     await DrawPrompt(cancellationToken).ConfigureAwait(false);
                     if (entered is not null)
                     {
@@ -636,7 +681,7 @@ internal sealed class EnhancedCli(
                             }
                             finally
                             {
-                                await ReplaceInput([editor.Prompt], CancellationToken.None).ConfigureAwait(false);
+                                await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
                             }
 
                             if (applicationExit.IsCancellationRequested)
