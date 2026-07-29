@@ -42,6 +42,22 @@ internal sealed class ToolPresenterRegistryTests
     }
 
     [Test]
+    public async Task Structured_presenters_fall_back_to_the_compact_spill_notice()
+    {
+        var registry = new ToolPresenterRegistry([new TodoReadToolPresenter()], new GenericToolPresenter());
+        const string notice =
+            "Tool output exceeded 64 KiB and was saved to /tmp/output. Use exec_command to read the file.";
+        var presented = registry.PresentTerminal(
+            new ToolCallPresentation("main", "todoread", "{}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, notice, string.Empty))
+            ?? throw new InvalidOperationException("The fallback presenter must render terminal output.");
+
+        var rendered = presented.Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('\n', rendered)).Contains(notice);
+    }
+
+    [Test]
     public async Task Display_values_sanitize_and_bound_labels_lines_and_utf8_details()
     {
         var lines = Enumerable.Range(0, 12).Select(index => $"line-{index}\u001b[2J");

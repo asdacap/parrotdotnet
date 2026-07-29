@@ -16,6 +16,7 @@ internal sealed record AgentSessionScopeArguments(
     EventRepository EventRepository,
     IReadOnlyList<IToolFactory> ToolFactories,
     ISystemPromptProvider SystemPromptProvider,
+    string BlobDirectory,
     Compactor Compactor,
     MainAgentProfile? Profile,
     SecurityProfile SecurityProfile,

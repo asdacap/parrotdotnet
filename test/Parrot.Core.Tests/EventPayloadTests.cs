@@ -104,6 +104,7 @@ internal sealed class EventPayloadTests
             [],
             TestModels.PromptProvider(".", "."),
             new TodoCollection("session", new EventRepository(database), events),
+            new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),

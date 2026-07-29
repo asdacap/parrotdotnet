@@ -18,6 +18,7 @@ internal interface IAgentSessionScopeFactory
         EventRepository eventRepository,
         IReadOnlyList<IToolFactory> toolFactories,
         ISystemPromptProvider systemPromptProvider,
+        string blobDirectory,
         Compactor compactor,
         MainAgentProfile? profile,
         SecurityProfile securityProfile,

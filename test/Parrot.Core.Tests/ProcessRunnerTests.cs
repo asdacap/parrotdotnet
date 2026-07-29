@@ -75,6 +75,32 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Combined_formatted_output_over_65536_utf8_bytes_is_spilled(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
+
+        var result = await runner.Run(
+            "awk 'BEGIN { for (i = 0; i < 11000; i++) printf \"€\"; "
+            + "for (i = 0; i < 11000; i++) printf \"€\" > \"/dev/stderr\" }'",
+            _workspace,
+            Path.Combine(_workspace, "blob"),
+            WritableProfile(),
+            cancellationToken);
+
+        _ = await Assert.That(result.Spilled).IsTrue();
+        var output = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
+        _ = await Assert.That(output).IsEqualTo(
+            $"Process exited with code 0\n[stdout]\n{new string('€', 11000)}"
+            + $"\n[stderr]\n{new string('€', 11000)}");
+    }
+
+    [Test]
     public async Task Spill_failure_stops_a_producer_instead_of_deadlocking(
         CancellationToken cancellationToken)
     {

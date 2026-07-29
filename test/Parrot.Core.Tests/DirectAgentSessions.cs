@@ -48,6 +48,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             [],
             TestModels.PromptProvider(".", "."),
             new TodoCollection(identity.SessionId, eventRepository, eventBroker),
+            new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
             profile,
             securityProfile,

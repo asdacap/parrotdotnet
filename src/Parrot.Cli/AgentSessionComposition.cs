@@ -20,7 +20,13 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return new ToolOutputBlobStore(arguments.BlobDirectory);
+            })
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<TodoCollection>(out var todos);
+                ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
                 return new AgentSession(
                     arguments.Identity,
                     arguments.Model,
@@ -30,6 +36,7 @@ internal partial class AgentSessionComposition
                     arguments.ToolFactories,
                     arguments.SystemPromptProvider,
                     todos,
+                    toolOutputBlobs,
                     arguments.Compactor,
                     arguments.Profile,
                     arguments.SecurityProfile,

@@ -176,6 +176,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             [],
             TestModels.PromptProvider(_workspace, _workspace),
             new TodoCollection("agent", new EventRepository(database), broker),
+            new ToolOutputBlobStore(_workspace),
             new Compactor(tokenBudget: 0),
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
