@@ -71,6 +71,8 @@ internal static class Identifier
 
     public static string TodoId() => $"todo-{Opaque()}";
 
+    public static string QuestionRequestId() => $"question-{Opaque()}";
+
     private static string Opaque() =>
         Guid.CreateVersion7().ToString("n", System.Globalization.CultureInfo.InvariantCulture);
 

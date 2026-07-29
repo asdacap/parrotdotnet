@@ -89,6 +89,8 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     public List<ModelAlias> ModelAliases { get; } = [];
 
+    public List<PendingQuestion> PendingQuestions { get; } = [];
+
     public List<Model> Models { get; } =
     [
         new() { ProviderId = "provider", Id = "model" },
@@ -165,6 +167,31 @@ internal sealed class ScriptedInvoker : CallInvoker
                     string.Equals(alias.Name, configure.Name, StringComparison.Ordinal));
                 configured.ModelString = configure.ModelString;
                 answered = new ConfigureModelAliasResponse { Alias = configured.Clone() };
+                break;
+            case ListPendingQuestionsRequest:
+                var listedQuestions = new ListPendingQuestionsResponse();
+                lock (_gate)
+                {
+                    listedQuestions.Questions.Add(PendingQuestions.Select(question => question.Clone()));
+                }
+
+                answered = listedQuestions;
+                break;
+            case ReplyQuestionRequest reply:
+                lock (_gate)
+                {
+                    _ = PendingQuestions.RemoveAll(question => string.Equals(question.Id, reply.QuestionRequestId, StringComparison.Ordinal));
+                }
+
+                answered = new ReplyQuestionResponse();
+                break;
+            case RejectQuestionRequest reject:
+                lock (_gate)
+                {
+                    _ = PendingQuestions.RemoveAll(question => string.Equals(question.Id, reject.QuestionRequestId, StringComparison.Ordinal));
+                }
+
+                answered = new RejectQuestionResponse();
                 break;
             case ListModesRequest:
                 var listedModes = new ListModesResponse();

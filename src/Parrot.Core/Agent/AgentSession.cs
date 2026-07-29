@@ -625,7 +625,9 @@ internal sealed class AgentSession(
                     };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
-                    activeTools = [.. toolFactories.Select(factory => factory.Create(this, activeSelection))];
+                    activeTools = [.. toolFactories
+                        .Where(factory => factory.Supports(this))
+                        .Select(factory => factory.Create(this, activeSelection))];
                 }
 
                 // Status is committed before promotion, so sequenced history is

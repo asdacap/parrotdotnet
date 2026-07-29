@@ -41,6 +41,7 @@ internal sealed class AgentSessionFactory(
             new StatusToolFactory(owner.Status),
             new TodoReadToolFactory(),
             new TodoWriteToolFactory(),
+            new QuestionToolFactory(owner.Questions),
         ];
 
     public IAgentSessionLease Create(

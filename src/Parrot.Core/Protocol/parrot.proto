@@ -19,6 +19,9 @@ service Parrot {
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
   rpc Interrupt (InterruptRequest) returns (InterruptResponse);
+  rpc ListPendingQuestions (ListPendingQuestionsRequest) returns (ListPendingQuestionsResponse);
+  rpc ReplyQuestion (ReplyQuestionRequest) returns (ReplyQuestionResponse);
+  rpc RejectQuestion (RejectQuestionRequest) returns (RejectQuestionResponse);
   rpc Listen (ListenRequest) returns (stream Event);
 }
 
@@ -139,6 +142,54 @@ message InterruptRequest {
 }
 
 message InterruptResponse {}
+
+message ListPendingQuestionsRequest {
+  string user_session_id = 1;
+}
+
+message ListPendingQuestionsResponse {
+  repeated PendingQuestion questions = 1;
+}
+
+message PendingQuestion {
+  string id = 1;
+  repeated QuestionDefinition questions = 2;
+}
+
+message QuestionDefinition {
+  string id = 1;
+  string header = 2;
+  string prompt = 3;
+  repeated QuestionOption options = 4;
+  bool multiple = 5;
+  bool custom = 6;
+}
+
+message QuestionOption {
+  string id = 1;
+  string label = 2;
+}
+
+message QuestionAnswer {
+  string question_id = 1;
+  repeated string option_ids = 2;
+  string custom = 3;
+}
+
+message ReplyQuestionRequest {
+  string user_session_id = 1;
+  string question_request_id = 2;
+  repeated QuestionAnswer answers = 3;
+}
+
+message ReplyQuestionResponse {}
+
+message RejectQuestionRequest {
+  string user_session_id = 1;
+  string question_request_id = 2;
+}
+
+message RejectQuestionResponse {}
 
 message ListenRequest {
   string user_session_id = 1;

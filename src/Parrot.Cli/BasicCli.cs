@@ -30,6 +30,8 @@ internal sealed class BasicCli(
     private readonly Channel<bool> _interrupts =
         Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
 
+    private readonly Channel<PendingQuestion> _questions = Channel.CreateUnbounded<PendingQuestion>();
+
     private volatile bool _busy;
     private volatile bool _interruptRequested;
     private SlashSession? _session;
@@ -295,7 +297,32 @@ internal sealed class BasicCli(
 
             while (!application.IsCancellationRequested)
             {
-                var line = await input.ReadLineAsync(application.Token).ConfigureAwait(false);
+                if (_questions.Reader.TryRead(out var question))
+                {
+                    await CompleteQuestion(question, input, output, error, application.Token).ConfigureAwait(false);
+                    await Ready(output, application.Token).ConfigureAwait(false);
+                    continue;
+                }
+
+                using var reading = CancellationTokenSource.CreateLinkedTokenSource(application.Token);
+                var lineTask = input.ReadLineAsync(reading.Token).AsTask();
+                var questionTask = _questions.Reader.WaitToReadAsync(application.Token).AsTask();
+                _ = await Task.WhenAny(lineTask, questionTask).ConfigureAwait(false);
+                if (!lineTask.IsCompleted)
+                {
+                    await reading.CancelAsync().ConfigureAwait(false);
+                    try
+                    {
+                        _ = await lineTask.ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+
+                    continue;
+                }
+
+                var line = await lineTask.ConfigureAwait(false);
                 if (line is null)
                 {
                     break;
@@ -357,6 +384,12 @@ internal sealed class BasicCli(
                     else if (published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)
                     {
                         plan = published.PlanCompleted;
+                    }
+                    else if (published.PayloadCase == Event.PayloadOneofCase.ToolStarted
+                             && string.Equals(published.ToolStarted.ToolName, "question", StringComparison.Ordinal)
+                             && _session is not null)
+                    {
+                        return DiscoverQuestions(_session.Id, _questions.Writer, cancellationToken);
                     }
 
                     return Task.CompletedTask;
@@ -424,6 +457,86 @@ internal sealed class BasicCli(
 
         _busy = true;
         _ = await client.SendMessageAsync(Message(_session.Id, selected), cancellationToken: cancellationToken);
+    }
+
+    private async Task DiscoverQuestions(
+        string userSessionId,
+        ChannelWriter<PendingQuestion> writer,
+        CancellationToken cancellationToken)
+    {
+        for (var attempts = 0; attempts < 20; attempts++)
+        {
+            var listed = await client.ListPendingQuestionsAsync(
+                new ListPendingQuestionsRequest { UserSessionId = userSessionId },
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (listed.Questions.Count > 0)
+            {
+                foreach (var pending in listed.Questions)
+                {
+                    await writer.WriteAsync(pending, cancellationToken).ConfigureAwait(false);
+                }
+
+                return;
+            }
+
+            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task CompleteQuestion(
+        PendingQuestion pending,
+        TextReader input,
+        TextWriter output,
+        TextWriter error,
+        CancellationToken cancellationToken)
+    {
+        var reply = new ReplyQuestionRequest
+        {
+            UserSessionId = _session?.Id ?? string.Empty,
+            QuestionRequestId = pending.Id,
+        };
+        foreach (var question in pending.Questions)
+        {
+            await output.WriteLineAsync(question.Header.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteLineAsync(question.Prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
+            foreach (var option in question.Options)
+            {
+                await output.WriteLineAsync($"  {option.Id}: {option.Label}".AsMemory(), cancellationToken).ConfigureAwait(false);
+            }
+
+            await output.WriteAsync("answer (or /cancel): ".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+            var entered = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            if (entered is null || string.Equals(entered.Trim(), "/cancel", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = await client.RejectQuestionAsync(
+                    new RejectQuestionRequest { UserSessionId = reply.UserSessionId, QuestionRequestId = pending.Id },
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var answer = new QuestionAnswer { QuestionId = question.Id };
+            if (question.Custom && entered.StartsWith("/custom ", StringComparison.Ordinal))
+            {
+                answer.Custom = entered[8..].Trim();
+            }
+            else
+            {
+                answer.OptionIds.AddRange(entered.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+            }
+
+            reply.Answers.Add(answer);
+        }
+
+        try
+        {
+            _ = await client.ReplyQuestionAsync(reply, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
+        {
+            await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await _questions.Writer.WriteAsync(pending, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task Interrupting(SlashSession session, CancellationToken cancellationToken)
