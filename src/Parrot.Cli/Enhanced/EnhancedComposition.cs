@@ -25,6 +25,7 @@ internal partial class EnhancedComposition
                     new AgentSendToolPresenter(),
                     new AgentSpawnToolPresenter(),
                     new ApplyPatchToolPresenter(),
+                    new EditToolPresenter(),
                     new ExecCommandToolPresenter(),
                     new GlobToolPresenter(),
                     new GrepToolPresenter(),
@@ -36,6 +37,7 @@ internal partial class EnhancedComposition
                     new WaitAgentToolPresenter(),
                     new WaitProcessToolPresenter(),
                     new WebFetchToolPresenter(),
+                    new WriteToolPresenter(),
                 ],
                 new GenericToolPresenter()))
             .Root<EnhancedCli>("Cli");

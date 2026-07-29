@@ -63,7 +63,7 @@ internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile se
                 foreach (var mutation in plan.Mutations)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var path = workspace.ResolvePatchMutation(
+                    var path = workspace.ResolveMutation(
                         mutation.Operation.Path,
                         mutation.Operation.Kind == PatchOperationKind.Add,
                         security);
@@ -81,7 +81,7 @@ internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile se
                 return written.Count == 0 ? report : $"{report}\nFiles written before failure: {string.Join(", ", written)}";
             }
 
-            var diff = PatchDiff.Render([.. plan.Mutations.Select(mutation => mutation.Change)]);
+            var diff = FileDiff.Render([.. plan.Mutations.Select(mutation => mutation.Change)]);
             var reports = plan.Mutations
                 .SelectMany(mutation => mutation.MatchReports)
                 .OrderBy(report => report.Order)
@@ -112,7 +112,7 @@ internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile se
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var resolved = workspace.ResolvePatchMutation(
+                    var resolved = workspace.ResolveMutation(
                         operation.Path,
                         operation.Kind == PatchOperationKind.Add,
                         security);
@@ -135,7 +135,7 @@ internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile se
 
         private static async Task<PatchMutation> PlanOperation(
             PatchOperation operation,
-            PatchMutationPath resolved,
+            ToolMutationPath resolved,
             CancellationToken cancellationToken)
         {
             switch (operation.Kind)

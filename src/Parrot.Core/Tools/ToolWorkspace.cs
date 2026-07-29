@@ -16,20 +16,7 @@ internal sealed class ToolWorkspace(string workingDirectory)
         return (lexical, ResolveLinks(lexical));
     }
 
-    public string ResolveMutation(string path)
-    {
-        if (Path.IsPathFullyQualified(path))
-        {
-            throw new InvalidOperationException($"Absolute path '{path}' is not permitted for mutations.");
-        }
-
-        var full = Path.GetFullPath(Path.Combine(Root, path));
-        RequireContained(full);
-        RequireNoLinkEscape(full, allowMissing: true);
-        return full;
-    }
-
-    public PatchMutationPath ResolvePatchMutation(string path, bool create, SecurityProfile security)
+    public ToolMutationPath ResolveMutation(string path, bool create, SecurityProfile security)
     {
         var lexical = Path.IsPathFullyQualified(path)
             ? Path.GetFullPath(path)
@@ -41,7 +28,7 @@ internal sealed class ToolWorkspace(string workingDirectory)
             throw new InvalidOperationException($"Write access denied for '{path}'.");
         }
 
-        var physical = ResolvePatchPath(lexical, path, create);
+        var physical = ResolveMutationPath(lexical, path, create);
         if (!security.AllowsWrite(physical) || (!inWorkspace && !HasExternalCapability(physical, security)))
         {
             throw new InvalidOperationException($"Write access denied for '{path}'.");
@@ -52,10 +39,10 @@ internal sealed class ToolWorkspace(string workingDirectory)
             RequireWritableMissingParents(physical, path, security, inWorkspace);
         }
 
-        return new PatchMutationPath(physical, DisplayPath(physical));
+        return new ToolMutationPath(physical, DisplayPath(physical));
     }
 
-    private static string ResolvePatchPath(string full, string requested, bool create)
+    private static string ResolveMutationPath(string full, string requested, bool create)
     {
         var root = Path.GetPathRoot(full) ?? throw new InvalidOperationException($"Invalid path '{requested}'.");
         var relative = Path.GetRelativePath(root, full);
@@ -65,7 +52,8 @@ internal sealed class ToolWorkspace(string workingDirectory)
         for (var index = 0; index < parts.Length; index++)
         {
             current = Path.Combine(current, parts[index]);
-            if (!Path.Exists(current))
+            var kind = FileMutation.Inspect(current);
+            if (kind == FileMutationEntryKind.Missing)
             {
                 if (create)
                 {
@@ -75,13 +63,12 @@ internal sealed class ToolWorkspace(string workingDirectory)
                 throw new FileNotFoundException($"Source '{requested}' is missing.");
             }
 
-            var attributes = File.GetAttributes(current);
-            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            if (kind == FileMutationEntryKind.SymbolicLink)
             {
                 throw new InvalidOperationException($"Path '{requested}' traverses a symbolic link.");
             }
 
-            if (index < parts.Length - 1 && (attributes & FileAttributes.Directory) == 0)
+            if (index < parts.Length - 1 && kind != FileMutationEntryKind.Directory)
             {
                 throw new InvalidOperationException($"Parent of '{requested}' is not a directory.");
             }
@@ -146,17 +133,6 @@ internal sealed class ToolWorkspace(string workingDirectory)
         if (!Contained(full))
         {
             throw new InvalidOperationException("Path escapes the workspace.");
-        }
-    }
-
-    private void RequireNoLinkEscape(string full, bool allowMissing)
-    {
-        try
-        {
-            _ = ResolveLinks(full);
-        }
-        catch (FileNotFoundException) when (allowMissing)
-        {
         }
     }
 

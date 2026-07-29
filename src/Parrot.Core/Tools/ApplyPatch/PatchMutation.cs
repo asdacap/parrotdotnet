@@ -2,14 +2,14 @@ namespace Parrot.Tools.ApplyPatch;
 
 internal sealed class PatchMutation(
     PatchOperation operation,
-    PatchMutationPath path,
+    ToolMutationPath path,
     byte[]? before,
     byte[]? after,
     IReadOnlyList<PatchMatchReport> matchReports)
 {
     public PatchOperation Operation { get; } = operation;
 
-    public PatchDiff.FileChange Change { get; } = new(path.Display, before, after);
+    public FileDiff.FileChange Change { get; } = new(path.Display, before, after);
 
     public byte[]? After { get; } = after;
 

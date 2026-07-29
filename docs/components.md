@@ -614,6 +614,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   steer queue unless a successful wait or interrupt claims it. `wait_process`
   replaces the earlier `wait_shell` name so the lifecycle tools use process
   terminology.
+- **Builtin mutations.** `write` creates or replaces one file with exact UTF-8
+  content. `edit` performs exact ordinal string replacement; without
+  `replace_all` it requires exactly one match, while `replace_all` permits zero
+  or more. Both write directly under the active filesystem security profile;
+  they do not restore the dropped transactional change machinery.
 - **Outbound** `PermissionBroker`, the user session's shell-process owner,
   `ProcessRunner`, `WebFetcher`, the filesystem.
 - **Boundary** **yes** — tools.

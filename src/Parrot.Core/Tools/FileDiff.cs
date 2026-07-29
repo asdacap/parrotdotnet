@@ -1,8 +1,8 @@
 using System.Text;
 
-namespace Parrot.Tools.ApplyPatch;
+namespace Parrot.Tools;
 
-internal static class PatchDiff
+internal static class FileDiff
 {
     private const int ContextLines = 3;
     private const int MaximumEditDistance = 1024;
