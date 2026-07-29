@@ -50,10 +50,26 @@ internal sealed class SecurityProfile
 
     public SecurityProfile WithoutRuntimeCapabilities() => new(ReadOnly, _modeRules, _globalRules, []);
 
-    public bool AllowsDelegationTo(SecurityProfile target) =>
-        (!ReadOnly || target.ReadOnly) &&
-        _modeRules.SequenceEqual(target._modeRules) &&
-        _globalRules.SequenceEqual(target._globalRules);
+    public bool AllowsDelegationTo(SecurityProfile target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+
+        if (ReadOnly && !target.ReadOnly)
+        {
+            return false;
+        }
+
+        var caller = WithoutRuntimeCapabilities();
+        var child = target.WithoutRuntimeCapabilities();
+        var paths = caller._modeRules.Concat(caller._globalRules).Concat(child._modeRules).Concat(child._globalRules)
+            .Select(rule => rule.Path)
+            .Append(Path.DirectorySeparatorChar.ToString())
+            .Distinct(StringComparer.Ordinal);
+
+        return paths.All(path =>
+            (!child.AllowsRead(path) || caller.AllowsRead(path)) &&
+            (!child.AllowsWrite(path) || caller.AllowsWrite(path)));
+    }
 
     private static bool Overlaps(string first, string second) =>
         Contains(first, second) || Contains(second, first);

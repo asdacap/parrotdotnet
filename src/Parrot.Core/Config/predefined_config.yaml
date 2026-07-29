@@ -1,111 +1,263 @@
-# Predefined Parrot configuration.
-#
-# Parrot replaces the generated predefined_config.yaml in its configuration
-# directory from this document at startup. It is an agent-readable reference of
-# the active defaults. Put personal changes in config.yaml instead: config.yaml
-# is merged over this document and is never replaced by Parrot.
+# Predefined configuration reference.
+# This file is regenerated at every startup and documents all configurable
+# fields with their default values. The agent reads this file to determine
+# default configuration values.
 
-# The default requested model selector. It may be provider/model or an alias.
+# Base agent prompt included in the system context.
+prompt: |-
+  You are Parrot Coder, a local coding agent.
+
+# Default model selected as provider/model, optionally followed by /variant.
 model: ""
 
-# Render changed lines as full-width inline blocks. False selects side-by-side
-# diff blocks in the enhanced terminal.
-inline_diff: true
-
-# Stable names for requested model selectors. Empty targets are intentionally
-# unconfigured and can be set through /model-alias or config.yaml.
+# Stable aliases for choosing an appropriate model by task complexity. Empty
+# model_string values are intended to be configured by the user.
 model_aliases:
   low_llm:
     model_string: ""
     usage: mechanical, single file task, text or code processing when no suitable cli tool available.
+    # Optional alias-specific system-prompt augmentation. An explicit empty
+    # string suppresses this augmentation rather than inheriting it.
+    augment_system_prompt: null
   medium_llm:
     model_string: ""
     usage: Decently capable, specific clear task, component level task, two or three file window
+    augment_system_prompt: null
   high_llm:
     model_string: ""
     usage: General purpose, agent spawner, tactical decision making and planning, debugging, colaborator
+    augment_system_prompt: null
   xhigh_llm:
     model_string: ""
     usage: Strategic work spanning multiple modules or parties, ambiguous or open-ended requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.
     augment_system_prompt: For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent.
 
-# Extra system-prompt text keyed by canonical provider/model[/variant]
-# selectors. An alias augmentation wins over this map; an empty string is an
-# explicit suppression.
+# System-prompt augmentations keyed by exact provider/model[/variant] selector.
+# Entries merge by selector. An explicit empty value clears an inherited prompt.
 model_augment_system_prompts: {}
 
-# Provider declarations are optional. Preset providers need only a credential.
-# Uncomment and adapt an entry in config.yaml for another OpenAI-compatible
-# endpoint. API keys are named by environment variable, never stored here.
-# providers:
-#   provider:
-#     type: openai-compatible
-#     protocol: responses
-#     base_url: https://api.example.test/v1
-#     api_key_env: PROVIDER_API_KEY
-#     headers:
-#       X-Tenant: non-secret-value
-#     allow_insecure_localhost: false
-#     header_timeout_ms: 10000
-#     provider_preferences:
-#       order:
-#         - provider-name
-#       allow_fallbacks: false
-#       sort: price
-#     models:
-#       model:
-#         name: Display Name
-#         context: 128000
-#         max_tokens: 16384
-#         tools: true
-#         reasoning: false
-#         output:
-#           - text
-#         variants:
-#           high:
-#             reasoning_effort: high
-providers: {}
+# Render changed lines inline. Set to false for a side-by-side diff viewer.
+inline_diff: true
 
-# Ordered sandbox rules applied to every mode. Each rule has an absolute path
-# and one of allow_write, deny_read, allow_read, or deny_write.
-sandbox_rules: []
+# Positive number of milliseconds to wait for a permission request response.
+permission_request_timeout_ms: 30000
 
-# Complete defaults for the supported foreground modes. A nested config.yaml
-# mapping may override any guidance, limit, or security field while retaining
-# every other predefined value; sandbox_rules are an ordered replacement.
+# Default foreground profile when no mode is selected explicitly.
+default_profile: build
+
+# Foreground modes and child-agent profiles. Higher-precedence configuration can
+# override individual fields while inheriting the rest of each definition.
+# Optional allowed_tools semantics: omitted allows every otherwise-available
+# tool, a nonempty list allows only those IDs, and [] allows no tools. Thinker
+# is predefined with a child-agent orchestration allowlist.
 profiles:
   build:
-    prompt: |-
-      You are Parrot's build mode. Implement and verify the requested changes.
-    hard_rule: |-
-      Keep tool side effects within the authorized workspace.
-    status: |-
-      Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.
-    max_tool_rounds: 64
+    prompt: You are Parrot's build mode. Implement and verify the requested changes.
+    usage: Select for implementing and verifying requested changes.
+    hard_rules:
+      - Keep tool side effects within the authorized workspace.
+    max_turns: 1024
+    recursion_limit: 3
     read_only: false
-    sandbox_rules: []
+    is_user_agent: true
   plan:
     prompt: |-
-      You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown
-    hard_rule: |-
-      The plan directory is the only writable location; do not modify workspace files.
-    status: |-
-      Plan mode: inspect the project and write the designated plan artifact without changing other files.
-    max_tool_rounds: 24
-    read_only: true
-    sandbox_rules: []
-  query:
-    prompt: |-
-      You are Parrot's query mode. Inspect the project and answer the user's question without making changes.
-    hard_rule: |-
-      Read-only mode: do not modify the workspace.
-    status: |-
-      Query mode: inspect the project and answer questions without changing files.
-    max_tool_rounds: 24
-    read_only: true
-    sandbox_rules: []
+      You are Parrot's plan mode. Inspect the project and write the complete implementation plan to the designated canonical plan file. This mode is read-only except for its designated plan-artifact directory.
 
-# Private-network web fetches are disabled unless explicitly enabled in
-# config.yaml because they increase SSRF risk.
+      First establish the request's scope through information gathering and user alignment. Scope is measured by specificity and blast area.
+
+      For a small, specific change affecting one or two files, provide a concise implementation and verification plan. The purpose of a small-scope plan is user confirmation.
+
+      For a feature-sized change, include background, end goal, risks, delegation opportunities, and a robust verification plan. The purpose of a medium-scope plan is to establish the tactics and the proper way to implement the change.
+
+      For multiple features or a large refactor, first resolve strategic preferences such as extensibility, readability, and cost. The purpose of a large-scope plan is to establish strategy, resolve ambiguity, and minimize risk. Where useful, split the implementation into multiple medium-scope plan files and reference them from the canonical plan. Identify dependencies and ways to decouple them, and plan subagent scheduling, queues, and completion tracking. Large-scope verification often warrants a dedicated plan file describing a substantial end-to-end test suite for validating the complete change.
+    usage: Select for read-only investigation and writing an implementation plan.
+    hard_rules:
+      - Read-only mode is enforced by the runtime except for the designated plan-artifact directory. Writes outside that directory are prohibited.
+    max_turns: 1024
+    recursion_limit: 3
+    read_only: true
+    is_user_agent: true
+  query:
+    prompt: You are Parrot's query mode. Inspect the project and answer the user's question without making changes.
+    usage: Select for read-only questions about the project.
+    hard_rules:
+      - Read-only mode is enforced by the runtime.
+    max_turns: 8
+    recursion_limit: 1
+    read_only: true
+    is_user_agent: true
+  explorer:
+    usage: Delegate focused read-only codebase investigation and evidence gathering.
+    prompt: |-
+      You are Parrot's explorer agent. Answer specific, well-scoped questions about the codebase.
+
+      Investigate the relevant code, tests, and call sites, then report concise, authoritative findings with file paths and supporting evidence. Do not modify files. Avoid work outside the assigned question, and reuse findings from other explorers when they are provided instead of repeating their investigation.
+    hard_rules:
+      - Read-only mode is enforced by the runtime.
+    max_turns: 32
+    recursion_limit: 3
+    read_only: true
+    is_user_agent: false
+  review:
+    usage: Delegate defect-first read-only review of a requested change.
+    prompt: |-
+      You are a code review agent. Perform a read-only, defect-first review of the requested change.
+
+      Inspect the complete requested diff or target and enough surrounding code, tests, and call sites to establish whether each issue is real. Report only concrete regressions introduced by the reviewed change that affect correctness, security, performance, or maintainability in a meaningful way. Do not report style nits, speculative concerns, pre-existing problems, or intentional behavior changes.
+
+      Return all actionable findings, ordered by severity. For each finding, include a concise severity-tagged title, an exact file path and line, and a short explanation of the affected scenario. If there are no actionable findings, say so explicitly. Do not modify files.
+    hard_rules:
+      - Read-only mode is enforced by the runtime.
+      - Do not delegate the review to another agent.
+    max_turns: 32
+    recursion_limit: 3
+    read_only: true
+    is_user_agent: false
+  worker:
+    usage: Delegate independently scoped implementation or production work.
+    prompt: |-
+      You are a worker agent. Execute the assigned implementation or production task and verify your work.
+
+      Typical tasks include implementing part of a feature, fixing tests or bugs, and completing an independently assigned portion of a refactor. Respect the ownership boundaries in the task. You are not alone in the codebase: do not revert other agents' edits, and accommodate concurrent changes made by others.
+    hard_rules:
+      - Keep tool side effects within the authorized workspace.
+    max_turns: 128
+    recursion_limit: 3
+    read_only: false
+    is_user_agent: false
+  thinker:
+    prompt: |-
+      You are Parrot's thinker agent. Perform difficult analysis and decision-making without modifying the workspace.
+
+      Delegate focused evidence gathering when useful, ask the parent agent for missing context, then synthesize the evidence into a clear recommendation or instructions for the parent.
+    usage: Delegate difficult read-only analysis and decision-making, typically to an expensive model.
+    hard_rules:
+      - Read-only mode is enforced by the runtime.
+      - Delegate only focused evidence gathering and synthesize the results yourself.
+    allowed_tools:
+      - agent_spawn
+      - agent_send
+      - wait_agent
+    max_turns: 256
+    recursion_limit: 1
+    read_only: true
+    is_user_agent: false
+
+# Tool blacklist keyed by tool ID. True disables a tool; false in a
+# higher-precedence layer re-enables an inherited blacklist entry.
+# tool_blacklist:
+#   web_fetch: true
+
+# Child-agent concurrency and nesting limits.
+subagents:
+  # Maximum child-agent turns running across the process.
+  max_concurrent: 64
+  # Maximum child-agent turns running for one parent session.
+  max_concurrent_per_parent: 16
+  # Maximum number of nested child-agent levels.
+  max_depth: 4
+
+# OpenAI-compatible providers and their model catalogs.
+# providers:
+#   provider:
+#     # Provider adapter type: 'compatible' or 'openai-compatible'.
+#     type: openai-compatible
+#     # API protocol: 'responses' or 'chat-completions'.
+#     protocol: responses
+#     # Provider base URL, e.g. https://api.example.test/v1.
+#     base_url: https://api.example.test/v1
+#     # Environment variable holding the API key.
+#     api_key_env: PROVIDER_API_KEY
+#     # Extra headers to send. Do not store secrets here.
+#     headers:
+#       X-Tenant: non-secret-value
+#     # Allow plain HTTP for localhost endpoints.
+#     allow_insecure_localhost: false
+#     # Milliseconds to wait for response headers; zero disables.
+#     header_timeout_ms: 10000
+#     # OpenRouter-style provider routing preferences.
+#     provider_preferences:
+#       order:
+#         - anthropic
+#       allow_fallbacks: false
+#       sort: price
+#     # Model metadata not available from the endpoint catalog.
+#     models:
+#       model:
+#         # Display name for the model.
+#         name: Display Name
+#         # Context window in tokens.
+#         context: 128000
+#         # Maximum output tokens.
+#         max_tokens: 16384
+#         # Whether the model supports tool calls.
+#         tools: true
+#         # Whether the model supports reasoning tokens.
+#         reasoning: false
+#         # Supported output modalities, e.g. text.
+#         output:
+#           - text
+#         # Named provider request options.
+#         variants:
+#           high:
+#             # Reasoning effort passed to the provider, e.g. low/medium/high.
+#             reasoning_effort: high
+
+# Model Context Protocol servers to start.
+# mcp:
+#   server-name:
+#     # Transport: 'stdio' or 'http'.
+#     transport: stdio
+#     # Absolute path to the server executable for stdio.
+#     command: /absolute/path/to/server
+#     # Arguments for the server command.
+#     args:
+#       - --stdio
+#     # Environment variables for the server process.
+#     env:
+#       NAME: value
+#     # Working directory for the server process.
+#     cwd: /absolute/working/directory
+#     # Endpoint URL for http transport.
+#     url: https://mcp.example.test/rpc
+#     # Extra headers for http requests. Do not store secrets here.
+#     headers:
+#       X-Tenant: non-secret-value
+#     # Whether the server is started.
+#     enabled: false
+#     # Allow plain HTTP for localhost endpoints.
+#     allow_insecure_localhost: false
+#     # Milliseconds to wait for the server to start; zero uses default.
+#     startup_timeout_ms: 15000
+#     # Milliseconds to wait for a call; zero uses default.
+#     call_timeout_ms: 30000
+
+# Ordered sandbox rules applied after the built-in mounts below.
+# Each rule has a path and an action: allow_write, deny_read,
+# allow_read, or deny_write. Later rules override earlier ones.
+# Requires global configuration.
+#
+# Built-in rules (applied first, in order):
+#   /                             allow_read    (entire host filesystem)
+#   /dev                          sandbox tmpfs (empty /dev)
+#   /dev/null                     allow_write   (writable null)
+#   /dev/zero,random,urandom,...  allow_read    (host devices)
+#   /proc                         sandbox procfs
+#   {session temp dir} -> /tmp    allow_write   (private writable)
+#   {workspace root}              allow_write   (always writable)
+#   {session grants}              allow_write   (from request_write_permission)
+#   {linked git common dir}       allow_write   (worktree support)
+#   {workspace}/.parrot           deny_write    (protected metadata)
+#   {workspace}/parrot.yaml       deny_write    (protected metadata)
+#
+# sandbox_rules:
+#   - path: /absolute/path/to/dir
+#     rule: allow_write
+#   - path: /another/path
+#     rule: deny_read
+
+# Web fetch restrictions.
 web_fetch:
+  # Allow fetching from private addresses; increases SSRF risk.
   allow_private: false

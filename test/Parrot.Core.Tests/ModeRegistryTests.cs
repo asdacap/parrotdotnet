@@ -28,6 +28,32 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
+    public async Task Profile_registry_partitions_profiles_resolves_the_explore_alias_and_copies_collections()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"));
+        var profiles = new ProfileRegistry(
+            configuration.Profiles,
+            configuration.SandboxRules,
+            configuration.DefaultProfile);
+
+        _ = await Assert.That(string.Join(" | ", profiles.Foreground.Select(profile => profile.Id)))
+            .IsEqualTo("build | plan | query");
+        _ = await Assert.That(string.Join(" | ", profiles.Children.Select(profile => profile.Id)))
+            .IsEqualTo("explorer | review | thinker | worker");
+        _ = await Assert.That(profiles.ResolveChild("explore").Id).IsEqualTo("explorer");
+        _ = await Assert.That(() => profiles.ResolveChild("build")).Throws<AgentRegistryException>();
+        _ = await Assert.That(() => profiles.ResolveForeground("worker")).Throws<ModeRegistryException>();
+
+        var profile = profiles.ResolveChild("thinker");
+        var tools = profile.AllowedTools
+            ?? throw new InvalidOperationException("thinker must define its tool allowlist");
+
+        _ = await Assert.That(tools[0]).IsEqualTo("agent_spawn");
+    }
+
+    [Test]
     public async Task Plan_prepare_creates_private_artifact_and_preserves_existing_content()
     {
         var profile = Registry().Resolve(ModeRegistry.Plan, "session");
@@ -54,9 +80,9 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    [Arguments(ModeRegistry.Build, false, 64, "build mode", "authorized workspace")]
-    [Arguments(ModeRegistry.Plan, true, 24, "plan mode", "only writable location")]
-    [Arguments(ModeRegistry.Query, true, 24, "query mode", "Read-only mode")]
+    [Arguments(ModeRegistry.Build, false, 1024, "build mode", "authorized workspace")]
+    [Arguments(ModeRegistry.Plan, true, 1024, "plan mode", "designated plan-artifact directory")]
+    [Arguments(ModeRegistry.Query, true, 8, "query mode", "Read-only mode")]
     public async Task Foreground_modes_expose_their_policy(
         string id,
         bool readOnly,
@@ -68,9 +94,9 @@ internal sealed class ModeRegistryTests : IDisposable
 
         _ = await Assert.That(profile.Id).IsEqualTo(id);
         _ = await Assert.That(profile.ReadOnly).IsEqualTo(readOnly);
-        _ = await Assert.That(profile.MaxToolRounds).IsEqualTo(maxToolRounds);
+        _ = await Assert.That(profile.MaxTurns).IsEqualTo(maxToolRounds);
         _ = await Assert.That(profile.Prompt).Contains(promptFragment);
-        _ = await Assert.That(profile.HardRule).Contains(ruleFragment);
+        _ = await Assert.That(profile.HardRules[0]).Contains(ruleFragment);
         _ = await Assert.That(profile.PlanArtifact).IsEmpty();
 
         if (id == ModeRegistry.Plan)
@@ -97,8 +123,7 @@ internal sealed class ModeRegistryTests : IDisposable
         };
         var registry = new ModeRegistry(
             Path.Combine(_root, "plans"),
-            [new SandboxRule(denied, SandboxRuleAction.DenyWrite)],
-            profiles);
+            new ProfileRegistry(profiles, [new SandboxRule(denied, SandboxRuleAction.DenyWrite)], ModeRegistry.Build));
 
         var build = registry.Resolve(ModeRegistry.Build, "session");
         var plan = registry.Resolve(ModeRegistry.Plan, "session");
@@ -192,6 +217,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var configuration = Configuration.Load(
             Path.Combine(_root, "config.yaml"),
             Path.Combine(_root, "predefined_config.yaml"));
-        return new ModeRegistry(Path.Combine(_root, "plan"), configuration.SandboxRules, configuration.Profiles);
+        return new ModeRegistry(
+            Path.Combine(_root, "plan"),
+            new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, configuration.DefaultProfile));
     }
 }

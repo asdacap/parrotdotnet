@@ -14,13 +14,14 @@ internal sealed class SessionStore(
     string workingDirectory,
     string hostKey,
     IUserSessionFactory userSessions,
-    ModelRouter router) : IDisposable
+    ModelRouter router,
+    ModeRegistry modes) : IDisposable
 {
     private readonly List<SessionDatabase> _open = [];
 
     public SessionIndex Index { get; } = new(stateDirectory);
 
-    public UserSession Open(ResolvedModelSelection model) => Open(model, ModeRegistry.Build);
+    public UserSession Open(ResolvedModelSelection model) => Open(model, modes.Default);
 
     public UserSession Open(ResolvedModelSelection model, string mode)
     {

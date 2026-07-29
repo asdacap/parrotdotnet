@@ -20,7 +20,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         IReadOnlyList<IToolFactory> toolFactories,
         ISystemPromptProvider systemPromptProvider,
         Compactor compactor,
-        AgentProfile? profile,
+        MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         CancellationToken lifetime)

@@ -224,6 +224,8 @@ internal sealed class StatusDrainTests : IDisposable
         var configuration = Configuration.Load(
             Path.Combine(_root, "config.yaml"),
             Path.Combine(_root, "predefined_config.yaml"));
-        return new ModeRegistry(Path.Combine(_root, "plans"), configuration.SandboxRules, configuration.Profiles);
+        return new ModeRegistry(
+            Path.Combine(_root, "plans"),
+            new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, configuration.DefaultProfile));
     }
 }

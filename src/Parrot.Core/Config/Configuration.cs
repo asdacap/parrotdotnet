@@ -11,6 +11,7 @@ internal sealed class Configuration(string path)
     private const string ModelAliasesKey = "model_aliases";
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
+    private const string DefaultProfileKey = "default_profile";
 
     private readonly Lock _writeLock = new();
 
@@ -39,6 +40,8 @@ internal sealed class Configuration(string path)
     public IReadOnlyDictionary<string, ProfileConfig> Profiles { get; private set; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
 
+    public string DefaultProfile { get; private set; } = string.Empty;
+
     public static Configuration Load(string path, string predefinedPath)
     {
         CopyPredefined(predefinedPath);
@@ -54,6 +57,7 @@ internal sealed class Configuration(string path)
             WebFetch = ReadWebFetch(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules"),
             Profiles = ReadProfiles(root),
+            DefaultProfile = ReadDefaultProfile(root),
         };
     }
 
@@ -364,6 +368,7 @@ internal sealed class Configuration(string path)
     private static Dictionary<string, ProfileConfig> ReadProfiles(YamlMappingNode root)
     {
         var result = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
+        var ids = new[] { "build", "plan", "query", "explorer", "review", "worker", "thinker" };
 
         if (!Child(root, "profiles", out var node) || node is not YamlMappingNode profiles)
         {
@@ -378,23 +383,16 @@ internal sealed class Configuration(string path)
                 throw new InvalidDataException("each profile must be a named mapping");
             }
 
-            if (id is not ("build" or "plan" or "query"))
+            if (!ids.Contains(id, StringComparer.Ordinal))
             {
                 throw new InvalidDataException($"profiles.{id} is not supported");
             }
 
-            ValidateKeys(
-                profile,
-                $"profiles.{id}",
-                "prompt",
-                "hard_rule",
-                "status",
-                "max_tool_rounds",
-                "read_only",
-                "sandbox_rules");
+            _ = profile.Children.Remove(new YamlScalarNode("status"));
+            ValidateKeys(profile, $"profiles.{id}", "prompt", "usage", "hard_rules", "allowed_tools", "max_turns", "recursion_limit", "read_only", "is_user_agent", "sandbox_rules");
         }
 
-        foreach (var id in new[] { "build", "plan", "query" })
+        foreach (var id in ids)
         {
             if (!Child(profiles, id, out var nodeForProfile) || nodeForProfile is not YamlMappingNode profile)
             {
@@ -403,14 +401,83 @@ internal sealed class Configuration(string path)
 
             result[id] = new ProfileConfig(
                 NonEmptyScalar(profile, "prompt", $"profiles.{id}.prompt"),
-                NonEmptyScalar(profile, "hard_rule", $"profiles.{id}.hard_rule"),
-                NonEmptyScalar(profile, "status", $"profiles.{id}.status"),
-                PositiveInteger(profile, "max_tool_rounds", $"profiles.{id}.max_tool_rounds"),
+                NonEmptyScalar(profile, "usage", $"profiles.{id}.usage"),
+                NonEmptyStrings(profile, "hard_rules", $"profiles.{id}.hard_rules"),
+                ReadAllowedTools(profile, $"profiles.{id}.allowed_tools"),
+                PositiveInteger(profile, "max_turns", $"profiles.{id}.max_turns"),
+                NonNegativeInteger(profile, "recursion_limit", $"profiles.{id}.recursion_limit"),
                 ReadBoolean(profile, "read_only", $"profiles.{id}.read_only"),
+                ReadBoolean(profile, "is_user_agent", $"profiles.{id}.is_user_agent"),
                 ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules"));
         }
 
         return result;
+    }
+
+    private static string ReadDefaultProfile(YamlMappingNode root)
+    {
+        var selected = NonEmptyScalar(root, DefaultProfileKey, DefaultProfileKey);
+        var profiles = ReadProfiles(root);
+
+        if (!profiles.TryGetValue(selected, out var profile))
+        {
+            throw new InvalidDataException($"{DefaultProfileKey} {selected} is not configured in profiles");
+        }
+
+        if (!profile.IsUserAgent)
+        {
+            throw new InvalidDataException($"{DefaultProfileKey} {selected} is not a user agent profile");
+        }
+
+        return selected;
+    }
+
+    private static List<string> NonEmptyStrings(YamlMappingNode parent, string key, string path)
+    {
+        if (!Child(parent, key, out var node) || node is not YamlSequenceNode sequence || sequence.Children.Count == 0)
+        {
+            throw new InvalidDataException($"{path} must be a non-empty string sequence");
+        }
+
+        var values = new List<string>(sequence.Children.Count);
+        foreach (var item in sequence.Children)
+        {
+            if (item is not YamlScalarNode { Value: { } value } || string.IsNullOrWhiteSpace(value))
+            {
+                throw new InvalidDataException($"{path} must be a non-empty string sequence");
+            }
+
+            values.Add(value);
+        }
+
+        return values;
+    }
+
+    private static List<string>? ReadAllowedTools(YamlMappingNode parent, string path)
+    {
+        if (!Child(parent, "allowed_tools", out var node) || node is YamlScalarNode { Value: "null" })
+        {
+            return null;
+        }
+
+        if (node is not YamlSequenceNode sequence)
+        {
+            throw new InvalidDataException($"{path} must be a string sequence or null");
+        }
+
+        var values = new List<string>(sequence.Children.Count);
+        foreach (var item in sequence.Children)
+        {
+            if (item is not YamlScalarNode { Value: { } value } || value.Length == 0 ||
+                !string.Equals(value.Trim(), value, StringComparison.Ordinal) || values.Contains(value, StringComparer.Ordinal))
+            {
+                throw new InvalidDataException($"{path} must contain unique nonblank untrimmed tool names");
+            }
+
+            values.Add(value);
+        }
+
+        return values;
     }
 
     private static List<SandboxRule> ReadSandboxRules(YamlMappingNode parent, string path)
@@ -492,6 +559,17 @@ internal sealed class Configuration(string path)
         }
 
         return value;
+    }
+
+    private static int NonNegativeInteger(YamlMappingNode parent, string key, string path)
+    {
+        if (!Child(parent, key, out var node) || node is not YamlScalarNode { Value: { } value } ||
+            !int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) || parsed < 0)
+        {
+            throw new InvalidDataException($"{path} must be a non-negative integer");
+        }
+
+        return parsed;
     }
 
     private static int PositiveInteger(YamlMappingNode parent, string key, string path)

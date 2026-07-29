@@ -1,57 +1,40 @@
-using Parrot.Config;
 using Parrot.Protocol;
-using Parrot.Security;
 
 namespace Parrot.Agent;
 
-internal sealed class ModeRegistry(
-    string planDirectory,
-    IReadOnlyList<SandboxRule> globalRules,
-    IReadOnlyDictionary<string, ProfileConfig> profiles)
+internal sealed class ModeRegistry(string planDirectory, ProfileRegistry profiles)
 {
     public const string Build = "build";
     public const string Plan = "plan";
     public const string Query = "query";
 
-    private readonly IReadOnlyList<string> _modeIds = [Build, Plan, Query];
+    private readonly IReadOnlyList<string> _modeIds = [.. profiles.Foreground.Select(profile => profile.Id)];
     private readonly Lock _planGate = new();
     private readonly Dictionary<string, string> _planArtifacts = new(StringComparer.Ordinal);
 
+    public ProfileRegistry Profiles => profiles;
+
+    public string Default => profiles.ResolveForeground(string.Empty).Id;
+
     public IReadOnlyList<string> List() => _modeIds;
 
-    public AgentProfile Resolve(string id, string sessionId)
+    public MainAgentProfile Resolve(string id, string sessionId)
     {
-        var selected = id.Length == 0 ? Build : id;
+        var profile = profiles.ResolveForeground(id);
 
-        var configuration = selected switch
-        {
-            Build or Plan or Query => Profile(selected),
-            _ => throw new ModeRegistryException($"unknown mode {selected}"),
-        };
-
-        return selected == Plan
-            ? new AgentProfile(
-                selected,
-                configuration,
-                () => $"{configuration.Prompt} to this exact file: {PlanArtifact(sessionId)}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {planDirectory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
+        return string.Equals(profile.Id, Plan, StringComparison.Ordinal)
+            ? new MainAgentProfile(
+                profile,
+                () => $"{profile.Prompt} to this exact file: {PlanArtifact(sessionId)}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {planDirectory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
                 () => PlanArtifact(sessionId),
-                SecurityProfile.Compose(
-                    configuration.ReadOnly,
-                    configuration.SandboxRules,
-                    globalRules,
-                    [new SandboxRule(planDirectory, SandboxRuleAction.AllowWrite)]),
+                profile.SecurityProfile.WithRuntimeCapability(planDirectory),
                 () => PreparePlan(sessionId),
                 (agentSessionId, messageId) => CompletePlan(sessionId, agentSessionId, messageId))
-            : new AgentProfile(
-                selected,
-                configuration,
-                () => configuration.Prompt,
+            : new MainAgentProfile(
+                profile,
+                () => profile.Prompt,
                 static () => string.Empty,
-                SecurityProfile.Compose(
-                    configuration.ReadOnly,
-                    configuration.SandboxRules,
-                    globalRules,
-                    []),
+                profile.SecurityProfile,
                 static () => { },
                 static (_, _) => null);
     }
@@ -72,9 +55,6 @@ internal sealed class ModeRegistry(
             throw new ModeRegistryException($"mode: make plan file writable: {failure.Message}");
         }
     }
-
-    private ProfileConfig Profile(string id) => profiles.GetValueOrDefault(id)
-        ?? throw new ModeRegistryException($"configuration missing profile {id}");
 
     private string PlanArtifact(string sessionId)
     {
@@ -159,7 +139,7 @@ internal sealed class ModeRegistry(
                             Value = "yes",
                             Description = "Implement the approved plan",
                             Aliases = { "y" },
-                            Action = new ChoiceAction { Mode = Build, Prompt = "Implement the approved plan." },
+                            Action = new ChoiceAction { Mode = Default, Prompt = "Implement the approved plan." },
                         },
                         new DialogChoice { Value = "no", Description = "Stop after planning", Aliases = { "n" } },
                     },

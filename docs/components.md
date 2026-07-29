@@ -1,0 +1,452 @@
+# Component Map
+
+**Status: written.** This is the Phase 0 deliverable described in MIGRATION.md
+§0 — the gate. A component not named here may not be ported.
+
+The level-1 view — which blocks exist, how they connect, their rank, and the
+decisions already taken — is in [architecture.md](architecture.md). This file is
+level 2: one entry per block. [plan.md](plan.md) sequences them into milestones;
+the **M** column below says which milestone first needs the block, and a block
+is taken only as far as that milestone needs it.
+
+## How to fill this in
+
+The migration is top-down. Identify the top-level components of the Go system
+first — the ones `docs/architecture.md` draws as boxes — then decompose each one
+level at a time. Do not start at the leaves.
+
+The test for a good entry is the garden analogy in `AGENTS.md`: a component is a
+tree. It may be any shape or size, but it is clearly *itself*, and the roads
+between trees are clear. The trees are the point; the roads only exist so trees
+can be planted. So an entry that describes plumbing — a "manager", a "helper", a
+"utils" — is not a component, and an entry whose boundary you cannot state in one
+sentence is two trees that have grown together.
+
+For reference, the upstream tree has 38 packages under `internal/`, roughly
+46k lines of implementation and 24k lines of tests. Line counts, largest first:
+
+```text
+cli 9299   tool 4653   terminal 4646   process 2307   provider 2012
+httpapi 1975   session 1905   agent 1757   app 1607
+change 1172   protocol 1094   config 1063   store 959   subagent 874
+auth 871   event 832   compaction 748   command 629   api 617
+systemcontext 542   webfetch 513   client 500   skill 469
+diagnostics 431   monitor 315   task 311   workspace 254
+question 253   mode 248   permission 163   status 159
+transport 153   atomicfile 142   appdirs 112   id 104
+processidentity 103   security 76   project 50
+```
+
+A package's size is not its rank. `internal/id` is 104 lines and everything
+depends on it; `internal/cli` is 9299 lines and nothing does.
+
+## Out of scope
+
+Upstream behaviour deliberately not carried over. Upstream tests covering it are
+deleted rather than skipped, and no block in `architecture.md` absorbs it.
+
+| Dropped | Upstream | Reason |
+| --- | --- | --- |
+| MCP | `internal/mcp` (2045 lines), `internal/tool/mcp.go`, MCP transport config | Dropped entirely by decision, 2026-07-24. Removes one of upstream's five extension boundaries, leaving four: provider protocols, secret storage, tools, formatters. |
+| Transactional file edits | `internal/change` (1172 lines): the all-or-nothing apply, rollback, and `FileStore`/`FileState` machinery | Dropped entirely by decision, 2026-07-24. Tools write files directly. `apply_patch` is kept and the patch model and parsing survive with it, folded into the tool. It applies directly, so a failed apply can leave files partially written and must report what it wrote. |
+| Windows support | Windows paths, credential storage, process trees, terminal behaviour | Upstream targets macOS and Linux; so does this. |
+
+## Deliberate divergences
+
+MIGRATION.md §1 permits changing anything outside the load-bearing invariants,
+*provided the divergence is recorded*. This is where. An undocumented change is
+indistinguishable from a porting mistake when a test fails six components later.
+
+### Tasks do not nest
+
+**Upstream.** A task may have a parent task, so tasks form a tree rooted at the
+session's main task; `task.start` carries `parent_task_id`; the main task of a
+subagent child session is the subagent task itself.
+
+**Here.** A task belongs to exactly one session — the session that started it is
+its parent. Sessions nest via `parent_session_id`; tasks do not. There is no
+`parent_task_id`, no task tree, and a session has no task id of its own.
+
+**Why.** A client had to rebuild the task tree from `parent_task_id` to make
+sense of a stream, which is work every client repeated and precisely what
+`BasicCli` is not allowed to do. Recursion now has one shape instead of two,
+at the session level, which is already where child lifetime and recursion
+limits live.
+
+**Affects.** The `Event` message, `TaskManager`, `AgentSession`, and the
+task lifecycle events. Upstream tests asserting task parentage are rewritten
+against session parentage rather than deleted — the behaviour still exists, it
+is attributed differently.
+
+## Entries
+
+One per block. Fields are: what upstream it **absorbs**, the state it **owns**
+(if two components claim the same state, the map is wrong), its **inbound** and
+**outbound** contracts, whether it is an **extension boundary**, and its rank.
+
+---
+
+## Storage
+
+### `StatePaths` — rank 1, M1
+
+- **Absorbs** `appdirs`, `project`, `id`, `atomicfile`, `processidentity`.
+- **Owns** the resolved state, config, and data directory paths; the host key
+  and process identity; id generation; the atomic write/link primitives.
+- **Inbound** where does X live, what is this host called, give me a fresh id,
+  write this file atomically, claim this name with `link()`. Upholds nothing on
+  its own but every storage invariant is built out of its primitives.
+- **Outbound** the filesystem only.
+- **Boundary** no. Concrete.
+- **Note** `link()` returning `EEXIST` rather than overwriting is the whole
+  reason claims work. A helper that falls back to `rename` silently destroys
+  the guarantee, so that fallback must not exist.
+
+### `Configuration` — rank 1, M1
+
+- **Absorbs** `config`, `mode`.
+- **Owns** the parsed and merged configuration, configurable profile
+  parsing/defaulting, and — uniquely — the centralized atomic state shared
+  across hosts.
+- **Inbound** the merged view for this user session, resolved once at startup;
+  and read/modify of global state such as flags.
+- **Outbound** `StatePaths` for atomic write.
+- **Boundary** no.
+- **Note** not immutable at runtime, unlike the merged view a session resolves
+  from it. Rename gives atomicity, not serialisation: a flag write is safe, a
+  read-modify-write against a concurrent host is not. See the configuration
+  exception in `architecture.md`.
+
+### `SessionDatabase` — rank 2, M2
+
+- **Absorbs** `store` (database, meta), `workspace`.
+- **Owns** one SQLite file per user session, its schema, and the `meta.json`
+  projection published beside it.
+- **Inbound** open, migrate, transact. Upholds the one-machine-one-database
+  invariant and `journal_mode=TRUNCATE`.
+- **Outbound** `StatePaths`.
+- **Boundary** no.
+- **Note** WAL is forbidden, not discouraged: `-shm` is memory-mapped and two
+  hosts mapping it get incoherent private views. A test asserts no `-shm` or
+  `-wal` ever appears under the state directory.
+
+### `EventRepository` — rank 2, M2
+
+- **Absorbs** `event` (persistence half).
+- **Owns** the durable event log and its query projections, and the transaction
+  that commits both together (principle 9).
+- **Inbound** append an event, read a range. Guarantees the event and its
+  projection commit atomically or not at all.
+- **Outbound** `SessionDatabase`.
+- **Boundary** no.
+
+### `EventBroker` — rank 3, M1
+
+- **Absorbs** `event` (broker, stream, subscription).
+- **Owns** live subscriptions and the fan-out channel.
+- **Inbound** subscribe to a session's stream; publish. Publication is
+  serialised, and **only events `EventRepository` has already committed** are
+  published — a subscriber cannot observe an event a crash would un-happen.
+- **Outbound** `EventRepository`.
+- **Boundary** no.
+- **Note** in M1 there is no repository yet, so the broker publishes directly.
+  That is the one place M1 knowingly runs ahead of the invariant, and M2 closes
+  it.
+
+---
+
+## Providers
+
+### `ICredentialStore` — rank 3, M1
+
+- **Absorbs** `auth`, `security`.
+- **Owns** stored credentials, keyed by provider id, in the private data
+  directory.
+- **Inbound** get, set, delete. Nothing else — it knows nothing of OAuth,
+  expiry, or refresh.
+- **Outbound** `StatePaths`.
+- **Boundary** **yes** — secret storage.
+- **Note** a credential must never reach a log, an event, or an error message.
+
+### `ILLMProvider` — rank 5, M1
+
+- **Absorbs** `provider`, `protocol`.
+- **Owns** nothing. Stateless by rule: no conversation, no session, no history
+  between calls.
+- **Inbound** `Call(LLMRequest, ILLMEventSink, CancellationToken)` →
+  `Task<LLMResult>`. Deltas to the sink, final durable state returned.
+- **Outbound** `ICredentialStore`, and the sink it is handed per call. It owns
+  its own credential refresh, because only it knows its token lifecycle.
+- **Boundary** **yes** — provider protocols.
+- **Note** the wire shape is confirmed against OpenCode Go: SSE `data:` lines
+  carrying `choices[0].delta`, where `content` and `reasoning_content` are
+  **separate fields** — which is why `LLMEvent` has both `TextDelta` and
+  `ReasoningDelta`.
+
+### `ILLMEventSink` — rank 5, M1
+
+- **Absorbs** nothing; it has no upstream equivalent.
+- **Owns** nothing. It is a contract.
+- **Inbound** `Publish(LLMEvent, CancellationToken)`.
+- **Outbound** whatever the implementer chooses.
+- **Boundary** no, but it is the seam that keeps `ILLMProvider` from depending
+  on `EventBroker`.
+
+### `ProviderRegistry` — rank 5, M1
+
+- **Absorbs** the preset and catalogue half of `provider`.
+- **Owns** the configured and built-in providers, and the merged model
+  catalogue.
+- **Inbound** resolve `provider/model` to an `ILLMProvider` and a model; list
+  models.
+- **Outbound** `Configuration`, `ICredentialStore`.
+- **Boundary** no.
+
+---
+
+## Domain
+
+### `TaskManager` — rank 4, M5
+
+- **Absorbs** `task`, `status`, `monitor`.
+- **Owns** the tasks belonging to one session and their lifecycle state.
+- **Inbound** start, observe, complete a task. Tasks are flat: a task's parent
+  is the session that started it, and tasks do not nest.
+- **Outbound** `EventBroker`.
+- **Boundary** no.
+
+### `PermissionBroker` — rank 5, M3
+
+- **Absorbs** `permission`.
+- **Owns** pending permission requests and granted scopes.
+- **Inbound** authorise a **canonical operation**, never a tool name
+  (principle 7). Authorisation stays separate from OS containment
+  (principle 8).
+- **Outbound** `EventBroker` to ask, `Configuration` for standing grants.
+- **Boundary** no.
+
+### `QuestionBroker` — rank 5, M3
+
+- **Absorbs** `question`.
+- **Owns** pending questions and their answers.
+- **Inbound** ask the user a structured question, await the answer.
+- **Outbound** `EventBroker`.
+- **Boundary** no.
+
+### `SystemContextBuilder` — rank 7, M4
+
+- **Absorbs** `systemcontext`, `skill`, `command`.
+- **Owns** the typed context sources: base prompt, date, platform, working
+  directory, project metadata, `AGENTS.md` files, skills, tool guidance, and
+  the visible child-profile usage catalog.
+- **Inbound** sample the sources and produce an epoch baseline. **Sampled only
+  at a safe turn boundary** (principle 4).
+- **Outbound** `Configuration`, `StatePaths`, the filesystem.
+- **Boundary** no.
+
+### `Compactor` — rank 8, M4
+
+- **Absorbs** `compaction`.
+- **Owns** the compaction record and the history cutoff it produces.
+- **Inbound** compact this history; completing starts a new epoch.
+- **Outbound** `ILLMProvider` to summarise, `SessionDatabase` to persist.
+- **Boundary** no.
+
+### `AgentSession` — rank 9, M1
+
+- **Absorbs** `session` (conversation half), `agent` (runner and coordinator).
+- **Owns** identity, profile-selected turn policy, per-turn filtered tool
+  snapshot, bounded final provider request, drain state, interactive owner
+  binding, admitted input, messages, context epoch, todos, goals, and its
+  tasks. Todos
+  and goals are **owned sub-objects**, not services.
+- **Inbound** admit a prompt, run the drain, interrupt. Upholds principles 2
+  (one drain), 3 (a turn is a cancellable boundary), 4 (immutable epoch), and 6
+  (all tools settle before the next turn).
+- **Outbound** everything in the turn sequence: `SessionDatabase`,
+  `EventBroker`, `SystemContextBuilder`, `Compactor`, `AgentRegistry`,
+  `ToolRegistry`, `ProviderRegistry`, `TaskManager`.
+- **Boundary** no. Concrete, and rich — never a record plus a service.
+- **Note** it is also the `ILLMEventSink` implementer, attaching `session_id`
+  and `task_id` to make a wire `Event` from an `LLMEvent`.
+
+### `AgentRegistry` — rank 9, M5
+
+- **Absorbs** `agent` (registry, provider resolution), `subagent`.
+- **Owns** child-profile lookup, recursive-profile/depth admission, the child
+  task table, per-parent concurrency limits, recursion limits, and **the
+  lifetime of every spawned child session**.
+- **Inbound** resolve an agent profile; spawn, await, observe, interrupt a
+  child session.
+- **Outbound** `Configuration`, `AgentSession`.
+- **Boundary** no.
+- **Note** mutually dependent with `AgentSession`; both rank 9, neither
+  buildable without a stub of the other. Not passive — it has a `Run`, and a
+  spawned child outlives the turn that spawned it.
+
+### `UserSession` — rank 10, M2
+
+- **Absorbs** `session` (`InteractiveOwner`, `InteractiveClaim`), `store`
+  (owners, claims).
+- **Owns** the working-directory binding, the claim on it, and the
+  `AgentSession`s inside it.
+- **Inbound** open a session for this working directory: reclaim an abandoned
+  binding, or start a second when one is live.
+- **Outbound** `SessionDatabase`, `StatePaths`, `Configuration`.
+- **Boundary** no.
+- **Note** the claim is held for exactly the duration of `Run`.
+
+---
+
+### Configurable-profile divergence
+
+Foreground profiles remain existing `Mode` values in the gRPC and slash-command
+contracts. Child profiles are selected only by `agent_spawn`; no public
+profile-list RPC is added. The retired upstream `profiles.<id>.status` input is
+accepted and discarded at the configuration boundary, and is never runtime
+status guidance.
+
+## Tools
+
+### `ITool` — rank 7, M3
+
+- **Absorbs** `tool` (the interface and the builtins), `change` (patch model
+  and parsing only).
+- **Owns** nothing shared; each tool owns its own arguments and plan. Tool
+  availability is constrained by the immutable profile-selected turn snapshot.
+- **Inbound** describe, plan, execute. **Display differences are methods on the
+  tool, never a branch on its id.**
+- **Outbound** `PermissionBroker`, `ProcessRunner`, `WebFetcher`, the
+  filesystem.
+- **Boundary** **yes** — tools.
+
+### `ToolRegistry` — rank 7, M3
+
+- **Absorbs** the registry half of `tool`.
+- **Owns** the mutable set of registered tools, and produces `ToolSnapshot` —
+  an immutable, mutator-free materialisation taken once per turn (principle 4).
+- **Inbound** register; snapshot.
+- **Outbound** `Configuration`.
+- **Boundary** no.
+
+### `ProcessRunner` — rank 6, M3
+
+- **Absorbs** `process`.
+- **Owns** child processes, their pty, their output store, and the sandbox.
+- **Inbound** run a command. **Fails closed**: no sandbox, no execution. Not a
+  warning, not a fallback.
+- **Outbound** bubblewrap on Linux, Seatbelt on macOS.
+- **Boundary** no.
+
+### `WebFetcher` — rank 6, M3
+
+- **Absorbs** `webfetch`.
+- **Owns** nothing across calls.
+- **Inbound** fetch a URL, bounded in size and time.
+- **Outbound** the network.
+- **Boundary** no.
+
+---
+
+## Transport
+
+### `ParrotService` — rank 11, M1
+
+- **Absorbs** `api/v1`, `httpapi` (backend half), re-specified as a `.proto`.
+- **Owns** nothing. It translates the contract into domain calls.
+- **Inbound** the gRPC service: commands in, one flat `Event` stream out.
+  Upholds principle 11 — local and remote use one contract.
+- **Outbound** `UserSession`, `AgentSession`, `TaskManager`,
+  `PermissionBroker`, `QuestionBroker`, `EventBroker`.
+- **Boundary** no.
+- **Note** request handlers must not construct long-lived dependencies.
+
+### `InProcessChannel` — rank 11, M1
+
+- **Absorbs** `transport`, `client`.
+- **Owns** nothing.
+- **Inbound** a gRPC `CallInvoker` that reaches `ParrotService` directly.
+  Local mode **binds no socket** (principle 12).
+- **Outbound** `ParrotService`.
+- **Boundary** no.
+
+### `GrpcServer` — rank 12, M6
+
+- **Absorbs** `httpapi` (server, routes).
+- **Owns** the listener and its lifetime.
+- **Inbound** `Run` until cancelled.
+- **Outbound** `ParrotService`.
+- **Boundary** no.
+- **Note** optional and separately lifecycled. Its ~5 MB is the accepted cost
+  recorded in `architecture.md`.
+
+---
+
+## Root and clients
+
+### `ParrotApplication` — rank 12, M6
+
+- **Absorbs** `app`.
+- **Owns** every singleton, constructed explicitly by hand. **No IoC
+  container** — also an AOT requirement, since registration by scanning is the
+  reflection MIGRATION.md §2 forbids.
+- **Inbound** build the object graph; dispose it.
+- **Outbound** everything.
+- **Boundary** no.
+
+### `Program` — rank 13, M1
+
+- **Absorbs** `cmd/parrot/main.go`.
+- **Owns** the process: the cancellation token source and the signal
+  registrations that trip it.
+- **Inbound** `Main(string[])`. Hands the argument vector to
+  `CommandDispatcher.Run` and returns its exit code.
+- **Outbound** `CommandDispatcher`.
+- **Boundary** no.
+- **Note** uses `PosixSignalRegistration` for `SIGINT` and `SIGTERM`, not
+  `Console.CancelKeyPress`, which is a .NET event. It is the only place allowed
+  to block on async, and it does not.
+
+### `CommandDispatcher` — rank 13, M1
+
+- **Absorbs** `cli/cli.go`, `diagnostics`.
+- **Owns** the argument vector and the process exit code.
+- **Inbound** **the single top-level `Run`.** Every other `Run` is a
+  descendant; the process exits when it returns.
+- **Outbound** `ParrotApplication`, `BasicCli`, `EnhancedCli`, `GrpcServer`.
+- **Boundary** no.
+
+### `BasicCli` — rank 13, M1
+
+- **Absorbs** `cli/chat`, rewritten far smaller. **Not** `cli/chatview`.
+- **Owns** nothing. No model of the conversation beyond what it has printed.
+- **Inbound** a `switch` over `Event.kind` and a `WriteLine` of `Event.text`.
+- **Outbound** the generated gRPC client, and nothing else.
+- **Boundary** no.
+- **Note** it is the test of the event contract. If it needs a helper, fix the
+  event. Shares no code with `EnhancedCli` beyond the generated stub.
+
+### `EnhancedCli` — rank 14, M7
+
+- **Absorbs** `cli/enhancedchat`, `cli/chatview`, `terminal`.
+- **Owns** the terminal: raw mode, editor, picker, markdown rendering,
+  scrollback.
+- **Inbound** the same event stream, read through `Event`'s typed payload
+  rather than its `text`.
+- **Outbound** the generated gRPC client, the terminal.
+- **Boundary** no.
+- **Note** **not decomposed yet.** Deferred to M7 planning by decision 5; it is
+  the only entry here that is deliberately incomplete, and nothing before M7
+  depends on it.
+
+## Assemblies
+
+Namespaces are the unit of separation in this repository, not assemblies. The
+current set is `Parrot.Core` and `Parrot.Cli`. Adding a third project requires a
+reason recorded here.
+
+| Assembly | Reason |
+| --- | --- |
+| `Parrot.Core` | Everything that is not the process entry point. |
+| `Parrot.Cli` | The AOT-published executable. Separated so that `Parrot.Core` can be referenced by a test host without dragging in the entry point. |
+| `Parrot.Analyzers` | Build tooling, not product code. Repository-specific lint rules that no shipped analyzer expresses (`PARROT0001`–`PARROT0003`). Must be a separate `netstandard2.0` project because it runs inside the compiler; referenced as an analyzer, so it never reaches the runtime or the AOT link. |

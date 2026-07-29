@@ -56,7 +56,7 @@ internal sealed class SecurityProfileTests
     }
 
     [Test]
-    public async Task Delegation_ignores_runtime_capabilities_requires_identical_base_policy_and_rejects_escalation()
+    public async Task Delegation_ignores_runtime_capabilities_allows_narrower_policies_and_rejects_escalation()
     {
         var rules = new[] { new SandboxRule("/secret", SandboxRuleAction.DenyRead) };
         var readOnlyCaller = SecurityProfile.Compose(true, rules, [], [])
@@ -64,13 +64,20 @@ internal sealed class SecurityProfileTests
         var writableCaller = SecurityProfile.Compose(false, rules, [], []);
         var matchingReadOnly = SecurityProfile.Compose(true, rules, [], []);
         var matchingWritable = SecurityProfile.Compose(false, rules, [], []);
-        var different = SecurityProfile.Compose(true, [], [], []);
+        var narrower = SecurityProfile.Compose(
+            true,
+            [.. rules, new SandboxRule("/extra", SandboxRuleAction.DenyRead)],
+            [],
+            []);
+        var broader = SecurityProfile.Compose(true, [], [], []);
 
         _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(matchingReadOnly)).IsTrue();
         _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(matchingWritable)).IsFalse();
-        _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(different)).IsFalse();
+        _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(narrower)).IsTrue();
+        _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(broader)).IsFalse();
         _ = await Assert.That(writableCaller.AllowsDelegationTo(matchingReadOnly)).IsTrue();
         _ = await Assert.That(writableCaller.AllowsDelegationTo(matchingWritable)).IsTrue();
-        _ = await Assert.That(writableCaller.AllowsDelegationTo(different)).IsFalse();
+        _ = await Assert.That(writableCaller.AllowsDelegationTo(narrower)).IsTrue();
+        _ = await Assert.That(writableCaller.AllowsDelegationTo(broader)).IsFalse();
     }
 }

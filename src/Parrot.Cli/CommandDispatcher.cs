@@ -26,7 +26,6 @@ internal sealed class CommandDispatcher(
     public const int ExitFailure = 1;
 
     private const string DefaultModel = "opencode-go/glm-5.2";
-    private const string DefaultMode = "build";
 
     private const string UsageText = """
         parrot - a coding agent that is not too much
@@ -337,7 +336,7 @@ internal sealed class CommandDispatcher(
         var paths = StatePaths.ResolveFromEnvironment();
         var model = DefaultModel;
         var modelOverridden = false;
-        var mode = DefaultMode;
+        var mode = string.Empty;
         var connect = string.Empty;
         var variant = (string?)null;
         var basic = false;
@@ -391,6 +390,7 @@ internal sealed class CommandDispatcher(
         // The saved model is the default; the built-in one is only the fallback
         // for a fresh install with no config yet.
         model = !modelOverridden && configuration.Model.Length > 0 ? configuration.Model : model;
+        mode = mode.Length == 0 ? configuration.DefaultProfile : mode;
         var prompt = string.Join(' ', words);
 
         // Remote: the server owns the provider, the state, and the tools; this

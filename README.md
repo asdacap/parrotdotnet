@@ -88,6 +88,47 @@ selected effort and automatic summary under
 place it at top level as `"reasoning_effort":"…"`. Both omit their effort field
 for a bare model selection.
 
+## Configuration
+
+Parrot writes an agent-readable `predefined_config.yaml` alongside the
+user-owned `config.yaml`. The user file is recursively layered over the
+predefined defaults and is never rewritten except by an interactive setting.
+
+Profiles are configured under `profiles`. `build`, `plan`, and `query` are
+foreground modes, while `explorer`, `review`, `worker`, and `thinker` are child
+profiles selected by `agent_spawn.agent`. `default_profile` must name a
+foreground profile and is used when no mode is selected explicitly. The
+foreground-mode RPC and slash-command surfaces list only foreground profiles.
+
+Every profile has a nonempty `prompt`, `usage`, and `hard_rules` sequence; a
+positive `max_turns`; a nonnegative `recursion_limit`; boolean `read_only` and
+`is_user_agent`; and optional ordered `sandbox_rules`. A child profile can
+recur only up to its selected profile's recursion limit. Profile sandbox rules
+replace that profile's default list; top-level `sandbox_rules` apply to every
+profile.
+
+```yaml
+default_profile: build
+profiles:
+  worker:
+    usage: Delegate independently scoped implementation work.
+    max_turns: 64
+    allowed_tools:
+      - read
+      - apply_patch
+```
+
+`allowed_tools` has three meanings: omit it (or use `null`) to retain every
+otherwise available tool, use `[]` to offer none, or list exact tool IDs to
+offer only those tools. The same filtered set is both sent to the model and
+used for execution. `explore` is accepted as a compatibility alias for the
+canonical `explorer` child profile.
+
+The plan foreground profile receives its private plan-artifact location and
+runtime-only write permission from Parrot; child profiles never inherit this
+capability. Legacy `profiles.<id>.status` input is accepted and ignored for
+compatibility. It is not profile guidance and is never injected into a prompt.
+
 ## Model Aliases
 
 Model aliases give stable names to model selectors. The effective configuration
@@ -173,30 +214,9 @@ created or overwritten by loading configuration. Parrot recursively merges its
 mapping over `predefined_config.yaml`: nested mappings combine by key, while
 scalars and sequences replace their corresponding defaults. Thus a
 `model_aliases.low_llm.model_string` entry can override that target without
-repeating its predefined usage. The predefined file also contains complete
-`build`, `plan`, and `query` foreground-profile definitions, so a nested
-`profiles.<mode>` mapping can override one prompt, hard rule, status,
-`max_tool_rounds`, `read_only`, or sandbox-rules field while inheriting every
-other field from the active default.
-
-Each profile requires nonempty `prompt`, `hard_rule`, and `status` text, a
-positive `max_tool_rounds`, and a `read_only` boolean. Profile `sandbox_rules`
-are ordered and replace that profile's predefined list; top-level
-`sandbox_rules` apply to every foreground profile. Rule paths must be absolute.
-
-```yaml
-profiles:
-  build:
-    prompt: Implement the requested change and run the relevant checks.
-    max_tool_rounds: 32
-    sandbox_rules:
-      - path: /workspace/generated
-        rule: allow_write
-```
-
-The plan profile always receives its private plan-artifact path and the
-runtime-only permission to write that plan directory. Those capabilities are
-owned by Parrot and cannot be configured in `config.yaml`.
+repeating its predefined usage. The predefined file contains all seven profile
+definitions, so a nested `profiles.<id>` mapping can override one profile field
+while inheriting every other field from the active default.
 
 ## Build And Run
 

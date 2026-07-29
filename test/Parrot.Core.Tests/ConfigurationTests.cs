@@ -29,19 +29,17 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
-        _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(3);
+        _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(7);
         var build = configuration.Profiles["build"];
         _ = await Assert.That(build.Prompt).IsEqualTo("You are Parrot's build mode. Implement and verify the requested changes.");
-        _ = await Assert.That(build.HardRule).IsEqualTo("Keep tool side effects within the authorized workspace.");
-        _ = await Assert.That(build.Status).IsEqualTo(
-            "Build mode: implement and verify requested changes. Workspace writes are permitted through the active security policy.");
-        _ = await Assert.That(build.MaxToolRounds).IsEqualTo(64);
+        _ = await Assert.That(build.HardRules[0]).IsEqualTo("Keep tool side effects within the authorized workspace.");
+        _ = await Assert.That(build.MaxTurns).IsEqualTo(1024);
         _ = await Assert.That(build.ReadOnly).IsFalse();
         _ = await Assert.That(build.SandboxRules).IsEmpty();
-        _ = await Assert.That(configuration.Profiles["plan"].MaxToolRounds).IsEqualTo(24);
+        _ = await Assert.That(configuration.Profiles["plan"].MaxTurns).IsEqualTo(1024);
         _ = await Assert.That(configuration.Profiles["query"].ReadOnly).IsTrue();
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
-            .Contains("Predefined Parrot configuration.");
+            .Contains("Predefined configuration reference.");
     }
 
     [Test]
@@ -115,21 +113,37 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Profile_defaults_include_all_policies_and_distinguish_omitted_from_empty_tool_allowlists()
+    {
+        var configuration = Load(Write(string.Empty));
+
+        _ = await Assert.That(configuration.DefaultProfile).IsEqualTo("build");
+        _ = await Assert.That(configuration.Profiles["build"].MaxTurns).IsEqualTo(1024);
+        _ = await Assert.That(configuration.Profiles["query"].MaxTurns).IsEqualTo(8);
+        _ = await Assert.That(configuration.Profiles["explorer"].MaxTurns).IsEqualTo(32);
+        _ = await Assert.That(configuration.Profiles["worker"].MaxTurns).IsEqualTo(128);
+        _ = await Assert.That(configuration.Profiles["thinker"].MaxTurns).IsEqualTo(256);
+        _ = await Assert.That(configuration.Profiles["worker"].AllowedTools).IsNull();
+        _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.Count).IsEqualTo(3);
+
+        var noTools = Load(Write("profiles:\n  worker:\n    allowed_tools: []\n"));
+        _ = await Assert.That(noTools.Profiles["worker"].AllowedTools).IsEmpty();
+    }
+
+    [Test]
     public async Task Profile_fields_partially_override_predefined_definitions()
     {
         var profile = Load(Write("""
             profiles:
               plan:
                 prompt: Custom plan guidance
-                status: Custom plan status
-                max_tool_rounds: 7
+                max_turns: 7
             """)).Profiles["plan"];
 
         _ = await Assert.That(profile.Prompt).IsEqualTo("Custom plan guidance");
-        _ = await Assert.That(profile.MaxToolRounds).IsEqualTo(7);
-        _ = await Assert.That(profile.HardRule).IsEqualTo(
-            "The plan directory is the only writable location; do not modify workspace files.");
-        _ = await Assert.That(profile.Status).IsEqualTo("Custom plan status");
+        _ = await Assert.That(profile.MaxTurns).IsEqualTo(7);
+        _ = await Assert.That(profile.HardRules[0]).IsEqualTo(
+            "Read-only mode is enforced by the runtime except for the designated plan-artifact directory. Writes outside that directory are prohibited.");
         _ = await Assert.That(profile.ReadOnly).IsTrue();
         _ = await Assert.That(profile.SandboxRules).IsEmpty();
     }
@@ -143,11 +157,19 @@ internal sealed class ConfigurationTests : IDisposable
         var invalidAction = Write("sandbox_rules:\n  - path: /workspace\n    rule: unknown\n");
         _ = await Assert.That(() => Load(invalidAction)).Throws<InvalidDataException>();
 
-        var invalidProfile = Write("profiles:\n  worker:\n    read_only: true\n");
-        _ = await Assert.That(() => Load(invalidProfile)).Throws<InvalidDataException>();
+        var partialProfile = Write("profiles:\n  worker:\n    read_only: true\n");
+        _ = await Assert.That(Load(partialProfile).Profiles["worker"].ReadOnly).IsTrue();
 
         var invalidBoolean = Write("profiles:\n  query:\n    read_only: yes\n");
         _ = await Assert.That(() => Load(invalidBoolean)).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task Retired_profile_status_is_ignored_at_the_configuration_boundary()
+    {
+        var configuration = Load(Write("profiles:\n  query:\n    status: retired\n"));
+
+        _ = await Assert.That(configuration.Profiles["query"].Prompt).Contains("query mode");
     }
 
     [Test]
@@ -162,12 +184,11 @@ internal sealed class ConfigurationTests : IDisposable
 
     [Test]
     [Arguments("profiles:\n  build:\n    prompt: ''\n")]
-    [Arguments("profiles:\n  build:\n    hard_rule: []\n")]
-    [Arguments("profiles:\n  build:\n    status: '   '\n")]
-    [Arguments("profiles:\n  build:\n    max_tool_rounds: 0\n")]
-    [Arguments("profiles:\n  build:\n    max_tool_rounds: -1\n")]
-    [Arguments("profiles:\n  build:\n    max_tool_rounds: not-a-number\n")]
-    [Arguments("profiles:\n  build:\n    max_tool_rounds: 1.5\n")]
+    [Arguments("profiles:\n  build:\n    hard_rules: []\n")]
+    [Arguments("profiles:\n  build:\n    max_turns: 0\n")]
+    [Arguments("profiles:\n  build:\n    max_turns: -1\n")]
+    [Arguments("profiles:\n  build:\n    max_turns: not-a-number\n")]
+    [Arguments("profiles:\n  build:\n    max_turns: 1.5\n")]
     public async Task Profile_configuration_rejects_invalid_required_fields(string content) =>
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
@@ -332,7 +353,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("model: openai/gpt-5\n");
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
-            .Contains("Predefined Parrot configuration.");
+            .Contains("Predefined configuration reference.");
     }
 
     [Test]

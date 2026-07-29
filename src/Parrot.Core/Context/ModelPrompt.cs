@@ -37,7 +37,7 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
         if (selection.Profile is not null)
         {
             sections.Add(selection.Profile.Prompt);
-            sections.Add(selection.Profile.HardRule);
+            sections.Add("Hard rules:\n" + string.Join('\n', selection.Profile.HardRules.Select(rule => $"- {rule}")));
         }
 
         return string.Join("\n\n", sections.Where(section => section.Length > 0));

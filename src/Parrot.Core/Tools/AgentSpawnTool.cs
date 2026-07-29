@@ -17,12 +17,13 @@ internal sealed class AgentSpawnTool(
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"prompt":{"type":"string","minLength":1,"description":"The subtask for the child agent"},"model":{"type":"string","description":"Optional configured alias or canonical provider/model[/variant] selector; omitted or empty inherits the parent's complete requested selector."},"name":{"type":"string","description":"Optional friendly name. It is lowercased and sanitized to letters, digits, and hyphens; omitted or empty names are generated."}},"required":["prompt"],"additionalProperties":false}
+        {"type":"object","properties":{"prompt":{"type":"string","minLength":1,"description":"The subtask for the child agent"},"agent":{"type":"string","minLength":1,"description":"Configured child profile to run"},"model":{"type":"string","description":"Optional configured alias or canonical provider/model[/variant] selector; omitted or empty inherits the parent's complete requested selector."},"name":{"type":"string","description":"Optional friendly name. It is lowercased and sanitized to letters, digits, and hyphens; omitted or empty names are generated."}},"required":["prompt","agent"],"additionalProperties":false}
         """;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         string prompt;
+        string requestedProfile;
         string requestedModel;
         string requestedName;
 
@@ -30,6 +31,7 @@ internal sealed class AgentSpawnTool(
         {
             using var arguments = new ToolArguments(argumentsJson);
             prompt = arguments.RequiredString("prompt");
+            requestedProfile = arguments.RequiredString("agent");
             requestedModel = arguments.OptionalString("model");
             requestedName = arguments.OptionalString("name");
         }
@@ -43,7 +45,7 @@ internal sealed class AgentSpawnTool(
             var model = requestedModel.Length == 0
                 ? selection.RequestedModel
                 : router.Resolve(requestedModel).RequestedSelector;
-            var agent = agents.Spawn(session, selection, model, requestedName);
+            var agent = agents.Spawn(session, selection, requestedProfile, model, requestedName);
             _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
             return new SpawnAgentResult(agent.SessionId, agent.Name, agent.Depth).Format();
         }

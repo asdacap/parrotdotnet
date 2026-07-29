@@ -6,5 +6,5 @@ namespace Parrot.Agent;
 internal sealed record AgentTurnSelection(
     ModelSelector RequestedModel,
     ResolvedModelSelection ResolvedModel,
-    AgentProfile? Profile,
+    MainAgentProfile? Profile,
     SecurityProfile SecurityProfile);
