@@ -34,6 +34,8 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string AgentLabel => CreateAgentLabel();
 
+    public string ModelineLabel => $"agent {Name}";
+
     public void UpdateName(string name) => _name = name;
 
     public void UpdateStatistics(AgentStatisticsUpdatedEvent statistics) => _statistics = statistics;
