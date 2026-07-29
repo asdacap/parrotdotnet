@@ -33,7 +33,11 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(Draw, Commit, new ToolPresenterRegistry([], new GenericToolPresenter()));
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
         await view.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
@@ -137,7 +141,11 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(Draw, Commit, new ToolPresenterRegistry([], new GenericToolPresenter()));
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
         await view.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
@@ -196,7 +204,11 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(Draw, Commit, new ToolPresenterRegistry([], new GenericToolPresenter()));
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
         await view.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
@@ -241,7 +253,11 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(Draw, Commit, new ToolPresenterRegistry([], new GenericToolPresenter()));
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
         await view.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);

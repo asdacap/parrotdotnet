@@ -30,6 +30,8 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string AgentSessionId => agentSessionId;
 
+    public string AgentLabel => CreateAgentLabel();
+
     public void UpdateName(string name) => _name = name;
 
     public void UpdateStatistics(AgentStatisticsUpdatedEvent statistics) => _statistics = statistics;
@@ -190,15 +192,18 @@ internal sealed class AgentSessionState(string agentSessionId)
         return (activityId, presenters.PresentTerminal(call, terminal));
     }
 
+    public bool IsAgentActivity(string activityId) =>
+        _activities.Contains(AgentActivity) && string.Equals(activityId, AgentActivity, StringComparison.Ordinal);
+
     public ILiveBufferItem CreateLiveBufferItem(
         string activityId,
         int frame,
         ToolPresenterRegistry presenters)
     {
-        if (string.Equals(activityId, AgentActivity, StringComparison.Ordinal))
+        if (IsAgentActivity(activityId))
         {
             return _response.Length == 0
-                ? new SpinnerValue(CreateAgentLabel(), frame)
+                ? new SpinnerValue(AgentLabel, frame)
                 : new LiveTextValue($"● {_response}");
         }
 

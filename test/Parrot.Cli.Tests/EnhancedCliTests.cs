@@ -425,7 +425,8 @@ internal sealed class EnhancedCliTests
         using var view = new RawActivityView(
             Draw,
             Commit,
-            new ToolPresenterRegistry([new ExecCommandToolPresenter()], new GenericToolPresenter()));
+            new ToolPresenterRegistry([new ExecCommandToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
 
         await view.Render(
             new Event
@@ -498,7 +499,15 @@ internal sealed class EnhancedCliTests
         string RenderItems(IReadOnlyList<ILiveBufferItem> items) =>
             string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(line => line.Text));
 
-        using var view = new RawActivityView(Draw, Commit, Delay, Presenters());
+        var mainActivities = new List<string>();
+        Task UpdateMainAgentActivity(string activity, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            mainActivities.Add(activity);
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(Draw, Commit, Delay, Presenters(), UpdateMainAgentActivity);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = view.Run(animating.Token);
 
@@ -562,13 +571,14 @@ internal sealed class EnhancedCliTests
 
         var live = draws.Last();
         _ = await Assert.That(live).Contains("answer");
-        _ = await Assert.That(live).Contains("⠋ agent main");
+        _ = await Assert.That(live).DoesNotContain("agent main");
+        _ = await Assert.That(mainActivities).Contains("agent main");
         _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] agent explorer[31m (1.2m in / 800 cached / 300 out, 1.5k/? ctx)");
         _ = await Assert.That(live).Contains("⠋ exec_command");
         _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] read[2J");
 
         await ticks.Writer.WriteAsync(true, cancellationToken);
-        while (!draws.Any(value => value.Contains("⠙ agent main", StringComparison.Ordinal)))
+        while (draws.Count < 2)
         {
             await Task.Delay(1, cancellationToken);
         }
@@ -596,6 +606,7 @@ internal sealed class EnhancedCliTests
         await view.Render(
             new Event { AgentSessionId = "main-session", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
+        _ = await Assert.That(mainActivities.Last()).IsEmpty();
         await view.Redraw(cancellationToken);
         _ = await Assert.That(draws.Last()).Contains("agent explorer[31m");
         _ = await Assert.That(draws.Last()).DoesNotContain("agent main");

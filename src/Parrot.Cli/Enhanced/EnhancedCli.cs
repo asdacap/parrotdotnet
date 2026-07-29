@@ -240,6 +240,7 @@ internal sealed class EnhancedCli(
         var currentBody = (IReadOnlyList<ILiveBufferItem>)[];
         var usage = new RuntimeUsageTracker();
         var foregroundForModeline = new ForegroundTurn();
+        var mainAgentActivity = string.Empty;
         var modelineActivity = string.Empty;
         var modelineFrame = 0;
         var modelineTools = new HashSet<string>(StringComparer.Ordinal);
@@ -273,9 +274,14 @@ internal sealed class EnhancedCli(
                 runtime.FormatTokens(),
                 runtime.FormatCost(),
             };
-            var activity = modelineActivity.Length == 0
+            var activityLabel = modelineTools.Count > 0
+                ? modelineActivity
+                : mainAgentActivity.Length > 0
+                    ? mainAgentActivity
+                    : modelineActivity;
+            var activity = activityLabel.Length == 0
                 ? string.Empty
-                : $"{TerminalIcons.SpinnerFrames[modelineFrame % TerminalIcons.SpinnerFrames.Length]} {modelineActivity}";
+                : $"{TerminalIcons.SpinnerFrames[modelineFrame % TerminalIcons.SpinnerFrames.Length]} {activityLabel}";
             return new ModelineValue(
                 session.Mode,
                 activity,
@@ -284,7 +290,14 @@ internal sealed class EnhancedCli(
 
         void ObserveModelineActivity(Event published)
         {
-            if (published.PayloadCase == Event.PayloadOneofCase.ToolStarted
+            if (foregroundForModeline.IsTerminal(published)
+                || (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
+                    && foregroundForModeline.IsMain(published.AgentSessionId)))
+            {
+                modelineTools.Clear();
+                modelineActivity = string.Empty;
+            }
+            else if (published.PayloadCase == Event.PayloadOneofCase.ToolStarted
                 && foregroundForModeline.IsMain(published.AgentSessionId)
                 && toolPresenters.Describe(published.ToolStarted.ToolName).Modeline)
             {
@@ -305,6 +318,20 @@ internal sealed class EnhancedCli(
                 {
                     modelineActivity = string.Empty;
                 }
+            }
+        }
+
+        async Task UpdateMainAgentActivity(string activity, CancellationToken token)
+        {
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                mainAgentActivity = activity;
+                currentModeline = CreateModeline();
+            }
+            finally
+            {
+                _ = composing.Release();
             }
         }
 
@@ -333,6 +360,7 @@ internal sealed class EnhancedCli(
             try
             {
                 currentBody = [.. items];
+                currentModeline = CreateModeline();
                 await renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
             }
             finally
@@ -412,6 +440,7 @@ internal sealed class EnhancedCli(
                         activeCall.ResponseStream,
                         DrawBody,
                         CommitBody,
+                        UpdateMainAgentActivity,
                         async (published, eventToken) =>
                         {
                             await composing.WaitAsync(eventToken).ConfigureAwait(false);
@@ -427,10 +456,21 @@ internal sealed class EnhancedCli(
                                 _ = composing.Release();
                             }
                         },
-                        async token =>
+                        async readyToken =>
                         {
-                            modelineActivity = string.Empty;
-                            await DrawState(CreateModeline(), token).ConfigureAwait(false);
+                            await composing.WaitAsync(readyToken).ConfigureAwait(false);
+                            try
+                            {
+                                mainAgentActivity = string.Empty;
+                                modelineActivity = string.Empty;
+                                currentModeline = CreateModeline();
+                            }
+                            finally
+                            {
+                                _ = composing.Release();
+                            }
+
+                            await DrawState(currentModeline, readyToken).ConfigureAwait(false);
                         },
                         stopSpinner,
                         async (completed, eventToken) =>
@@ -467,6 +507,7 @@ internal sealed class EnhancedCli(
             usage.Reset();
             foregroundForModeline.Reset();
             modelineTools.Clear();
+            mainAgentActivity = string.Empty;
             modelineActivity = string.Empty;
             currentModeline = CreateModeline();
             _busy = false;
@@ -805,6 +846,7 @@ internal sealed class EnhancedCli(
         IAsyncStreamReader<Event> stream,
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
         Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        Func<string, CancellationToken, Task> updateMainAgentActivity,
         Func<Event, CancellationToken, Task> observe,
         Func<CancellationToken, Task> ready,
         Func<Task> stopSpinner,
@@ -814,7 +856,7 @@ internal sealed class EnhancedCli(
     {
         var spinning = true;
         var foreground = new ForegroundTurn();
-        using var activity = new RawActivityView(draw, commit, toolPresenters);
+        using var activity = new RawActivityView(draw, commit, toolPresenters, updateMainAgentActivity);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = activity.Run(animating.Token);
 
