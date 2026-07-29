@@ -475,6 +475,7 @@ internal sealed class DrainTests : IDisposable
             profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
+            registry: null,
             lifetime);
     }
 }

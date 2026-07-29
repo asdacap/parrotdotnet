@@ -210,6 +210,7 @@ internal sealed class UserSession : IAsyncDisposable
                     Mode,
                     Mode.SecurityProfile,
                     Status,
+                    Registry,
                     _lifetime.Token);
                 _main = lease.Session;
                 _agents.Add(lease);

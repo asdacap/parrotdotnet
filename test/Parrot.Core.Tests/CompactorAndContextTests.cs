@@ -180,6 +180,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
+            registry: null,
             cancellationToken);
 
         _ = await session.Send(

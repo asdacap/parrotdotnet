@@ -175,6 +175,12 @@ the beginning of each turn. Retargeting an alias affects the next turn only;
 an active turn, including its tool rounds, continues to use its captured
 canonical route and matching prompt configuration.
 
+A spawned child runs independently and `agent_spawn` returns its session ID
+immediately. When each child execution finishes, Parrot automatically sends its
+terminal status and result to its direct parent as normal steering input.
+`wait_agent` remains available when the parent needs to block for the retained
+result instead.
+
 Configured aliases may be used anywhere a model selector is accepted,
 including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits
 the parent turn's complete requested selector, including an alias or variant;
