@@ -19,6 +19,7 @@ internal sealed class AgentSessionFactorySource(
         new AgentSessionFactory(
             owner,
             workingDirectory,
+            sessionIndex.BlobDirectoryFor(owner.Id),
             compactor,
             webFetcher,
             router,

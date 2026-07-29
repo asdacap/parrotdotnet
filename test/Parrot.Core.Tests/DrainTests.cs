@@ -15,6 +15,9 @@ namespace Parrot.Core.Tests;
 // is the whole of what a queue is for.
 internal sealed class DrainTests : IDisposable
 {
+    private readonly string _blobDirectory = Path.Combine(
+        Path.GetTempPath(), "parrot-drain-tests", Guid.NewGuid().ToString("n"));
+
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly EventBroker _broker = new();
 
@@ -22,6 +25,11 @@ internal sealed class DrainTests : IDisposable
     {
         _broker.Dispose();
         _database.Dispose();
+
+        if (Directory.Exists(_blobDirectory))
+        {
+            Directory.Delete(_blobDirectory, recursive: true);
+        }
     }
 
     [Test]
@@ -138,11 +146,15 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task Tool_finished_persists_empty_and_large_results_exactly(CancellationToken cancellationToken)
+    public async Task Tool_finished_spills_only_oversized_utf8_results(CancellationToken cancellationToken)
     {
-        var results = new[] { string.Empty, new string('x', 2 * 1024 * 1024) };
+        var inline = new string('x', ToolOutputBlobStore.MaximumInlineBytes);
+        var oversized = new string('界', 21_846);
+        _ = await Assert.That(oversized.Length).IsLessThan(ToolOutputBlobStore.MaximumInlineBytes);
+        _ = await Assert.That(System.Text.Encoding.UTF8.GetByteCount(oversized))
+            .IsGreaterThan(ToolOutputBlobStore.MaximumInlineBytes);
 
-        foreach (var result in results)
+        foreach (var result in new[] { string.Empty, inline, new string('x', ToolOutputBlobStore.MaximumInlineBytes + 1), oversized })
         {
             using var provider = new SteppedProvider(
                 Answer(string.Empty, new LLMToolCall("call", "settled", "{}")), Answer("done"));
@@ -159,7 +171,19 @@ internal sealed class DrainTests : IDisposable
             var finished = repository.Replay().Last(published =>
                 published.PayloadCase == Event.PayloadOneofCase.ToolFinished).ToolFinished;
             _ = await Assert.That(finished.HasResult).IsTrue();
-            _ = await Assert.That(finished.Result).IsEqualTo(result);
+
+            if (!ToolOutputBlobStore.IsOversized(result))
+            {
+                _ = await Assert.That(finished.Result).IsEqualTo(result);
+                continue;
+            }
+
+            _ = await Assert.That(finished.Result).Contains("Tool output exceeded 64 KiB");
+            _ = await Assert.That(finished.Result).DoesNotContain("界界界");
+            var path = BlobPath(finished.Result);
+            _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo(result);
+            var toolResult = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.Tool);
+            _ = await Assert.That(toolResult.Content).IsEqualTo(finished.Result);
         }
     }
 
@@ -371,6 +395,13 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | queued prompt");
     }
 
+    private static string BlobPath(string notice)
+    {
+        const string prefix = "Tool output exceeded 64 KiB and was saved to ";
+        const string suffix = ". Use exec_command to read the file.";
+        return notice[prefix.Length..^suffix.Length];
+    }
+
     private static LLMEvent Answer(string text, params LLMToolCall[] toolCalls) =>
         LLMEvent.Completed("stop", 1, 0, 1, text, toolCalls);
 
@@ -471,6 +502,7 @@ internal sealed class DrainTests : IDisposable
             toolFactories,
             TestModels.PromptProvider(".", "."),
             new TodoCollection("agent", repository, _broker),
+            new ToolOutputBlobStore(_blobDirectory),
             new Compactor(120_000),
             profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),

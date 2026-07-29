@@ -117,6 +117,7 @@ internal sealed class TodoToolTests : IDisposable
             [],
             TestModels.PromptProvider("/workspace", "/workspace"),
             new TodoCollection(sessionId, repository, _events),
+            new ToolOutputBlobStore(_root),
             new Compactor(120_000),
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),

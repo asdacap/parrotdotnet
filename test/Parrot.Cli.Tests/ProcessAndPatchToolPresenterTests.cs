@@ -73,6 +73,24 @@ internal sealed class ProcessAndPatchToolPresenterTests
     }
 
     [Test]
+    public async Task Spilled_nonzero_process_output_is_reported_as_a_failure()
+    {
+        var presenter = new ExecCommandToolPresenter();
+        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}");
+        var terminal = new ToolTerminalPresentation(
+            ToolTerminalStatus.Succeeded,
+            true,
+            "Process exited with code 7\nTool output exceeded 64 KiB and was saved to /tmp/output. Use exec_command to read the file.",
+            string.Empty);
+
+        var rendered = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+
+        _ = await Assert.That(terminal.ResolveProcessStatus()).IsEqualTo(ToolTerminalStatus.ReportedFailure);
+        _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: $ compile");
+        _ = await Assert.That(string.Join('\n', rendered)).Contains("saved to /tmp/output");
+    }
+
+    [Test]
     public async Task Exec_process_output_is_not_colored()
     {
         var presenter = new ExecCommandToolPresenter();

@@ -16,6 +16,7 @@ namespace Parrot.Agent;
 internal sealed class AgentSessionFactory(
     UserSession owner,
     string workingDirectory,
+    string blobDirectory,
     Compactor compactor,
     WebFetcher webFetcher,
     ModelRouter router,
@@ -61,6 +62,7 @@ internal sealed class AgentSessionFactory(
             eventRepository,
             ToolFactories,
             systemPromptProvider,
+            blobDirectory,
             compactor,
             profile,
             securityProfile,

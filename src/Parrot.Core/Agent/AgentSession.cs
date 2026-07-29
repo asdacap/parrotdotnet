@@ -32,6 +32,7 @@ internal sealed class AgentSession(
     IReadOnlyList<IToolFactory> toolFactories,
     ISystemPromptProvider systemPromptProvider,
     TodoCollection todos,
+    ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
     MainAgentProfile? profile,
     SecurityProfile securityProfile,
@@ -995,6 +996,11 @@ internal sealed class AgentSession(
         try
         {
             var result = await tool.Execute(call.ArgumentsJson, cancellationToken).ConfigureAwait(false);
+            if (ToolOutputBlobStore.IsOversized(result))
+            {
+                result = await toolOutputBlobs.Persist(result, CancellationToken.None).ConfigureAwait(false);
+            }
+
             var finished = new Event
             {
                 Id = Identifier.EventId(),

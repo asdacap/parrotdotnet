@@ -44,6 +44,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             [],
             TestModels.PromptProvider(_workspace, _workspace),
             new TodoCollection("session", new EventRepository(database), events),
+            new ToolOutputBlobStore(Path.Combine(_workspace, "blob")),
             new Compactor(120_000),
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -71,8 +72,13 @@ internal sealed class ExecCommandToolTests : IDisposable
         var spilled = await tool.Execute(
             """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""",
             cancellationToken);
-        _ = await Assert.That(Path.IsPathFullyQualified(spilled)).IsTrue();
-        _ = await Assert.That(Path.GetDirectoryName(spilled)).IsEqualTo(Path.Combine(_workspace, "blob"));
+        const string spilledPrefix =
+            "Process exited with code 0\nTool output exceeded 64 KiB and was saved to ";
+        const string spilledSuffix = ". Use exec_command to read the file.";
+        var spilledPath = spilled[spilledPrefix.Length..^spilledSuffix.Length];
+        _ = await Assert.That(spilled).IsEqualTo(spilledPrefix + spilledPath + spilledSuffix);
+        _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();
+        _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(Path.Combine(_workspace, "blob"));
 
         var yielded = await tool.Execute(
             """{"command":"sleep 0.05; printf later","name":"later","yield_after_ms":0}""",

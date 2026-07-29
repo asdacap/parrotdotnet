@@ -9,7 +9,8 @@ namespace Parrot.Process;
 // property M3 exists to establish.
 internal sealed class ProcessRunner(string bubblewrapPath)
 {
-    private const int MaxOutputCharacters = 64 << 10;
+    private const int MaxFormattedOutputBytes = 64 << 10;
+    private const int MaxStreamOutputCharacters = 64 << 10;
 
     // An empty path means bubblewrap was not found. Kept as a value rather than
     // a null so the fail-closed check is explicit.
@@ -79,7 +80,13 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         {
             if (!stdout.Spilled && !stderr.Spilled)
             {
-                return new ProcessResult(process.ExitCode, stdout.Text, stderr.Text, string.Empty);
+                var result = new ProcessResult(process.ExitCode, stdout.Text, stderr.Text, string.Empty);
+
+                if (System.Text.Encoding.UTF8.GetByteCount(ProcessResultFormatter.Format(result))
+                    <= MaxFormattedOutputBytes)
+                {
+                    return result;
+                }
             }
 
             var blobPath = await new ProcessOutputBlobStore(blobDirectory)
@@ -104,7 +111,7 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
     private static async Task<ProcessOutput> ReadBounded(StreamReader reader, string blobDirectory)
     {
-        var output = new System.Text.StringBuilder(MaxOutputCharacters);
+        var output = new System.Text.StringBuilder(MaxStreamOutputCharacters);
         var buffer = new char[4096];
         while (true)
         {
@@ -115,7 +122,7 @@ internal sealed class ProcessRunner(string bubblewrapPath)
                 return new ProcessOutput(output.ToString(), string.Empty);
             }
 
-            if (output.Length + read <= MaxOutputCharacters)
+            if (output.Length + read <= MaxStreamOutputCharacters)
             {
                 _ = output.Append(buffer, 0, read);
                 continue;
