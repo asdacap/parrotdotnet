@@ -42,6 +42,7 @@ internal partial class AgentSessionComposition
                     arguments.SecurityProfile,
                     arguments.Status,
                     arguments.Registry,
+                    arguments.Owner,
                     arguments.Lifetime);
             })
             .Root<AgentSession>("Session");

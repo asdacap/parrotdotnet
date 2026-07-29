@@ -1,5 +1,6 @@
 using Parrot.Context;
 using Parrot.Process;
+using Parrot.Queues;
 using Parrot.Store;
 using Parrot.Web;
 
@@ -32,4 +33,7 @@ internal sealed class AgentSessionFactorySource(
             sessionIndex.BlobDirectoryFor(owner.Id),
             processes,
             owner.Lifetime);
+
+    public QueueStore CreateQueues(UserSession owner) =>
+        new(sessionIndex.QueueDirectoryFor(owner.Id));
 }

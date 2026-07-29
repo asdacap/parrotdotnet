@@ -228,6 +228,25 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Outbound** `SessionDatabase`.
 - **Boundary** no.
 
+### `QueueStore` — rank 3, M8
+
+- **Absorbs** `internal/queue` and the queue portions of upstream `tool`,
+  `status`, `agent`, and `session`.
+- **Owns** one user session's named JSONL queues, their metadata, lock
+  discipline, durable monitored-delivery ids, and canonical monitored-item
+  selection.
+- **Inbound** explicitly create, inspect, list, push, take, monitor, and offer
+  one monitored item. Queue names are canonical lowercase ASCII words joined by
+  hyphens; empty queues remain durable.
+- **Outbound** the user session's private queue directory and `UserSession` for
+  trusted root-idle notification admission.
+- **Boundary** no. Concrete and user-session owned; the five queue tools are
+  its adapters.
+- **Note** queue files use bounded, strict JSON Lines and lock directories so
+  independent store instances/processes share one read-modify-write discipline.
+  The queue item is removed only after a root transaction durably admits its
+  stable notification id, allowing retry after either durability domain fails.
+
 ### `EventBroker` — rank 3, M1
 
 - **Absorbs** `event` (broker, stream, subscription).
@@ -548,11 +567,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 
 - **Absorbs** `session` (`InteractiveOwner`, `InteractiveClaim`), `store`
   (owners, claims).
-- **Owns** the working-directory binding, the claim on it, and the
-  `AgentSession`s inside it.
+- **Owns** the working-directory binding, the claim on it, its shared durable
+  queue store, and the `AgentSession`s inside it. Root-idle monitored queue
+  delivery is admitted here rather than by child sessions.
 - **Inbound** open a session for this working directory: reclaim an abandoned
   binding, or start a second when one is live.
-- **Outbound** `SessionDatabase`, `StatePaths`, `Configuration`.
+- **Outbound** `SessionDatabase`, `StatePaths`, `Configuration`, and its private
+  queue directory.
 - **Boundary** no.
 - **Note** the claim is held for exactly the duration of `Run`.
 

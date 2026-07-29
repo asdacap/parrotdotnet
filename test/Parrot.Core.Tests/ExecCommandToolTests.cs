@@ -50,6 +50,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             null,
+            null,
             CancellationToken.None);
         var processes = new ShellProcessOwner(
             _workspace,

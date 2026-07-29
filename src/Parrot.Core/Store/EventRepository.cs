@@ -101,6 +101,66 @@ internal sealed class EventRepository(SessionDatabase database)
         }
     }
 
+    public Admission? AdmitSteerIfIdle(
+        string agentSessionId,
+        string messageId,
+        string content,
+        Func<AdmittedInput, Event> compose)
+    {
+        ArgumentNullException.ThrowIfNull(compose);
+
+        lock (_gate)
+        {
+            using var transaction = database.Begin();
+
+            if (Existing(transaction, agentSessionId, messageId) is { } already)
+            {
+                return already.Content == content && already.Delivery == Delivery.Steer
+                    ? new Admission(already, null)
+                    : throw new InputConflictException(
+                        $"message {messageId} was already admitted with different content");
+            }
+
+            using (var pending = database.Connection.CreateCommand())
+            {
+                pending.Transaction = transaction;
+                pending.CommandText =
+                    "SELECT EXISTS (SELECT 1 FROM input WHERE agent_session = $session AND status = 'pending');";
+                _ = pending.Parameters.AddWithValue("$session", agentSessionId);
+
+                if (Convert.ToInt64(
+                    pending.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0)
+                {
+                    transaction.Commit();
+                    return null;
+                }
+            }
+
+            var admitted = new AdmittedInput(Identifier.InputId(), messageId, content, Delivery.Steer);
+            var published = compose(admitted);
+
+            using (var insert = database.Connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText =
+                    """
+                    INSERT INTO input (id, agent_session, message_id, content, delivery, status, created_at)
+                    VALUES ($id, $session, $message, $content, 'steer', 'pending', $at);
+                    """;
+                _ = insert.Parameters.AddWithValue("$id", admitted.Id);
+                _ = insert.Parameters.AddWithValue("$session", agentSessionId);
+                _ = insert.Parameters.AddWithValue("$message", messageId);
+                _ = insert.Parameters.AddWithValue("$content", content);
+                _ = insert.Parameters.AddWithValue("$at", Timestamp());
+                _ = insert.ExecuteNonQuery();
+            }
+
+            Record(transaction, published);
+            transaction.Commit();
+            return new Admission(admitted, published);
+        }
+    }
+
     // Every pending steer, oldest first. Upstream bounds this by a sequence
     // cutoff; here the single transaction is the boundary, so a steer admitted
     // while this runs simply lands at the next one.

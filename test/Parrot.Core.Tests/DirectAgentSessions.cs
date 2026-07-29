@@ -3,6 +3,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -17,15 +18,23 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
 {
     private readonly List<AgentIdentity> _identities = [];
     private ModelRouter? _router;
+    private UserSession? _owner;
 
     public IReadOnlyList<AgentIdentity> Identities => _identities;
 
     public void Use(ModelRouter router) => _router = router;
 
-    public IAgentSessionFactory Create(UserSession owner) => this;
+    public IAgentSessionFactory Create(UserSession owner)
+    {
+        _owner = owner;
+        return this;
+    }
 
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
         new(".", ".", new ProcessRunner(string.Empty), owner.Lifetime);
+
+    public QueueStore CreateQueues(UserSession owner) =>
+        new(Path.Combine(Path.GetTempPath(), "parrot-tests", owner.Id, "queues"));
 
     public IAgentSessionLease Create(
         AgentIdentity identity,
@@ -55,6 +64,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             securityProfile,
             status,
             registry,
+            _owner,
             lifetime));
     }
 }

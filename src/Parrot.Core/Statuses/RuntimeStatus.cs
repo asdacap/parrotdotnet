@@ -6,6 +6,7 @@ internal sealed class RuntimeStatus(UserSession owner)
 {
     private readonly StatusRegistry _registry = new(
         new SelectionStatusProvider(),
+        new QueueStatusProvider(owner.Queues),
         new ActiveWorkStatusProvider(owner.ShellProcesses, owner.Registry));
 
     public Task<string> Observe(

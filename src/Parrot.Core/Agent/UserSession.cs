@@ -3,6 +3,7 @@ using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
+using Parrot.Queues;
 using Parrot.Statuses;
 using Parrot.Store;
 
@@ -21,6 +22,7 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly IAgentSessionFactory _agentSessions;
     private readonly Lock _mainGate = new();
     private readonly ModeRegistry _modes;
+    private readonly SemaphoreSlim _queueDelivery = new(1, 1);
 
     // What every drain inside this session is bounded by. It is owned here
     // rather than by an agent session because the drain outlives the request
@@ -60,6 +62,7 @@ internal sealed class UserSession : IAsyncDisposable
         var state = eventRepository.SessionState(id, modes.Resolve(mode, id).Id);
         _mainSessionId = state.AgentSessionId;
         Mode = modes.Resolve(state.Mode, id);
+        Queues = agentSessionFactories.CreateQueues(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, modes.Profiles, _lifetime.Token);
@@ -86,6 +89,8 @@ internal sealed class UserSession : IAsyncDisposable
     public MainAgentProfile Mode { get; private set; }
 
     internal CancellationToken Lifetime => _lifetime.Token;
+
+    internal QueueStore Queues { get; }
 
     internal ShellProcessOwner ShellProcesses { get; }
 
@@ -188,10 +193,51 @@ internal sealed class UserSession : IAsyncDisposable
         // on MoveNext returns false rather than waiting forever.
         _lifetime.Dispose();
         _eventBroker.Dispose();
+        Queues.Dispose();
+        _queueDelivery.Dispose();
         _agents.Clear();
     }
 
     internal IReadOnlyList<ActiveWorkObservation> ActiveWork() => [.. ShellProcesses.Active(), .. Registry.Active()];
+
+    internal async Task<bool> DeliverMonitored(AgentSession root, CancellationToken cancellationToken)
+    {
+        if (root.Depth != 0 || !root.IsIdle())
+        {
+            return false;
+        }
+
+        await _queueDelivery.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!root.IsIdle())
+            {
+                return false;
+            }
+
+            return await Queues.DeliverMonitored(root.ReceiveQueueNotification, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        finally
+        {
+            _ = _queueDelivery.Release();
+        }
+    }
+
+    internal async Task NotifyQueuePush(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = await DeliverMonitored(Main(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+        }
+    }
 
     // Built once, on the first prompt. Under a lock because SendMessage arrives
     // on gRPC handler threads and two concurrent first prompts would otherwise

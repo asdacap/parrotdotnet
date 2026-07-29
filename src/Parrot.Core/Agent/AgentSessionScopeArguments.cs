@@ -22,4 +22,5 @@ internal sealed record AgentSessionScopeArguments(
     SecurityProfile SecurityProfile,
     RuntimeStatus? Status,
     AgentRegistry Registry,
+    UserSession Owner,
     CancellationToken Lifetime);
