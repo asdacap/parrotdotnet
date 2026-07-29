@@ -34,7 +34,7 @@ internal sealed class LiveUpdateScheduler : IAsyncDisposable
 
     public Task Publish(MarkdownLiveUpdate update, CancellationToken cancellationToken) =>
         update.Scrollback is { } scrollback
-            ? Commit(scrollback, update.Preview, cancellationToken)
+            ? Commit(scrollback, update, cancellationToken)
             : Queue(update, cancellationToken);
 
     public async Task Flush(CancellationToken cancellationToken)
@@ -70,7 +70,7 @@ internal sealed class LiveUpdateScheduler : IAsyncDisposable
         timerCancellation?.Dispose();
         if (pending is { } update)
         {
-            await Draw(update.Preview, cancellationToken).ConfigureAwait(false);
+            await Draw(update, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -89,8 +89,10 @@ internal sealed class LiveUpdateScheduler : IAsyncDisposable
         _state.Dispose();
     }
 
-    private static List<ILiveBufferItem> Items(IReadOnlyList<string> preview) =>
-        [.. preview.Select(value => (ILiveBufferItem)new LiveTextValue(value))];
+    private static List<ILiveBufferItem> Items(MarkdownLiveUpdate update) =>
+        update.Preview.Count == 0
+            ? []
+            : [new MarqueeValue(update.Prefix, string.Join(' ', update.Preview), 0)];
 
     private async Task Queue(MarkdownLiveUpdate update, CancellationToken cancellationToken)
     {
@@ -112,14 +114,14 @@ internal sealed class LiveUpdateScheduler : IAsyncDisposable
 
     private async Task Commit(
         IScrollbackItem scrollback,
-        IReadOnlyList<string> preview,
+        MarkdownLiveUpdate update,
         CancellationToken cancellationToken)
     {
         await Flush(cancellationToken).ConfigureAwait(false);
         await _publishing.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _commit(scrollback, Items(preview), cancellationToken).ConfigureAwait(false);
+            await _commit(scrollback, Items(update), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -160,7 +162,7 @@ internal sealed class LiveUpdateScheduler : IAsyncDisposable
 
                 if (update is not null)
                 {
-                    await Draw(update.Value.Preview, CancellationToken.None).ConfigureAwait(false);
+                    await Draw(update.Value, CancellationToken.None).ConfigureAwait(false);
                 }
 
                 await _state.WaitAsync(cancellation.Token).ConfigureAwait(false);
@@ -193,12 +195,12 @@ internal sealed class LiveUpdateScheduler : IAsyncDisposable
         }
     }
 
-    private async Task Draw(IReadOnlyList<string> preview, CancellationToken cancellationToken)
+    private async Task Draw(MarkdownLiveUpdate update, CancellationToken cancellationToken)
     {
         await _publishing.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _draw(Items(preview), cancellationToken).ConfigureAwait(false);
+            await _draw(Items(update), cancellationToken).ConfigureAwait(false);
         }
         finally
         {

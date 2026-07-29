@@ -5,7 +5,6 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
 {
     private const int DefaultColumns = 80;
-    private const int MaximumPreviewRows = 3;
 
     private readonly StringBuilder _pending = new();
     private string _id = string.Empty;
@@ -45,16 +44,14 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
         var previewPrefix = _started || promoted.Count > 0
             ? new string(' ', TerminalText.Width(prefix))
             : prefix;
-        var preview = pendingSource.Length == 0
-            ? []
-            : MarkdownRenderer.Render(previewPrefix, pendingSource, width, false).ToList();
         _id = id;
         _prefix = prefix;
         _ = _pending.Clear().Append(pendingSource);
         _started |= promoted.Count > 0;
         return new MarkdownLiveUpdate(
             promoted.Count == 0 ? null : _sequence.Append(promoted),
-            [.. preview.TakeLast(MaximumPreviewRows)]);
+            previewPrefix,
+            pendingSource.Length == 0 ? [] : [pendingSource]);
     }
 
     public MarkdownLiveUpdate Commit()
@@ -65,7 +62,7 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
             : MarkdownRenderer.Render(prefix, _pending.ToString(), Columns(), color);
         var completed = _sequence.Complete(scrollback);
         Reset();
-        return new MarkdownLiveUpdate(completed, []);
+        return new MarkdownLiveUpdate(completed, string.Empty, []);
     }
 
     private static int PromotableBoundary(string source)

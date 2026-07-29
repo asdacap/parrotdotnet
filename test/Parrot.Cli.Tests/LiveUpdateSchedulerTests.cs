@@ -16,7 +16,7 @@ internal sealed class LiveUpdateSchedulerTests
         Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            draws.Enqueue(string.Join('|', items.Cast<LiveTextValue>().Select(static item => item.Text)));
+            draws.Enqueue(string.Join('|', items.Cast<MarqueeValue>().Select(static item => item.Text)));
             _ = published.TrySetResult();
             return Task.CompletedTask;
         }
@@ -31,8 +31,8 @@ internal sealed class LiveUpdateSchedulerTests
         }
 
         await using var scheduler = new LiveUpdateScheduler(Draw, Commit, Delay);
-        await scheduler.Publish(new MarkdownLiveUpdate(null, ["first"]), cancellationToken);
-        await scheduler.Publish(new MarkdownLiveUpdate(null, ["second"]), cancellationToken);
+        await scheduler.Publish(new MarkdownLiveUpdate(null, string.Empty, ["first"]), cancellationToken);
+        await scheduler.Publish(new MarkdownLiveUpdate(null, string.Empty, ["second"]), cancellationToken);
 
         var interval = await started.Task.WaitAsync(cancellationToken);
         _ = await Assert.That(interval).IsEqualTo(TimeSpan.FromSeconds(1d / 30d));
@@ -53,7 +53,7 @@ internal sealed class LiveUpdateSchedulerTests
         Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            draws.Enqueue(string.Join('|', items.Cast<LiveTextValue>().Select(static item => item.Text)));
+            draws.Enqueue(string.Join('|', items.Cast<MarqueeValue>().Select(static item => item.Text)));
             return Task.CompletedTask;
         }
 
@@ -63,7 +63,7 @@ internal sealed class LiveUpdateSchedulerTests
         Task Delay(TimeSpan interval, CancellationToken token) => release.Task.WaitAsync(token);
 
         await using var scheduler = new LiveUpdateScheduler(Draw, Commit, Delay);
-        await scheduler.Publish(new MarkdownLiveUpdate(null, ["latest"]), cancellationToken);
+        await scheduler.Publish(new MarkdownLiveUpdate(null, string.Empty, ["latest"]), cancellationToken);
         await scheduler.Flush(cancellationToken);
 
         _ = await Assert.That(draws.Count).IsEqualTo(1);

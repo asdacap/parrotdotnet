@@ -75,7 +75,7 @@ internal sealed class EnhancedHierarchyTests
         var parentPosition = live.IndexOf("  ● [parent] parent response", StringComparison.Ordinal);
         _ = await Assert.That(childPosition).IsGreaterThanOrEqualTo(0);
         _ = await Assert.That(parentPosition).IsGreaterThan(childPosition);
-        _ = await Assert.That(live).Contains("      [child] response");
+        _ = await Assert.That(live).DoesNotContain("      [child] response");
 
         await view.Render(
             new Event
@@ -176,7 +176,8 @@ internal sealed class EnhancedHierarchyTests
             Enumerable.Range(1, 10).Select(static line => line == 1
                 ? "  ● [child] line 1"
                 : $"    [child] line {line}"));
-        _ = await Assert.That(drawn[^1]).Contains(expectedResponse);
+        _ = await Assert.That(drawn[^1]).Contains("  ● [child] line 1 line 2");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("|    [child] line 2");
         _ = await Assert.That(drawn[^1]).DoesNotContain("line 11");
 
         await view.Render(

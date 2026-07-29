@@ -225,7 +225,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         {
             return _response.Length == 0
                 ? new SpinnerValue(AgentLabel, frame)
-                : new LiveTextValue($"● {_response}");
+                : new MarqueeValue("● ", _response.ToString(), frame);
         }
 
         var toolCallId = activityId[ToolActivityPrefix.Length..];

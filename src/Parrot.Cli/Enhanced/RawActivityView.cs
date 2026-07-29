@@ -75,7 +75,7 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _content = [.. items];
+            _content = Capture(items);
             await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -95,7 +95,7 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _content = [.. items];
+            _content = Capture(items);
             await commit(scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -228,7 +228,7 @@ internal sealed class RawActivityView(
     private List<ILiveBufferItem> Snapshot()
     {
         var items = new List<ILiveBufferItem>(_content.Count + _activities.Count + 1);
-        items.AddRange(_content);
+        items.AddRange(_content.Select(item => item is MarqueeValue value ? value.Animate(_frame - value.Frame) : item));
         if (_reasoning.Length > 0)
         {
             items.Add(new SpinnerValue("Thinking…", _frame));
@@ -249,6 +249,9 @@ internal sealed class RawActivityView(
             .Select(CreateActivityItem));
         return items;
     }
+
+    private IReadOnlyList<ILiveBufferItem> Capture(IReadOnlyList<ILiveBufferItem> items) =>
+        [.. items.Select(item => item is MarqueeValue value ? value.Animate(_frame) : item)];
 
     private AgentSessionState GetAgentSession(string agentSessionId)
     {

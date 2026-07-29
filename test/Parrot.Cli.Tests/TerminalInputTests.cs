@@ -183,6 +183,25 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    public async Task Marquee_keeps_streamed_text_on_one_row_and_moves_it_left()
+    {
+        var context = new LiveBufferRenderContext(5, new TerminalPalette(false));
+        var first = new MarqueeValue("● ", "abcdef", 0).Render(context);
+        var next = new MarqueeValue("● ", "abcdef", 1).Render(context);
+        var stationary = new MarqueeValue("● ", "a\nb", 20).Render(context);
+        var wide = new MarqueeValue(string.Empty, "界ab", 1).Render(new LiveBufferRenderContext(2, context.Palette));
+        var joined = new MarqueeValue(string.Empty, "👨‍👩‍👧‍👦a", 0).Render(new LiveBufferRenderContext(2, context.Palette));
+
+        _ = await Assert.That(first.Lines).Count().IsEqualTo(1);
+        _ = await Assert.That(first.Lines[0].Text).IsEqualTo("● abc");
+        _ = await Assert.That(next.Lines[0].Text).IsEqualTo("● bcd");
+        _ = await Assert.That(stationary.Lines[0].Text).IsEqualTo("● a b");
+        _ = await Assert.That(wide.Lines[0].Text).IsEqualTo(" a");
+        _ = await Assert.That(joined.Lines[0].Text).IsEqualTo("👨‍👩‍👧‍👦");
+        _ = await Assert.That(first.Retention).IsEqualTo(LiveBufferRetention.Tail);
+    }
+
+    [Test]
     public async Task Live_buffer_values_render_rich_multiline_results()
     {
         var context = new LiveBufferRenderContext(4, new TerminalPalette(false));
