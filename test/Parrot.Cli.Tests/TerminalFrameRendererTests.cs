@@ -255,9 +255,125 @@ internal sealed class TerminalFrameRendererTests
             cancellationToken);
 
         var replacement = output.ToString()[boundary..];
-        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(3);
-        _ = await Assert.That(replacement).DoesNotContain("\u001b[2K\r\n\u001b[2K");
+        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
         _ = await Assert.That(replacement).Contains("done");
+        _ = await Assert.That(replacement).DoesNotContain("chat");
+        _ = await Assert.That(replacement).DoesNotContain("> draft");
+    }
+
+    [Test]
+    public async Task Draw_does_not_repaint_an_unchanged_live_frame(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
+        var frame = Items(
+            [new LiveTextValue("working")],
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", "draft", 5));
+
+        await renderer.Draw(frame, cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(frame, cancellationToken);
+
+        var replacement = output.ToString()[boundary..];
+        _ = await Assert.That(replacement).IsEmpty();
+    }
+
+    [Test]
+    public async Task Draw_repaints_only_the_changed_input_row(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
+        var body = (IReadOnlyList<ILiveBufferItem>)[new LiveTextValue("working"), new SpinnerValue("thinking", 0)];
+
+        await renderer.Draw(
+            Items(body, new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", "draft", 5)),
+            cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(
+            Items(body, new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", "updated", 7)),
+            cancellationToken);
+
+        var replacement = output.ToString()[boundary..];
+        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(replacement).Contains("> updated");
+        _ = await Assert.That(replacement).DoesNotContain("working");
+        _ = await Assert.That(replacement).DoesNotContain("thinking");
+        _ = await Assert.That(replacement).DoesNotContain("chat");
+    }
+
+    [Test]
+    public async Task Draw_repaints_a_row_when_only_its_style_changes(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(true), 10, 12, true);
+        var modeline = new ModelineValue("chat", string.Empty, "model");
+        var prompt = new PromptValue("> ", string.Empty, 0);
+
+        await renderer.Draw(Items([new TestLiveValue("status", false)], modeline, prompt), cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(Items([new TestLiveValue("status", true)], modeline, prompt), cancellationToken);
+
+        var replacement = output.ToString()[boundary..];
+        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(replacement).Contains("\u001b[48;5;240m\u001b[38;5;231mstatus");
+    }
+
+    [Test]
+    public async Task Draw_repaints_the_complete_frame_after_a_column_change(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var width = 24;
+        var renderer = new TerminalFrameRenderer(output, () => width, new TerminalPalette(false), 10, 12, true);
+        var frame = Items([], new ModelineValue("chat", string.Empty, "model"), new PromptValue("> ", string.Empty, 0));
+
+        await renderer.Draw(frame, cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        width = 12;
+        await renderer.Draw(frame, cancellationToken);
+
+        var replacement = output.ToString()[boundary..];
+        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(2);
+        _ = await Assert.That(replacement).Contains("model");
+        _ = await Assert.That(replacement).Contains("> ");
+    }
+
+    [Test]
+    public async Task Draw_grows_and_shrinks_without_repainting_an_unchanged_prefix(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
+        var initial = Items(
+            [new LiveTextValue("working")],
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", "draft", 5));
+        var expanded = Items(
+            [new LiveTextValue("working")],
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", "draft\nnext", 10));
+
+        await renderer.Draw(initial, cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(expanded, cancellationToken);
+        var growth = output.ToString()[boundary..];
+        boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(initial, cancellationToken);
+        var shrink = output.ToString()[boundary..];
+        boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(
+            Items(
+                [new LiveTextValue("working")],
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", "changed", 7)),
+            cancellationToken);
+        var continued = output.ToString()[boundary..];
+
+        _ = await Assert.That(Count(growth, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(growth).Contains("  next");
+        _ = await Assert.That(Count(shrink, "\u001b[2K")).IsEqualTo(0);
+        _ = await Assert.That(shrink).Contains("\u001b[1M");
+        _ = await Assert.That(Count(continued, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(continued).Contains("> changed");
     }
 
     [Test]
@@ -313,8 +429,8 @@ internal sealed class TerminalFrameRendererTests
             cancellationToken);
 
         var updated = output.ToString()[boundary..];
-        _ = await Assert.That(updated).Contains("tool running");
-        _ = await Assert.That(updated).Contains("⠋ working");
+        _ = await Assert.That(updated).DoesNotContain("tool running");
+        _ = await Assert.That(updated).DoesNotContain("⠋ working");
         _ = await Assert.That(updated).Contains("next event");
         _ = await Assert.That(Count(updated, "> unmanaged no more")).IsEqualTo(2);
     }
@@ -431,6 +547,14 @@ internal sealed class TerminalFrameRendererTests
 
             return current;
         }
+    }
+
+    private sealed class TestLiveValue(string text, bool selected) : ILiveBufferItem
+    {
+        public MultiLine Render(LiveBufferRenderContext context) => new(
+            [new TerminalLine(text, selected ? context.Palette.Selection : context.Palette.LiveSurface)],
+            null,
+            LiveBufferRetention.Tail);
     }
 
     private sealed class TestScrollbackItem(string line, object? sequence, bool completed) : IScrollbackItem
