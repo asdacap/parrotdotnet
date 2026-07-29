@@ -39,7 +39,8 @@ internal sealed class ApplyPatchToolTests : IDisposable
             """,
             cancellationToken);
 
-        _ = await Assert.That(result).IsEqualTo("error: Write access denied for 'other.md'.");
+        _ = await Assert.That(result).IsEqualTo(
+            "error: patch planning failed with 1 errors:\n1. update 'other.md': Write access denied for 'other.md'.");
         _ = await Assert.That(await File.ReadAllTextAsync(allowed, cancellationToken)).IsEqualTo("old\n");
         _ = await Assert.That(await File.ReadAllTextAsync(denied, cancellationToken)).IsEqualTo("old\n");
     }
@@ -67,7 +68,8 @@ internal sealed class ApplyPatchToolTests : IDisposable
 
         var denied = await new ApplyPatchTool(linkedRoot, lexicalProfile).Execute(patch, cancellationToken);
 
-        _ = await Assert.That(denied).IsEqualTo("error: Write access denied for 'plan.md'.");
+        _ = await Assert.That(denied).IsEqualTo(
+            "error: patch planning failed with 1 errors:\n1. update 'plan.md': Write access denied for 'plan.md'.");
         _ = await Assert.That(await File.ReadAllTextAsync(physicalFile, cancellationToken)).IsEqualTo("old\n");
 
         var physicalProfile = SecurityProfile.Compose(
@@ -142,6 +144,52 @@ internal sealed class ApplyPatchToolTests : IDisposable
 
         _ = await Assert.That(result).IsEqualTo(
             "--- a/first.txt\n+++ b/first.txt\n@@ -1,1 +1,1 @@\n-before\n+after\n--- /dev/null\n+++ b/second.txt\n@@ -0,0 +1,1 @@\n+created\n");
+    }
+
+    [Test]
+    public async Task Execute_preserves_bom_and_mixed_line_terminators(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "mixed.txt");
+        await File.WriteAllBytesAsync(path, [0xef, 0xbb, 0xbf, (byte)'a', (byte)'\r', (byte)'\n', (byte)'b', (byte)'\r', (byte)'c'], cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        _ = await tool.Execute(
+            """
+            {"patchText":"mixed.txt\n<<<<<<< SEARCH\nb\n=======\nchanged\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        var actual = await File.ReadAllBytesAsync(path, cancellationToken);
+        _ = await Assert.That(actual.AsSpan().SequenceEqual(
+            new byte[] { 0xef, 0xbb, 0xbf, (byte)'a', (byte)'\r', (byte)'\n', (byte)'c', (byte)'h', (byte)'a', (byte)'n', (byte)'g', (byte)'e', (byte)'d', (byte)'\r', (byte)'c' })).IsTrue();
+    }
+
+    [Test]
+    public async Task Execute_allows_an_explicitly_authorized_external_file(CancellationToken cancellationToken)
+    {
+        var external = Path.Combine(Path.GetTempPath(), $"parrot-external-{Guid.NewGuid():n}.txt");
+        await File.WriteAllTextAsync(external, "old\n", cancellationToken);
+        try
+        {
+            var profile = SecurityProfile.Compose(
+                readOnly: true,
+                [],
+                [],
+                [new SandboxRule(external, SandboxRuleAction.AllowWrite)]);
+            var tool = new ApplyPatchTool(_root, profile);
+            var result = await tool.Execute(
+                $$"""
+                {"patchText":"{{external}}\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE"}
+                """,
+                cancellationToken);
+
+            _ = await Assert.That(result).Contains(Path.GetRelativePath(_root, external));
+            _ = await Assert.That(await File.ReadAllTextAsync(external, cancellationToken)).IsEqualTo("new\n");
+        }
+        finally
+        {
+            File.Delete(external);
+        }
     }
 
     [Test]

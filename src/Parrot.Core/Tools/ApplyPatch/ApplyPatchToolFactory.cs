@@ -2,8 +2,8 @@ using Parrot.Agent;
 
 namespace Parrot.Tools.ApplyPatch;
 
-internal sealed class ApplyPatchToolFactory(string workingDirectory) : IToolFactory
+internal sealed class ApplyPatchToolFactory(ToolWorkspace workspace) : IToolFactory
 {
     public ITool Create(AgentSession session, AgentTurnSelection selection) =>
-        new ApplyPatchTool(workingDirectory, selection.SecurityProfile);
+        new ApplyPatchTool(workspace, selection.SecurityProfile);
 }

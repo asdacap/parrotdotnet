@@ -22,11 +22,6 @@ internal sealed class Patch(IReadOnlyList<PatchOperation> operations)
         foreach (var operation in operations)
         {
             ValidatePath(operation.Path);
-
-            if (operation.Kind == PatchOperationKind.Add && operation.Data.Length == 0)
-            {
-                throw new PatchException($"File creation for '{operation.Path}' has no content.");
-            }
         }
 
         var paths = operations.Select(operation => operation.Path).Order(StringComparer.Ordinal).ToArray();
