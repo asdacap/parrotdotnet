@@ -103,7 +103,7 @@ internal sealed class SessionStore(
 
     private static string StoredSelector(SessionMeta meta)
     {
-        if (meta.Selector.Length > 0)
+        if (!string.IsNullOrEmpty(meta.Selector))
         {
             return meta.Selector;
         }

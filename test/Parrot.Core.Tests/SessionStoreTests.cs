@@ -51,6 +51,30 @@ internal sealed class SessionStoreTests : IDisposable
     }
 
     [Test]
+    public async Task Resumed_session_with_null_selector_uses_legacy_model()
+    {
+        const string id = "user-session-null-selector";
+        var workingDirectory = Path.Combine(_root, "null-selector-work");
+        var index = new SessionIndex(_root);
+        index.Publish(Meta(id, "main", workingDirectory, "2026-07-27T01:00:00Z"));
+        var path = Path.Combine(index.DirectoryFor(id), "meta.json");
+        var serialized = await File.ReadAllTextAsync(path);
+        await File.WriteAllTextAsync(
+            path,
+            serialized.Replace("\"Selector\": \"\"", "\"Selector\": null", StringComparison.Ordinal));
+        _ = await Assert.That(index.Find(id)?.Selector).IsNull();
+        PublishOwner(workingDirectory, id);
+
+        var session = Open(workingDirectory, out var store);
+        using (store)
+        await using (session)
+        {
+            _ = await Assert.That(session.Model).IsEqualTo("unused/model");
+            _ = await Assert.That(index.Find(id)?.Selector).IsEqualTo("unused/model");
+        }
+    }
+
+    [Test]
     public async Task Failed_session_construction_does_not_consume_a_root_agent_name()
     {
         var model = Model();
