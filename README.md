@@ -1,25 +1,28 @@
-# Parrot Coder (.NET)
+# Parrot
 
-Its a coding agent. There are many of them.
+Parrot is a local coding agent built with .NET Native AOT. Run it interactively,
+send it a one-shot prompt, or host it as a service for remote clients. It
+supports configurable model providers, persistent sessions, foreground modes,
+and delegated child agents.
 
 ## Why Native AOT
 
-The Go original ships as a single static binary that starts instantly. Anything
-less would be a regression, so Native AOT is a hard requirement rather than an
-optimisation: no JIT warm-up, no shared framework to install, and a startup cost
-in the low milliseconds. It constrains the code that can be written — no runtime
-reflection over unannotated types, no `Assembly.Load`, no unbounded generic
-virtual dispatch — and those constraints are enforced at build time by the
-analyzers in `.editorconfig`, not discovered at publish time.
+Parrot ships as a self-contained executable that starts quickly and does not
+require a shared .NET framework. Native AOT is therefore a hard requirement
+rather than an optimisation: there is no JIT warm-up, and startup takes only a
+few milliseconds. Native AOT constrains the code that can be written — no
+runtime reflection over unannotated types, no `Assembly.Load`, no unbounded
+generic virtual dispatch — and those constraints are enforced at build time by
+the analyzers in `.editorconfig`, not discovered at publish time.
 
 ## Layout
 
 ```text
 Parrot.slnx
 src/
-  Parrot.Core/        Everything that is not the entry point. Upstream Go
-                      packages become namespaces here (Parrot.Agent,
-                      Parrot.Tool, ...), not separate assemblies.
+  Parrot.Core/        Everything that is not the entry point. Components are
+                      organized as namespaces here (Parrot.Agent, Parrot.Tool,
+                      ...), not separate assemblies.
   Parrot.Cli/         The `parrot` executable. AOT-published.
 test/
   Parrot.Cli.Tests/   TUnit. One test project per src project.
@@ -29,7 +32,7 @@ docs/
 Assemblies are few on purpose: build time and AOT link time both scale with
 project count, and boundaries between components are enforced by namespace
 discipline and analyzer rules rather than by `ProjectReference` graphs. A new
-assembly needs a reason recorded in `MIGRATION.md`.
+assembly should have a clear architectural reason.
 
 ## Model Selection
 
@@ -276,14 +279,11 @@ network. Refresh it whenever a package reference changes:
 nix build .#default.fetch-deps && ./result nix/deps.json
 ```
 
-This is the same tax the Go original pays with `vendorHash`.
-
 ## Static musl
 
 The shipped binary is linked statically against musl. It has no interpreter and
-no `NEEDED` entry — nothing to install, and it runs on any Linux regardless of
-which libc is present, which is the property the Go original got from
-`CGO_ENABLED=0`.
+no `NEEDED` entry, so there is no dynamic loader or shared-library dependency to
+install. It runs without relying on the host system's libc.
 
 ```console
 $ ldd parrot
@@ -291,8 +291,8 @@ $ ldd parrot
 ```
 
 It costs about 1.4 MB over a glibc-dynamic build (5.8 MB against 4.4 MB), and
-both keep their symbols, matching the Go build's `dontStrip` so a core dump from
-a release binary is still usable.
+release symbols are retained so a core dump from a shipped binary remains
+usable.
 
 One wrinkle is wired into the flake rather than left as folklore. ILCompiler
 treats a musl RID on a glibc host as a cross build and passes clang's
@@ -316,15 +316,10 @@ nix flake check
 
 There is no "fix the warning later" state: `TreatWarningsAsErrors` is on for
 every project, `AnalysisLevel` is `latest-all`, and IDE code-style rules run as
-part of the build. See [docs/style.md](docs/style.md) for what is enforced and
-how to add an exception.
+part of the build. The analyzer configuration is recorded in
+[`.editorconfig`](.editorconfig).
 
-## For Migration Agents
+## For Contributors
 
-Read [MIGRATION.md](MIGRATION.md) before writing any code. It is normative, not
-advisory. In particular: no component may be ported until the high-level
-component map in `docs/components.md` names it.
-
-- [docs/architecture.md](docs/architecture.md) — the blocks and how they connect
-- [docs/plan.md](docs/plan.md) — milestones, ordered by risk
-- [docs/components.md](docs/components.md) — the gate, not yet written
+Read [AGENTS.md](AGENTS.md) before changing code. It documents the development
+guidelines, supported environment, required gates, and repository conventions.
