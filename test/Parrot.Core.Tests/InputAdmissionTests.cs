@@ -58,6 +58,63 @@ internal sealed class InputAdmissionTests : IDisposable
     }
 
     [Test]
+    public async Task Conditional_steer_yields_to_pending_input_and_retries_idempotently()
+    {
+        _ = _repository.Admit(
+            Session,
+            "normal",
+            "normal prompt",
+            Delivery.Queue,
+            static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+
+        var blocked = _repository.AdmitSteerIfIdle(
+            Session,
+            "delivery",
+            "notification",
+            static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+
+        _ = await Assert.That(blocked).IsNull();
+        _ = Promote(Delivery.Queue);
+
+        var admitted = _repository.AdmitSteerIfIdle(
+            Session,
+            "delivery",
+            "notification",
+            static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+        var retried = _repository.AdmitSteerIfIdle(
+            Session,
+            "delivery",
+            "notification",
+            static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+
+        if (admitted is null || retried is null)
+        {
+            throw new InvalidOperationException("conditional admission unexpectedly failed");
+        }
+
+        _ = await Assert.That(admitted.Created).IsTrue();
+        _ = await Assert.That(retried.Created).IsFalse();
+        _ = await Assert.That(retried.Input.Id).IsEqualTo(admitted.Input.Id);
+    }
+
+    [Test]
+    public async Task Conditional_steer_rejects_a_contradictory_retry()
+    {
+        _ = _repository.AdmitSteerIfIdle(
+            Session,
+            "delivery",
+            "notification",
+            static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+
+        _ = await Assert.That(() => _repository.AdmitSteerIfIdle(
+            Session,
+            "delivery",
+            "different",
+            static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session }))
+            .Throws<InputConflictException>();
+    }
+
+    [Test]
     public async Task Steers_promote_together_and_queued_prompts_one_at_a_time()
     {
         _ = _repository.Admit(Session, "msg-1", "first steer", Delivery.Steer, static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });

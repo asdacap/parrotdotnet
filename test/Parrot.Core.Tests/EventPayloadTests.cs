@@ -110,6 +110,7 @@ internal sealed class EventPayloadTests
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             registry: null,
+            owner: null,
             CancellationToken.None);
 
         var llmEvent = source switch

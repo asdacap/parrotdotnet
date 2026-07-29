@@ -1,4 +1,5 @@
 using Parrot.Process;
+using Parrot.Queues;
 
 namespace Parrot.Agent;
 
@@ -10,4 +11,6 @@ internal interface IAgentSessionFactorySource
     IAgentSessionFactory Create(UserSession owner);
 
     ShellProcessOwner CreateShellProcesses(UserSession owner);
+
+    QueueStore CreateQueues(UserSession owner);
 }

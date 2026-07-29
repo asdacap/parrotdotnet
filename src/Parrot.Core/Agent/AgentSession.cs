@@ -4,6 +4,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -38,6 +39,7 @@ internal sealed class AgentSession(
     SecurityProfile securityProfile,
     RuntimeStatus? status,
     AgentRegistry? registry,
+    UserSession? owner,
     CancellationToken lifetime)
 {
     private const string RunawayMessage = "the turn exceeded its provider-request limit";
@@ -212,9 +214,51 @@ internal sealed class AgentSession(
     public async Task Settled() =>
         _ = await ResultSettled().ConfigureAwait(false);
 
+    internal bool IsIdle() => State == DrainState.Idle;
+
     internal Task<(Admission Admission, bool FollowUp)> Send(
         string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
         AdmitAndWake(text, messageId, delivery, cancellationToken);
+
+    internal async Task<bool> ReceiveQueueNotification(
+        QueueNotification notification,
+        CancellationToken cancellationToken)
+    {
+        var content = $"Queue notification from \"{notification.Name}\":\n\n{notification.Item}";
+        var admission = eventRepository.AdmitSteerIfIdle(
+            SessionId,
+            notification.Id,
+            content,
+            input => new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                InputAdmitted = new InputAdmitted
+                {
+                    InputId = input.Id,
+                    MessageId = input.MessageId,
+                    Content = input.Content,
+                    Delivery = input.Delivery,
+                },
+            });
+
+        if (admission is null)
+        {
+            return false;
+        }
+
+        if (admission.Published is not null)
+        {
+            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (admission.Created || eventRepository.HasPendingInputs(SessionId))
+        {
+            _ = Wake();
+        }
+
+        return true;
+    }
 
     internal async Task<AgentSendResult> Send(string message, CancellationToken cancellationToken)
     {
@@ -599,8 +643,23 @@ internal sealed class AgentSession(
 
                 _drainCancellation = null;
                 State = DrainState.Idle;
-                return completed;
             }
+
+            if (completed.Status == AgentExecutionStatus.Succeeded
+                && owner is not null
+                && Depth == 0
+                && !cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    _ = await owner.DeliverMonitored(this, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                }
+            }
+
+            return completed;
         }
     }
 

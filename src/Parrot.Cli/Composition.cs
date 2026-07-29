@@ -114,6 +114,7 @@ internal partial class Composition
                     [
                         new SystemContextProvider(workingDirectory, paths.Config, date, profiles),
                         new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
+                        new QueueGuidanceProvider(),
                     ]);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>

@@ -123,6 +123,7 @@ internal sealed class TodoToolTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             null,
+            null,
             CancellationToken.None);
     }
 }

@@ -42,6 +42,11 @@ internal sealed class AgentSessionFactory(
             new StatusToolFactory(owner.Status),
             new TodoReadToolFactory(),
             new TodoWriteToolFactory(),
+            new QueueCreateToolFactory(owner.Queues),
+            new QueueInfoToolFactory(owner.Queues),
+            new QueueListenToolFactory(owner.Queues),
+            new QueuePushToolFactory(owner),
+            new QueueTakeToolFactory(owner.Queues),
             new QuestionToolFactory(owner.Questions),
         ];
 
@@ -69,5 +74,6 @@ internal sealed class AgentSessionFactory(
             securityProfile,
             status,
             registry,
+            owner,
             lifetime);
 }

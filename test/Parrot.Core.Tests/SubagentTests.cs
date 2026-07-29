@@ -588,6 +588,7 @@ internal sealed class SubagentTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             registry: null,
+            owner: null,
             cancellationToken);
     }
 
@@ -635,6 +636,7 @@ internal sealed class SubagentTests : IDisposable
                 securityProfile,
                 status,
                 deliversCompletions ? registry : null,
+                null,
                 lifetime));
         }
     }
