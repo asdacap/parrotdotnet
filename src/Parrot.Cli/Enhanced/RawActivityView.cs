@@ -8,7 +8,8 @@ internal sealed class RawActivityView(
     Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
     Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
     Func<CancellationToken, Task> delay,
-    ToolPresenterRegistry presenters) : IDisposable
+    ToolPresenterRegistry presenters,
+    Func<string, CancellationToken, Task> updateMainAgentActivity) : IDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
 
@@ -26,12 +27,14 @@ internal sealed class RawActivityView(
     public RawActivityView(
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
         Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
-        ToolPresenterRegistry presenters)
+        ToolPresenterRegistry presenters,
+        Func<string, CancellationToken, Task> updateMainAgentActivity)
         : this(
             draw,
             commit,
             static cancellationToken => Task.Delay(SpinnerIntervalMilliseconds, cancellationToken),
-            presenters)
+            presenters,
+            updateMainAgentActivity)
     {
     }
 
@@ -146,10 +149,16 @@ internal sealed class RawActivityView(
             switch (published.PayloadCase)
             {
                 case Event.PayloadOneofCase.AgentStarted:
-                    GetAgentSession(published.AgentSessionId).UpdateName(published.AgentStarted.Name);
+                    await UpdateAgentName(
+                        published.AgentSessionId,
+                        published.AgentStarted.Name,
+                        cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.AgentStatisticsUpdated:
-                    GetAgentSession(published.AgentSessionId).UpdateStatistics(published.AgentStatisticsUpdated);
+                    await UpdateAgentStatistics(
+                        published.AgentSessionId,
+                        published.AgentStatisticsUpdated,
+                        cancellationToken).ConfigureAwait(false);
                     await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.AgentFinished:
@@ -159,7 +168,7 @@ internal sealed class RawActivityView(
                     await FinishAgent(published, failed: true, cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.TurnStarted:
-                    StartTurn(published.AgentSessionId);
+                    await StartTurn(published.AgentSessionId, cancellationToken).ConfigureAwait(false);
                     await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.TurnEnded:
@@ -226,10 +235,14 @@ internal sealed class RawActivityView(
             items.Add(new SpinnerValue("Thinking…", _frame));
         }
 
-        var order = _hierarchy.GetPostOrder(_activities.Select(static activity => activity.State.AgentSessionId));
-        items.AddRange(_activities
+        // Keep main-agent activity on the modeline, never in the live buffer.
+        var activities = _activities
+            .Where(activity => !_hierarchy.IsRoot(activity.State.AgentSessionId) || !activity.State.IsAgentActivity(activity.ActivityId))
+            .ToList();
+        var order = _hierarchy.GetPostOrder(activities.Select(static activity => activity.State.AgentSessionId));
+        items.AddRange(activities
             .OrderBy(activity => order[activity.State.AgentSessionId])
-            .ThenBy(static activity => string.Equals(activity.ActivityId, "agent", StringComparison.Ordinal) ? 1 : 0)
+            .ThenBy(activity => activity.State.IsAgentActivity(activity.ActivityId) ? 1 : 0)
             .ThenBy(static activity => activity.ActivityId, StringComparer.Ordinal)
             .Select(CreateActivityItem));
         return items;
@@ -261,12 +274,16 @@ internal sealed class RawActivityView(
         return state;
     }
 
-    private void StartTurn(string agentSessionId)
+    private async Task StartTurn(string agentSessionId, CancellationToken cancellationToken)
     {
         var state = GetNamedAgentSession(agentSessionId);
         if (state.StartTurn() is { } activityId)
         {
             _activities.Add((state, activityId));
+            if (_hierarchy.IsRoot(agentSessionId))
+            {
+                await updateMainAgentActivity(state.AgentLabel, cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
@@ -276,6 +293,11 @@ internal sealed class RawActivityView(
         if (state.FinishTurn(published, failed) is not { } completion)
         {
             return;
+        }
+
+        if (_hierarchy.IsRoot(published.AgentSessionId))
+        {
+            await updateMainAgentActivity(string.Empty, cancellationToken).ConfigureAwait(false);
         }
 
         _ = _pendingCompletions.TryAdd(state.AgentSessionId, new AgentCompletion(
@@ -298,6 +320,11 @@ internal sealed class RawActivityView(
             return;
         }
 
+        if (_hierarchy.IsRoot(published.AgentSessionId))
+        {
+            await updateMainAgentActivity(string.Empty, cancellationToken).ConfigureAwait(false);
+        }
+
         _ = _pendingCompletions.TryAdd(state.AgentSessionId, new AgentCompletion(
             completion.ActivityId,
             completion.Response,
@@ -309,6 +336,32 @@ internal sealed class RawActivityView(
             await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private async Task UpdateAgentName(string agentSessionId, string name, CancellationToken cancellationToken)
+    {
+        var state = GetAgentSession(agentSessionId);
+        state.UpdateName(name);
+        await UpdateMainAgentActivity(agentSessionId, state, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task UpdateAgentStatistics(
+        string agentSessionId,
+        AgentStatisticsUpdatedEvent statistics,
+        CancellationToken cancellationToken)
+    {
+        var state = GetAgentSession(agentSessionId);
+        state.UpdateStatistics(statistics);
+        await UpdateMainAgentActivity(agentSessionId, state, cancellationToken).ConfigureAwait(false);
+    }
+
+    private Task UpdateMainAgentActivity(
+        string agentSessionId,
+        AgentSessionState state,
+        CancellationToken cancellationToken) =>
+        _hierarchy.IsRoot(agentSessionId) && _activities.Any(activity =>
+            ReferenceEquals(activity.State, state) && state.IsAgentActivity(activity.ActivityId))
+            ? updateMainAgentActivity(state.AgentLabel, cancellationToken)
+            : Task.CompletedTask;
 
     private void ToolCall(string agentSessionId, ToolCallChunk chunk) =>
         GetAgentSession(agentSessionId).CollectToolCall(chunk);
