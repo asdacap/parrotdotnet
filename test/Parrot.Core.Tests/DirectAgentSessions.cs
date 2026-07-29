@@ -35,6 +35,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
         MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
+        AgentRegistry registry,
         CancellationToken lifetime)
     {
         _identities.Add(identity);
@@ -53,6 +54,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource, IAgentSe
             profile,
             securityProfile,
             status,
+            registry,
             lifetime));
     }
 }

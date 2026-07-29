@@ -37,6 +37,7 @@ internal sealed class AgentSession(
     MainAgentProfile? profile,
     SecurityProfile securityProfile,
     RuntimeStatus? status,
+    AgentRegistry? registry,
     CancellationToken lifetime)
 {
     private const string RunawayMessage = "the turn exceeded its provider-request limit";
@@ -253,6 +254,26 @@ internal sealed class AgentSession(
         }
 
         return new AgentSendResult(SessionId, Name, messageId, followUp);
+    }
+
+    internal async Task ReceiveCompletion(string message, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        var messageId = Identifier.MessageId();
+        var (_, startedFollowUp) = await Send(message, messageId, Delivery.Steer, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (ParentSessionId.Length == 0 || !startedFollowUp)
+        {
+            return;
+        }
+
+        lock (_executionGate)
+        {
+            _started = true;
+            _execution = Execute(message, messageId, cancellationToken);
+        }
     }
 
     internal async Task<WaitAgentResult> Wait(
@@ -475,6 +496,11 @@ internal sealed class AgentSession(
         catch (Exception failure)
         {
             completed = AgentExecution.Failed(BoundResult(failure.Message));
+        }
+
+        if (registry is not null)
+        {
+            await registry.Deliver(identity, completed).ConfigureAwait(false);
         }
 
         return completed;

@@ -24,6 +24,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
+        AgentRegistry registry,
         CancellationToken lifetime)
     {
         var arguments = new AgentSessionScopeArguments(
@@ -39,6 +40,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             profile,
             securityProfile,
             status,
+            registry,
             lifetime);
         var scope = new AgentSessionComposition(arguments);
         return new AgentSessionScope(scope.Session);

@@ -23,5 +23,6 @@ internal interface IAgentSessionScopeFactory
         MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
+        AgentRegistry registry,
         CancellationToken lifetime);
 }

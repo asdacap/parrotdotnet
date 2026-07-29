@@ -1,26 +1,6 @@
 # Parrot Coder (.NET)
 
-A rewrite of [parrot-coder](https://github.com/asdacap/parrot-coder) — a
-local-first coding agent — from Go to C# on .NET Native AOT.
-
-The goal is the same product: one self-contained binary with no runtime
-dependency, scrollback-preserving terminal chat, durable SQLite sessions and
-event history, OAuth and OpenAI-compatible providers, permission-bound tools,
-session compaction, and bounded web fetching. The Go implementation is the
-specification; this repository is the implementation.
-
-The whole product is a gRPC server. The two CLIs — a deliberately minimal one
-and a full terminal UI — sit entirely behind it as clients, consuming one flat
-event stream. They share command workflows but no presentation code; see
-[docs/architecture.md](docs/architecture.md).
-
-**MCP and transactional file edits are out of scope.** Upstream's
-`internal/mcp` and the all-or-nothing apply in `internal/change` are not ported;
-see [docs/components.md](docs/components.md).
-
-**Status: scaffold.** The build, the linter, the test harness, and the AOT
-publish path work end to end. No upstream component has been migrated yet.
-See [MIGRATION.md](MIGRATION.md).
+Its a coding agent. There are many of them.
 
 ## Why Native AOT
 
@@ -174,6 +154,12 @@ executes that alias's resolved canonical target. The route is resolved once at
 the beginning of each turn. Retargeting an alias affects the next turn only;
 an active turn, including its tool rounds, continues to use its captured
 canonical route and matching prompt configuration.
+
+A spawned child runs independently and `agent_spawn` returns its session ID
+immediately. When each child execution finishes, Parrot automatically sends its
+terminal status and result to its direct parent as normal steering input.
+`wait_agent` remains available when the parent needs to block for the retained
+result instead.
 
 Configured aliases may be used anywhere a model selector is accepted,
 including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits

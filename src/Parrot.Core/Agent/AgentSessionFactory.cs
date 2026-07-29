@@ -53,6 +53,7 @@ internal sealed class AgentSessionFactory(
         MainAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
+        AgentRegistry registry,
         CancellationToken lifetime) =>
         scopes.Create(
             identity,
@@ -67,5 +68,6 @@ internal sealed class AgentSessionFactory(
             profile,
             securityProfile,
             status,
+            registry,
             lifetime);
 }

@@ -91,6 +91,7 @@ internal sealed class AgentRegistry(
                 profile.BuildChildSessionProfile(),
                 profile.SecurityProfile.WithoutRuntimeCapabilities(),
                 _status,
+                this,
                 _lifetime.Token);
 
             _entries.Add(sessionId, lease);
@@ -151,6 +152,38 @@ internal sealed class AgentRegistry(
             }
 
             return new ValueTask(_shutdown);
+        }
+    }
+
+    internal async Task Deliver(AgentIdentity child, AgentExecution completed)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        ArgumentNullException.ThrowIfNull(completed);
+
+        AgentSession? parent;
+
+        lock (_gate)
+        {
+            parent = _accepting && child.ParentSessionId.Length > 0
+                ? _parents.GetValueOrDefault(child.ParentSessionId)
+                : null;
+        }
+
+        if (parent is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await parent.ReceiveCompletion(completed.FormatCompletion(child), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The child has already reached its terminal boundary. A parent
+            // that disappears while admitting this best-effort notice cannot
+            // rewrite that retained result.
         }
     }
 
