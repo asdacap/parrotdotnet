@@ -520,6 +520,23 @@ internal sealed class EnhancedCliTests
         await view.Render(
             new Event
             {
+                AgentSessionId = "main-session",
+                AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+                {
+                    InputTokens = 2_400,
+                    CachedInputTokens = 1_600,
+                    OutputTokens = 600,
+                    ContextSize = 3_000,
+                    ContextLimit = 128_000,
+                },
+            },
+            cancellationToken);
+        _ = await Assert.That(mainActivities[^1]).IsEqualTo("agent main");
+        _ = await Assert.That(mainActivities[^1]).DoesNotContain("in / ");
+        _ = await Assert.That(mainActivities[^1]).DoesNotContain("ctx");
+        await view.Render(
+            new Event
+            {
                 AgentSessionId = "child-session",
                 AgentStarted = new AgentStarted
                 {

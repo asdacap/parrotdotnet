@@ -284,7 +284,7 @@ internal sealed class RawActivityView(
             _activities.Add((state, activityId));
             if (_hierarchy.IsRoot(agentSessionId))
             {
-                await updateMainAgentActivity(state.AgentLabel, cancellationToken).ConfigureAwait(false);
+                await updateMainAgentActivity(state.ModelineLabel, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -344,7 +344,7 @@ internal sealed class RawActivityView(
         CancellationToken cancellationToken) =>
         _hierarchy.IsRoot(agentSessionId) && _activities.Any(activity =>
             ReferenceEquals(activity.State, state) && state.IsAgentActivity(activity.ActivityId))
-            ? updateMainAgentActivity(state.AgentLabel, cancellationToken)
+            ? updateMainAgentActivity(state.ModelineLabel, cancellationToken)
             : Task.CompletedTask;
 
     private void ToolCall(string agentSessionId, ToolCallChunk chunk) =>
