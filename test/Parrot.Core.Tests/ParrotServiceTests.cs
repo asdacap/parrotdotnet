@@ -100,6 +100,30 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task In_process_question_calls_are_routed(CancellationToken cancellationToken)
+    {
+        using var store = Store();
+        await using var service = Service(store);
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+
+        var listed = await client.ListPendingQuestionsAsync(
+            new ListPendingQuestionsRequest { UserSessionId = session.Id },
+            cancellationToken: cancellationToken);
+        var replied = await Assert.That(async () => await client.ReplyQuestionAsync(
+            new ReplyQuestionRequest { UserSessionId = session.Id, QuestionRequestId = "missing" },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+        var rejected = await Assert.That(async () => await client.RejectQuestionAsync(
+            new RejectQuestionRequest { UserSessionId = session.Id, QuestionRequestId = "missing" },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+
+        _ = await Assert.That(listed.Questions).IsEmpty();
+        _ = await Assert.That(replied?.StatusCode).IsEqualTo(StatusCode.NotFound);
+        _ = await Assert.That(rejected?.StatusCode).IsEqualTo(StatusCode.NotFound);
+    }
+
+    [Test]
     public async Task Model_variants_are_listed_selected_and_unlisted_models_are_persisted(
         CancellationToken cancellationToken)
     {
