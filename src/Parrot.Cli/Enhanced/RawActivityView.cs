@@ -237,7 +237,10 @@ internal sealed class RawActivityView(
 
         // Keep main-agent activity on the modeline, never in the live buffer.
         var activities = _activities
-            .Where(activity => !_hierarchy.IsRoot(activity.State.AgentSessionId) || !activity.State.IsAgentActivity(activity.ActivityId))
+            .Where(activity =>
+                (!_hierarchy.IsRoot(activity.State.AgentSessionId)
+                 || !activity.State.IsAgentActivity(activity.ActivityId))
+                && !activity.State.IsFoldedActivity(activity.ActivityId))
             .ToList();
         var order = _hierarchy.GetPostOrder(activities.Select(static activity => activity.State.AgentSessionId));
         items.AddRange(activities
@@ -370,7 +373,10 @@ internal sealed class RawActivityView(
     {
         var state = GetNamedAgentSession(published.AgentSessionId);
         var metadata = presenters.Describe(published.ToolStarted.ToolName);
-        if (state.StartTool(published.ToolStarted) is { } activityId
+        var foldIntoAgentStatus = metadata.Modeline
+            && !metadata.TerminalOnly
+            && !_hierarchy.IsRoot(published.AgentSessionId);
+        if (state.StartTool(published.ToolStarted, foldIntoAgentStatus) is { } activityId
             && !metadata.TerminalOnly
             && !(metadata.Modeline && _hierarchy.IsRoot(published.AgentSessionId)))
         {

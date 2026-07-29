@@ -187,6 +187,102 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Child_modeline_tools_fold_into_agent_status_and_defer_completion(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new List<string>();
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines).Select(line => line.Text)));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry(
+                [new WaitAgentToolPresenter(), new WaitProcessToolPresenter()],
+                new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolStarted = new ToolStarted { ToolCallId = "agent-wait", ToolName = "wait_agent" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("  ⠋ [worker] agent worker Working: wait_agent");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("Wait for");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolStarted = new ToolStarted { ToolCallId = "process-wait", ToolName = "wait_process" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("Working: wait_process");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("wait process-wait");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolFinished = new ToolFinished { ToolCallId = "process-wait", ToolName = "wait_process" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("Working: wait_agent");
+        await view.Render(
+            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "completed work" } },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+
+        _ = await Assert.That(committed).IsEmpty();
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolCancelled = new ToolCancelled { ToolCallId = "agent-wait", ToolName = "wait_agent" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(string.Join('|', committed))
+            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("agent main");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("Working:");
+    }
+
+    [Test]
     public async Task Failed_parent_turn_flushes_while_a_child_is_running(CancellationToken cancellationToken)
     {
         var committed = new List<string>();

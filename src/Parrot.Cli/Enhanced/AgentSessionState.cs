@@ -15,6 +15,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     private readonly Dictionary<string, (string Name, StringBuilder Arguments)> _toolCalls =
         new(StringComparer.Ordinal);
 
+    private readonly Dictionary<string, (string ToolName, long Order)> _foldedTools = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ILiveBufferItem> _toolLive = new(StringComparer.Ordinal);
     private readonly StringBuilder _response = new();
 
@@ -23,6 +24,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     private string? _name;
     private AgentStatisticsUpdatedEvent? _statistics;
     private int _responseLineBreaks;
+    private long _foldedToolOrder;
 
     public bool HasName => _name is not null;
 
@@ -44,6 +46,8 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
 
         _terminalCommitted = false;
+        _foldedTools.Clear();
+        _foldedToolOrder = 0;
         _ = _response.Clear();
         _responseComplete = false;
         _responseLineBreaks = 0;
@@ -134,7 +138,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         _ = _toolLive.Remove(chunk.ToolCallId);
     }
 
-    public string? StartTool(ToolStarted tool)
+    public string? StartTool(ToolStarted tool, bool foldIntoAgentStatus)
     {
         if (!_toolCalls.TryGetValue(tool.ToolCallId, out var toolCall))
         {
@@ -149,8 +153,22 @@ internal sealed class AgentSessionState(string agentSessionId)
 
         _ = _toolLive.Remove(tool.ToolCallId);
         var activityId = ToolActivityPrefix + tool.ToolCallId;
-        return _activities.Add(activityId) ? activityId : null;
+        if (!_activities.Add(activityId))
+        {
+            return null;
+        }
+
+        if (foldIntoAgentStatus)
+        {
+            _foldedTools[tool.ToolCallId] = (toolCall.Name, _foldedToolOrder++);
+        }
+
+        return activityId;
     }
+
+    public bool IsFoldedActivity(string activityId) =>
+        activityId.StartsWith(ToolActivityPrefix, StringComparison.Ordinal)
+        && _foldedTools.ContainsKey(activityId[ToolActivityPrefix.Length..]);
 
     public (string ActivityId, IScrollbackItem? Scrollback) FinishTool(
         Event published,
@@ -169,6 +187,7 @@ internal sealed class AgentSessionState(string agentSessionId)
 
         var activityId = ToolActivityPrefix + toolCallId;
         _ = _activities.Remove(activityId);
+        _ = _foldedTools.Remove(toolCallId);
         var call = new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString());
         var terminal = published.PayloadCase switch
         {
@@ -241,10 +260,22 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     private static string FormatContextLimit(long limit) => limit == 0 ? "?" : FormatTokenCount(limit);
 
-    private string CreateAgentLabel() => _statistics is { } statistics
-        ? $"agent {Name} ({FormatTokenCount(statistics.InputTokens)} in / " +
-          $"{FormatTokenCount(statistics.CachedInputTokens)} cached / " +
-          $"{FormatTokenCount(statistics.OutputTokens)} out, " +
-          $"{FormatTokenCount(statistics.ContextSize)}/{FormatContextLimit(statistics.ContextLimit)} ctx)"
-        : $"agent {Name}";
+    private string CreateAgentLabel()
+    {
+        var label = _statistics is { } statistics
+            ? $"agent {Name} ({FormatTokenCount(statistics.InputTokens)} in / " +
+              $"{FormatTokenCount(statistics.CachedInputTokens)} cached / " +
+              $"{FormatTokenCount(statistics.OutputTokens)} out, " +
+              $"{FormatTokenCount(statistics.ContextSize)}/{FormatContextLimit(statistics.ContextLimit)} ctx)"
+            : $"agent {Name}";
+        return _foldedTools.Count == 0
+            ? label
+            : $"{label} Working: {LatestFoldedTool()}";
+    }
+
+    private string LatestFoldedTool() => _foldedTools.Values
+        .OrderByDescending(static tool => tool.Order)
+        .ThenBy(static tool => tool.ToolName, StringComparer.Ordinal)
+        .First()
+        .ToolName;
 }
