@@ -209,6 +209,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await session.ResultSettled();
 
         var inferenceRequest = provider.Requests.Single();
+        _ = await Assert.That(inferenceRequest.Instructions).Contains("2026-07-24");
+        _ = await Assert.That(inferenceRequest.Messages)
+            .DoesNotContain(message => message.Role == LLMRole.System);
         _ = await Assert.That(inferenceRequest.Messages)
             .Contains(message => message.Role == LLMRole.User && message.Content == "keep this prompt");
         _ = await Assert.That(inferenceRequest.Model).IsEqualTo("model");

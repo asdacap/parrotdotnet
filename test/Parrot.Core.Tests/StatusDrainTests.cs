@@ -42,8 +42,9 @@ internal sealed class StatusDrainTests : IDisposable
             await provider.Arrived(cancellationToken);
             await firstStatus;
 
-            _ = await Assert.That(Roles(provider.Requests[0])).IsEqualTo("System | System | User");
-            _ = await Assert.That(provider.Requests[0].Messages[1].Content).Contains("Active profile: build");
+            _ = await Assert.That(Roles(provider.Requests[0])).IsEqualTo("System | User");
+            _ = await Assert.That(provider.Requests[0].Instructions).IsNotEmpty();
+            _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Active profile: build");
             provider.Release();
             await Settled(session);
 
@@ -60,7 +61,7 @@ internal sealed class StatusDrainTests : IDisposable
             await provider.Arrived(cancellationToken);
             _ = await Assert.That(StatusMessages(repository).Count).IsEqualTo(2);
             _ = await Assert.That(provider.Requests[1].Messages.Count(message => message.Role == LLMRole.System))
-                .IsEqualTo(3);
+                .IsEqualTo(2);
             _ = await Assert.That(provider.Requests[1].Messages.Any(message =>
                 message.Role == LLMRole.System &&
                 message.Content.Contains("Active profile: plan", StringComparison.Ordinal))).IsTrue();
@@ -148,6 +149,7 @@ internal sealed class StatusDrainTests : IDisposable
         await provider.Arrived(cancellationToken);
 
         _ = await Assert.That(provider.Requests.Count).IsEqualTo(2);
+        _ = await Assert.That(provider.Requests.All(request => request.Instructions.Length > 0)).IsTrue();
         _ = await Assert.That(string.Join(",", provider.Requests.Select(request => request.Model)))
             .IsEqualTo("model,model");
         _ = await Assert.That(string.Join(",", provider.Requests.Select(request => request.Messages.Count(message =>

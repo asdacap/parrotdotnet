@@ -739,14 +739,11 @@ internal sealed class AgentSession(
                     ? new ToolSnapshot([])
                     : activeTools;
 
-                var messages = new List<LLMMessage>(_history.Count + 1)
-                {
-                    LLMMessage.System(_systemPrompt.Build(activeSelection)),
-                };
-                messages.AddRange(_history);
+                var instructions = _systemPrompt.Build(activeSelection);
+                var messages = new List<LLMMessage>(_history);
 
                 providerRequests++;
-                var completed = await Call(activeSelection, snapshot, messages, cancellationToken)
+                var completed = await Call(activeSelection, snapshot, instructions, messages, cancellationToken)
                     .ConfigureAwait(false);
 
                 if (completed.ToolCalls.Count > 0)
@@ -1020,6 +1017,7 @@ internal sealed class AgentSession(
     private async Task<LLMEvent> Call(
         AgentTurnSelection? selection,
         ToolSnapshot snapshot,
+        string instructions,
         IReadOnlyList<LLMMessage> messages,
         CancellationToken cancellationToken)
     {
@@ -1029,6 +1027,7 @@ internal sealed class AgentSession(
         {
             Model = selectedModel.ModelId,
             MaxTokens = 4096,
+            Instructions = instructions,
             Messages = messages,
             Tools = snapshot.Definitions,
             Reasoning = selectedModel.Reasoning,

@@ -63,6 +63,42 @@ internal sealed class OpenAICompatibleProviderTests
     }
 
     [Test]
+    [Arguments("Follow the repository instructions.", 3)]
+    [Arguments("", 2)]
+    public async Task Encode_prepends_nonempty_instructions_as_a_system_message(
+        string instructions, int messageCount, CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "vendor/model",
+            Instructions = instructions,
+            Messages = [LLMMessage.System("history guidance"), LLMMessage.User("hello")],
+        };
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+        var root = document.RootElement;
+        var messages = root.GetProperty("messages");
+
+        _ = await Assert.That(root.TryGetProperty("instructions", out _)).IsFalse();
+        _ = await Assert.That(messages.GetArrayLength()).IsEqualTo(messageCount);
+
+        var historyIndex = 0;
+
+        if (instructions.Length > 0)
+        {
+            _ = await Assert.That(messages[0].GetProperty("role").GetString()).IsEqualTo("system");
+            _ = await Assert.That(messages[0].GetProperty("content").GetString()).IsEqualTo(instructions);
+            historyIndex = 1;
+        }
+
+        _ = await Assert.That(messages[historyIndex].GetProperty("role").GetString()).IsEqualTo("system");
+        _ = await Assert.That(messages[historyIndex].GetProperty("content").GetString())
+            .IsEqualTo("history guidance");
+        _ = await Assert.That(messages[historyIndex + 1].GetProperty("role").GetString()).IsEqualTo("user");
+        _ = await Assert.That(messages[historyIndex + 1].GetProperty("content").GetString()).IsEqualTo("hello");
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    [Test]
     public async Task Stream_ends_with_a_completed_event_carrying_the_outcome(CancellationToken cancellationToken)
     {
         var events = await Drain(cancellationToken);

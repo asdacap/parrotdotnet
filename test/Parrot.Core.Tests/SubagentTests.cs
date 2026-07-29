@@ -83,7 +83,9 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(lifecycle[1].AgentFinished.ParentAgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(lifecycle[1].AgentFinished.Name).IsEqualTo("child-helper");
 
-        var systemPrompt = provider.Requests[0].Messages.Single(message => message.Role == LLMRole.System).Content;
+        var systemPrompt = provider.Requests[0].Instructions;
+        _ = await Assert.That(provider.Requests[0].Messages)
+            .DoesNotContain(message => message.Role == LLMRole.System);
         _ = await Assert.That(systemPrompt).Contains($"Child agent session: {sessionId}");
         _ = await Assert.That(systemPrompt).Contains("Parent agent session: agent");
         _ = await Assert.That(systemPrompt).Contains("Parent agent name: ");

@@ -33,6 +33,40 @@ internal sealed class ResponsesAdapterTests
     }
 
     [Test]
+    [Arguments("Follow the repository instructions.", true)]
+    [Arguments("", false)]
+    public async Task Encode_writes_or_omits_top_level_instructions(
+        string instructions, bool hasInstructions, CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "gpt-5.6-sol",
+            Instructions = instructions,
+            Messages = [LLMMessage.System("history guidance"), LLMMessage.User("hello")],
+        };
+        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+        var root = document.RootElement;
+        var input = root.GetProperty("input");
+
+        _ = await Assert.That(root.TryGetProperty("instructions", out var encodedInstructions))
+            .IsEqualTo(hasInstructions);
+
+        if (hasInstructions)
+        {
+            _ = await Assert.That(encodedInstructions.GetString()).IsEqualTo(instructions);
+        }
+
+        _ = await Assert.That(input.GetArrayLength()).IsEqualTo(2);
+        _ = await Assert.That(input[0].GetProperty("role").GetString()).IsEqualTo("developer");
+        _ = await Assert.That(input[0].GetProperty("content")[0].GetProperty("text").GetString())
+            .IsEqualTo("history guidance");
+        _ = await Assert.That(input[1].GetProperty("role").GetString()).IsEqualTo("user");
+        _ = await Assert.That(input[1].GetProperty("content")[0].GetProperty("text").GetString())
+            .IsEqualTo("hello");
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    [Test]
     public async Task Text_and_reasoning_deltas_fold_and_complete_with_usage(CancellationToken cancellationToken)
     {
         const string stream = """
