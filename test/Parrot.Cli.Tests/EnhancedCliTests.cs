@@ -521,7 +521,11 @@ internal sealed class EnhancedCliTests
             new Event
             {
                 AgentSessionId = "child-session",
-                AgentStarted = new AgentStarted { Name = "explorer\u001b[31m" },
+                AgentStarted = new AgentStarted
+                {
+                    ParentAgentSessionId = "main-session",
+                    Name = "explorer\u001b[31m",
+                },
             },
             cancellationToken);
         await view.Render(
@@ -619,7 +623,11 @@ internal sealed class EnhancedCliTests
             new Event
             {
                 AgentSessionId = "child-session",
-                AgentFinished = new AgentFinished { Name = "explorer" },
+                AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = "main-session",
+                    Name = "explorer",
+                },
             },
             cancellationToken);
 

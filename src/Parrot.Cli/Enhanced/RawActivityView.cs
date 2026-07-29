@@ -16,7 +16,6 @@ internal sealed class RawActivityView(
     private readonly List<(AgentSessionState State, string ActivityId)> _activities = [];
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
     private readonly AgentSessionHierarchy _hierarchy = new();
-    private readonly Dictionary<string, AgentCompletion> _pendingCompletions = new(StringComparer.Ordinal);
 
     private readonly StringBuilder _reasoning = new();
     private readonly SemaphoreSlim _rendering = new(1, 1);
@@ -303,16 +302,7 @@ internal sealed class RawActivityView(
             await updateMainAgentActivity(string.Empty, cancellationToken).ConfigureAwait(false);
         }
 
-        _ = _pendingCompletions.TryAdd(state.AgentSessionId, new AgentCompletion(
-            completion.ActivityId,
-            completion.Response,
-            completion.Line,
-            failed));
-        await FlushCompletions(cancellationToken).ConfigureAwait(false);
-        if (_pendingCompletions.ContainsKey(state.AgentSessionId))
-        {
-            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
-        }
+        await CommitCompletion(state, completion, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task FinishAgent(Event published, bool failed, CancellationToken cancellationToken)
@@ -328,16 +318,7 @@ internal sealed class RawActivityView(
             await updateMainAgentActivity(string.Empty, cancellationToken).ConfigureAwait(false);
         }
 
-        _ = _pendingCompletions.TryAdd(state.AgentSessionId, new AgentCompletion(
-            completion.ActivityId,
-            completion.Response,
-            completion.Line,
-            failed));
-        await FlushCompletions(cancellationToken).ConfigureAwait(false);
-        if (_pendingCompletions.ContainsKey(state.AgentSessionId))
-        {
-            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
-        }
+        await CommitCompletion(state, completion, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task UpdateAgentName(string agentSessionId, string name, CancellationToken cancellationToken)
@@ -397,16 +378,11 @@ internal sealed class RawActivityView(
         {
             await commit(Wrap(state, scrollback, null), Snapshot(), cancellationToken).ConfigureAwait(false);
         }
-
-        await FlushCompletions(cancellationToken).ConfigureAwait(false);
     }
 
     private ILiveBufferItem CreateActivityItem((AgentSessionState State, string ActivityId) activity)
     {
-        var value = _pendingCompletions.TryGetValue(activity.State.AgentSessionId, out var completion)
-            && string.Equals(completion.ActivityId, activity.ActivityId, StringComparison.Ordinal)
-                ? new LiveTextValue(completion.Line)
-                : activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters);
+        var value = activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters);
         return new HierarchicalLiveValue(
             value,
             _hierarchy.GetDepth(activity.State.AgentSessionId),
@@ -426,53 +402,25 @@ internal sealed class RawActivityView(
             state.Name,
             successfulIcon);
 
-    private async Task FlushCompletions(CancellationToken cancellationToken)
+    private async Task CommitCompletion(
+        AgentSessionState state,
+        (string ActivityId, string Response, string Line) completion,
+        CancellationToken cancellationToken)
     {
-        while (true)
+        _ = _activities.Remove((state, completion.ActivityId));
+        if (completion.Response.Length > 0)
         {
-            var ready = _pendingCompletions.Keys
-                .Where(sessionId => !_activities.Any(activity =>
-                    string.Equals(activity.State.AgentSessionId, sessionId, StringComparison.Ordinal)
-                        ? !string.Equals(
-                            activity.ActivityId,
-                            _pendingCompletions[sessionId].ActivityId,
-                            StringComparison.Ordinal)
-                        : !_pendingCompletions[sessionId].Failed
-                            && _hierarchy.IsDescendant(activity.State.AgentSessionId, sessionId)))
-                .OrderByDescending(_hierarchy.GetDepth)
-                .ThenBy(static sessionId => sessionId, StringComparer.Ordinal)
-                .FirstOrDefault();
-            if (ready is null)
-            {
-                if (_pendingCompletions.Count > 0)
-                {
-                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
-                }
-
-                return;
-            }
-
-            var completion = _pendingCompletions[ready];
-            _ = _pendingCompletions.Remove(ready);
-            var (activityId, response, line, _) = completion;
-            var state = _agentSessions[ready];
-            _ = _activities.Remove((state, activityId));
-            if (response.Length > 0)
-            {
-                var responseLines = response.Split('\n');
-                responseLines[0] = $"● {responseLines[0]}";
-                await commit(
-                    Wrap(state, ImmediateScrollbackValue.Muted(responseLines), null),
-                    Snapshot(),
-                    cancellationToken).ConfigureAwait(false);
-            }
-
+            var responseLines = completion.Response.Split('\n');
+            responseLines[0] = $"● {responseLines[0]}";
             await commit(
-                Wrap(state, ImmediateScrollbackValue.Muted([line]), "♟"),
+                Wrap(state, ImmediateScrollbackValue.Muted(responseLines), null),
                 Snapshot(),
                 cancellationToken).ConfigureAwait(false);
         }
-    }
 
-    private sealed record AgentCompletion(string ActivityId, string Response, string Line, bool Failed);
+        await commit(
+            Wrap(state, ImmediateScrollbackValue.Muted([completion.Line]), "♟"),
+            Snapshot(),
+            cancellationToken).ConfigureAwait(false);
+    }
 }

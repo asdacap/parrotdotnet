@@ -7,7 +7,7 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedHierarchyTests
 {
     [Test]
-    public async Task Nested_child_responses_are_ordered_indented_and_flushed_after_descendants(
+    public async Task Agent_completions_are_committed_immediately(
         CancellationToken cancellationToken)
     {
         var drawn = new List<string>();
@@ -87,13 +87,15 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "parent", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
-        _ = await Assert.That(committed).IsEmpty();
-        _ = await Assert.That(drawn[^1]).Contains("  ♟ [parent] agent finished");
+        _ = await Assert.That(string.Join('|', committed))
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("[parent] agent finished");
 
         await view.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
-        _ = await Assert.That(committed).IsEmpty();
+        _ = await Assert.That(string.Join('|', committed))
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished|    ● [child] child|      [child] response|    ♟ [child] agent finished");
         await view.Render(
             new Event
             {
@@ -102,7 +104,7 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("    ✓ [child] tool call read|    ● [child] child|      [child] response|    ♟ [child] agent finished|  ● [parent] parent response|  ♟ [parent] agent finished");
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished|    ● [child] child|      [child] response|    ♟ [child] agent finished|    ✓ [child] tool call read");
 
         var count = committed.Count;
         await view.Render(
@@ -267,7 +269,8 @@ internal sealed class EnhancedHierarchyTests
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
 
-        _ = await Assert.That(committed).IsEmpty();
+        _ = await Assert.That(string.Join('|', committed))
+            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished");
         await view.Render(
             new Event
             {
