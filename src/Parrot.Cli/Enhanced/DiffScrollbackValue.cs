@@ -14,6 +14,10 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
         "^@@ -(?<oldStart>\\d+)(?:,(?<oldCount>\\d+))? \\+(?<newStart>\\d+)(?:,(?<newCount>\\d+))? @@",
         RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 
+    private static readonly Regex ChunkReport = new(
+        "^Chunk \\d+ has \\d+ match(?:es)?\\.$",
+        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+
     public bool IsCompleted => true;
 
     public ScrollbackLayout Layout => ScrollbackLayout.Block;
@@ -41,7 +45,8 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
         for (var index = 0; index < limit; index++)
         {
             var line = lines[index];
-            output.Add(Style(line, context.Palette).Apply(TerminalText.Clip(line, context.Columns)));
+            var style = line.Muted ? context.Palette.Muted : Style(line.Text, context.Palette);
+            output.Add(style.Apply(TerminalText.Clip(line.Text, context.Columns)));
         }
 
         if (lines.Count > limit)
@@ -76,9 +81,36 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
         return (source.ToString(), false);
     }
 
-    private static List<string> RenderDiff(string raw, int columns, bool inlineDiff)
+    private static List<RenderedRow> RenderDiff(string raw, int columns, bool inlineDiff)
     {
         var source = raw.Split('\n').Select(line => line.TrimEnd('\r')).ToArray();
+        var reportCount = CountChunkReports(source);
+        var diffSource = reportCount > 0 ? source[(reportCount + 1)..] : source;
+        var rendered = RenderStructuredDiff(diffSource, columns, inlineDiff);
+        if (rendered is null)
+        {
+            return [.. RawRows(source).Select(line => new RenderedRow(line, false))];
+        }
+
+        var output = new List<RenderedRow>(reportCount + rendered.Count);
+        output.AddRange(source.Take(reportCount).Select(line => new RenderedRow(line, true)));
+        output.AddRange(rendered.Select(line => new RenderedRow(line, false)));
+        return output;
+    }
+
+    private static int CountChunkReports(string[] source)
+    {
+        var count = 0;
+        while (count < source.Length && ChunkReport.IsMatch(source[count]))
+        {
+            count++;
+        }
+
+        return count > 0 && count < source.Length && source[count].Length == 0 ? count : 0;
+    }
+
+    private static List<string>? RenderStructuredDiff(string[] source, int columns, bool inlineDiff)
+    {
         var files = new List<DiffFile>();
 
         for (var index = 0; index < source.Length;)
@@ -87,7 +119,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
                 || index + 1 >= source.Length
                 || !source[index + 1].StartsWith("+++ ", StringComparison.Ordinal))
             {
-                return RawRows(source);
+                return null;
             }
 
             var oldPath = source[index][4..];
@@ -97,7 +129,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
 
             if (index < source.Length && string.Equals(source[index], "Binary files differ", StringComparison.Ordinal))
             {
-                return RawRows(source);
+                return null;
             }
 
             while (index < source.Length && !source[index].StartsWith("--- ", StringComparison.Ordinal))
@@ -105,7 +137,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
                 var match = HunkHeader.Match(source[index]);
                 if (!match.Success)
                 {
-                    return RawRows(source);
+                    return null;
                 }
 
                 var oldStart = int.Parse(match.Groups["oldStart"].Value, CultureInfo.InvariantCulture);
@@ -120,7 +152,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
                 {
                     if (source[index].Length == 0 || source[index][0] is not (' ' or '-' or '+'))
                     {
-                        return RawRows(source);
+                        return null;
                     }
 
                     rows.Add(new DiffRow(source[index][0], source[index][1..]));
@@ -135,7 +167,7 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
 
         if (files.Count == 0)
         {
-            return RawRows(source);
+            return null;
         }
 
         return inlineDiff || columns < MinimumSideBySideColumns
@@ -336,4 +368,6 @@ internal sealed class DiffScrollbackValue(string status, string diff) : IScrollb
         IReadOnlyList<DiffRow> Rows);
 
     private readonly record struct DiffRow(char Kind, string Text);
+
+    private readonly record struct RenderedRow(string Text, bool Muted);
 }

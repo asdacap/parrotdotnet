@@ -81,7 +81,7 @@ internal sealed class ApplyPatchToolTests : IDisposable
         var allowed = await new ApplyPatchTool(linkedRoot, physicalProfile).Execute(patch, cancellationToken);
 
         _ = await Assert.That(allowed).IsEqualTo(
-            "--- a/plan.md\n+++ b/plan.md\n@@ -1,1 +1,1 @@\n-old\n+new\n");
+            "Chunk 1 has 1 match.\n\n--- a/plan.md\n+++ b/plan.md\n@@ -1,1 +1,1 @@\n-old\n+new\n");
         _ = await Assert.That(await File.ReadAllTextAsync(physicalFile, cancellationToken)).IsEqualTo("new\n");
     }
 
@@ -102,7 +102,7 @@ internal sealed class ApplyPatchToolTests : IDisposable
             cancellationToken);
 
         _ = await Assert.That(result).IsEqualTo(
-            "--- a/file.txt\n+++ b/file.txt\n@@ -1,7 +1,7 @@\n line 1\n line 2\n line 3\n-line 4\n+changed\n line 5\n line 6\n line 7\n");
+            "Chunk 1 has 1 match.\n\n--- a/file.txt\n+++ b/file.txt\n@@ -1,7 +1,7 @@\n line 1\n line 2\n line 3\n-line 4\n+changed\n line 5\n line 6\n line 7\n");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("changed\n");
     }
 
@@ -143,7 +143,168 @@ internal sealed class ApplyPatchToolTests : IDisposable
             cancellationToken);
 
         _ = await Assert.That(result).IsEqualTo(
-            "--- a/first.txt\n+++ b/first.txt\n@@ -1,1 +1,1 @@\n-before\n+after\n--- /dev/null\n+++ b/second.txt\n@@ -0,0 +1,1 @@\n+created\n");
+            "Chunk 1 has 1 match.\n\n--- a/first.txt\n+++ b/first.txt\n@@ -1,1 +1,1 @@\n-before\n+after\n--- /dev/null\n+++ b/second.txt\n@@ -0,0 +1,1 @@\n+created\n");
+    }
+
+    [Test]
+    public async Task Execute_replaces_every_nonoverlapping_aider_match(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "repeated.txt");
+        await File.WriteAllTextAsync(path, "old\nkeep\nold\nold\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"repeated.txt\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).StartsWith("Chunk 1 has 3 matches.\n\n--- a/repeated.txt\n");
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken))
+            .IsEqualTo("new\nkeep\nnew\nnew\n");
+    }
+
+    [Test]
+    public async Task Execute_numbers_aider_chunks_across_files(CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(Path.Combine(_root, "first.txt"), "one\none\n", cancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(_root, "second.txt"), "two\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"first.txt\n<<<<<<< SEARCH\none\n=======\nchanged\n>>>>>>> REPLACE\nsecond.txt\n<<<<<<< SEARCH\ntwo\n=======\nchanged\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).StartsWith(
+            "Chunk 1 has 2 matches.\nChunk 2 has 1 match.\n\n--- a/first.txt\n");
+    }
+
+    [Test]
+    public async Task Execute_reports_interleaved_aider_paths_in_input_order(CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(Path.Combine(_root, "first.txt"), "one\none\nthree\nthree\n", cancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(_root, "second.txt"), "two\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"first.txt\n<<<<<<< SEARCH\none\n=======\nchanged\n>>>>>>> REPLACE\nsecond.txt\n<<<<<<< SEARCH\ntwo\n=======\nchanged\n>>>>>>> REPLACE\nfirst.txt\n<<<<<<< SEARCH\nthree\n=======\nchanged\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).StartsWith(
+            "Chunk 1 has 2 matches.\nChunk 2 has 1 match.\nChunk 3 has 2 matches.\n\n--- a/first.txt\n");
+    }
+
+    [Test]
+    public async Task Execute_uses_the_first_successful_aider_comparison(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "spacing.txt");
+        await File.WriteAllTextAsync(path, "old\n old \nold\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"spacing.txt\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).StartsWith("Chunk 1 has 2 matches.\n");
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken))
+            .IsEqualTo("new\n old \nnew\n");
+    }
+
+    [Test]
+    public async Task Execute_does_not_apply_overlapping_aider_matches(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "overlap.txt");
+        await File.WriteAllTextAsync(path, "a\na\na\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"overlap.txt\n<<<<<<< SEARCH\na\na\n=======\nb\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).StartsWith("Chunk 1 has 1 match.\n");
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("b\na\n");
+    }
+
+    [Test]
+    public async Task Execute_preserves_each_aider_match_line_ending_and_final_line(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "repeated-mixed.txt");
+        await File.WriteAllBytesAsync(
+            path,
+            [0xef, 0xbb, 0xbf, (byte)'x', (byte)'\r', (byte)'\n', (byte)'x', (byte)'\r', (byte)'x'],
+            cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"repeated-mixed.txt\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).StartsWith("Chunk 1 has 3 matches.\n");
+        var actual = await File.ReadAllBytesAsync(path, cancellationToken);
+        _ = await Assert.That(actual.AsSpan().SequenceEqual(
+            new byte[] { 0xef, 0xbb, 0xbf, (byte)'y', (byte)'\r', (byte)'\n', (byte)'y', (byte)'\r', (byte)'y' })).IsTrue();
+    }
+
+    [Test]
+    public async Task Execute_rejects_a_missing_search_without_writing(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "missing.txt");
+        await File.WriteAllTextAsync(path, "before\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"patchText":"missing.txt\n<<<<<<< SEARCH\nabsent\n=======\nafter\n>>>>>>> REPLACE"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo(
+            "error: patch planning failed with 1 errors:\n1. update 'missing.txt': hunk 1: Failed to find expected lines 'absent'.");
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("before\n");
+    }
+
+    [Test]
+    public async Task Execute_rejects_duplicate_unified_matches_without_writing(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "unified.txt");
+        await File.WriteAllTextAsync(path, "old\nold\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"format":"unified","patchText":"--- a/unified.txt\n+++ b/unified.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).Contains("Found 2 matches for 'old'; include more surrounding lines.");
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("old\nold\n");
+    }
+
+    [Test]
+    public async Task Execute_keeps_successful_unified_updates_diff_only(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_root, "unified-unique.txt");
+        await File.WriteAllTextAsync(path, "old\n", cancellationToken);
+        var tool = new ApplyPatchTool(_root, SecurityProfile.Compose(false, [], [], []));
+
+        var result = await tool.Execute(
+            """
+            {"format":"unified","patchText":"--- a/unified-unique.txt\n+++ b/unified-unique.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n"}
+            """,
+            cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo(
+            "--- a/unified-unique.txt\n+++ b/unified-unique.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n");
     }
 
     [Test]

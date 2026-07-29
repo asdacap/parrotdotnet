@@ -14,11 +14,11 @@ internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile se
     public string Name => "apply_patch";
 
     public string Description =>
-        "Apply reviewed edits written as aider SEARCH/REPLACE blocks or git-style unified diffs. Aider paths may be repeated for non-overlapping edits; an empty SEARCH creates a missing file or fills an existing empty regular file. Paths are workspace-relative or explicitly security-authorized absolute paths. Existing line endings and UTF-8 BOMs are preserved.";
+        "Apply reviewed edits written as aider SEARCH/REPLACE blocks or git-style unified diffs. Every nonempty aider SEARCH replaces all non-overlapping matches and reports its match count; unified hunks require unique context. Aider paths may be repeated for ordered edits; an empty SEARCH creates a missing file or fills an existing empty regular file. Paths are workspace-relative or explicitly security-authorized absolute paths. Existing line endings and UTF-8 BOMs are preserved.";
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"patchText":{"type":"string","description":"The patch text."},"format":{"type":"string","enum":["aider","unified"],"description":"Patch syntax; aider is the default."}},"required":["patchText"],"additionalProperties":false}
+        {"type":"object","properties":{"patchText":{"type":"string","description":"The patch text. Nonempty aider SEARCH blocks replace every non-overlapping match; unified update hunks require unique context."},"format":{"type":"string","enum":["aider","unified"],"description":"Patch syntax; aider is the default."}},"required":["patchText"],"additionalProperties":false}
         """;
 
     public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken) =>
@@ -81,7 +81,21 @@ internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile se
                 return written.Count == 0 ? report : $"{report}\nFiles written before failure: {string.Join(", ", written)}";
             }
 
-            return PatchDiff.Render([.. plan.Mutations.Select(mutation => mutation.Change)]);
+            var diff = PatchDiff.Render([.. plan.Mutations.Select(mutation => mutation.Change)]);
+            var reports = plan.Mutations
+                .SelectMany(mutation => mutation.MatchReports)
+                .OrderBy(report => report.Order)
+                .ToArray();
+            if (reports.Length == 0)
+            {
+                return diff;
+            }
+
+            var summary = string.Join(
+                '\n',
+                reports.Select((report, index) =>
+                    $"Chunk {index + 1} has {report.Count} {(report.Count == 1 ? "match" : "matches")}."));
+            return $"{summary}\n\n{diff}";
         }
 
         private static async Task<PatchApplicationPlan> Plan(
@@ -138,14 +152,20 @@ internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile se
                         throw new PatchException("Empty SEARCH may only create a missing file or replace an empty file.");
                     }
 
-                    return new PatchMutation(operation, resolved, before, Encoding.UTF8.GetBytes(operation.Data));
+                    return new PatchMutation(operation, resolved, before, Encoding.UTF8.GetBytes(operation.Data), []);
                 }
 
                 case PatchOperationKind.Update:
                 {
                     EnsureRegularFile(resolved.Physical);
                     var before = await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false);
-                    return new PatchMutation(operation, resolved, before, PatchApplicator.Apply(before, operation.Hunks));
+                    var application = PatchApplicator.Apply(before, operation.Hunks);
+                    return new PatchMutation(
+                        operation,
+                        resolved,
+                        before,
+                        application.Content,
+                        application.MatchReports);
                 }
 
                 case PatchOperationKind.Delete:
@@ -154,7 +174,8 @@ internal sealed class ApplyPatchTool(ToolWorkspace workspace, SecurityProfile se
                         operation,
                         resolved,
                         await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false),
-                        null);
+                        null,
+                        []);
 
                 default:
                     throw new PatchException($"Unknown operation for '{operation.Path}'.");

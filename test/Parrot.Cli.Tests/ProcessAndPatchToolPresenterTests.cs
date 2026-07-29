@@ -57,7 +57,7 @@ internal sealed class ProcessAndPatchToolPresenterTests
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
-                "--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
+                "Chunk 1 has 3 matches.\nChunk 2 has 1 match.\n\n--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
                 string.Empty),
             "apply patch",
             "file.txt",
@@ -146,14 +146,21 @@ internal sealed class ProcessAndPatchToolPresenterTests
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             true,
-            "--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
+            "Chunk 1 has 3 matches.\nChunk 2 has 1 match.\n\n--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
             string.Empty);
 
         var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
             .Render(new ScrollbackRenderContext(80, new TerminalPalette(false)));
         var sideBySide = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
             .Render(new ScrollbackRenderContext(80, new TerminalPalette(false), false));
+        var colored = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
+            .Render(new ScrollbackRenderContext(80, new TerminalPalette(true)));
 
+        _ = await Assert.That(rendered).Contains("Chunk 1 has 3 matches.");
+        _ = await Assert.That(rendered).Contains("Chunk 2 has 1 match.");
+        _ = await Assert.That(string.Join('\n', colored))
+            .Contains("\u001b[38;5;245mChunk 1 has 3 matches.\u001b[0m");
+        _ = await Assert.That(sideBySide).Contains("Chunk 2 has 1 match.");
         _ = await Assert.That(string.Join('\n', rendered)).Contains("1 -a");
         _ = await Assert.That(string.Join('\n', rendered)).Contains("1 +b");
         _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("│");

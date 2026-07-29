@@ -95,7 +95,7 @@ internal static class AiderPatchParser
             }
 
             var replace = lines.Skip(replaceStart).Take(index - replaceStart).ToArray();
-            blocks.Add(new Block(path, blockLine, search, replace));
+            blocks.Add(new Block(path, blockLine, blocks.Count, search, replace));
             index++;
         }
 
@@ -116,6 +116,7 @@ internal static class AiderPatchParser
     private sealed record Block(
         string Path,
         int Line,
+        int Order,
         IReadOnlyList<string> Search,
         IReadOnlyList<string> Replace);
 
@@ -155,7 +156,7 @@ internal static class AiderPatchParser
             var lines = new List<PatchLine>(block.Search.Count + block.Replace.Count);
             lines.AddRange(block.Search.Select(line => new PatchLine('-', line)));
             lines.AddRange(block.Replace.Select(line => new PatchLine('+', line)));
-            _hunks.Add(new PatchHunk(lines));
+            _hunks.Add(new PatchHunk(lines, new AiderPatchMatchPolicy(block.Order)));
         }
 
         public PatchOperation Build() =>

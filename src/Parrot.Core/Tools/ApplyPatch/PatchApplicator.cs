@@ -6,11 +6,12 @@ internal static class PatchApplicator
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
-    public static byte[] Apply(byte[] data, IReadOnlyList<PatchHunk> hunks)
+    public static PatchApplicationResult Apply(byte[] data, IReadOnlyList<PatchHunk> hunks)
     {
         var bom = data.AsSpan().StartsWith(Encoding.UTF8.Preamble);
         var lines = ReadLines(bom ? data[Encoding.UTF8.Preamble.Length..] : data);
         var replacements = new List<PatchReplacement>();
+        var matchReports = new List<PatchMatchReport>();
         var start = 0;
         var failures = new List<string>();
 
@@ -21,10 +22,30 @@ internal static class PatchApplicator
             var newLines = hunk.Lines.Where(line => line.Kind != '-').Select(line => line.Text).ToArray();
             try
             {
-                var found = oldLines.Length == 0 ? lines.Count : Find(lines, oldLines, start);
-                var ending = SelectEnding(lines, found, oldLines.Length);
-                replacements.Add(new PatchReplacement(found, oldLines.Length, BuildLines(newLines, ending, found + oldLines.Length == lines.Count && oldLines.Length > 0 && lines[found + oldLines.Length - 1].Ending.Length == 0)) { Order = hunkIndex });
-                start = found + oldLines.Length;
+                var found = oldLines.Length == 0
+                    ? (IReadOnlyList<int>)[lines.Count]
+                    : Find(lines, oldLines, start, hunk.MatchPolicy);
+                foreach (var position in found)
+                {
+                    var ending = SelectEnding(lines, position, oldLines.Length);
+                    var finalUnterminated = position + oldLines.Length == lines.Count
+                        && oldLines.Length > 0
+                        && lines[position + oldLines.Length - 1].Ending.Length == 0;
+                    replacements.Add(new PatchReplacement(
+                        position,
+                        oldLines.Length,
+                        BuildLines(newLines, ending, finalUnterminated))
+                    {
+                        Order = hunkIndex,
+                    });
+                }
+
+                if (hunk.MatchPolicy.ReportOrder is { } reportOrder)
+                {
+                    matchReports.Add(new PatchMatchReport(reportOrder, found.Count));
+                }
+
+                start = found[^1] + oldLines.Length;
             }
             catch (PatchException failure)
             {
@@ -55,13 +76,13 @@ internal static class PatchApplicator
 
         if (!bom)
         {
-            return output;
+            return new PatchApplicationResult(output, matchReports);
         }
 
         var result = new byte[Encoding.UTF8.Preamble.Length + output.Length];
         Encoding.UTF8.Preamble.CopyTo(result.AsSpan());
         output.CopyTo(result, Encoding.UTF8.Preamble.Length);
-        return result;
+        return new PatchApplicationResult(result, matchReports);
     }
 
     private static List<PatchFileLine> ReadLines(byte[] data)
@@ -91,7 +112,11 @@ internal static class PatchApplicator
         return lines;
     }
 
-    private static int Find(List<PatchFileLine> lines, string[] expected, int start)
+    private static IReadOnlyList<int> Find(
+        List<PatchFileLine> lines,
+        string[] expected,
+        int start,
+        IPatchMatchPolicy matchPolicy)
     {
         Func<string, string, bool>[] comparisons =
         [
@@ -100,30 +125,29 @@ internal static class PatchApplicator
             static (left, right) => string.Equals(left.Trim(), right.Trim(), StringComparison.Ordinal),
             static (left, right) => string.Equals(Normalize(left.Trim()), Normalize(right.Trim()), StringComparison.Ordinal),
         ];
+        var description = Describe(expected);
 
         foreach (var equal in comparisons)
         {
             var matches = new List<int>();
-            for (var index = start; index <= lines.Count - expected.Length; index++)
+            for (var index = start; index <= lines.Count - expected.Length;)
             {
-                if (Matches(lines, expected, index, equal))
+                var matched = Matches(lines, expected, index, equal);
+                if (matched)
                 {
                     matches.Add(index);
                 }
+
+                index = matchPolicy.AdvanceSearch(index, expected.Length, matched);
             }
 
-            if (matches.Count == 1)
+            if (matches.Count > 0)
             {
-                return matches[0];
-            }
-
-            if (matches.Count > 1)
-            {
-                throw new PatchException($"Found {matches.Count} matches for {Describe(expected)}; include more surrounding lines.");
+                return matchPolicy.SelectMatches(matches, description);
             }
         }
 
-        throw new PatchException($"Failed to find expected lines {Describe(expected)}.");
+        throw new PatchException($"Failed to find expected lines {description}.");
     }
 
     private static bool Matches(List<PatchFileLine> lines, string[] expected, int start, Func<string, string, bool> equal)

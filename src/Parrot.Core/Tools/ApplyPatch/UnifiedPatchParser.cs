@@ -120,7 +120,7 @@ internal static class UnifiedPatchParser
             throw new PatchException($"Invalid unified patch at line {headerLine}: hunk line counts do not match.");
         }
 
-        return new PatchHunk(hunkLines);
+        return new PatchHunk(hunkLines, new UnifiedPatchMatchPolicy());
     }
 
     private static (int Old, int New) ReadCounts(string header)
