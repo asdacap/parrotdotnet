@@ -118,6 +118,75 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Child_completion_renders_markdown_with_hierarchy_labels(
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var layouts = new List<ScrollbackLayout>();
+        var scrollbackContext = new ScrollbackRenderContext(80, new TerminalPalette(false));
+
+        Task Commit(
+            IScrollbackItem item,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = items;
+            layouts.Add(item.Layout);
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(
+            static (_, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            },
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "child" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                TextChunk = new TextChunk
+                {
+                    Fragment = "# Findings\n**bold** and `code`\n- first item\n```csharp\npublic var value = 42;\n```",
+                },
+            },
+            cancellationToken);
+
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+
+        _ = await Assert.That(committed).Count().IsEqualTo(2);
+        _ = await Assert.That(layouts[0]).IsEqualTo(ScrollbackLayout.Assistant);
+        _ = await Assert.That(layouts[1]).IsEqualTo(ScrollbackLayout.Compact);
+        _ = await Assert.That(committed[0]).IsEqualTo(
+            "  ● [child] Findings|    [child] bold and code|    [child] • first item|" +
+            "    [child] public var value = 42;");
+        _ = await Assert.That(committed[0]).DoesNotContain("# Findings");
+        _ = await Assert.That(committed[0]).DoesNotContain("**");
+        _ = await Assert.That(committed[0]).DoesNotContain("```");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished");
+    }
+
+    [Test]
     public async Task Child_response_keeps_ten_lines_and_aligns_continuations_with_its_label(
         CancellationToken cancellationToken)
     {
