@@ -509,9 +509,20 @@ internal sealed class BasicCli(
             var entered = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
             if (entered is null || string.Equals(entered.Trim(), "/cancel", StringComparison.OrdinalIgnoreCase))
             {
-                _ = await client.RejectQuestionAsync(
-                    new RejectQuestionRequest { UserSessionId = reply.UserSessionId, QuestionRequestId = pending.Id },
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    _ = await client.RejectQuestionAsync(
+                        new RejectQuestionRequest
+                        {
+                            UserSessionId = reply.UserSessionId,
+                            QuestionRequestId = pending.Id,
+                        },
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
+                catch (RpcException failure) when (failure.StatusCode == StatusCode.NotFound)
+                {
+                }
+
                 return;
             }
 
@@ -536,6 +547,9 @@ internal sealed class BasicCli(
         {
             await error.WriteLineAsync($"parrot: {failure.Status.Detail}".AsMemory(), cancellationToken).ConfigureAwait(false);
             await _questions.Writer.WriteAsync(pending, cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException failure) when (failure.StatusCode == StatusCode.NotFound)
+        {
         }
     }
 

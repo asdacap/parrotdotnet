@@ -17,6 +17,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<CreateSessionRequest> _created = [];
     private readonly List<UpdateSessionRequest> _updated = [];
     private readonly List<ConfigureModelAliasRequest> _configuredAliases = [];
+    private readonly List<ReplyQuestionRequest> _questionReplies = [];
     private readonly Lock _gate = new();
 
     public IReadOnlyList<string> Sent
@@ -85,7 +86,20 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public IReadOnlyList<ReplyQuestionRequest> QuestionReplies
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _questionReplies];
+            }
+        }
+    }
+
     public int Interrupts { get; private set; }
+
+    public bool ReplyQuestionNotFound { get; set; }
 
     public List<ModelAlias> ModelAliases { get; } = [];
 
@@ -118,6 +132,7 @@ internal sealed class ScriptedInvoker : CallInvoker
         Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
     {
         object answered;
+        RpcException? failure = null;
 
         switch (request)
         {
@@ -180,10 +195,16 @@ internal sealed class ScriptedInvoker : CallInvoker
             case ReplyQuestionRequest reply:
                 lock (_gate)
                 {
+                    _questionReplies.Add(reply.Clone());
                     _ = PendingQuestions.RemoveAll(question => string.Equals(question.Id, reply.QuestionRequestId, StringComparison.Ordinal));
                 }
 
                 answered = new ReplyQuestionResponse();
+                if (ReplyQuestionNotFound)
+                {
+                    failure = new RpcException(new Status(StatusCode.NotFound, "question is no longer pending"));
+                }
+
                 break;
             case RejectQuestionRequest reject:
                 lock (_gate)
@@ -223,7 +244,9 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
 
         return new AsyncUnaryCall<TResponse>(
-            Task.FromResult((TResponse)answered),
+            failure is null
+                ? Task.FromResult((TResponse)answered)
+                : Task.FromException<TResponse>(failure),
             Task.FromResult(new Metadata()),
             static () => Status.DefaultSuccess,
             static () => [],

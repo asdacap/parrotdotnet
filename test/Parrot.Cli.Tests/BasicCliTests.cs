@@ -181,6 +181,56 @@ internal sealed class BasicCliTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
+    public async Task A_stale_pending_question_does_not_end_the_cli(
+        bool enhanced,
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced);
+        driver.Invoker.ReplyQuestionNotFound = true;
+        driver.Invoker.PendingQuestions.Add(new PendingQuestion
+        {
+            Id = "question-1",
+            Questions =
+            {
+                new QuestionDefinition
+                {
+                    Id = "choice-1",
+                    Header = "Decision",
+                    Prompt = "Choose an approach",
+                    Options = { new QuestionOption { Id = "one", Label = "One" } },
+                },
+            },
+        });
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("first prompt");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event { Id = "start", TurnStarted = new TurnStarted { Model = "model" } });
+        await driver.Invoker.Publish(
+            new Event { Id = "question", ToolStarted = new ToolStarted { ToolCallId = "call-1", ToolName = "question" } });
+        await driver.OutputContains("Choose an approach", cancellationToken);
+
+        driver.Input.Type(enhanced ? string.Empty : "one");
+        while (driver.Invoker.QuestionReplies.Count < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        driver.Input.Type("second prompt");
+        await driver.Sent(2, cancellationToken);
+        driver.Input.Type("/exit");
+        var exitCode = await driving.WaitAsync(cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitSuccess);
+        _ = await Assert.That(string.Join(" | ", driver.Invoker.Sent)).IsEqualTo("first prompt | second prompt");
+        _ = await Assert.That(driver.Invoker.QuestionReplies).HasSingleItem();
+        _ = await Assert.That(driver.Invoker.QuestionReplies[0].QuestionRequestId).IsEqualTo("question-1");
+        _ = await Assert.That(driver.Invoker.PendingQuestions).IsEmpty();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task A_queued_turn_is_rendered_without_another_message(
         bool enhanced,
         CancellationToken cancellationToken)

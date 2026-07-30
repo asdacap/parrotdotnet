@@ -771,9 +771,7 @@ internal sealed class EnhancedCli(
                 cancellationToken).ConfigureAwait(false);
             if (selected is null)
             {
-                _ = await client.RejectQuestionAsync(
-                    new RejectQuestionRequest { UserSessionId = session.Id, QuestionRequestId = pending.Id },
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                await RejectQuestion(pending.Id, session.Id, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -783,9 +781,7 @@ internal sealed class EnhancedCli(
                 var custom = await dialog.ReadText(question.Prompt, cancellationToken).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(custom))
                 {
-                    _ = await client.RejectQuestionAsync(
-                        new RejectQuestionRequest { UserSessionId = session.Id, QuestionRequestId = pending.Id },
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await RejectQuestion(pending.Id, session.Id, cancellationToken).ConfigureAwait(false);
                     return;
                 }
 
@@ -806,6 +802,29 @@ internal sealed class EnhancedCli(
         catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
         {
             await dialog.ShowError(failure.Status.Detail, cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException failure) when (failure.StatusCode == StatusCode.NotFound)
+        {
+        }
+    }
+
+    private async Task RejectQuestion(
+        string questionRequestId,
+        string userSessionId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _ = await client.RejectQuestionAsync(
+                new RejectQuestionRequest
+                {
+                    UserSessionId = userSessionId,
+                    QuestionRequestId = questionRequestId,
+                },
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException failure) when (failure.StatusCode == StatusCode.NotFound)
+        {
         }
     }
 
