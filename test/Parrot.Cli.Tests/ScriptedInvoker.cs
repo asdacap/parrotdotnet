@@ -12,6 +12,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     // an in-process stream are what ChannelStreamWriter already is.
     private readonly Dictionary<string, ChannelStreamWriter<Event>> _events = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingQuestion>> _pendingQuestions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<PendingPermission>> _pendingPermissions = new(StringComparer.Ordinal);
     private readonly List<string> _sent = [];
     private readonly List<string> _sentTo = [];
     private readonly List<string> _listenedTo = [];
@@ -19,8 +20,10 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<UpdateSessionRequest> _updated = [];
     private readonly List<ConfigureModelAliasRequest> _configuredAliases = [];
     private readonly List<ReplyQuestionRequest> _questionReplies = [];
+    private readonly List<ReplyPermissionRequest> _permissionReplies = [];
     private readonly Lock _gate = new();
     private int _pendingQuestionLists;
+    private int _pendingPermissionLists;
 
     public IReadOnlyList<string> Sent
     {
@@ -94,6 +97,8 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     public bool ReplyQuestionNotFound { get; set; }
 
+    public StatusCode? ReplyPermissionFailure { get; set; }
+
     public bool SessionLoaded { get; set; }
 
     public List<ModelAlias> ModelAliases { get; } = [];
@@ -116,6 +121,28 @@ internal sealed class ScriptedInvoker : CallInvoker
             lock (_gate)
             {
                 return [.. _questionReplies.Select(reply => reply.Clone())];
+            }
+        }
+    }
+
+    public IReadOnlyList<ReplyPermissionRequest> PermissionReplies
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _permissionReplies.Select(reply => reply.Clone())];
+            }
+        }
+    }
+
+    public int PendingPermissionLists
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pendingPermissionLists;
             }
         }
     }
@@ -150,6 +177,14 @@ internal sealed class ScriptedInvoker : CallInvoker
         lock (_gate)
         {
             GetPendingQuestions("session-1").Add(question.Clone());
+        }
+    }
+
+    public void AddPendingPermission(PendingPermission permission)
+    {
+        lock (_gate)
+        {
+            GetPendingPermissions("session-1").Add(permission.Clone());
         }
     }
 
@@ -253,6 +288,32 @@ internal sealed class ScriptedInvoker : CallInvoker
                 }
 
                 answered = listedQuestions;
+                break;
+            case ListPendingPermissionsRequest listPermissions:
+                var listedPermissions = new ListPendingPermissionsResponse();
+                lock (_gate)
+                {
+                    _pendingPermissionLists++;
+                    listedPermissions.Permissions.Add(
+                        GetPendingPermissions(listPermissions.UserSessionId).Select(permission => permission.Clone()));
+                }
+
+                answered = listedPermissions;
+                break;
+            case ReplyPermissionRequest permissionReply:
+                lock (_gate)
+                {
+                    _permissionReplies.Add(permissionReply.Clone());
+                    _ = GetPendingPermissions(permissionReply.UserSessionId).RemoveAll(permission =>
+                        string.Equals(permission.Id, permissionReply.PermissionRequestId, StringComparison.Ordinal));
+                }
+
+                answered = new ReplyPermissionResponse();
+                if (ReplyPermissionFailure is { } permissionFailure)
+                {
+                    return Failed<TResponse>(permissionFailure, "scripted permission failure");
+                }
+
                 break;
             case ReplyQuestionRequest reply:
                 lock (_gate)
@@ -395,5 +456,16 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
 
         return questions;
+    }
+
+    private List<PendingPermission> GetPendingPermissions(string userSessionId)
+    {
+        if (!_pendingPermissions.TryGetValue(userSessionId, out var permissions))
+        {
+            permissions = [];
+            _pendingPermissions.Add(userSessionId, permissions);
+        }
+
+        return permissions;
     }
 }

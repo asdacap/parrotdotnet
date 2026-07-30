@@ -14,5 +14,6 @@ internal interface IUserSessionFactory
         string id,
         string rootAgentName,
         ResolvedModelSelection model,
-        string mode);
+        string mode,
+        bool interactivePermissions);
 }

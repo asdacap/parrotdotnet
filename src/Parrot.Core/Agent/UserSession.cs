@@ -1,5 +1,6 @@
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
@@ -48,7 +49,9 @@ internal sealed class UserSession : IAsyncDisposable
         string mode,
         SessionResourceLease resources,
         IAgentSessionFactorySource agentSessionFactories,
-        UserSessionModes modes)
+        UserSessionModes modes,
+        bool interactivePermissions,
+        TimeSpan permissionRequestTimeout)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
@@ -64,6 +67,7 @@ internal sealed class UserSession : IAsyncDisposable
         var state = _eventRepository.SessionState(id, modes.Resolve(mode).Id);
         _mainSessionId = state.AgentSessionId;
         Mode = modes.Resolve(state.Mode);
+        Permissions = new PermissionBroker(_eventBroker, _eventRepository, interactivePermissions, permissionRequestTimeout);
         Queues = agentSessionFactories.CreateQueues(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
@@ -103,6 +107,8 @@ internal sealed class UserSession : IAsyncDisposable
     internal RuntimeStatus Status { get; }
 
     internal QuestionBroker Questions { get; } = new();
+
+    internal PermissionBroker Permissions { get; }
 
     // Assigned, never rebuilt. The main session holds the conversation, the
     // input admitted against it and the drain that may be running: replacing it
@@ -185,6 +191,7 @@ internal sealed class UserSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Questions.Dispose();
+        Permissions.Dispose();
         await Registry.DisposeAsync().ConfigureAwait(false);
         await _lifetime.CancelAsync().ConfigureAwait(false);
         await ShellProcesses.Settle().ConfigureAwait(false);

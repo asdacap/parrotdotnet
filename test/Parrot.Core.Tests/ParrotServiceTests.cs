@@ -2,6 +2,7 @@ using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
@@ -180,6 +181,105 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(listed.Questions).IsEmpty();
         _ = await Assert.That(replied?.StatusCode).IsEqualTo(StatusCode.NotFound);
         _ = await Assert.That(rejected?.StatusCode).IsEqualTo(StatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task In_process_permission_calls_map_pending_replies_and_errors(
+        CancellationToken cancellationToken)
+    {
+        var sessions = new DirectAgentSessions();
+        var store = Store(sessions);
+        await using var service = Service(store);
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var created = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection, InteractivePermissions = true },
+            cancellationToken: cancellationToken);
+        _ = await client.SendMessageAsync(
+            Send(created.Id, "initialize", "msg-permission"),
+            cancellationToken: cancellationToken);
+        var directory = EnsureDirectory(Path.Combine(_root, "permission-target"));
+        var file = Path.Combine(directory, "generated.txt");
+        await File.WriteAllTextAsync(file, "before", cancellationToken);
+        var request = sessions.Owners.Single().Permissions.Request(
+            sessions.Sessions.Single(),
+            "update generated files",
+            [SandboxWriteTarget.Resolve(directory), SandboxWriteTarget.Resolve(file)],
+            cancellationToken);
+        await WaitForPermission(sessions.Owners.Single(), cancellationToken);
+
+        var listed = await client.ListPendingPermissionsAsync(
+            new ListPendingPermissionsRequest { UserSessionId = created.Id },
+            cancellationToken: cancellationToken);
+        var pending = listed.Permissions.Single();
+        var invalid = await Assert.That(async () => await client.ReplyPermissionAsync(
+            new ReplyPermissionRequest
+            {
+                UserSessionId = created.Id,
+                PermissionRequestId = pending.Id,
+                ChoiceValue = "missing",
+            },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+        _ = await client.ReplyPermissionAsync(
+            new ReplyPermissionRequest
+            {
+                UserSessionId = created.Id,
+                PermissionRequestId = pending.Id,
+                ChoiceValue = "grant",
+            },
+            cancellationToken: cancellationToken);
+        var missing = await Assert.That(async () => await client.ReplyPermissionAsync(
+            new ReplyPermissionRequest
+            {
+                UserSessionId = created.Id,
+                PermissionRequestId = pending.Id,
+                ChoiceValue = "reject",
+            },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+
+        _ = await request;
+        _ = await Assert.That(pending.AgentSessionId).IsEqualTo(sessions.Sessions.Single().SessionId);
+        _ = await Assert.That(pending.Reason).IsEqualTo("update generated files");
+        _ = await Assert.That(pending.Targets[0].Kind).IsEqualTo(PermissionTargetKind.Directory);
+        _ = await Assert.That(pending.Targets[0].Scope).IsEqualTo(PermissionTargetScope.Write);
+        _ = await Assert.That(pending.Targets[1].Kind).IsEqualTo(PermissionTargetKind.File);
+        _ = await Assert.That(pending.Targets[1].Path).IsEqualTo(Path.GetFullPath(file));
+        _ = await Assert.That(pending.Choices.Single(choice => choice.Value == "grant").Action)
+            .IsEqualTo(PermissionAction.Allow);
+        _ = await Assert.That(pending.Choices.Single(choice => choice.Value == "reject").Action)
+            .IsEqualTo(PermissionAction.Deny);
+        _ = await Assert.That(pending.Choices.Single(choice => choice.RequiresReason).Action)
+            .IsEqualTo(PermissionAction.Deny);
+        _ = await Assert.That(invalid?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(missing?.StatusCode).IsEqualTo(StatusCode.NotFound);
+        _ = await Assert.That(sessions.Sessions.Single().WriteGrants.Capture().Targets).Count().IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Create_session_defaults_to_noninteractive_permissions(CancellationToken cancellationToken)
+    {
+        var sessions = new DirectAgentSessions();
+        await using var service = Service(Store(sessions));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var created = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection },
+            cancellationToken: cancellationToken);
+        _ = await client.SendMessageAsync(
+            Send(created.Id, "initialize", "msg-noninteractive"),
+            cancellationToken: cancellationToken);
+        var target = SandboxWriteTarget.Resolve(EnsureDirectory(Path.Combine(_root, "noninteractive-target")));
+
+        var reply = await sessions.Owners.Single().Permissions.Request(
+            sessions.Sessions.Single(),
+            "update generated files",
+            [target],
+            cancellationToken);
+        var listed = await client.ListPendingPermissionsAsync(
+            new ListPendingPermissionsRequest { UserSessionId = created.Id },
+            cancellationToken: cancellationToken);
+
+        _ = await Assert.That(reply.Decision).IsEqualTo(PermissionDecision.Reject);
+        _ = await Assert.That(listed.Permissions).IsEmpty();
+        _ = await Assert.That(sessions.Sessions.Single().WriteGrants.Capture().Targets).IsEmpty();
     }
 
     [Test]
@@ -397,6 +497,16 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
+    private static async Task WaitForPermission(
+        Agent.UserSession session,
+        CancellationToken cancellationToken)
+    {
+        while (session.Permissions.Pending().Count == 0)
+        {
+            await Task.Delay(10, cancellationToken);
+        }
+    }
+
     private static SendMessageRequest Send(string userSessionId, string text, string messageId) =>
         new()
         {
@@ -493,7 +603,7 @@ internal sealed class ParrotServiceTests : IDisposable
             new StatePaths(_root, _root, _root),
             EnsureDirectory(Path.Combine(_root, "work")),
             "host",
-            new UserSessionFactory(sessions, Modes()),
+            new UserSessionFactory(sessions, Modes(), TimeSpan.FromSeconds(30)),
             _router,
             Modes());
     }

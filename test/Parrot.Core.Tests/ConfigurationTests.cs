@@ -97,6 +97,26 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Permission_request_timeout_defaults_from_predefined_configuration_and_accepts_positive_milliseconds()
+    {
+        var missing = Load(Path.Combine(_directory, "missing.yaml"));
+        var configured = Load(Write("permission_request_timeout_ms: 1250\n"));
+
+        _ = await Assert.That(missing.PermissionRequestTimeout).IsEqualTo(TimeSpan.FromSeconds(30));
+        _ = await Assert.That(configured.PermissionRequestTimeout).IsEqualTo(TimeSpan.FromMilliseconds(1250));
+    }
+
+    [Test]
+    [Arguments("permission_request_timeout_ms: 0\n")]
+    [Arguments("permission_request_timeout_ms: -1\n")]
+    [Arguments("permission_request_timeout_ms: 1.5\n")]
+    [Arguments("permission_request_timeout_ms: true\n")]
+    [Arguments("permission_request_timeout_ms: null\n")]
+    [Arguments("permission_request_timeout_ms: 2147483648\n")]
+    public async Task Permission_request_timeout_requires_strict_positive_integer_milliseconds(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
+
+    [Test]
     public async Task Cli_utility_candidates_have_exact_defaults()
     {
         var candidates = Load(Path.Combine(_directory, "config.yaml")).CliUtilities;

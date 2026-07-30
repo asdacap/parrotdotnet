@@ -45,6 +45,62 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Pending_permission_roundtrips_as_a_protobuf_payload()
+    {
+        var source = new Event
+        {
+            Id = "permission-event",
+            AgentSessionId = "agent-session",
+            PermissionPending = new PendingPermission
+            {
+                Id = "permission-request",
+                AgentSessionId = "agent-session",
+                Reason = "update generated files",
+                Targets =
+                {
+                    new PermissionTarget
+                    {
+                        Kind = PermissionTargetKind.Directory,
+                        Scope = PermissionTargetScope.Write,
+                        Path = "/project/generated",
+                    },
+                },
+                Choices =
+                {
+                    new PermissionChoice
+                    {
+                        Value = "allow",
+                        Label = "Allow",
+                        Action = PermissionAction.Allow,
+                    },
+                    new PermissionChoice
+                    {
+                        Value = "deny",
+                        Label = "Deny",
+                        Action = PermissionAction.Deny,
+                        RequiresReason = true,
+                    },
+                },
+            },
+        };
+
+        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
+
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.PermissionPending);
+        _ = await Assert.That(roundtripped.PermissionPending.Id).IsEqualTo("permission-request");
+        _ = await Assert.That(roundtripped.PermissionPending.AgentSessionId).IsEqualTo("agent-session");
+        _ = await Assert.That(roundtripped.PermissionPending.Reason).IsEqualTo("update generated files");
+        _ = await Assert.That(roundtripped.PermissionPending.Targets[0].Kind)
+            .IsEqualTo(PermissionTargetKind.Directory);
+        _ = await Assert.That(roundtripped.PermissionPending.Targets[0].Scope)
+            .IsEqualTo(PermissionTargetScope.Write);
+        _ = await Assert.That(roundtripped.PermissionPending.Targets[0].Path).IsEqualTo("/project/generated");
+        _ = await Assert.That(roundtripped.PermissionPending.Choices[0].Action).IsEqualTo(PermissionAction.Allow);
+        _ = await Assert.That(roundtripped.PermissionPending.Choices[1].Action).IsEqualTo(PermissionAction.Deny);
+        _ = await Assert.That(roundtripped.PermissionPending.Choices[1].RequiresReason).IsTrue();
+    }
+
+    [Test]
     public async Task Status_injected_roundtrips_as_a_protobuf_payload()
     {
         var source = new Event

@@ -8,6 +8,7 @@ internal sealed class SlashSession(
     GeneratedParrot.ParrotClient client,
     UserSession initialSession,
     Configuration configuration,
+    bool interactivePermissions,
     ISlashSessionBinding binding) : ISlashSession
 {
     private UserSession _current = initialSession;
@@ -34,7 +35,12 @@ internal sealed class SlashSession(
     public async Task StartNew(string model, string mode, CancellationToken cancellationToken)
     {
         var session = await client.CreateSessionAsync(
-            new CreateSessionRequest { Model = model, Mode = mode },
+            new CreateSessionRequest
+            {
+                Model = model,
+                Mode = mode,
+                InteractivePermissions = interactivePermissions,
+            },
             cancellationToken: cancellationToken);
         await binding.Replace(session, cancellationToken).ConfigureAwait(false);
         _current = session;

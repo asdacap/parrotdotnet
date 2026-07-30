@@ -21,7 +21,12 @@ internal sealed class EventBroker : IDisposable
     public ValueTask Publish(Event published, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Publish(published);
+        return ValueTask.CompletedTask;
+    }
 
+    public void Publish(Event published)
+    {
         Channel<Event>[] targets;
 
         lock (_gate)
@@ -33,8 +38,6 @@ internal sealed class EventBroker : IDisposable
         {
             _ = target.Writer.TryWrite(published);
         }
-
-        return ValueTask.CompletedTask;
     }
 
     public async IAsyncEnumerable<Event> Subscribe(

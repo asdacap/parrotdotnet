@@ -185,7 +185,7 @@ internal sealed class SessionStoreTests : IDisposable
             Paths(),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes()),
+            new UserSessionFactory(sessions, Modes(), TimeSpan.FromSeconds(30)),
             router,
             Modes());
         return store.Open(router.Resolve(model.Selector));
@@ -226,7 +226,8 @@ internal sealed class SessionStoreTests : IDisposable
             string id,
             string rootAgentName,
             ResolvedModelSelection model,
-            string mode) =>
+            string mode,
+            bool interactivePermissions) =>
             throw new InvalidOperationException("construction failed");
     }
 }

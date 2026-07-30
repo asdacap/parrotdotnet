@@ -17,13 +17,23 @@ namespace Parrot.Core.Tests;
 internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 {
     private readonly List<AgentIdentity> _identities = [];
+    private readonly List<AgentSession> _sessions = [];
+    private readonly List<UserSession> _owners = [];
     private ModelRouter? _router;
 
     public IReadOnlyList<AgentIdentity> Identities => _identities;
 
+    public IReadOnlyList<AgentSession> Sessions => _sessions;
+
+    public IReadOnlyList<UserSession> Owners => _owners;
+
     public void Use(ModelRouter router) => _router = router;
 
-    public IAgentSessionFactory Create(UserSession owner) => new OwnerAgentSessions(this, owner);
+    public IAgentSessionFactory Create(UserSession owner)
+    {
+        _owners.Add(owner);
+        return new OwnerAgentSessions(this, owner);
+    }
 
     public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
         new(owner.Resources, new ProcessRunner(string.Empty), owner.Lifetime);
@@ -47,7 +57,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             source._identities.Add(identity);
             _ = owner.ShellProcesses.Create(identity.SessionId);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
-            return new AgentSessionLease(new AgentSession(
+            var session = new AgentSession(
                 identity,
                 model,
                 router,
@@ -63,7 +73,9 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 status,
                 registry,
                 owner,
-                lifetime));
+                lifetime);
+            source._sessions.Add(session);
+            return new AgentSessionLease(session);
         }
     }
 }

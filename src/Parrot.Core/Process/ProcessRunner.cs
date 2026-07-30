@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.Store;
 
@@ -34,6 +35,7 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
         SecurityProfile securityProfile,
+        SandboxWriteGrantSnapshot writeGrants,
         CancellationToken cancellationToken)
     {
         if (!SandboxAvailable)
@@ -50,7 +52,7 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
             UseShellExecute = false,
         };
 
-        foreach (var argument in SandboxArguments(command, environment, resources, securityProfile))
+        foreach (var argument in SandboxArguments(command, environment, resources, securityProfile, writeGrants))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -229,7 +231,8 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
-        SecurityProfile securityProfile)
+        SecurityProfile securityProfile,
+        SandboxWriteGrantSnapshot writeGrants)
     {
         PreparePrivateRuntime(resources);
         var arguments = new List<string>
@@ -256,6 +259,7 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         if (!securityProfile.ReadOnly)
         {
             AddWritableWorkspace(arguments, resources.Workspace.LaunchDirectory);
+            AddWriteGrants(arguments, writeGrants);
         }
 
         AddSecurityRules(arguments, securityProfile);
@@ -340,6 +344,16 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         if (parents.Count > 0)
         {
             arguments.AddRange(["--chmod", "100", resources.Root]);
+        }
+    }
+
+    private static void AddWriteGrants(
+        List<string> arguments,
+        SandboxWriteGrantSnapshot writeGrants)
+    {
+        foreach (var target in writeGrants.CaptureValid())
+        {
+            arguments.AddRange(["--bind", target.Path, target.Path]);
         }
     }
 

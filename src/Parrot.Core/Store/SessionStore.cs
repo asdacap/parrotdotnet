@@ -27,22 +27,22 @@ internal sealed class SessionStore(
         });
     }
 
-    public UserSession Open(ResolvedModelSelection model) => Open(model, modes.Default).Session;
+    public UserSession Open(ResolvedModelSelection model) => Open(model, modes.Default, false).Session;
 
-    public OpenedSession Open(ResolvedModelSelection model, string mode)
+    public OpenedSession Open(ResolvedModelSelection model, string mode, bool interactivePermissions)
     {
         var workspace = ProjectWorkspace.FromLaunchDirectory(workingDirectory);
         var claim = new WorkingDirectoryClaim(paths.State, hostKey);
         var admission = claim.OpenDefault(workspace.LaunchDirectory);
-        return Open(model, mode, workspace, admission);
+        return Open(model, mode, interactivePermissions, workspace, admission);
     }
 
-    public UserSession CreateFresh(ResolvedModelSelection model, string mode)
+    public UserSession CreateFresh(ResolvedModelSelection model, string mode, bool interactivePermissions)
     {
         var workspace = ProjectWorkspace.FromLaunchDirectory(workingDirectory);
         var claim = new WorkingDirectoryClaim(paths.State, hostKey);
         var admission = claim.CreateFresh(workspace.LaunchDirectory, UserSessionId.Generate());
-        return Open(model, mode, workspace, admission).Session;
+        return Open(model, mode, interactivePermissions, workspace, admission).Session;
     }
 
     private static string StoredSelector(SessionMeta meta)
@@ -60,6 +60,7 @@ internal sealed class SessionStore(
     private OpenedSession Open(
         ResolvedModelSelection model,
         string mode,
+        bool interactivePermissions,
         ProjectWorkspace workspace,
         AdmissionResult admission)
     {
@@ -81,7 +82,13 @@ internal sealed class SessionStore(
                 throw new InvalidOperationException("The session resource lease was not acquired.");
             }
 
-            var session = userSessions.Create(lease, id.Value, rootAgentName, selected, mode);
+            var session = userSessions.Create(
+                lease,
+                id.Value,
+                rootAgentName,
+                selected,
+                mode,
+                interactivePermissions);
             index.Publish(new SessionMeta
             {
                 Id = id.Value,

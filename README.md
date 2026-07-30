@@ -148,6 +148,30 @@ runtime-only write permission from Parrot; child profiles never inherit this
 capability. Legacy `profiles.<id>.status` input is accepted and ignored for
 compatibility. It is not profile guidance and is never injected into a prompt.
 
+## Write permission requests
+
+`request_write_permission` is the only way an agent can ask the user to extend
+its sandbox write access at runtime. A request contains one or more exact,
+existing absolute paths and a nonblank reason. The server resolves each path to
+its canonical physical target: an existing-file grant applies only to that file,
+while an existing-directory grant applies to that directory and its descendants.
+A request does not authorise a tool name, a profile, or an unbounded part of the
+filesystem.
+
+The CLI offers only the server-declared choices: **Grant**, **Reject**, and
+**Reject with reason**. Cancelling the picker or reason entry is a plain reject;
+a blank required rejection reason is invalid. Noninteractive sessions reject
+requests immediately, and unanswered pending requests time out. A rejection
+leaves the sandbox unchanged.
+
+An approval creates a runtime-only grant for the requesting agent session. It
+allows writing through the filesystem tools, including write, edit, and shell,
+within the granted target; it is not written to configuration, does not survive
+the session, and is not inherited by child or sibling agent sessions. Grants
+are not merged into a `SecurityProfile`, and cannot override a read-only
+profile, an explicit static deny, or Parrot's protected state, configuration,
+and data roots. Filesystem permission still does not imply network permission.
+
 ## User Session Isolation
 
 A user session is Parrot's unit of private storage, runtime ownership, and child

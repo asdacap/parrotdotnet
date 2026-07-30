@@ -5,14 +5,16 @@ namespace Parrot.Agent;
 
 internal sealed class UserSessionFactory(
     IAgentSessionFactorySource agentSessionFactories,
-    ModeRegistry modes) : IUserSessionFactory
+    ModeRegistry modes,
+    TimeSpan permissionRequestTimeout) : IUserSessionFactory
 {
     public UserSession Create(
         SessionResourceLease resources,
         string id,
         string rootAgentName,
         ResolvedModelSelection model,
-        string mode) =>
+        string mode,
+        bool interactivePermissions) =>
         new(
             id,
             rootAgentName,
@@ -20,5 +22,7 @@ internal sealed class UserSessionFactory(
             mode,
             resources,
             agentSessionFactories,
-            new UserSessionModes(modes, resources.Resources.PlanDirectory));
+            new UserSessionModes(modes, resources.Resources.PlanDirectory),
+            interactivePermissions,
+            permissionRequestTimeout);
 }

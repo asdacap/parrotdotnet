@@ -16,6 +16,7 @@ internal sealed class Configuration(string path)
     private const string DefaultProfileKey = "default_profile";
     private const string DisabledToolsKey = "disabled_tools";
     private const string CliUtilitiesKey = "cli_utilities";
+    private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
 
     private readonly Lock _writeLock = new();
 
@@ -52,6 +53,8 @@ internal sealed class Configuration(string path)
 
     public CliUtilityCandidates CliUtilities { get; private set; } = new([], []);
 
+    public TimeSpan PermissionRequestTimeout { get; private set; }
+
     public static Configuration Load(string path, string predefinedPath)
     {
         CopyPredefined(predefinedPath);
@@ -71,6 +74,8 @@ internal sealed class Configuration(string path)
             Profiles = ReadProfiles(root),
             DefaultProfile = ReadDefaultProfile(root),
             CliUtilities = ReadCliUtilities(root),
+            PermissionRequestTimeout = TimeSpan.FromMilliseconds(
+                PositiveInteger(root, PermissionRequestTimeoutKey, PermissionRequestTimeoutKey)),
         };
     }
 

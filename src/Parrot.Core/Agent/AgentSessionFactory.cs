@@ -46,6 +46,7 @@ internal sealed class AgentSessionFactory(
             new QueuePushToolFactory(owner),
             new QueueTakeToolFactory(owner.Queues),
             new QuestionToolFactory(owner.Questions),
+            new RequestWritePermissionToolFactory(owner.Permissions),
         ];
 
     public IAgentSessionLease Create(

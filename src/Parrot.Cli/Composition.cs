@@ -184,7 +184,8 @@ internal partial class Composition
             {
                 ctx.Inject<IAgentSessionFactorySource>(out var agentSessionFactories);
                 ctx.Inject<ModeRegistry>(out var modes);
-                return new UserSessionFactory(agentSessionFactories, modes);
+                ctx.Inject<Configuration>(out var configuration);
+                return new UserSessionFactory(agentSessionFactories, modes, configuration.PermissionRequestTimeout);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

@@ -73,6 +73,8 @@ internal static class Identifier
 
     public static string QuestionRequestId() => $"question-{Opaque()}";
 
+    public static string PermissionRequestId() => $"permission-{Opaque()}";
+
     private static string Opaque() =>
         Guid.CreateVersion7().ToString("n", System.Globalization.CultureInfo.InvariantCulture);
 

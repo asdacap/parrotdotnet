@@ -11,7 +11,8 @@ namespace Parrot.Tools;
 internal sealed class ExecCommandTool(
     ShellProcessOwner processes,
     AgentSession session,
-    SecurityProfile securityProfile) : ITool
+    SecurityProfile securityProfile,
+    Permissions.SandboxWriteGrants writeGrants) : ITool
 {
     public string Name => "exec_command";
 
@@ -62,7 +63,13 @@ internal sealed class ExecCommandTool(
 
         try
         {
-            var process = processes.Start(name, command, environment, session, securityProfile);
+            var process = processes.Start(
+                name,
+                command,
+                environment,
+                session,
+                securityProfile,
+                writeGrants.Capture());
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 
             return outcome.Yielded

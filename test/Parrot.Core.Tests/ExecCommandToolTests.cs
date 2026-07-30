@@ -69,7 +69,8 @@ internal sealed class ExecCommandToolTests : IDisposable
         var tool = new ExecCommandTool(
             processes,
             session,
-            SecurityProfile.Compose(readOnly: false, [], [], []));
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            session.WriteGrants);
         using var schema = JsonDocument.Parse(tool.ParametersJson);
         var schemaRoot = schema.RootElement;
         var environmentSchema = schemaRoot.GetProperty("properties").GetProperty("env");
