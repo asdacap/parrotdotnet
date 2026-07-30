@@ -423,10 +423,8 @@ internal sealed class RawActivityView(
         _ = _activities.Remove((state, completion.ActivityId));
         if (completion.Response.Length > 0)
         {
-            var responseLines = completion.Response.Split('\n');
-            responseLines[0] = $"● {responseLines[0]}";
             await commit(
-                Wrap(state, ImmediateScrollbackValue.Muted(responseLines), null),
+                Wrap(state, new MarkdownScrollbackValue(completion.Response), null),
                 Snapshot(),
                 cancellationToken).ConfigureAwait(false);
         }
