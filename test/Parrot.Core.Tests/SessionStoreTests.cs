@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
@@ -44,6 +45,45 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(catalog.Find(UserSessionId.Parse(legacyId))?.RootAgentName).IsEqualTo("main");
         _ = await Assert.That(catalog.Find(UserSessionId.Parse(legacyId))?.CreatedAt)
             .IsEqualTo("2026-07-27T02:00:00Z");
+    }
+
+    [Test]
+    public async Task Legacy_metadata_without_host_identity_resumes_and_is_republished()
+    {
+        const string id = "user-session-legacy-host";
+        const string createdAt = "2026-07-27T04:00:00Z";
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "legacy-host-work")).FullName;
+        var index = Index(id, workingDirectory);
+        _ = Directory.CreateDirectory(index.Resources.Root);
+        var encodedWorkingDirectory = JsonEncodedText.Encode(workingDirectory).ToString();
+        var legacyMetadata = $$"""
+            {
+              "Id": "{{id}}",
+              "WorkingDirectory": "{{encodedWorkingDirectory}}",
+              "RootAgentName": "main-7",
+              "ProviderId": "unused",
+              "Model": "unused/model",
+              "Selector": "unused/model",
+              "Mode": "query",
+              "ProcessId": 4312,
+              "CreatedAt": "{{createdAt}}"
+            }
+            """;
+        await File.WriteAllTextAsync(index.Resources.MetadataPath, legacyMetadata);
+
+        var catalog = new SessionCatalog(Paths()).List().Single(entry => entry.Id.Value == id);
+        _ = await Assert.That(catalog.State).IsEqualTo(SessionCatalogState.Inactive);
+        StabilizeAdmission(workingDirectory, id);
+
+        await using var session = Open(workingDirectory);
+        var republished = index.Find();
+
+        _ = await Assert.That(session.Id).IsEqualTo(id);
+        _ = await Assert.That(session.Model).IsEqualTo("unused/model");
+        _ = await Assert.That(republished?.RootAgentName).IsEqualTo("main-7");
+        _ = await Assert.That(republished?.CreatedAt).IsEqualTo(createdAt);
+        var serialized = await File.ReadAllTextAsync(index.Resources.MetadataPath);
+        _ = await Assert.That(serialized).DoesNotContain("HostKey").And.DoesNotContain("ProcessId");
     }
 
     [Test]
