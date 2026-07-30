@@ -9,10 +9,7 @@ internal sealed class TodoWriteTool(AgentSession session) : ITool
 
     public string Description => "Transactionally replace the current session's ordered todo list.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"todos":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"content":{"type":"string","minLength":1},"status":{"type":"string","enum":["pending","in_progress","completed","cancelled"]},"priority":{"type":"string","enum":["high","medium","low"]}},"required":["content","status","priority"],"additionalProperties":false}}},"required":["todos"],"additionalProperties":false}
-        """;
+    public string ParametersJson => TodoWriteInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {

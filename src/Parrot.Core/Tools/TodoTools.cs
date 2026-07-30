@@ -4,7 +4,7 @@ namespace Parrot.Tools;
 
 internal static class TodoTools
 {
-    public static TodoItem ToDomain(TodoWireItem item)
+    public static TodoItem ToDomain(TodoWriteItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
         var content = item.Content ?? throw new FormatException("Todo item requires string 'content'.");
@@ -23,11 +23,6 @@ internal static class TodoTools
             "low" => TodoPriority.Low,
             _ => throw new FormatException("Todo item has an invalid 'priority'."),
         };
-
-        if (item.Position is not null)
-        {
-            throw new FormatException("Todo item contains an unexpected 'position'.");
-        }
 
         return new TodoItem(item.Id ?? string.Empty, content, status, priority, 0);
     }

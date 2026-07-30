@@ -13,25 +13,16 @@ internal sealed class StatusTool(
 
     public string Description => "Query current runtime, mode, and profile status without adding it to the system prompt.";
 
-    public string ParametersJson => """{"type":"object","additionalProperties":false}""";
+    public string ParametersJson => StatusToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
-            using var document = JsonDocument.Parse(argumentsJson);
-
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                return "error: Tool arguments must be an object.";
-            }
-
-            if (document.RootElement.EnumerateObject().Any())
-            {
-                return "error: Tool arguments contain an unexpected property.";
-            }
+            _ = JsonSerializer.Deserialize(argumentsJson, StatusToolJsonContext.Default.StatusToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
         }
-        catch (JsonException failure)
+        catch (Exception failure) when (failure is JsonException or FormatException)
         {
             return $"error: {failure.Message}";
         }

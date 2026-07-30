@@ -18,10 +18,7 @@ internal sealed class GrepTool(ToolWorkspace workspace, SecurityProfile security
     public string Description =>
         "Search text files with .NET non-backtracking regular expressions. Relative paths resolve within the workspace.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"],"additionalProperties":false}
-        """;
+    public string ParametersJson => GrepToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -30,9 +27,10 @@ internal sealed class GrepTool(ToolWorkspace workspace, SecurityProfile security
 
         try
         {
-            using var arguments = new ToolArguments(argumentsJson);
-            pattern = arguments.RequiredString("pattern");
-            path = arguments.OptionalString("path");
+            var input = JsonSerializer.Deserialize(argumentsJson, FileToolJsonContext.Default.GrepToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            pattern = input.Pattern ?? throw new FormatException("Tool arguments require a string 'pattern'.");
+            path = input.Path ?? string.Empty;
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

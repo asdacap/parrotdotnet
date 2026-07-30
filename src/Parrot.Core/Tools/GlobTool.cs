@@ -15,10 +15,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
     public string Description =>
         "Find workspace paths with deterministic glob matching, including **.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"],"additionalProperties":false}
-        """;
+    public string ParametersJson => GlobToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -26,8 +23,9 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
 
         try
         {
-            using var arguments = new ToolArguments(argumentsJson);
-            pattern = arguments.RequiredString("pattern");
+            var input = JsonSerializer.Deserialize(argumentsJson, FileToolJsonContext.Default.GlobToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            pattern = input.Pattern ?? throw new FormatException("Tool arguments require a string 'pattern'.");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

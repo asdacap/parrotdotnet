@@ -9,10 +9,7 @@ internal sealed class QuestionTool(QuestionBroker broker) : ITool
 
     public string Description => "Ask the user structured questions when a decision or missing information is needed. Use this instead of asking questions in normal chat.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"questions":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"header":{"type":"string"},"prompt":{"type":"string","minLength":1},"options":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"label":{"type":"string","minLength":1}},"required":["id","label"],"additionalProperties":false}},"multiple":{"type":"boolean"},"custom":{"type":"boolean"}},"required":["id","prompt"],"additionalProperties":false}}},"required":["questions"],"additionalProperties":false}
-        """;
+    public string ParametersJson => QuestionToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {

@@ -15,10 +15,7 @@ internal sealed class AgentSpawnTool(
     public string Description =>
         "Start a child agent in an isolated session and return its session ID immediately. Friendly names are unique among this session's direct children. Its terminal result is automatically sent to this session.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"prompt":{"type":"string","minLength":1,"description":"The subtask for the child agent"},"agent":{"type":"string","minLength":1,"description":"Configured child profile to run"},"model":{"type":"string","description":"Optional configured alias or canonical provider/model[/variant] selector; omitted or empty inherits the parent's complete requested selector."},"name":{"type":"string","description":"Optional friendly name. It is lowercased and sanitized to letters, digits, and hyphens; omitted or empty names are generated."}},"required":["prompt","agent"],"additionalProperties":false}
-        """;
+    public string ParametersJson => AgentSpawnToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -29,11 +26,12 @@ internal sealed class AgentSpawnTool(
 
         try
         {
-            using var arguments = new ToolArguments(argumentsJson);
-            prompt = arguments.RequiredString("prompt");
-            requestedProfile = arguments.RequiredString("agent");
-            requestedModel = arguments.OptionalString("model");
-            requestedName = arguments.OptionalString("name");
+            var input = JsonSerializer.Deserialize(argumentsJson, AgentProcessToolJsonContext.Default.AgentSpawnToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            prompt = input.Prompt ?? throw new FormatException("Tool arguments require a string 'prompt'.");
+            requestedProfile = input.Agent ?? throw new FormatException("Tool arguments require a string 'agent'.");
+            requestedModel = input.Model ?? string.Empty;
+            requestedName = input.Name ?? string.Empty;
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

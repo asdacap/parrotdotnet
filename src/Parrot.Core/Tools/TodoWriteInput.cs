@@ -1,9 +1,14 @@
+using System.ComponentModel;
 using System.Text.Json.Serialization;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed record TodoWriteInput
+[ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+internal sealed partial class TodoWriteInput
 {
+    [Description("Complete ordered todo list that replaces the current list.")]
     [JsonPropertyName("todos")]
-    public TodoWireItem[]? Todos { get; init; }
+    [ToolRequired]
+    public TodoWriteItem[]? Todos { get; init; }
 }

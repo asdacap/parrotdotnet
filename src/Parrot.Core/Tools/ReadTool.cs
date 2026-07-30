@@ -17,10 +17,7 @@ internal sealed class ReadTool(ToolWorkspace workspace, SecurityProfile security
         "Read a bounded line range from a text file or list a directory. "
         + "Relative paths resolve within the workspace.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1}},"required":["path"],"additionalProperties":false}
-        """;
+    public string ParametersJson => ReadToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -30,10 +27,11 @@ internal sealed class ReadTool(ToolWorkspace workspace, SecurityProfile security
 
         try
         {
-            using var arguments = new ToolArguments(argumentsJson);
-            path = arguments.RequiredString("path");
-            offset = arguments.OptionalInt("offset") ?? 1;
-            limit = arguments.OptionalInt("limit") ?? MaxLines;
+            var input = JsonSerializer.Deserialize(argumentsJson, FileToolJsonContext.Default.ReadToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            path = input.Path ?? throw new FormatException("Tool arguments require a string 'path'.");
+            offset = input.Offset ?? 1;
+            limit = input.Limit ?? MaxLines;
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

@@ -9,14 +9,14 @@ internal sealed class QueueTakeTool(QueueStore queues) : ITool
 
     public string Description => "Remove and return strings from an existing shared user-session queue. If the queue is empty, wait until an item is available or yield_after_ms elapses. Count defaults to one, direction defaults to front, and yield_after_ms defaults to 30000. The queue does not need to fill count before returning.";
 
-    public string ParametersJson => """{"type":"object","properties":{"name":{"type":"string","pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*$"},"count":{"type":"integer","minimum":1,"default":1},"direction":{"type":"string","enum":["front","back"],"default":"front"},"yield_after_ms":{"type":"integer","minimum":0,"default":30000}},"required":["name"],"additionalProperties":false}""";
+    public string ParametersJson => QueueTakeToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
-            var input = QueueToolExecution.Deserialize(argumentsJson);
-            var name = QueueToolExecution.RequireName(input);
+            var input = QueueToolExecution.Deserialize(argumentsJson, QueueToolJsonContext.Default.QueueTakeToolInput);
+            var name = QueueToolExecution.RequireName(input.Name);
             var count = input.Count ?? 1;
             var direction = QueueToolExecution.ParseDirection(input.Direction);
             var yieldAfter = input.YieldAfterMilliseconds ?? 30_000;

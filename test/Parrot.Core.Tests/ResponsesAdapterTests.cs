@@ -8,6 +8,27 @@ namespace Parrot.Core.Tests;
 internal sealed class ResponsesAdapterTests
 {
     [Test]
+    public async Task Encode_preserves_tool_and_generated_field_descriptions(CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "gpt-5.6-sol",
+            Messages = [LLMMessage.User("hello")],
+            Tools = [new LLMToolDefinition("write", "Creates or replaces a file.", Parrot.Tools.WriteToolInput.Descriptor)],
+        };
+        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+        var tool = document.RootElement.GetProperty("tools")[0];
+
+        _ = await Assert.That(tool.GetProperty("description").GetString())
+            .IsEqualTo("Creates or replaces a file.");
+        _ = await Assert.That(
+            tool.GetProperty("parameters").GetProperty("properties").GetProperty("path")
+                .GetProperty("description").GetString())
+            .IsEqualTo("Path of the file to create or replace.");
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    [Test]
     [Arguments("xhigh", true)]
     [Arguments("", false)]
     public async Task Encode_writes_or_omits_nested_reasoning(string effort, bool hasReasoning, CancellationToken cancellationToken)

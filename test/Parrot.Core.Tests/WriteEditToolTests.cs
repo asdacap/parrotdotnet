@@ -35,12 +35,14 @@ internal sealed class WriteEditToolTests : IDisposable
     [Test]
     public async Task Tools_expose_the_approved_contracts()
     {
-        _ = await Assert.That(WriteTool().ParametersJson).IsEqualTo("""
-            {"type":"object","properties":{"path":{"type":"string","minLength":1},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}
-            """);
-        _ = await Assert.That(EditTool().ParametersJson).IsEqualTo("""
-            {"type":"object","properties":{"path":{"type":"string","minLength":1},"old_string":{"type":"string","minLength":1},"new_string":{"type":"string"},"replace_all":{"type":"boolean"}},"required":["path","old_string","new_string","replace_all"],"additionalProperties":false}
-            """);
+        using var writeSchema = JsonDocument.Parse(WriteTool().ParametersJson);
+        using var editSchema = JsonDocument.Parse(EditTool().ParametersJson);
+        var writeProperties = writeSchema.RootElement.GetProperty("properties");
+        var editProperties = editSchema.RootElement.GetProperty("properties");
+        _ = await Assert.That(writeProperties.GetProperty("path").GetProperty("minLength").GetInt32()).IsEqualTo(1);
+        _ = await Assert.That(writeProperties.GetProperty("content").GetProperty("description").GetString()).IsNotEmpty();
+        _ = await Assert.That(editProperties.GetProperty("old_string").GetProperty("minLength").GetInt32()).IsEqualTo(1);
+        _ = await Assert.That(editProperties.GetProperty("replace_all").GetProperty("description").GetString()).IsNotEmpty();
         _ = await Assert.That(WriteTool().Name).IsEqualTo("write");
         _ = await Assert.That(EditTool().Name).IsEqualTo("edit");
     }

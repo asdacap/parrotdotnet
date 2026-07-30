@@ -38,6 +38,27 @@ internal sealed class OpenAICompatibleProviderTests
         """;
 
     [Test]
+    public async Task Encode_preserves_tool_and_generated_field_descriptions(CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "vendor/model",
+            Messages = [LLMMessage.User("hello")],
+            Tools = [new LLMToolDefinition("write", "Creates or replaces a file.", Parrot.Tools.WriteToolInput.Descriptor)],
+        };
+        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+        var function = document.RootElement.GetProperty("tools")[0].GetProperty("function");
+
+        _ = await Assert.That(function.GetProperty("description").GetString())
+            .IsEqualTo("Creates or replaces a file.");
+        _ = await Assert.That(
+            function.GetProperty("parameters").GetProperty("properties").GetProperty("path")
+                .GetProperty("description").GetString())
+            .IsEqualTo("Path of the file to create or replace.");
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    [Test]
     [Arguments("xhigh", true)]
     [Arguments("", false)]
     public async Task Encode_writes_or_omits_top_level_reasoning_effort(

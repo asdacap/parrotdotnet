@@ -10,10 +10,7 @@ internal sealed class WebFetchTool(WebFetcher fetcher) : ITool
     public string Description =>
         "Fetch bounded HTTP or HTTPS text with GET or HEAD after exact network permission review.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"url":{"type":"string"},"method":{"type":"string"}},"required":["url"],"additionalProperties":false}
-        """;
+    public string ParametersJson => WebFetchToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -35,22 +32,18 @@ internal sealed class WebFetchTool(WebFetcher fetcher) : ITool
 
     internal static (Uri Address, HttpMethod Method) ReadRequest(string argumentsJson)
     {
-        using var document = JsonDocument.Parse(argumentsJson);
-        var root = document.RootElement;
-
-        if (root.ValueKind != JsonValueKind.Object)
+        WebFetchToolInput? input;
+        try
+        {
+            input = JsonSerializer.Deserialize(argumentsJson, FileToolJsonContext.Default.WebFetchToolInput);
+        }
+        catch (JsonException failure) when (string.Equals(failure.Path, "$", StringComparison.Ordinal))
         {
             throw new WebFetchException("web fetch URL is required");
         }
 
-        var address = root.TryGetProperty("url", out var url)
-            && url.ValueKind == JsonValueKind.String
-            ? url.GetString() ?? string.Empty
-            : string.Empty;
-        var methodText = root.TryGetProperty("method", out var methodElement)
-            && methodElement.ValueKind == JsonValueKind.String
-            ? methodElement.GetString() ?? string.Empty
-            : string.Empty;
+        var address = input?.Url ?? string.Empty;
+        var methodText = input?.Method ?? string.Empty;
         var method = methodText.Trim().ToUpperInvariant() switch
         {
             "" or "GET" => HttpMethod.Get,

@@ -1,13 +1,16 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Parrot.Queues;
 
 namespace Parrot.Tools;
 
 internal static class QueueToolExecution
 {
-    public static QueueToolInput Deserialize(string json) => JsonSerializer.Deserialize(json, QueueToolJsonContext.Default.QueueToolInput) ?? throw new FormatException("Tool arguments must be an object.");
+    public static TInput Deserialize<TInput>(string json, JsonTypeInfo<TInput> typeInfo)
+        where TInput : class =>
+        JsonSerializer.Deserialize(json, typeInfo) ?? throw new FormatException("Tool arguments must be an object.");
 
-    public static string RequireName(QueueToolInput input) => input.Name ?? throw new FormatException("Tool arguments require a string 'name'.");
+    public static string RequireName(string? name) => name ?? throw new FormatException("Tool arguments require a string 'name'.");
 
     public static QueueDirection ParseDirection(string? direction) => direction switch { null => QueueDirection.Unspecified, "front" => QueueDirection.Front, "back" => QueueDirection.Back, _ => throw new FormatException("Tool argument 'direction' must be 'front' or 'back'.") };
 

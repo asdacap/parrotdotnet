@@ -9,17 +9,15 @@ internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
 
     public string Description => "Interrupt a running shell process owned by this agent session and its process tree.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"name":{"type":"string","description":"Reserved shell process name"}},"required":["name"]}
-        """;
+    public string ParametersJson => InterruptProcessToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
-            using var arguments = new ToolArguments(argumentsJson);
-            var name = arguments.RequiredString("name").Trim();
+            var input = JsonSerializer.Deserialize(argumentsJson, OmittedAgentProcessToolJsonContext.Default.InterruptProcessToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            var name = (input.Name ?? throw new FormatException("Tool arguments require a string 'name'.")).Trim();
 
             if (name.Length == 0)
             {

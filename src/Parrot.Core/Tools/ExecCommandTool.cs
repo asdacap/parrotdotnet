@@ -21,10 +21,7 @@ internal sealed class ExecCommandTool(
         + "without stopping it; completed process names can be reused and omitted names are generated. Completion after a yield "
         + "is steered back to this agent unless wait_process claims it.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"command":{"type":"string","description":"The shell command to run"},"env":{"type":"object","additionalProperties":{"type":"string"},"description":"Environment variables for the command. Values override the inherited environment."},"name":{"type":"string","description":"Name unique among running processes; completed names can be reused and omitted names are generated"},"yield_after_ms":{"type":"integer","minimum":0,"description":"Return the process name if still running after this many milliseconds"}},"required":["command"],"additionalProperties":false}
-        """;
+    public string ParametersJson => ExecCommandToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -35,11 +32,15 @@ internal sealed class ExecCommandTool(
 
         try
         {
-            using var arguments = new ToolArguments(argumentsJson);
-            command = arguments.RequiredString("command");
-            environment = arguments.OptionalEnvironment("env");
-            name = arguments.OptionalStrictString("name");
-            yieldAfter = arguments.OptionalDelay("yield_after_ms");
+            ToolInputConversion.RequireObject(argumentsJson, "command");
+            var input = JsonSerializer.Deserialize(argumentsJson, AgentProcessToolJsonContext.Default.ExecCommandToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            command = input.Command ?? throw new FormatException("Tool arguments require a string 'command'.");
+            environment = input.Environment is null
+                ? ProcessEnvironmentOverrides.Empty
+                : new ProcessEnvironmentOverrides(input.Environment);
+            name = input.Name;
+            yieldAfter = ToolInputConversion.ConvertDelay(input.YieldAfterMilliseconds, "yield_after_ms");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

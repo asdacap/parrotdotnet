@@ -18,10 +18,7 @@ internal sealed class WriteTool(
         "Create or replace a file with exact UTF-8 content. Relative paths resolve within the workspace; "
         + "absolute paths require explicit write authorization.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"path":{"type":"string","minLength":1},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}
-        """;
+    public string ParametersJson => WriteToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {

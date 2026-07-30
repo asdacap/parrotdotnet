@@ -21,10 +21,7 @@ internal sealed class EditTool(
         + "match is required; with replace_all true zero or more matches are replaced. Relative paths resolve "
         + "within the workspace; absolute paths require explicit write authorization.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"path":{"type":"string","minLength":1},"old_string":{"type":"string","minLength":1},"new_string":{"type":"string"},"replace_all":{"type":"boolean"}},"required":["path","old_string","new_string","replace_all"],"additionalProperties":false}
-        """;
+    public string ParametersJson => EditToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {

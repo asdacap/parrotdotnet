@@ -4,6 +4,7 @@
     <Project Path="src/Parrot.Core/Parrot.Core.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/Parrot.Analyzers.Tests/Parrot.Analyzers.Tests.csproj" />
     <Project Path="tools/Parrot.Analyzers/Parrot.Analyzers.csproj" />
   </Folder>
   <Folder Name="/test/">

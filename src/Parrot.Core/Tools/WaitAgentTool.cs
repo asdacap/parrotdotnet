@@ -11,10 +11,7 @@ internal sealed class WaitAgentTool(AgentRegistry agents, AgentSession session) 
         "Wait for a child agent session to complete, yielding if the requested period elapses. "
         + "Canonical session IDs resolve globally; friendly names resolve among this session's direct children. Waiting never stops the agent.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"session_id":{"type":"string","minLength":1,"description":"Child agent session ID or friendly name."},"yield_after_ms":{"type":"integer","minimum":0,"description":"Yield if the agent has not completed after this many milliseconds. Zero or omitted waits indefinitely."}},"required":["session_id"],"additionalProperties":false}
-        """;
+    public string ParametersJson => WaitAgentToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -23,9 +20,10 @@ internal sealed class WaitAgentTool(AgentRegistry agents, AgentSession session) 
 
         try
         {
-            using var arguments = new ToolArguments(argumentsJson);
-            sessionId = arguments.RequiredString("session_id");
-            yieldAfterMilliseconds = arguments.OptionalInt("yield_after_ms") ?? 0;
+            var input = JsonSerializer.Deserialize(argumentsJson, AgentProcessToolJsonContext.Default.WaitAgentToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            sessionId = input.SessionId ?? throw new FormatException("Tool arguments require a string 'session_id'.");
+            yieldAfterMilliseconds = input.YieldAfterMilliseconds ?? 0;
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

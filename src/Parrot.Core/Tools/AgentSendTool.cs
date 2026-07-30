@@ -14,10 +14,7 @@ internal sealed class AgentSendTool(
         "Send a message to an agent session. Exact canonical spawned-agent session IDs resolve globally first. For an agent with a registered direct parent, the case-sensitive literal 'parent', actual parent ID, or actual parent friendly name resolves next and takes precedence over a colliding direct-child friendly name. Direct-child friendly names resolve last. Running agents are steered; "
         + "idle agents start a follow-up turn.";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"session_id":{"type":"string","minLength":1,"description":"Exact canonical spawned-agent session ID; or, for an agent with a registered direct parent, the case-sensitive literal 'parent', actual parent ID, or actual parent friendly name; or a direct-child friendly name. Resolution follows that precedence."},"message":{"type":"string","minLength":1,"description":"Message to send."}},"required":["session_id","message"],"additionalProperties":false}
-        """;
+    public string ParametersJson => AgentSendToolInput.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -26,9 +23,10 @@ internal sealed class AgentSendTool(
 
         try
         {
-            using var arguments = new ToolArguments(argumentsJson);
-            sessionId = arguments.RequiredString("session_id");
-            message = arguments.RequiredString("message");
+            var input = JsonSerializer.Deserialize(argumentsJson, AgentProcessToolJsonContext.Default.AgentSendToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            sessionId = input.SessionId ?? throw new FormatException("Tool arguments require a string 'session_id'.");
+            message = input.Message ?? throw new FormatException("Tool arguments require a string 'message'.");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {

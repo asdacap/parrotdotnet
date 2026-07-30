@@ -9,28 +9,19 @@ internal sealed class TodoReadTool(AgentSession session) : ITool
 
     public string Description => "Read the current session's ordered todo list.";
 
-    public string ParametersJson => """{"type":"object","additionalProperties":false}""";
+    public string ParametersJson => TodoReadInput.Descriptor;
 
     public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
-            using var document = JsonDocument.Parse(argumentsJson);
-
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                return Task.FromResult("error: Tool arguments must be an object.");
-            }
-
-            if (document.RootElement.EnumerateObject().Any())
-            {
-                return Task.FromResult("error: Tool arguments contain an unexpected property.");
-            }
+            _ = JsonSerializer.Deserialize(argumentsJson, TodoJsonContext.Default.TodoReadInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
 
             var items = session.Todos.Read(cancellationToken).Select(TodoTools.ToWire).ToArray();
             return Task.FromResult(JsonSerializer.Serialize(items, TodoJsonContext.Default.TodoWireItemArray));
         }
-        catch (JsonException failure)
+        catch (Exception failure) when (failure is JsonException or FormatException)
         {
             return Task.FromResult($"error: {failure.Message}");
         }
