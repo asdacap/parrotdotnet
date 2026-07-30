@@ -1,7 +1,7 @@
-using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.State;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -24,103 +24,98 @@ internal sealed class SessionStoreTests : IDisposable
     {
         const string namedId = "user-session-named";
         const string legacyId = "user-session-legacy";
-        var namedWork = Path.Combine(_root, "named-work");
-        var legacyWork = Path.Combine(_root, "legacy-work");
-        var index = new SessionIndex(_root);
-        index.Publish(Meta(namedId, "main", namedWork, "2026-07-27T01:00:00Z"));
-        index.Publish(Meta("user-session-other", "main-2", "/other-work", "2026-07-27T01:30:00Z"));
-        index.Publish(Meta(legacyId, string.Empty, legacyWork, "2026-07-27T02:00:00Z"));
-        PublishOwner(namedWork, namedId);
-        PublishOwner(legacyWork, legacyId);
-
-        var named = Open(namedWork, out var namedStore);
-        using (namedStore)
-        await using (named)
+        var namedWork = Directory.CreateDirectory(Path.Combine(_root, "named-work")).FullName;
+        var legacyWork = Directory.CreateDirectory(Path.Combine(_root, "legacy-work")).FullName;
+        var namedIndex = Index(namedId, namedWork);
+        var legacyIndex = Index(legacyId, legacyWork);
+        namedIndex.Publish(Meta(namedId, "main", namedWork, "2026-07-27T01:00:00Z"));
+        legacyIndex.Publish(Meta(legacyId, string.Empty, legacyWork, "2026-07-27T02:00:00Z"));
+        StabilizeAdmission(namedWork, namedId);
+        StabilizeAdmission(legacyWork, legacyId);
+        var catalog = new SessionCatalog(Paths());
         {
-            _ = await Assert.That(index.Find(namedId)?.RootAgentName).IsEqualTo("main");
-            _ = await Assert.That(index.Find(namedId)?.CreatedAt).IsEqualTo("2026-07-27T01:00:00Z");
+            await using var named = Open(namedWork);
+            _ = await Assert.That(catalog.Find(UserSessionId.Parse(namedId))?.RootAgentName).IsEqualTo("main");
+            _ = await Assert.That(catalog.Find(UserSessionId.Parse(namedId))?.CreatedAt)
+                .IsEqualTo("2026-07-27T01:00:00Z");
         }
 
-        var legacy = Open(legacyWork, out var legacyStore);
-        using (legacyStore)
-        await using (legacy)
-        {
-            _ = await Assert.That(index.Find(legacyId)?.RootAgentName).IsEqualTo("main-3");
-            _ = await Assert.That(index.Find(legacyId)?.CreatedAt).IsEqualTo("2026-07-27T02:00:00Z");
-        }
+        await using var legacy = Open(legacyWork);
+        _ = await Assert.That(catalog.Find(UserSessionId.Parse(legacyId))?.RootAgentName).IsEqualTo("main");
+        _ = await Assert.That(catalog.Find(UserSessionId.Parse(legacyId))?.CreatedAt)
+            .IsEqualTo("2026-07-27T02:00:00Z");
     }
 
     [Test]
     public async Task Resumed_session_with_null_selector_uses_legacy_model()
     {
         const string id = "user-session-null-selector";
-        var workingDirectory = Path.Combine(_root, "null-selector-work");
-        var index = new SessionIndex(_root);
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "null-selector-work")).FullName;
+        var index = Index(id, workingDirectory);
         index.Publish(Meta(id, "main", workingDirectory, "2026-07-27T01:00:00Z"));
-        var path = Path.Combine(index.DirectoryFor(id), "meta.json");
+        var path = index.Resources.MetadataPath;
         var serialized = await File.ReadAllTextAsync(path);
         await File.WriteAllTextAsync(
             path,
             serialized.Replace("\"Selector\": \"\"", "\"Selector\": null", StringComparison.Ordinal));
-        _ = await Assert.That(index.Find(id)?.Selector).IsNull();
-        PublishOwner(workingDirectory, id);
+        _ = await Assert.That(index.Find()?.Selector).IsNull();
+        StabilizeAdmission(workingDirectory, id);
 
-        var session = Open(workingDirectory, out var store);
-        using (store)
-        await using (session)
-        {
-            _ = await Assert.That(session.Model).IsEqualTo("unused/model");
-            _ = await Assert.That(index.Find(id)?.Selector).IsEqualTo("unused/model");
-        }
+        await using var session = Open(workingDirectory);
+        _ = await Assert.That(session.Model).IsEqualTo("unused/model");
+        _ = await Assert.That(index.Find()?.Selector).IsEqualTo("unused/model");
     }
 
     [Test]
-    public async Task Open_reports_whether_it_loaded_an_existing_session()
+    public async Task Equivalent_launch_path_resume_preserves_stored_metadata()
     {
-        const string id = "user-session-existing";
-        var existingWork = Path.Combine(_root, "existing-work");
-        var freshWork = Path.Combine(_root, "fresh-work");
-        var index = new SessionIndex(_root);
-        index.Publish(Meta(id, "main", existingWork, "2026-07-27T01:00:00Z"));
-        PublishOwner(existingWork, id);
-
-        var loaded = Open(existingWork, ModeRegistry.Build, out var loadedStore);
-        using (loadedStore)
-        await using (loaded.Session)
+        const string id = "user-session-equivalent-path";
+        var physical = Directory.CreateDirectory(Path.Combine(_root, "physical-work")).FullName;
+        var linked = Path.Combine(_root, "linked-work");
+        _ = Directory.CreateSymbolicLink(linked, physical);
+        var index = Index(id, linked);
+        index.Publish(new SessionMeta
         {
-            _ = await Assert.That(loaded.Loaded).IsTrue();
-        }
+            Id = id,
+            RootAgentName = "main-7",
+            WorkingDirectory = linked,
+            ProviderId = "unused",
+            Model = "unused/model",
+            Selector = "unused/model",
+            Mode = ModeRegistry.Query,
+            CreatedAt = "2026-07-27T03:00:00Z",
+        });
+        StabilizeAdmission(linked, id);
 
-        var created = Open(freshWork, ModeRegistry.Build, out var createdStore);
-        using (createdStore)
-        await using (created.Session)
-        {
-            _ = await Assert.That(created.Loaded).IsFalse();
-        }
+        await using var session = Open(physical);
+        var resumed = new SessionCatalog(Paths()).Find(UserSessionId.Parse(id));
+
+        _ = await Assert.That(session.Id).IsEqualTo(id);
+        _ = await Assert.That(resumed?.RootAgentName).IsEqualTo("main-7");
+        _ = await Assert.That(session.Model).IsEqualTo("unused/model");
+        _ = await Assert.That(session.Resources.Workspace.LaunchDirectory).IsEqualTo(physical);
+        _ = await Assert.That(resumed?.WorkingDirectory).IsEqualTo(linked);
+        _ = await Assert.That(resumed?.CreatedAt).IsEqualTo("2026-07-27T03:00:00Z");
     }
 
     [Test]
-    public async Task Failed_session_construction_does_not_consume_a_root_agent_name()
+    public async Task Failed_session_construction_releases_admission_for_retry()
     {
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "working")).FullName;
         var model = Model();
         var modes = Modes();
-        using (var failing = new SessionStore(
-            _root,
-            Path.Combine(_root, "failing-work"),
+        var failing = new SessionStore(
+            Paths(),
+            workingDirectory,
             "host",
             new ThrowingUserSessions(),
             TestModels.Route(model),
-            modes))
-        {
-            _ = await Assert.That(() => failing.Open(TestModels.Resolve(model))).Throws<InvalidOperationException>();
-        }
+            modes);
 
-        var session = Open(Path.Combine(_root, "working"), out var store);
-        using (store)
-        await using (session)
-        {
-            _ = await Assert.That(store.Index.Find(session.Id)?.RootAgentName).IsEqualTo("main");
-        }
+        _ = await Assert.That(() => failing.Open(TestModels.Resolve(model))).Throws<InvalidOperationException>();
+
+        await using var session = Open(workingDirectory);
+        _ = await Assert.That(new SessionIndex(session.Resources).Find()?.RootAgentName).IsEqualTo("main");
     }
 
     private static SessionMeta Meta(string id, string rootAgentName, string workingDirectory, string createdAt) =>
@@ -129,7 +124,6 @@ internal sealed class SessionStoreTests : IDisposable
             Id = id,
             RootAgentName = rootAgentName,
             WorkingDirectory = workingDirectory,
-            HostKey = "host",
             ProviderId = "unused",
             Model = "unused/model",
             CreatedAt = createdAt,
@@ -141,14 +135,14 @@ internal sealed class SessionStoreTests : IDisposable
         return new ProviderModel(provider, new LLMModel("model", provider.Id));
     }
 
-    private UserSession Open(string workingDirectory, out SessionStore store)
+    private UserSession Open(string workingDirectory)
     {
         var sessions = new DirectAgentSessions();
         var model = Model();
         var router = TestModels.Route(model);
         sessions.Use(router);
-        store = new SessionStore(
-            _root,
+        var store = new SessionStore(
+            Paths(),
             workingDirectory,
             "host",
             new UserSessionFactory(sessions, Modes()),
@@ -157,29 +151,20 @@ internal sealed class SessionStoreTests : IDisposable
         return store.Open(router.Resolve(model.Selector));
     }
 
-    private OpenedSession Open(string workingDirectory, string mode, out SessionStore store)
-    {
-        var sessions = new DirectAgentSessions();
-        var model = Model();
-        var router = TestModels.Route(model);
-        sessions.Use(router);
-        store = new SessionStore(
-            _root,
-            workingDirectory,
-            "host",
-            new UserSessionFactory(sessions, Modes()),
-            router,
-            Modes());
-        return store.Open(router.Resolve(model.Selector), mode);
-    }
+    private SessionIndex Index(string id, string workingDirectory) =>
+        new(new UserSessionResources(
+            Paths(),
+            UserSessionId.Parse(id),
+            ProjectWorkspace.FromLaunchDirectory(workingDirectory)));
+
+    private StatePaths Paths() =>
+        new(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
 
     private ModeRegistry Modes()
     {
-        var configuration = Configuration.Load(
-            Path.Combine(_root, "config.yaml"),
-            Path.Combine(_root, "predefined_config.yaml"));
+        var paths = Paths();
+        var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
         return new ModeRegistry(
-            Path.Combine(_root, "plans"),
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,
@@ -187,32 +172,21 @@ internal sealed class SessionStoreTests : IDisposable
                 configuration.DefaultProfile));
     }
 
-    private void PublishOwner(string workingDirectory, string sessionId)
+    private void StabilizeAdmission(string workingDirectory, string sessionId)
     {
-        var directory = Path.Combine(_root, "owners", WorkingDirectoryClaim.Fingerprint(workingDirectory));
-        _ = Directory.CreateDirectory(directory);
-        File.WriteAllText(
-            Path.Combine(directory, "v1.json"),
-            JsonSerializer.Serialize(
-                new OwnerRecord
-                {
-                    Version = 1,
-                    SessionId = sessionId,
-                    WorkingDirectory = workingDirectory,
-                    HostKey = "host",
-                    ProcessId = int.MaxValue,
-                },
-                StoreJsonContext.Default.OwnerRecord));
+        var admission = new WorkingDirectoryClaim(Paths().State, "host")
+            .CreateFresh(workingDirectory, UserSessionId.Parse(sessionId));
+        admission.ActivationLease?.Dispose();
     }
 
     private sealed class ThrowingUserSessions : IUserSessionFactory
     {
         public UserSession Create(
+            SessionResourceLease resources,
             string id,
             string rootAgentName,
             ResolvedModelSelection model,
-            string mode,
-            EventRepository eventRepository) =>
+            string mode) =>
             throw new InvalidOperationException("construction failed");
     }
 }

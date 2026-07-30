@@ -5,8 +5,6 @@ using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
-using Parrot.State;
-using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Enhanced;
@@ -571,8 +569,7 @@ internal sealed class EnhancedCli(
             new ApplicationExit(applicationExit),
             credentials,
             oauthClient,
-            providerIds,
-            new SessionIndex(StatePaths.ResolveFromEnvironment().State));
+            providerIds);
         var completion = new SlashCommandCompletion(commands);
 
         Task DrawPrompt(CancellationToken token)

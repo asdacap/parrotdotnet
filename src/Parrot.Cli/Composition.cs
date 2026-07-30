@@ -6,6 +6,7 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
+using Parrot.Tools;
 using Parrot.Web;
 using Pure.DI;
 
@@ -51,7 +52,7 @@ internal partial class Composition
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<StatePaths>(out var paths);
-                return new SessionIndex(paths.State);
+                return new SessionCatalog(paths);
             })
             .Bind().As(Lifetime.Singleton).To(_ => ExecutableLocator.Capture())
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -140,9 +141,8 @@ internal partial class Composition
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
-                ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<ProfileRegistry>(out var profiles);
-                return new ModeRegistry(Path.Combine(paths.State, "plan"), profiles);
+                return new ModeRegistry(profiles);
             })
 
             // The static half of an agent session is bound into the source
@@ -153,19 +153,16 @@ internal partial class Composition
             // repository.
             .Bind().As(Lifetime.Singleton).To<IAgentSessionFactorySource>(ctx =>
             {
-                ctx.Inject<SessionIndex>(out var sessionIndex);
                 ctx.Inject<ProcessRunner>(out var processes);
-                ctx.Inject<string>("date", out var date);
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<WebFetcher>(out var webFetcher);
                 ctx.Inject<ModelRouter>(out var router);
                 ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
                 ctx.Inject<IAgentSessionScopeFactory>(out var scopes);
-                ctx.Inject<string>("workingDirectory", out var workingDirectory);
+                ctx.Inject<StatePaths>(out var paths);
 
                 return new AgentSessionFactorySource(
-                    workingDirectory,
-                    sessionIndex,
+                    new ToolFileSystemPolicy(paths),
                     processes,
                     compactor,
                     webFetcher,
@@ -191,7 +188,7 @@ internal partial class Composition
                 ctx.Inject<ModeRegistry>(out var modes);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<string>("hostKey", out var hostKey);
-                return new SessionStore(paths.State, workingDirectory, hostKey, userSessions, router, modes);
+                return new SessionStore(paths, workingDirectory, hostKey, userSessions, router, modes);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -200,8 +197,9 @@ internal partial class Composition
                 ctx.Inject<ProviderRegistry>(out var registry);
                 ctx.Inject<ModelAliasConfigurator>(out var aliases);
                 ctx.Inject<SessionStore>(out var store);
+                ctx.Inject<SessionCatalog>(out var sessionCatalog);
                 ctx.Inject<ModeRegistry>(out var modes);
-                return new ParrotService(router, registry, aliases, store, modes);
+                return new ParrotService(router, registry, aliases, store, sessionCatalog, modes);
             })
 
             .Root<StatePaths>("Paths")

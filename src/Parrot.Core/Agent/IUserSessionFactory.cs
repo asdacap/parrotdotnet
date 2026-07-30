@@ -10,9 +10,9 @@ namespace Parrot.Agent;
 internal interface IUserSessionFactory
 {
     UserSession Create(
+        SessionResourceLease resources,
         string id,
         string rootAgentName,
         ResolvedModelSelection model,
-        string mode,
-        EventRepository eventRepository);
+        string mode);
 }

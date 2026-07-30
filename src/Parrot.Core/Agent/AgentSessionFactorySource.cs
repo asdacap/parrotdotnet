@@ -1,14 +1,13 @@
 using Parrot.Context;
 using Parrot.Process;
 using Parrot.Queues;
-using Parrot.Store;
+using Parrot.Tools;
 using Parrot.Web;
 
 namespace Parrot.Agent;
 
 internal sealed class AgentSessionFactorySource(
-    string workingDirectory,
-    SessionIndex sessionIndex,
+    ToolFileSystemPolicy fileSystemPolicy,
     ProcessRunner processes,
     Compactor compactor,
     WebFetcher webFetcher,
@@ -19,8 +18,9 @@ internal sealed class AgentSessionFactorySource(
     public IAgentSessionFactory Create(UserSession owner) =>
         new AgentSessionFactory(
             owner,
-            workingDirectory,
-            sessionIndex.BlobDirectoryFor(owner.Id),
+            owner.Resources.Workspace.LaunchDirectory,
+            fileSystemPolicy,
+            owner.Resources.BlobDirectory,
             compactor,
             webFetcher,
             router,
@@ -28,12 +28,8 @@ internal sealed class AgentSessionFactorySource(
             scopes);
 
     public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
-        new(
-            workingDirectory,
-            sessionIndex.BlobDirectoryFor(owner.Id),
-            processes,
-            owner.Lifetime);
+        new(owner.Resources, processes, owner.Lifetime);
 
     public QueueStore CreateQueues(UserSession owner) =>
-        new(sessionIndex.QueueDirectoryFor(owner.Id));
+        new(owner.Resources.QueueDirectory);
 }

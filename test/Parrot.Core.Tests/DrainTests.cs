@@ -374,11 +374,13 @@ internal sealed class DrainTests : IDisposable
             Answer(string.Empty, new LLMToolCall("call-1", "held", "{}"), new LLMToolCall("call-2", "held", "{}")),
             Answer("after the interrupt"));
         var repository = new EventRepository(_database);
-        var session = Session(provider, repository, [new FixedToolFactory(new HeldTool())], cancellationToken);
+        var heldTool = new HeldTool();
+        var session = Session(provider, repository, [new FixedToolFactory(heldTool)], cancellationToken);
 
         _ = await session.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
+        await heldTool.Started.WaitAsync(cancellationToken);
 
         await session.Interrupt(cancellationToken);
 
@@ -398,7 +400,7 @@ internal sealed class DrainTests : IDisposable
 
         _ = await Assert.That(answered).IsEqualTo("call-1 | call-2");
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
-            "cancelled:call-1:held | cancelled:call-2:held");
+            "started:call-1:held | cancelled:call-1:held | cancelled:call-2:held");
     }
 
     [Test]

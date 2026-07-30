@@ -1,9 +1,17 @@
 using Parrot.Security;
+using Parrot.State;
 
 namespace Parrot.Tools;
 
-internal sealed class ToolWorkspace(string workingDirectory)
+internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolicy fileSystemPolicy)
 {
+    private readonly ToolFileSystemPolicy _fileSystemPolicy = fileSystemPolicy;
+
+    public ToolWorkspace(string workingDirectory)
+        : this(workingDirectory, new ToolFileSystemPolicy(StatePaths.ResolveFromEnvironment()))
+    {
+    }
+
     public string Root { get; } = Canonicalize(workingDirectory);
 
     public (string Lexical, string Physical) ResolveRead(string path)
@@ -13,7 +21,10 @@ internal sealed class ToolWorkspace(string workingDirectory)
             : Path.GetFullPath(Path.Combine(Root, path));
 
         RequireContained(lexical);
-        return (lexical, ResolveLinks(lexical));
+        _fileSystemPolicy.RequireUnprotected(lexical);
+        var physical = ResolveLinks(lexical);
+        _fileSystemPolicy.RequireUnprotected(physical);
+        return (lexical, physical);
     }
 
     public ToolMutationPath ResolveMutation(string path, bool create, SecurityProfile security)
@@ -23,12 +34,15 @@ internal sealed class ToolWorkspace(string workingDirectory)
             : Path.GetFullPath(Path.Combine(Root, path));
         var inWorkspace = Contained(lexical);
 
+        _fileSystemPolicy.RequireUnprotected(lexical);
+
         if (!inWorkspace && !HasExternalCapability(lexical, security))
         {
             throw new InvalidOperationException($"Write access denied for '{path}'.");
         }
 
         var physical = ResolveMutationPath(lexical, path, create);
+        _fileSystemPolicy.RequireUnprotected(physical);
         if (!security.AllowsWrite(physical) || (!inWorkspace && !HasExternalCapability(physical, security)))
         {
             throw new InvalidOperationException($"Write access denied for '{path}'.");

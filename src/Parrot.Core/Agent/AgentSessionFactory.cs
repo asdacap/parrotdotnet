@@ -16,6 +16,7 @@ namespace Parrot.Agent;
 internal sealed class AgentSessionFactory(
     UserSession owner,
     string workingDirectory,
+    ToolFileSystemPolicy fileSystemPolicy,
     string blobDirectory,
     Compactor compactor,
     WebFetcher webFetcher,
@@ -23,7 +24,7 @@ internal sealed class AgentSessionFactory(
     ISystemPromptProvider systemPromptProvider,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactory
 {
-    private readonly ToolWorkspace _workspace = new(workingDirectory);
+    private readonly ToolWorkspace _workspace = new(workingDirectory, fileSystemPolicy);
 
     private IReadOnlyList<IToolFactory> ToolFactories =>
         field ??=

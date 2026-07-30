@@ -76,8 +76,6 @@ for a bare model selection.
 Parrot writes an agent-readable `predefined_config.yaml` alongside the
 user-owned `config.yaml`. The user file is recursively layered over the
 predefined defaults and is never rewritten except by an interactive setting.
-The top-level `prompt` supplies the base agent prompt included in the system
-context.
 
 Profiles are configured under `profiles`. `build`, `plan`, and `query` are
 foreground modes, while `explorer`, `review`, `worker`, and `thinker` are child
@@ -137,10 +135,61 @@ cli_utilities:
     - dotnet
 ```
 
+Sandbox configuration is not the complete filesystem boundary. Parrot always
+protects its state, configuration, and data roots from the built-in filesystem
+tools, even if a profile rule appears to allow them, a protected root is nested
+inside the workspace, or a path reaches one through a symlink. Plan artifacts
+and overflow-output blobs use narrow runtime capabilities; they do not make the
+containing private root generally accessible. Filesystem access does not grant
+network access.
+
 The plan foreground profile receives its private plan-artifact location and
 runtime-only write permission from Parrot; child profiles never inherit this
 capability. Legacy `profiles.<id>.status` input is accepted and ignored for
 compatibility. It is not profile guidance and is never injected into a prompt.
+
+## User Session Isolation
+
+A user session is Parrot's unit of private storage, runtime ownership, and child
+agent containment. It has one private root beneath Parrot's state directory for
+its database, queues, plans, process-output blobs, and internal artifacts. Those
+artifacts are never placed in the workspace. At most one active runtime owns a
+user session and writes its database; child agents remain within that same user
+session and cannot acquire another session's state.
+
+The workspace is the exact working directory from which the session was
+launched. Parrot retains that path for execution and agent context. It uses a
+canonical or physical identity only to compare and claim workspaces; canonical
+resolution does not silently replace the launch path. A workspace is shared
+context and is not a place for Parrot's private artifacts.
+
+Session admission has three intentionally different forms:
+
+- **Fresh create** always creates a new user session with root agent `main`.
+- **Exact resume** opens only the requested existing session and fails if it
+  cannot safely acquire that session.
+- **Default open** creates when there is no matching session, resumes when
+  exactly one matching session can be selected, and rejects ambiguity rather
+  than picking one arbitrarily.
+
+A live owner is never joined or displaced. Resuming an older session preserves
+its stored root-agent name instead of rewriting compatibility data. Session
+listing is a server-authoritative management operation when connected to a
+server; management callers read metadata through `SessionCatalog` and never
+obtain a live session, database, queue, or repository.
+
+## Service Transport
+
+Local mode uses the in-process gRPC contract and binds no socket. When Parrot is
+hosted, its default control transport is a Unix-domain socket in a user-only
+control directory. The directory is mode `0700` and the socket is mode `0600`,
+so another local user cannot connect through filesystem access.
+
+TCP serving is explicit and authenticated; there is no unauthenticated TCP
+fallback. Plaintext TCP beyond loopback additionally requires an explicit unsafe
+acknowledgement and emits a warning. It is intended only for a deployment where
+a secure proxy supplies transport protection. Authentication controls admission
+to the service but does not weaken the per-user-session ownership checks.
 
 ## Model Aliases
 

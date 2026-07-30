@@ -62,9 +62,7 @@ internal sealed class GrepTool(ToolWorkspace workspace, SecurityProfile security
 
         try
         {
-            resolved = path.Length == 0
-                ? (workspace.Root, workspace.Root)
-                : workspace.ResolveRead(path);
+            resolved = workspace.ResolveRead(path.Length == 0 ? "." : path);
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {

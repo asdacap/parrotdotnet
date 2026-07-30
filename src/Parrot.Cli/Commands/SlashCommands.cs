@@ -1,5 +1,4 @@
 using Parrot.Auth;
-using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Commands;
@@ -14,8 +13,7 @@ internal static class SlashCommands
         IApplicationExit applicationExit,
         ICredentialStore credentials,
         OpenAiOAuthClient oauth,
-        IReadOnlyList<string> providerIds,
-        SessionIndex sessionIndex)
+        IReadOnlyList<string> providerIds)
     {
         var commands = new List<ISlashCommand>();
         var registry = new SlashCommandRegistry(commands, dialog);
@@ -31,7 +29,7 @@ internal static class SlashCommands
         commands.Add(new ModelAliasCommand(client, models, dialog));
         commands.Add(new ModelsCommand(client, dialog));
         commands.Add(new ModesCommand(client, dialog));
-        commands.Add(new SessionsCommand(sessionIndex, session, dialog));
+        commands.Add(new SessionsCommand(client, session, dialog));
         commands.Add(new VersionCommand(dialog));
         return registry;
     }

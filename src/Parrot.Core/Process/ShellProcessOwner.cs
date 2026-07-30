@@ -1,12 +1,12 @@
 using Parrot.Agent;
 using Parrot.Security;
 using Parrot.Statuses;
+using Parrot.Store;
 
 namespace Parrot.Process;
 
 internal sealed class ShellProcessOwner(
-    string workingDirectory,
-    string blobDirectory,
+    UserSessionResources resources,
     ProcessRunner runner,
     CancellationToken lifetime) : IActiveWorkSource
 {
@@ -38,7 +38,7 @@ internal sealed class ShellProcessOwner(
             }
 
             var execution = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
-            var result = runner.Run(command, workingDirectory, blobDirectory, securityProfile, execution.Token);
+            var result = runner.Run(command, resources, securityProfile, execution.Token);
             var process = new ManagedShellProcess(name, agent, result, execution, lifetime);
             _processes.Add(name, process);
             return process;

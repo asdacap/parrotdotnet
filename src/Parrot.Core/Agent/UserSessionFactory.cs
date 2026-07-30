@@ -8,17 +8,17 @@ internal sealed class UserSessionFactory(
     ModeRegistry modes) : IUserSessionFactory
 {
     public UserSession Create(
+        SessionResourceLease resources,
         string id,
         string rootAgentName,
         ResolvedModelSelection model,
-        string mode,
-        EventRepository eventRepository) =>
+        string mode) =>
         new(
             id,
             rootAgentName,
             model,
             mode,
-            eventRepository,
+            resources,
             agentSessionFactories,
-            modes);
+            new UserSessionModes(modes, resources.Resources.PlanDirectory));
 }

@@ -7,14 +7,19 @@ namespace Parrot.Core.Tests;
 // "every tool call settles" says anything.
 internal sealed class HeldTool : ITool
 {
+    private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public string Name => "held";
 
     public string Description => "Never finishes.";
 
     public string ParametersJson => """{"type":"object","properties":{}}""";
 
+    public Task Started => _started.Task;
+
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
+        _started.SetResult();
         await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
 
         return "unreachable";

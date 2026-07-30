@@ -1,5 +1,7 @@
 using Parrot.Process;
 using Parrot.Security;
+using Parrot.State;
+using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
@@ -29,8 +31,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(async () =>
                 await runner.Run(
                     $"touch {marker}",
-                    _workspace,
-                    Path.Combine(_workspace, "blob"),
+                    Resources(_workspace),
                     WritableProfile(),
                     CancellationToken.None))
             .Throws<SandboxUnavailableException>();
@@ -52,8 +53,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var result = await runner.Run(
             "awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"o\"; "
             + "for (i = 0; i < 70000; i++) printf \"e\" > \"/dev/stderr\"; exit 7 }'",
-            _workspace,
-            Path.Combine(_workspace, "blob"),
+            Resources(_workspace),
             WritableProfile(),
             cancellationToken);
 
@@ -63,14 +63,14 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(result.Spilled).IsTrue();
         _ = await Assert.That(Path.IsPathFullyQualified(result.BlobPath)).IsTrue();
         _ = await Assert.That(Path.GetDirectoryName(result.BlobPath))
-            .IsEqualTo(Path.Combine(_workspace, "blob"));
+            .IsEqualTo(Resources(_workspace).BlobDirectory);
         _ = await Assert.That(Path.GetFileName(result.BlobPath)).EndsWith("-arse.dat");
 
         var output = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
         _ = await Assert.That(output).IsEqualTo(
             $"Process exited with code 7\n[stdout]\n{new string('o', 70000)}"
             + $"\n[stderr]\n{new string('e', 70000)}");
-        _ = await Assert.That(Directory.EnumerateFiles(Path.Combine(_workspace, "blob"), ".process-*.tmp"))
+        _ = await Assert.That(Directory.EnumerateFiles(Resources(_workspace).BlobDirectory, ".process-*.tmp"))
             .IsEmpty();
     }
 
@@ -88,8 +88,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var result = await runner.Run(
             "awk 'BEGIN { for (i = 0; i < 11000; i++) printf \"€\"; "
             + "for (i = 0; i < 11000; i++) printf \"€\" > \"/dev/stderr\" }'",
-            _workspace,
-            Path.Combine(_workspace, "blob"),
+            Resources(_workspace),
             WritableProfile(),
             cancellationToken);
 
@@ -110,14 +109,14 @@ internal sealed class ProcessRunnerTests : IDisposable
         }
 
         var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
-        var notDirectory = Path.Combine(_workspace, "not-a-directory");
-        await File.WriteAllTextAsync(notDirectory, string.Empty, cancellationToken);
+        var resources = Resources(_workspace);
+        _ = Directory.CreateDirectory(resources.Root);
+        await File.WriteAllTextAsync(resources.BlobDirectory, string.Empty, cancellationToken);
 
         _ = await Assert.That(async () =>
                 await runner.Run(
                     "awk 'BEGIN { for (i = 0; i < 1000000; i++) printf \"x\" }'",
-                    _workspace,
-                    notDirectory,
+                    resources,
                     WritableProfile(),
                     cancellationToken))
             .Throws<IOException>();
@@ -136,8 +135,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         using var cancellation = new CancellationTokenSource();
         var running = runner.Run(
             "sh -c 'while :; do sleep 1; done' & echo $! > child.pid; wait",
-            _workspace,
-            Path.Combine(_workspace, "blob"),
+            Resources(_workspace),
             WritableProfile(),
             cancellation.Token);
         var childPid = await ReadPid(pidPath);
@@ -186,8 +184,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         _ = await runner.Run(
             "true",
-            worktree,
-            Path.Combine(worktree, "blob"),
+            Resources(worktree),
             WritableProfile(),
             cancellationToken);
 
@@ -201,8 +198,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         _ = await runner.Run(
             "true",
-            worktree,
-            Path.Combine(worktree, "blob"),
+            Resources(worktree),
             SecurityProfile.Compose(true, [], [], []),
             cancellationToken);
 
@@ -215,7 +211,7 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task User_cache_directory_is_writable(CancellationToken cancellationToken)
+    public async Task Private_cache_directory_is_writable(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -225,16 +221,15 @@ internal sealed class ProcessRunnerTests : IDisposable
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
+        var resources = Resources(_workspace);
         _ = await runner.Run(
             "true",
-            _workspace,
-            Path.Combine(_workspace, "blob"),
+            resources,
             WritableProfile(),
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        await AssertWritableBind(arguments, Path.Combine(home, ".cache"));
+        await AssertWritableBind(arguments, resources.CacheDirectory);
     }
 
     [Test]
@@ -265,8 +260,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         _ = await runner.Run(
             "true",
-            _workspace,
-            Path.Combine(_workspace, "blob"),
+            Resources(_workspace),
             profile,
             cancellationToken);
 
@@ -287,6 +281,82 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Mandatory_isolation_overrides_profile_and_clears_the_environment(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var resources = Resources(_workspace);
+        _ = Directory.CreateDirectory(resources.Root);
+        _ = Directory.CreateDirectory(Path.Combine(resources.ProtectedRoots[0], "private"));
+        _ = Directory.CreateDirectory(Path.Combine(resources.ProtectedRoots[3], "private"));
+        var profile = SecurityProfile.Compose(
+            readOnly: false,
+            resources.ProtectedRoots.Select(path => new SandboxRule(path, SandboxRuleAction.AllowWrite)),
+            [],
+            []);
+
+        _ = await runner.Run("true", resources, profile, cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(arguments).Contains("--clearenv");
+        _ = await Assert.That(arguments).DoesNotContain("SSH_AUTH_SOCK");
+        _ = await Assert.That(arguments).DoesNotContain("DBUS_SESSION_BUS_ADDRESS");
+        _ = await Assert.That(arguments).DoesNotContain("XDG_RUNTIME_DIR");
+        _ = await Assert.That(arguments).DoesNotContain("HTTP_PROXY");
+        _ = await Assert.That(arguments).DoesNotContain("OPENAI_API_KEY");
+        _ = await Assert.That(FindSetEnvironment(arguments, "HOME")).IsEqualTo(resources.RuntimeHomeDirectory);
+        _ = await Assert.That(FindSetEnvironment(arguments, "XDG_CACHE_HOME")).IsEqualTo(resources.CacheDirectory);
+
+        foreach (var root in resources.ProtectedRoots.Where(Directory.Exists))
+        {
+            var mounts = FindMounts(arguments, root);
+            _ = await Assert.That(mounts).IsNotEmpty();
+            _ = await Assert.That(mounts[^1]).IsEqualTo("--tmpfs");
+        }
+
+        _ = await Assert.That(FindMounts(arguments, resources.BlobDirectory)[^1]).IsEqualTo("--ro-bind");
+    }
+
+    [Test]
+    public async Task Protected_control_data_is_hidden_while_the_blob_is_readable(
+        CancellationToken cancellationToken)
+    {
+        var runner = ProcessRunner.Locate();
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        var resources = Resources(_workspace);
+        _ = Directory.CreateDirectory(resources.BlobDirectory);
+        _ = Directory.CreateDirectory(resources.ProtectedRoots[3]);
+        await File.WriteAllTextAsync(
+            Path.Combine(resources.ProtectedRoots[3], "parrot.token"),
+            "secret",
+            cancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(resources.BlobDirectory, "result.txt"),
+            "result",
+            cancellationToken);
+
+        var result = await runner.Run(
+            $"cat '{resources.ProtectedRoots[3]}/parrot.token' 2>/dev/null || echo hidden; "
+            + $"cat '{resources.BlobDirectory}/result.txt'; printf '\\n%s' \"$HOME|$XDG_CACHE_HOME\"",
+            resources,
+            WritableProfile(),
+            cancellationToken);
+
+        _ = await Assert.That(result.Stdout).IsEqualTo(
+            $"hidden\nresult\n{resources.RuntimeHomeDirectory}|{resources.CacheDirectory}");
+    }
+
+    [Test]
     public async Task The_workspace_is_writable_and_the_host_is_read_only(CancellationToken cancellationToken)
     {
         var runner = ProcessRunner.Locate();
@@ -300,8 +370,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var result = await runner.Run(
             "echo hi > inside.txt && (touch /host-write 2>&1 || echo blocked)",
-            _workspace,
-            Path.Combine(_workspace, "blob"),
+            Resources(_workspace),
             WritableProfile(),
             cancellationToken);
 
@@ -311,6 +380,15 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     private static SecurityProfile WritableProfile() => SecurityProfile.Compose(false, [], [], []);
+
+    private static UserSessionResources Resources(string workspace) =>
+        new(
+            new StatePaths(
+                Path.Combine(workspace, ".test-state"),
+                Path.Combine(workspace, ".test-config"),
+                Path.Combine(workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(workspace));
 
     private static string[] FindMounts(string[] arguments, string path)
     {
@@ -350,12 +428,36 @@ internal sealed class ProcessRunnerTests : IDisposable
         return [.. mounts];
     }
 
+    private static string FindSetEnvironment(string[] arguments, string name)
+    {
+        for (var index = 0; index < arguments.Length - 2; index++)
+        {
+            if (arguments[index] == "--setenv"
+                && string.Equals(arguments[index + 1], name, StringComparison.Ordinal))
+            {
+                return arguments[index + 2];
+            }
+        }
+
+        return string.Empty;
+    }
+
     private static async Task AssertWritableBind(string[] arguments, string directory)
     {
-        var bind = Array.FindIndex(arguments, argument => string.Equals(argument, directory, StringComparison.Ordinal));
-        _ = await Assert.That(bind).IsGreaterThan(0);
-        _ = await Assert.That(arguments[bind - 1]).IsEqualTo("--bind");
-        _ = await Assert.That(arguments[bind + 1]).IsEqualTo(directory);
+        var bind = -1;
+
+        for (var index = 0; index < arguments.Length - 2; index++)
+        {
+            if (arguments[index] == "--bind"
+                && string.Equals(arguments[index + 1], directory, StringComparison.Ordinal)
+                && string.Equals(arguments[index + 2], directory, StringComparison.Ordinal))
+            {
+                bind = index;
+                break;
+            }
+        }
+
+        _ = await Assert.That(bind).IsGreaterThanOrEqualTo(0);
     }
 
     private static string CreateArgumentCapturingSandbox(string workspace, string argumentsPath)

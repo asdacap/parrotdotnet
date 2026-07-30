@@ -8,8 +8,6 @@ internal sealed record SessionMeta
 
     public required string WorkingDirectory { get; init; }
 
-    public required string HostKey { get; init; }
-
     public string RootAgentName { get; init; } = string.Empty;
 
     public required string ProviderId { get; init; }
@@ -19,8 +17,6 @@ internal sealed record SessionMeta
     public string Selector { get; init; } = string.Empty;
 
     public string Mode { get; init; } = string.Empty;
-
-    public int ProcessId { get; init; }
 
     public string CreatedAt { get; init; } = string.Empty;
 }

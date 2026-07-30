@@ -57,6 +57,51 @@ MIGRATION.md §1 permits changing anything outside the load-bearing invariants,
 *provided the divergence is recorded*. This is where. An undocumented change is
 indistinguishable from a porting mistake when a test fails six components later.
 
+### User sessions are isolation and ownership boundaries
+
+**Workspace identity.** A user session records the exact launch working
+directory as its workspace. That path is shared context, not private storage.
+Canonical or physical path resolution is used only when comparing and claiming
+workspace identity; it must not silently replace the launch path exposed to the
+agent or used as its working directory.
+
+**Private state.** Each user session has one private root under Parrot state.
+Its database, queues, process-output blobs, plan artifacts, and other internal
+artifacts live there and never in the workspace. Exactly one active runtime may
+own that root and write its database. Child agent sessions share the owning user
+session's root and cannot acquire or escape into another user session's root.
+
+**Opening.** Fresh creation always creates a new user session and a root agent
+named `main`. Exact resume opens only the requested existing session and fails
+if it cannot do so safely. Default open creates when there is no matching
+session, resumes when exactly one matching session can be selected, and rejects
+an ambiguous set rather than choosing arbitrarily. Existing sessions preserve
+legacy root-agent names; compatibility data is not rewritten merely by opening
+it. A live owner is never joined or stolen.
+
+**Management.** `SessionCatalog` is a metadata and admission surface only. It
+may list sessions and decide which private root an operation is attempting to
+open, but it never returns a live `UserSession`, database, queue store, or other
+runtime-owned object. This keeps management reads from becoming a second owner.
+
+**Protected roots.** Built-in filesystem tools enforce a mandatory protected-
+root policy in addition to profile sandbox rules. Parrot's private state,
+configuration, and data roots are inaccessible through `read`, `glob`, `grep`,
+`write`, `edit`, and `apply_patch`; nesting one of those roots beneath a
+workspace or reaching one through a symlink does not weaken the rule. A profile
+cannot override it. Plan artifacts and overflow blobs are exposed only through
+narrow, runtime-granted capabilities owned by their components, not by making a
+private root generally readable or writable. Filesystem permission never
+implies network permission.
+
+**Serving.** The default remote-capable transport is a Unix-domain socket in a
+user-only control directory: the directory is mode `0700` and the socket is
+mode `0600`. TCP is explicit and authenticated. Binding plaintext TCP beyond
+loopback additionally requires an explicit unsafe acknowledgement, emits a
+warning, and is intended to sit behind a secure proxy. Authentication and
+filesystem ownership are admission checks, not substitutes for user-session
+ownership inside the service.
+
 ### Tasks do not nest
 
 **Upstream.** A task may have a parent task, so tasks form a tree rooted at the
@@ -207,11 +252,12 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 ### `SessionDatabase` — rank 2, M2
 
 - **Absorbs** `store` (database, meta), `workspace`.
-- **Owns** one SQLite file per user session, its schema, the `meta.json`
-  projection published beside it, and `sessions/<id>/blob` for complete process
-  output that exceeds the bounded in-memory result.
+- **Owns** the SQLite file and schema inside one user session's private root,
+  plus its `meta.json` projection. Process-output blobs and plan artifacts also
+  live beneath that root, but remain owned by their producing components.
 - **Inbound** open, migrate, transact. Upholds the one-machine-one-database
-  invariant and `journal_mode=TRUNCATE`.
+  invariant, `journal_mode=TRUNCATE`, and the rule that at most one active
+  runtime writes a user session's database.
 - **Outbound** `StatePaths`.
 - **Boundary** no.
 - **Note** WAL is forbidden, not discouraged: `-shm` is memory-mapped and two
@@ -567,15 +613,29 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 
 - **Absorbs** `session` (`InteractiveOwner`, `InteractiveClaim`), `store`
   (owners, claims).
-- **Owns** the working-directory binding, the claim on it, its shared durable
-  queue store, and the `AgentSession`s inside it. Root-idle monitored queue
-  delivery is admitted here rather than by child sessions.
-- **Inbound** open a session for this working directory: reclaim an abandoned
-  binding, or start a second when one is live.
+- **Owns** its private root, the exclusive runtime claim on it, the exact launch
+  working-directory binding, its shared durable queue store, and the
+  `AgentSession`s inside it. Root-idle monitored queue delivery is admitted here
+  rather than by child sessions.
+- **Inbound** create a fresh session, resume an exact id, or use default-open
+  cardinality semantics for a workspace. The exact launch path is retained for
+  execution while canonical identity is used only for matching and claims.
 - **Outbound** `SessionDatabase`, `StatePaths`, `Configuration`, and its private
   queue directory.
 - **Boundary** no.
-- **Note** the claim is held for exactly the duration of `Run`.
+- **Note** one claim is held for exactly the duration of `Run`. A live owner is
+  never joined or displaced. Fresh roots use `main`; resumed legacy roots retain
+  their stored root-agent name.
+
+### `SessionCatalog` — rank 10, M6
+
+- **Owns** the management projection of user-session metadata and admission
+  decisions; it owns no live runtime state.
+- **Inbound** list metadata, create fresh, resume an exact id, or default-open.
+- **Outbound** `StatePaths` and the component that starts a `UserSession` only
+  after admission succeeds.
+- **Boundary** no. It must never hand management callers a live session,
+  database, queue, or repository.
 
 ---
 
@@ -590,11 +650,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - `/mode` and `/modes` select and discover foreground policies. `/status` remains
   deferred because it is a separate user-facing summary, not status-prompt
   injection. Basic and Enhanced render the transient notification independently.
-- **Temporary divergence:** upstream enforces mode tool capabilities, but M8
-  deliberately defers that runtime enforcement here. `query` and `plan` prompts
-  state the intended workspace policy, but neither is currently a security
-  boundary and the plan artifact is not yet the only runtime-writable path.
-  Plan approval dialogs remain deferred with that enforcement work.
+- Profile tool capabilities remain distinct from the mandatory protected-root
+  boundary. `query` and `plan` apply their configured workspace policy, while
+  the plan artifact receives only its runtime-owned narrow capability. Plan
+  approval dialogs remain separate from filesystem isolation.
 
 ---
 
@@ -619,6 +678,12 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   `replace_all` it requires exactly one match, while `replace_all` permits zero
   or more. Both write directly under the active filesystem security profile;
   they do not restore the dropped transactional change machinery.
+- **Protected roots.** `read`, `glob`, `grep`, `write`, `edit`, and
+  `apply_patch` additionally enforce Parrot's mandatory protected-root policy.
+  Profile rules cannot grant access to state, configuration, or data roots,
+  including when nested beneath the workspace or reached through a symlink.
+  Runtime-owned plans and blobs use narrow capabilities rather than an
+  exception for their containing root.
 - **Outbound** `PermissionBroker`, the user session's shell-process owner,
   `ProcessRunner`, `WebFetcher`, the filesystem.
 - **Boundary** **yes** — tools.
@@ -659,8 +724,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   the host, including `~/.config`, remains read-only.
   Stdout and stderr retain at most 65,536 characters
   each in memory; if either exceeds that bound, the complete result is persisted
-  in the owning user session's blob directory and the tool returns only its full
-  absolute path. Child agents share their owning user session's directory.
+  in the owning user session's private blob directory and the tool returns its
+  full absolute path. A narrow runtime capability permits access to that artifact
+  without opening the private root. Child agents share their owning user
+  session's private root.
   Process names are ordinal and unique for the user-session lifetime: supplied
   duplicates fail before launch, while omitted names are generated and reserved
   atomically. Runs use the user-session lifetime token, survive tool-call yield
@@ -694,10 +761,12 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   subagents — so `Event` does not carry one. A field holding a fabricated id
   that no client can use and no test can exercise is the "stub that returns a
   plausible value" MIGRATION.md §7 forbids. It arrives with `TaskManager`.
-- **Inbound** five calls, all in terms of **user sessions**. `ListModels`;
-  `CreateSession(model)` and `UpdateSession(user_session_id, model)`;
-  `SendMessage(user_session_id, text)`; and `Listen(user_session_id)`. Upholds
-  principle 11 — local and remote use one contract.
+- **Inbound** calls are in terms of **user sessions**. Management includes
+  server-authoritative session listing and distinct fresh-create, exact-resume,
+  and default-open admission semantics; interaction includes session update,
+  message admission, interruption, questions, and listening. Management sees
+  catalog metadata, never live runtime objects. Upholds principle 11 — local and
+  remote use one contract.
 - **Agent sessions are not addressable.** A user never spawns a subagent; an
   agent does, into a background child session. So there is no parent id on the
   wire and no way to ask for one. An `Event` names the agent session that
@@ -735,12 +804,20 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 ### `GrpcServer` — rank 12, M6
 
 - **Absorbs** `httpapi` (server, routes).
-- **Owns** the listener and its lifetime.
+- **Owns** the listener, transport admission, and their lifetime.
 - **Inbound** `Run` until cancelled.
 - **Outbound** `ParrotService`.
 - **Boundary** no.
+- **Default transport.** A Unix-domain socket in a user-only control directory;
+  the directory is mode `0700` and the socket is mode `0600`. Local in-process
+  operation remains socket-free.
+- **TCP transport.** TCP must be requested explicitly and authenticated.
+  Plaintext non-loopback binding additionally requires an explicit unsafe
+  acknowledgement, emits a warning, and is suitable only behind a secure proxy.
+  No unauthenticated TCP fallback is permitted.
 - **Note** optional and separately lifecycled. Its ~5 MB is the accepted cost
-  recorded in `architecture.md`.
+  recorded in `architecture.md`. Transport admission does not replace domain
+  ownership checks.
 
 ---
 

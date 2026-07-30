@@ -1,88 +1,24 @@
 using Parrot.Agent;
 using Parrot.Llm;
+using Parrot.State;
 
 namespace Parrot.Store;
 
-// Ties the pieces of the storage layout together: claim the working directory,
-// open that session's database, publish its meta.json.
-//
-// A session is started automatically when the working directory differs,
-// because the claim is keyed by directory. Starting parrot where a live session
-// already exists yields a second one rather than joining it.
 internal sealed class SessionStore(
-    string stateDirectory,
+    StatePaths paths,
     string workingDirectory,
     string hostKey,
     IUserSessionFactory userSessions,
     ModelRouter router,
-    ModeRegistry modes) : IDisposable
+    ModeRegistry modes)
 {
-    private readonly List<SessionDatabase> _open = [];
-
-    public SessionIndex Index { get; } = new(stateDirectory);
-
-    public UserSession Open(ResolvedModelSelection model) => Open(model, modes.Default).Session;
-
-    public OpenedSession Open(ResolvedModelSelection model, string mode)
+    public static void Publish(UserSession session)
     {
-        var claim = new WorkingDirectoryClaim(stateDirectory, hostKey);
-        var claimed = claim.Claim(workingDirectory, Identifier.UserSession(), ProcessIsAlive);
-
-        // A live binding means somebody else is already working here, so this
-        // process takes its own session rather than joining or stealing.
-        var id = claimed.Disposition == ClaimDisposition.Live ? Identifier.UserSession() : claimed.SessionId;
-
-        var existing = Index.Find(id);
-        var rootAgentName = existing?.RootAgentName;
-
-        if (string.IsNullOrEmpty(rootAgentName))
-        {
-            var names = Index.List()
-                .Select(meta => meta.RootAgentName)
-                .ToHashSet(StringComparer.Ordinal);
-            rootAgentName = "main";
-
-            for (var suffix = 2; !names.Add(rootAgentName); suffix++)
-            {
-                rootAgentName = $"main-{suffix}";
-            }
-        }
-
-        SessionDatabase? database = null;
-
-        try
-        {
-            database = SessionDatabase.Open(Index.DatabaseFor(id));
-            var selected = existing is null ? model : router.Resolve(StoredSelector(existing));
-            var session = userSessions.Create(id, rootAgentName, selected, mode, new EventRepository(database));
-            Index.Publish(new SessionMeta
-            {
-                Id = id,
-                WorkingDirectory = workingDirectory,
-                HostKey = hostKey,
-                RootAgentName = rootAgentName,
-                ProviderId = session.ProviderId,
-                Model = session.CanonicalModel,
-                Selector = session.Model,
-                Mode = session.Mode.Id,
-                ProcessId = Environment.ProcessId,
-                CreatedAt = existing?.CreatedAt
-                    ?? DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
-            });
-            _open.Add(database);
-            return new OpenedSession(session, existing is not null);
-        }
-        catch
-        {
-            database?.Dispose();
-            throw;
-        }
-    }
-
-    public void Publish(UserSession session)
-    {
-        var current = Index.List().Single(meta => string.Equals(meta.Id, session.Id, StringComparison.Ordinal));
-        Index.Publish(current with
+        var index = new SessionIndex(session.Resources);
+        var current = index.Find()
+            ?? throw new InvalidOperationException(
+                $"Session metadata for '{session.Id}' does not belong to this session.");
+        index.Publish(current with
         {
             ProviderId = session.ProviderId,
             Model = session.CanonicalModel,
@@ -91,14 +27,22 @@ internal sealed class SessionStore(
         });
     }
 
-    public void Dispose()
-    {
-        foreach (var database in _open)
-        {
-            database.Dispose();
-        }
+    public UserSession Open(ResolvedModelSelection model) => Open(model, modes.Default).Session;
 
-        _open.Clear();
+    public OpenedSession Open(ResolvedModelSelection model, string mode)
+    {
+        var workspace = ProjectWorkspace.FromLaunchDirectory(workingDirectory);
+        var claim = new WorkingDirectoryClaim(paths.State, hostKey);
+        var admission = claim.OpenDefault(workspace.LaunchDirectory);
+        return Open(model, mode, workspace, admission);
+    }
+
+    public UserSession CreateFresh(ResolvedModelSelection model, string mode)
+    {
+        var workspace = ProjectWorkspace.FromLaunchDirectory(workingDirectory);
+        var claim = new WorkingDirectoryClaim(paths.State, hostKey);
+        var admission = claim.CreateFresh(workspace.LaunchDirectory, UserSessionId.Generate());
+        return Open(model, mode, workspace, admission).Session;
     }
 
     private static string StoredSelector(SessionMeta meta)
@@ -113,24 +57,49 @@ internal sealed class SessionStore(
             : $"{meta.ProviderId}/{meta.Model}";
     }
 
-    // A record left by a dead process is abandoned and may be reclaimed. Repair
-    // never ranges across sessions: this only ever asks about a pid on this
-    // host, because a pid from another host names a process we cannot see.
-    private static bool ProcessIsAlive(int processId)
+    private OpenedSession Open(
+        ResolvedModelSelection model,
+        string mode,
+        ProjectWorkspace workspace,
+        AdmissionResult admission)
     {
-        if (processId <= 0)
-        {
-            return false;
-        }
+        var id = admission.SessionId
+            ?? throw new InvalidOperationException($"Cannot open a session: {admission.Disposition}.");
+        var activation = admission.ActivationLease
+            ?? throw new InvalidOperationException($"Cannot activate session '{id}': {admission.Disposition}.");
+        var resources = new UserSessionResources(paths, id, workspace);
+        var index = new SessionIndex(resources);
+        var existing = index.Find();
+        var rootAgentName = string.IsNullOrEmpty(existing?.RootAgentName) ? "main" : existing.RootAgentName;
+        var selected = existing is null ? model : router.Resolve(StoredSelector(existing));
+        var lease = (SessionResourceLease?)SessionResourceLease.Open(resources, activation);
 
         try
         {
-            using var process = System.Diagnostics.Process.GetProcessById(processId);
-            return !process.HasExited;
+            if (lease is null)
+            {
+                throw new InvalidOperationException("The session resource lease was not acquired.");
+            }
+
+            var session = userSessions.Create(lease, id.Value, rootAgentName, selected, mode);
+            index.Publish(new SessionMeta
+            {
+                Id = id.Value,
+                WorkingDirectory = existing?.WorkingDirectory ?? workspace.LaunchDirectory,
+                RootAgentName = rootAgentName,
+                ProviderId = session.ProviderId,
+                Model = session.CanonicalModel,
+                Selector = session.Model,
+                Mode = session.Mode.Id,
+                CreatedAt = existing?.CreatedAt
+                    ?? DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            });
+            lease = null;
+            return new OpenedSession(session, existing is not null);
         }
-        catch (ArgumentException)
+        finally
         {
-            return false;
+            lease?.Dispose();
         }
     }
 }

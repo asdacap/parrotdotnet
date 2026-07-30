@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Config;
@@ -24,9 +23,10 @@ internal sealed class ParrotService(
     ProviderRegistry registry,
     ModelAliasConfigurator aliases,
     SessionStore store,
+    SessionCatalog sessionCatalog,
     ModeRegistry modes) : GeneratedParrot.ParrotBase, IAsyncDisposable
 {
-    private readonly ConcurrentDictionary<string, Agent.UserSession> _userSessions = new(StringComparer.Ordinal);
+    private readonly UserSessionRegistry _userSessions = new();
 
     public override async Task<ListModelsResponse> ListModels(ListModelsRequest request, ServerCallContext context)
     {
@@ -94,7 +94,34 @@ internal sealed class ParrotService(
         return Task.FromResult(response);
     }
 
-    public override Task<UserSession> CreateSession(CreateSessionRequest request, ServerCallContext context)
+    public override Task<ListSessionsResponse> ListSessions(
+        ListSessionsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var response = new ListSessionsResponse();
+        response.Sessions.AddRange(sessionCatalog.List()
+            .OrderBy(entry => entry.CreatedAt, StringComparer.Ordinal)
+            .ThenBy(entry => entry.Id.Value, StringComparer.Ordinal)
+            .Select(entry => new SessionSummary
+            {
+                UserSessionId = entry.Id.Value,
+                Model = entry.Model,
+                Mode = entry.Mode,
+                CreatedAt = entry.CreatedAt,
+                RootAgentName = entry.RootAgentName,
+                State = _userSessions.Contains(entry.Id.Value)
+                    ? SessionState.Active
+                    : entry.State == SessionCatalogState.Corrupt
+                        ? SessionState.Corrupt
+                        : SessionState.Inactive,
+            }));
+        return Task.FromResult(response);
+    }
+
+    public override async Task<UserSession> CreateSession(CreateSessionRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -109,21 +136,19 @@ internal sealed class ParrotService(
             throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
 
-        OpenedSession opened;
+        Agent.UserSession created;
 
         try
         {
-            _ = modes.Resolve(request.Mode, string.Empty);
-            opened = store.Open(model, request.Mode);
+            _ = modes.Resolve(request.Mode);
+            created = await _userSessions.Host(() => store.CreateFresh(model, request.Mode)).ConfigureAwait(false);
         }
         catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
         {
             throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
 
-        _ = _userSessions.TryAdd(opened.Session.Id, opened.Session);
-
-        return Task.FromResult(UserSession.From(opened.Session, opened.Loaded));
+        return UserSession.From(created, false);
     }
 
     public override Task<UserSession> UpdateSession(UpdateSessionRequest request, ServerCallContext context)
@@ -139,7 +164,7 @@ internal sealed class ParrotService(
         {
             if (request.Mode.Length > 0)
             {
-                selectedMode = modes.Resolve(request.Mode, found.Id);
+                selectedMode = found.ResolveMode(request.Mode);
             }
 
             if (request.Model.Length > 0)
@@ -153,7 +178,7 @@ internal sealed class ParrotService(
         }
 
         found.Update(selectedModel, selectedMode);
-        store.Publish(found);
+        SessionStore.Publish(found);
 
         return Task.FromResult(UserSession.From(found, false));
     }
@@ -299,13 +324,7 @@ internal sealed class ParrotService(
     // All at once, not one after another: each session cancels its own drains
     // first thing, so starting them together makes shutdown as long as the
     // slowest session rather than as long as all of them added up.
-    public async ValueTask DisposeAsync()
-    {
-        await Task.WhenAll(_userSessions.Values.Select(session => session.DisposeAsync().AsTask()))
-            .ConfigureAwait(false);
-
-        _userSessions.Clear();
-    }
+    public ValueTask DisposeAsync() => _userSessions.DisposeAsync();
 
     private static PendingQuestion ToProtocol(PendingQuestionRequest request)
     {
@@ -333,8 +352,5 @@ internal sealed class ParrotService(
     private static ModelAlias ToProtocol(ModelAliasDefinition definition) =>
         new() { Name = definition.Name, ModelString = definition.ModelString, Usage = definition.Usage };
 
-    private Agent.UserSession Find(string userSessionId) =>
-        _userSessions.TryGetValue(userSessionId, out var found)
-            ? found
-            : throw new RpcException(new Status(StatusCode.NotFound, $"no user session {userSessionId}"));
+    private Agent.UserSession Find(string userSessionId) => _userSessions.Find(userSessionId);
 }

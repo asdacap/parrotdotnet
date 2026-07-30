@@ -574,17 +574,18 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         var router = Router(provider);
+        var identity = depth == 0
+            ? AgentIdentity.Main(sessionId, string.Empty)
+            : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", "parent", depth);
         return new AgentSession(
-            depth == 0
-                ? AgentIdentity.Main(sessionId, string.Empty)
-                : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", "parent", depth),
+            identity,
             new ModelSelector("stepped/model"),
             router,
             _broker,
             _repository,
             [],
             TestModels.PromptProvider(".", "."),
-            new TodoCollection("agent", _repository, _broker),
+            new TodoCollection(identity.SessionId, _repository, _broker),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
             profile: null,

@@ -10,14 +10,14 @@ internal sealed class ScriptedInvoker : CallInvoker
 {
     // The production stream, not a second implementation of it: both halves of
     // an in-process stream are what ChannelStreamWriter already is.
-    private readonly ChannelStreamWriter<Event> _events = new();
+    private readonly Dictionary<string, ChannelStreamWriter<Event>> _events = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<PendingQuestion>> _pendingQuestions = new(StringComparer.Ordinal);
     private readonly List<string> _sent = [];
     private readonly List<string> _sentTo = [];
     private readonly List<string> _listenedTo = [];
     private readonly List<CreateSessionRequest> _created = [];
     private readonly List<UpdateSessionRequest> _updated = [];
     private readonly List<ConfigureModelAliasRequest> _configuredAliases = [];
-    private readonly List<PendingQuestion> _pendingQuestions = [];
     private readonly List<ReplyQuestionRequest> _questionReplies = [];
     private readonly Lock _gate = new();
     private int _pendingQuestionLists;
@@ -88,17 +88,6 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
-    public IReadOnlyList<ReplyQuestionRequest> QuestionReplies
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return [.. _questionReplies];
-            }
-        }
-    }
-
     public int Interrupts { get; private set; }
 
     public bool ReplyQuestionNotFound { get; set; }
@@ -129,6 +118,10 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public List<SessionSummary> Sessions { get; } = [];
+
+    public bool SessionListingUnavailable { get; set; }
+
     public List<Model> Models { get; } =
     [
         new() { ProviderId = "provider", Id = "model" },
@@ -154,17 +147,50 @@ internal sealed class ScriptedInvoker : CallInvoker
     {
         lock (_gate)
         {
-            _pendingQuestions.Add(question.Clone());
+            GetPendingQuestions("session-1").Add(question.Clone());
         }
     }
 
-    public Task Publish(Event published) => _events.WriteAsync(published);
+    public Task Publish(Event published)
+    {
+        lock (_gate)
+        {
+            var sessionIds = _events.Keys.ToArray();
+            if (sessionIds.Length == 1)
+            {
+                return _events[sessionIds[0]].WriteAsync(published);
+            }
+
+            if (sessionIds.Length == 0 && _created.Count <= 1)
+            {
+                return GetEvents("session-1").WriteAsync(published);
+            }
+
+            throw new InvalidOperationException(
+                "a user session must be specified when the invoker does not have exactly one stream");
+        }
+    }
+
+    public Task Publish(string userSessionId, Event published)
+    {
+        lock (_gate)
+        {
+            return GetEvents(userSessionId).WriteAsync(published);
+        }
+    }
+
+    public void AddPendingQuestion(string userSessionId, PendingQuestion question)
+    {
+        lock (_gate)
+        {
+            GetPendingQuestions(userSessionId).Add(question);
+        }
+    }
 
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
         Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request)
     {
         object answered;
-        RpcException? failure = null;
 
         switch (request)
         {
@@ -216,12 +242,12 @@ internal sealed class ScriptedInvoker : CallInvoker
                 configured.ModelString = configure.ModelString;
                 answered = new ConfigureModelAliasResponse { Alias = configured.Clone() };
                 break;
-            case ListPendingQuestionsRequest:
+            case ListPendingQuestionsRequest listQuestions:
                 var listedQuestions = new ListPendingQuestionsResponse();
                 lock (_gate)
                 {
                     _pendingQuestionLists++;
-                    listedQuestions.Questions.Add(_pendingQuestions.Select(question => question.Clone()));
+                    listedQuestions.Questions.Add(GetPendingQuestions(listQuestions.UserSessionId).Select(question => question.Clone()));
                 }
 
                 answered = listedQuestions;
@@ -230,22 +256,20 @@ internal sealed class ScriptedInvoker : CallInvoker
                 lock (_gate)
                 {
                     _questionReplies.Add(reply.Clone());
-                    _ = _pendingQuestions.RemoveAll(question =>
-                        string.Equals(question.Id, reply.QuestionRequestId, StringComparison.Ordinal));
+                    _ = GetPendingQuestions(reply.UserSessionId).RemoveAll(question => string.Equals(question.Id, reply.QuestionRequestId, StringComparison.Ordinal));
                 }
 
                 answered = new ReplyQuestionResponse();
                 if (ReplyQuestionNotFound)
                 {
-                    failure = new RpcException(new Status(StatusCode.NotFound, "question is no longer pending"));
+                    return Failed<TResponse>(StatusCode.NotFound, "question is no longer pending");
                 }
 
                 break;
             case RejectQuestionRequest reject:
                 lock (_gate)
                 {
-                    _ = _pendingQuestions.RemoveAll(question =>
-                        string.Equals(question.Id, reject.QuestionRequestId, StringComparison.Ordinal));
+                    _ = GetPendingQuestions(reject.UserSessionId).RemoveAll(question => string.Equals(question.Id, reject.QuestionRequestId, StringComparison.Ordinal));
                 }
 
                 answered = new RejectQuestionResponse();
@@ -254,6 +278,16 @@ internal sealed class ScriptedInvoker : CallInvoker
                 var listedModes = new ListModesResponse();
                 listedModes.Modes.Add(Modes);
                 answered = listedModes;
+                break;
+            case ListSessionsRequest:
+                if (SessionListingUnavailable)
+                {
+                    return Failed<TResponse>(StatusCode.Unimplemented, "method is not implemented");
+                }
+
+                var listedSessions = new ListSessionsResponse();
+                listedSessions.Sessions.Add(Sessions);
+                answered = listedSessions;
                 break;
             case SendMessageRequest send:
                 lock (_gate)
@@ -280,9 +314,7 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
 
         return new AsyncUnaryCall<TResponse>(
-            failure is null
-                ? Task.FromResult((TResponse)answered)
-                : Task.FromException<TResponse>(failure),
+            Task.FromResult((TResponse)answered),
             Task.FromResult(new Metadata()),
             static () => Status.DefaultSuccess,
             static () => [],
@@ -302,7 +334,13 @@ internal sealed class ScriptedInvoker : CallInvoker
             _listenedTo.Add(listen.UserSessionId);
         }
 
-        if (_events.Reader is not IAsyncStreamReader<TResponse> stream)
+        ChannelStreamWriter<Event> events;
+        lock (_gate)
+        {
+            events = GetEvents(listen.UserSessionId);
+        }
+
+        if (events.Reader is not IAsyncStreamReader<TResponse> stream)
         {
             throw new NotSupportedException($"no scripted stream for {typeof(TResponse).Name}");
         }
@@ -326,4 +364,34 @@ internal sealed class ScriptedInvoker : CallInvoker
     public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
         Method<TRequest, TResponse> method, string? host, CallOptions options) =>
         throw new NotSupportedException("the contract has no duplex call");
+
+    private static AsyncUnaryCall<TResponse> Failed<TResponse>(StatusCode code, string detail) =>
+        new(
+            Task.FromException<TResponse>(new RpcException(new Status(code, detail))),
+            Task.FromResult(new Metadata()),
+            static () => Status.DefaultSuccess,
+            static () => [],
+            static () => { });
+
+    private ChannelStreamWriter<Event> GetEvents(string userSessionId)
+    {
+        if (!_events.TryGetValue(userSessionId, out var events))
+        {
+            events = new ChannelStreamWriter<Event>();
+            _events.Add(userSessionId, events);
+        }
+
+        return events;
+    }
+
+    private List<PendingQuestion> GetPendingQuestions(string userSessionId)
+    {
+        if (!_pendingQuestions.TryGetValue(userSessionId, out var questions))
+        {
+            questions = [];
+            _pendingQuestions.Add(userSessionId, questions);
+        }
+
+        return questions;
+    }
 }

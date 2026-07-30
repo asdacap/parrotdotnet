@@ -1,6 +1,5 @@
 using Parrot.Auth;
 using Parrot.Cli.Commands;
-using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Tests;
@@ -20,8 +19,7 @@ internal sealed class SlashCommandTests
             new ApplicationExit(application),
             new UnusedCredentials(),
             new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-            ["provider"],
-            new SessionIndex(Path.Combine(Path.GetTempPath(), $"parrot-sessions-{Guid.NewGuid():N}")));
+            ["provider"]);
 
         _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
             .IsEqualTo("/auth|/clear|/effort|/exit|/help|/mode|/model|/model-alias|/models|/modes|/sessions|/version");

@@ -4,6 +4,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Security;
+using Parrot.State;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -52,9 +53,15 @@ internal sealed class ExecCommandToolTests : IDisposable
             null,
             null,
             CancellationToken.None);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
         var processes = new ShellProcessOwner(
-            _workspace,
-            Path.Combine(_workspace, "blob"),
+            resources,
             new ProcessRunner(CreateSandboxPassThrough(_workspace)),
             CancellationToken.None);
         var tool = new ExecCommandTool(
@@ -80,7 +87,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         var spilledPath = spilled[spilledPrefix.Length..^spilledSuffix.Length];
         _ = await Assert.That(spilled).IsEqualTo(spilledPrefix + spilledPath + spilledSuffix);
         _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();
-        _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(Path.Combine(_workspace, "blob"));
+        _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(resources.BlobDirectory);
 
         var yielded = await tool.Execute(
             """{"command":"sleep 0.05; printf later","name":"later","yield_after_ms":0}""",

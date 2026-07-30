@@ -1,4 +1,5 @@
 using Parrot.Protocol;
+using Parrot.State;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -82,18 +83,19 @@ internal sealed class StorageInvariantTests : IDisposable
     public async Task A_live_binding_is_not_stolen_and_an_abandoned_one_is_reclaimed()
     {
         var claim = new WorkingDirectoryClaim(_root, "host");
+        var workspace = Directory.CreateDirectory(Path.Combine(_root, "work")).FullName;
 
-        var first = claim.Claim("/work", "session-a", static _ => false);
+        var first = claim.Claim(workspace, "session-a", static _ => false);
         _ = await Assert.That(first.Disposition).IsEqualTo(ClaimDisposition.Fresh);
 
         // The owning process is alive, so the binding stands and the caller is
         // told to take a session of its own.
-        var live = claim.Claim("/work", "session-b", static _ => true);
+        var live = claim.Claim(workspace, "session-b", static _ => true);
         _ = await Assert.That(live.Disposition).IsEqualTo(ClaimDisposition.Live);
         _ = await Assert.That(live.SessionId).IsEqualTo("session-a");
 
         // The owning process is gone, so the binding is abandoned.
-        var reclaimed = claim.Claim("/work", "session-c", static _ => false);
+        var reclaimed = claim.Claim(workspace, "session-c", static _ => false);
         _ = await Assert.That(reclaimed.Disposition).IsEqualTo(ClaimDisposition.Reclaimed);
 
         // Reclaiming resumes the session the binding named, rather than
@@ -104,27 +106,31 @@ internal sealed class StorageInvariantTests : IDisposable
     [Test]
     public async Task Listing_reads_meta_json_and_never_a_database()
     {
-        var index = new SessionIndex(_root);
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "work")).FullName;
+        var resources = new UserSessionResources(
+            new StatePaths(_root, _root, _root),
+            UserSessionId.Parse("listed"),
+            ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+        var index = new SessionIndex(resources);
 
-        _ = await Assert.That(index.BlobDirectoryFor("listed"))
-            .IsEqualTo(Path.Combine(index.DirectoryFor("listed"), "blob"));
+        _ = await Assert.That(resources.BlobDirectory)
+            .IsEqualTo(Path.Combine(resources.Root, "blob"));
 
         index.Publish(new SessionMeta
         {
             Id = "listed",
-            WorkingDirectory = "/work",
-            HostKey = "host",
+            WorkingDirectory = workspaceDirectory,
             ProviderId = "opencode-go",
             Model = "deepseek-v4-pro",
         });
 
-        var listed = index.List();
+        var listed = new SessionCatalog(new StatePaths(_root, _root, _root)).List();
 
         _ = await Assert.That(listed).Count().IsEqualTo(1);
-        _ = await Assert.That(listed[0].Id).IsEqualTo("listed");
+        _ = await Assert.That(listed[0].Id.Value).IsEqualTo("listed");
 
         // Published by rename, so a reader never sees it half-written.
-        var staging = Directory.EnumerateFiles(index.DirectoryFor("listed"), "*.staging").ToList();
+        var staging = Directory.EnumerateFiles(resources.Root, "*.staging").ToList();
         _ = await Assert.That(staging).IsEmpty();
     }
 

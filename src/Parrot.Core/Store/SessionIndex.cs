@@ -2,77 +2,66 @@ using System.Text.Json;
 
 namespace Parrot.Store;
 
-// meta.json beside each session database, published by rename.
-//
-// Listing reads these and never another host's database: a reader cannot
-// observe a rename half-written, and opening a database written by a different
-// machine is exactly what the storage layout exists to prevent.
-internal sealed class SessionIndex(string stateDirectory)
+internal sealed class SessionIndex(UserSessionResources resources)
 {
-    public string DirectoryFor(string userSessionId) =>
-        Path.Combine(stateDirectory, "sessions", userSessionId);
+    public UserSessionResources Resources { get; } = resources ?? throw new ArgumentNullException(nameof(resources));
 
-    public string DatabaseFor(string userSessionId) =>
-        Path.Combine(DirectoryFor(userSessionId), "session.db");
-
-    public string BlobDirectoryFor(string userSessionId) =>
-        Path.Combine(DirectoryFor(userSessionId), "blob");
-
-    public string QueueDirectoryFor(string userSessionId) =>
-        Path.Combine(DirectoryFor(userSessionId), "queues");
-
-    public SessionMeta? Find(string userSessionId)
+    public SessionMeta? Find()
     {
-        var path = Path.Combine(DirectoryFor(userSessionId), "meta.json");
-
-        return File.Exists(path)
-            ? JsonSerializer.Deserialize(File.ReadAllText(path), StoreJsonContext.Default.SessionMeta)
-            : null;
-    }
-
-    public void Publish(SessionMeta meta)
-    {
-        ArgumentNullException.ThrowIfNull(meta);
-
-        var directory = DirectoryFor(meta.Id);
-        _ = Directory.CreateDirectory(directory);
-
-        var target = Path.Combine(directory, "meta.json");
-        var staged = target + ".staging";
-
-        File.WriteAllText(staged, JsonSerializer.Serialize(meta, StoreJsonContext.Default.SessionMeta));
-        File.Move(staged, target, overwrite: true);
-    }
-
-    public IReadOnlyList<SessionMeta> List()
-    {
-        var sessions = Path.Combine(stateDirectory, "sessions");
-
-        if (!Directory.Exists(sessions))
+        if (!File.Exists(Resources.MetadataPath) || HasLink(Resources.Root) || HasLink(Resources.MetadataPath))
         {
-            return [];
+            return null;
         }
 
-        var listed = new List<SessionMeta>();
+        var metadata = JsonSerializer.Deserialize(
+            File.ReadAllText(Resources.MetadataPath), StoreJsonContext.Default.SessionMeta);
+        return metadata is not null && Owns(metadata) ? metadata : null;
+    }
 
-        foreach (var directory in Directory.EnumerateDirectories(sessions))
+    public void Publish(SessionMeta metadata)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        if (!Owns(metadata))
         {
-            var meta = Path.Combine(directory, "meta.json");
-
-            if (!File.Exists(meta))
-            {
-                continue;
-            }
-
-            var parsed = JsonSerializer.Deserialize(
-                File.ReadAllText(meta), StoreJsonContext.Default.SessionMeta);
-
-            if (parsed is not null)
-            {
-                listed.Add(parsed);
-            }
+            throw new InvalidOperationException("Session metadata does not belong to these resources.");
         }
 
-        return listed;
+        var rootHasLink = Directory.Exists(Resources.Root) && HasLink(Resources.Root);
+        var metadataHasLink = File.Exists(Resources.MetadataPath) && HasLink(Resources.MetadataPath);
+        if (rootHasLink || metadataHasLink)
+        {
+            throw new InvalidOperationException("Session metadata paths cannot be symbolic links.");
+        }
+
+        _ = Directory.CreateDirectory(Resources.Root);
+        var staged = Resources.MetadataPath + ".staging";
+        File.WriteAllText(staged, JsonSerializer.Serialize(metadata, StoreJsonContext.Default.SessionMeta));
+        File.Move(staged, Resources.MetadataPath, overwrite: true);
+    }
+
+    private static bool HasLink(string path) =>
+        (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+
+    private bool Owns(SessionMeta metadata) =>
+        UserSessionId.TryParse(metadata.Id, out var id)
+        && Resources.Id.Equals(id)
+        && OwnsWorkspace(metadata.WorkingDirectory);
+
+    private bool OwnsWorkspace(string workingDirectory)
+    {
+        if (string.Equals(Resources.Workspace.LaunchDirectory, workingDirectory, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        try
+        {
+            return ProjectWorkspace.FromLaunchDirectory(workingDirectory).Equals(Resources.Workspace);
+        }
+        catch (Exception failure) when (failure is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 }

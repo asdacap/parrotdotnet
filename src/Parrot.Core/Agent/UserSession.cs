@@ -20,8 +20,9 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly EventBroker _eventBroker = new();
     private readonly EventRepository _eventRepository;
     private readonly IAgentSessionFactory _agentSessions;
+    private readonly SessionResourceLease _resources;
     private readonly Lock _mainGate = new();
-    private readonly ModeRegistry _modes;
+    private readonly UserSessionModes _modes;
     private readonly SemaphoreSlim _queueDelivery = new(1, 1);
 
     // What every drain inside this session is bounded by. It is owned here
@@ -45,9 +46,9 @@ internal sealed class UserSession : IAsyncDisposable
         string rootAgentName,
         ResolvedModelSelection model,
         string mode,
-        EventRepository eventRepository,
+        SessionResourceLease resources,
         IAgentSessionFactorySource agentSessionFactories,
-        ModeRegistry modes)
+        UserSessionModes modes)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
@@ -57,11 +58,12 @@ internal sealed class UserSession : IAsyncDisposable
         _model = model.RequestedSelector;
         ProviderId = model.CanonicalModel.Provider.Id;
         CanonicalModel = model.CanonicalModel.Selector;
-        _eventRepository = eventRepository;
+        _resources = resources;
+        _eventRepository = resources.Events;
         _modes = modes;
-        var state = eventRepository.SessionState(id, modes.Resolve(mode, id).Id);
+        var state = _eventRepository.SessionState(id, modes.Resolve(mode).Id);
         _mainSessionId = state.AgentSessionId;
-        Mode = modes.Resolve(state.Mode, id);
+        Mode = modes.Resolve(state.Mode);
         Queues = agentSessionFactories.CreateQueues(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
@@ -90,6 +92,8 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal CancellationToken Lifetime => _lifetime.Token;
 
+    internal UserSessionResources Resources => _resources.Resources;
+
     internal QueueStore Queues { get; }
 
     internal ShellProcessOwner ShellProcesses { get; }
@@ -106,7 +110,7 @@ internal sealed class UserSession : IAsyncDisposable
     // carry on inside a session nothing points at any more.
     public void UpdateMode(string mode)
     {
-        var selected = _modes.Resolve(mode, Id);
+        var selected = _modes.Resolve(mode);
 
         lock (_mainGate)
         {
@@ -121,6 +125,8 @@ internal sealed class UserSession : IAsyncDisposable
             _main?.UpdateSelection(_model, selected);
         }
     }
+
+    public MainAgentProfile ResolveMode(string mode) => _modes.Resolve(mode);
 
     public void UpdateSelection(ResolvedModelSelection model) => Update(model, null);
 
@@ -196,6 +202,7 @@ internal sealed class UserSession : IAsyncDisposable
         Queues.Dispose();
         _queueDelivery.Dispose();
         _agents.Clear();
+        await _resources.DisposeAsync().ConfigureAwait(false);
     }
 
     internal IReadOnlyList<ActiveWorkObservation> ActiveWork() => [.. ShellProcesses.Active(), .. Registry.Active()];

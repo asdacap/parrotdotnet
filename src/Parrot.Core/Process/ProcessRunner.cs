@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Parrot.Security;
+using Parrot.Store;
 
 namespace Parrot.Process;
 
@@ -7,23 +9,42 @@ namespace Parrot.Process;
 // working directory is writable, and there is no fallback: if bubblewrap is
 // not available the command does not run (fail closed). That is the security
 // property M3 exists to establish.
-internal sealed class ProcessRunner(string bubblewrapPath)
+internal sealed partial class ProcessRunner(string bubblewrapPath)
 {
     private const int MaxFormattedOutputBytes = 64 << 10;
     private const int MaxStreamOutputCharacters = 64 << 10;
+    private const int WriteAccess = 2;
+    private static readonly string[] EnvironmentAllowlist =
+    [
+        "COLORTERM",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "NO_COLOR",
+        "PATH",
+        "TERM",
+        "TERM_PROGRAM",
+        "TERM_PROGRAM_VERSION",
+    ];
+
+    private readonly string _bubblewrapPath = ValidateBubblewrapPath(bubblewrapPath, requireTrustedPath: false);
 
     // An empty path means bubblewrap was not found. Kept as a value rather than
     // a null so the fail-closed check is explicit.
-    public bool SandboxAvailable => bubblewrapPath.Length > 0;
+    public bool SandboxAvailable => _bubblewrapPath.Length > 0;
 
-    public static ProcessRunner Locate() => Locate(ExecutableLocator.Capture());
+    public static ProcessRunner Locate()
+    {
+        var path = FindOnPath("bwrap");
+        return new ProcessRunner(ValidateBubblewrapPath(path, requireTrustedPath: true));
+    }
 
     public static ProcessRunner Locate(ExecutableLocator locator) => new(locator.Locate("bwrap"));
 
     public async Task<ProcessResult> Run(
         string command,
-        string workingDirectory,
-        string blobDirectory,
+        UserSessionResources resources,
         SecurityProfile securityProfile,
         CancellationToken cancellationToken)
     {
@@ -35,13 +56,13 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = bubblewrapPath,
+            FileName = _bubblewrapPath,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
 
-        foreach (var argument in SandboxArguments(command, workingDirectory, securityProfile))
+        foreach (var argument in SandboxArguments(command, resources, securityProfile))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -49,8 +70,8 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         using var process = new System.Diagnostics.Process { StartInfo = startInfo };
         _ = process.Start();
 
-        var stdoutTask = ReadBounded(process.StandardOutput, blobDirectory);
-        var stderrTask = ReadBounded(process.StandardError, blobDirectory);
+        var stdoutTask = ReadBounded(process.StandardOutput, resources.BlobDirectory);
+        var stderrTask = ReadBounded(process.StandardError, resources.BlobDirectory);
         var exitTask = process.WaitForExitAsync(cancellationToken);
         ProcessOutput[] output;
 
@@ -91,7 +112,7 @@ internal sealed class ProcessRunner(string bubblewrapPath)
                 }
             }
 
-            var blobPath = await new ProcessOutputBlobStore(blobDirectory)
+            var blobPath = await new ProcessOutputBlobStore(resources.BlobDirectory)
                 .Persist(process.ExitCode, stdout, stderr, cancellationToken)
                 .ConfigureAwait(false);
             return new ProcessResult(process.ExitCode, string.Empty, string.Empty, blobPath);
@@ -218,35 +239,142 @@ internal sealed class ProcessRunner(string bubblewrapPath)
     // an orphan outliving the turn.
     private static List<string> SandboxArguments(
         string command,
-        string workingDirectory,
+        UserSessionResources resources,
         SecurityProfile securityProfile)
     {
+        PreparePrivateRuntime(resources);
         var arguments = new List<string>
         {
             "--die-with-parent",
             "--new-session",
             "--unshare-user",
             "--unshare-pid",
+            "--unshare-ipc",
+            "--unshare-uts",
             "--cap-drop", "ALL",
+            "--clearenv",
             "--ro-bind", "/", "/",
             "--dev", "/dev",
             "--proc", "/proc",
-            "--tmpfs", "/tmp",
         };
+
+        AddEnvironment(arguments, resources);
+        arguments.AddRange(["--bind", resources.TemporaryDirectory, "/tmp"]);
 
         if (!securityProfile.ReadOnly)
         {
-            AddWritableUserDirectory(arguments, ".cache");
-            AddWritableWorkspace(arguments, workingDirectory);
+            AddWritableWorkspace(arguments, resources.Workspace.LaunchDirectory);
         }
 
         AddSecurityRules(arguments, securityProfile);
+        AddProtectedRoots(arguments, resources);
+        AddPrivateRuntime(arguments, resources);
+        AddRuntimeCapabilities(arguments, securityProfile, resources);
         arguments.AddRange(
         [
-            "--chdir", workingDirectory,
+            "--chdir", resources.Workspace.LaunchDirectory,
             "--", "/bin/sh", "-c", command,
         ]);
         return arguments;
+    }
+
+    private static void AddEnvironment(List<string> arguments, UserSessionResources resources)
+    {
+        foreach (var name in EnvironmentAllowlist)
+        {
+            if (string.Equals(name, "PATH", StringComparison.Ordinal))
+            {
+                arguments.AddRange(["--setenv", name, TrustedPath()]);
+                continue;
+            }
+
+            if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value)
+            {
+                arguments.AddRange(["--setenv", name, value]);
+            }
+        }
+
+        arguments.AddRange(
+        [
+            "--setenv", "HOME", resources.RuntimeHomeDirectory,
+            "--setenv", "XDG_CACHE_HOME", resources.CacheDirectory,
+            "--setenv", "TMPDIR", "/tmp",
+            "--setenv", "TMP", "/tmp",
+            "--setenv", "TEMP", "/tmp",
+        ]);
+    }
+
+    private static void AddProtectedRoots(List<string> arguments, UserSessionResources resources)
+    {
+        foreach (var root in resources.ProtectedRoots
+                     .Select(Path.GetFullPath)
+                     .Distinct(StringComparer.Ordinal)
+                     .OrderBy(path => path.Length))
+        {
+            EnsurePrivateDirectory(root);
+            AddReadMask(arguments, root);
+        }
+    }
+
+    private static void AddPrivateRuntime(List<string> arguments, UserSessionResources resources)
+    {
+        arguments.AddRange(
+        [
+            "--bind", resources.RuntimeHomeDirectory, resources.RuntimeHomeDirectory,
+            "--bind", resources.CacheDirectory, resources.CacheDirectory,
+        ]);
+    }
+
+    private static void AddRuntimeCapabilities(
+        List<string> arguments,
+        SecurityProfile securityProfile,
+        UserSessionResources resources)
+    {
+        AddSyntheticMount(arguments, resources, resources.BlobDirectory, write: false);
+
+        foreach (var rule in securityProfile.RuntimeCapabilities)
+        {
+            var path = Path.GetFullPath(rule.Path);
+            if (resources.Owns(path) && Path.Exists(path))
+            {
+                AddSyntheticMount(arguments, resources, path, rule.Action == SandboxRuleAction.AllowWrite);
+            }
+        }
+    }
+
+    private static void AddSyntheticMount(
+        List<string> arguments,
+        UserSessionResources resources,
+        string path,
+        bool write)
+    {
+        AddSyntheticParents(arguments, resources, path);
+        arguments.AddRange([write ? "--bind" : "--ro-bind", path, path]);
+    }
+
+    private static void AddSyntheticParents(
+        List<string> arguments,
+        UserSessionResources resources,
+        string path)
+    {
+        var parent = Path.GetDirectoryName(path);
+        var parents = new Stack<string>();
+
+        while (parent is not null && resources.Owns(parent))
+        {
+            parents.Push(parent);
+            parent = Path.GetDirectoryName(parent);
+        }
+
+        foreach (var directory in parents)
+        {
+            arguments.AddRange(["--dir", directory, "--chmod", "100", directory]);
+        }
+
+        if (parents.Count > 0)
+        {
+            arguments.AddRange(["--chmod", "100", resources.Root]);
+        }
     }
 
     private static void AddWritableWorkspace(List<string> arguments, string workingDirectory)
@@ -296,7 +424,7 @@ internal sealed class ProcessRunner(string bubblewrapPath)
     {
         if (Directory.Exists(path))
         {
-            arguments.AddRange(["--tmpfs", path, "--chmod", "000", path]);
+            arguments.AddRange(["--tmpfs", path, "--chmod", "100", path]);
         }
         else
         {
@@ -304,18 +432,24 @@ internal sealed class ProcessRunner(string bubblewrapPath)
         }
     }
 
-    private static void AddWritableUserDirectory(List<string> arguments, string name)
+    private static void PreparePrivateRuntime(UserSessionResources resources)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        EnsurePrivateDirectory(resources.RuntimeHomeDirectory);
+        EnsurePrivateDirectory(resources.CacheDirectory);
+        EnsurePrivateDirectory(resources.TemporaryDirectory);
+        EnsurePrivateDirectory(resources.BlobDirectory);
+    }
 
-        if (home.Length == 0)
-        {
-            return;
-        }
-
-        var directory = Path.Combine(home, name);
+    private static void EnsurePrivateDirectory(string directory)
+    {
         _ = Directory.CreateDirectory(directory);
-        arguments.AddRange(["--bind", directory, directory]);
+
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD())
+        {
+            File.SetUnixFileMode(
+                directory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     private static string? FindGitRepositoryRoot(string workingDirectory)
@@ -394,4 +528,90 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
     private static string ResolvePath(string baseDirectory, string path) =>
         Path.GetFullPath(Path.IsPathFullyQualified(path) ? path : Path.Combine(baseDirectory, path));
+
+    private static string FindOnPath(string name)
+    {
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        var candidates = path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Where(Path.IsPathFullyQualified)
+            .Select(directory => Path.Combine(directory, name))
+            .Where(File.Exists)
+            .ToArray();
+        return candidates.FirstOrDefault(candidate => candidate.StartsWith("/nix/store/", StringComparison.Ordinal))
+            ?? candidates.FirstOrDefault()
+            ?? string.Empty;
+    }
+
+    private static string ValidateBubblewrapPath(string path, bool requireTrustedPath)
+    {
+        if (path.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (!Path.IsPathFullyQualified(path))
+        {
+            throw new ArgumentException("The bubblewrap path must be absolute.", nameof(path));
+        }
+
+        var canonical = Path.GetFullPath(path);
+        var target = new FileInfo(canonical).ResolveLinkTarget(returnFinalTarget: true);
+        if (target is not null)
+        {
+            canonical = Path.GetFullPath(target.FullName);
+        }
+
+        if (!File.Exists(canonical))
+        {
+            throw new FileNotFoundException("The bubblewrap executable does not exist.", canonical);
+        }
+
+        if (requireTrustedPath && !HasTrustedParentChain(canonical))
+        {
+            throw new SandboxUnavailableException("bubblewrap must be installed below a non-writable system path");
+        }
+
+        return canonical;
+    }
+
+    private static bool HasTrustedParentChain(string path)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsFreeBSD())
+        {
+            return false;
+        }
+
+        for (var directory = new FileInfo(path).Directory; directory is not null; directory = directory.Parent)
+        {
+            if (Access(directory.FullName, WriteAccess) == 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
+    [LibraryImport("libc", EntryPoint = "access", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int Access(string path, int mode);
+
+    private static string TrustedPath()
+    {
+        var directories = new List<string>();
+        var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+
+        foreach (var directory in currentPath.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (Path.IsPathFullyQualified(directory)
+                && directory.StartsWith("/nix/store/", StringComparison.Ordinal)
+                && !directories.Contains(directory, StringComparer.Ordinal))
+            {
+                directories.Add(directory);
+            }
+        }
+
+        directories.AddRange(["/usr/local/bin", "/usr/bin", "/bin"]);
+        return string.Join(Path.PathSeparator, directories.Distinct(StringComparer.Ordinal));
+    }
 }

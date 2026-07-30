@@ -1,4 +1,3 @@
-using Grpc.Net.Client;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
@@ -43,8 +42,11 @@ internal sealed class CommandDispatcher(
           sessions                    List sessions, reading meta.json only
           chat [--model <id>] [--variant <name>] [--mode <id>] [text]
                                       A session, or one prompt if text is given
-          chat --connect host:port    Drive a session on a remote parrot serve
-          serve [--port <n>]          Host the service for remote clients
+          chat --connect <address>    Connect through unix:/path, http, or https
+          serve [--listen <address>]  Host on the owner-only default Unix socket
+
+        TCP listen/connect requires --token-file <owner-only-file>. Plaintext
+        non-loopback listen also requires --unsafe-allow-external.
 
         --basic forces the minimal renderer; the default is the enhanced one.
         --variant is a deprecated, nonpersistent reasoning-variant override.
@@ -138,9 +140,6 @@ internal sealed class CommandDispatcher(
                 + string.Join(", ", availability.MissingExpected)
                 + "; Bash shell commands may fail";
 
-    private static string NormalizeRemoteAddress(string target) =>
-        target.StartsWith("http", StringComparison.Ordinal) ? target : $"http://{target}";
-
     private async Task WarnAboutMissingCliUtilities(
         CliUtilityAvailability availability,
         CancellationToken cancellationToken)
@@ -216,13 +215,16 @@ internal sealed class CommandDispatcher(
     private async Task<int> ListSessions(CancellationToken cancellationToken)
     {
         var paths = StatePaths.ResolveFromEnvironment();
-        var listed = new SessionIndex(paths.State).List();
+        var listed = new SessionCatalog(paths).List();
 
-        foreach (var meta in listed.OrderBy(session => session.CreatedAt, StringComparer.Ordinal))
+        foreach (var session in listed
+            .OrderBy(item => item.CreatedAt, StringComparer.Ordinal)
+            .ThenBy(item => item.Id.Value, StringComparer.Ordinal))
         {
-            await output.WriteLineAsync(
-                $"{meta.Id}  {meta.Model}  {meta.WorkingDirectory}".AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
+            var rendered = session.State == SessionCatalogState.Corrupt
+                ? $"{session.Id.Value}  <corrupt>"
+                : $"{session.Id.Value}  {session.Model}  {session.WorkingDirectory}";
+            await output.WriteLineAsync(rendered.AsMemory(), cancellationToken).ConfigureAwait(false);
         }
 
         if (listed.Count == 0)
@@ -298,17 +300,57 @@ internal sealed class CommandDispatcher(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
-        var port = 8710;
+        var paths = StatePaths.ResolveFromEnvironment();
+        var listen = $"unix:{Path.Combine(paths.Control, "parrot.sock")}";
+        var tokenFile = string.Empty;
+        var unsafeExternal = false;
 
         for (var index = 1; index < arguments.Count; index++)
         {
-            if (arguments[index] == "--port" && index + 1 < arguments.Count
-                && int.TryParse(
-                    arguments[index + 1], System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            switch (arguments[index])
             {
-                port = parsed;
-                index++;
+                case "--listen" when index + 1 < arguments.Count:
+                    listen = arguments[++index];
+                    break;
+
+                case "--token-file" when index + 1 < arguments.Count:
+                    tokenFile = arguments[++index];
+                    break;
+
+                case "--unsafe-allow-external":
+                    unsafeExternal = true;
+                    break;
+
+                default:
+                    var usage = "usage: parrot serve "
+                        + "[--listen unix:/path|http://host:port|https://host:port] "
+                        + "[--token-file <path>] [--unsafe-allow-external]";
+                    await error.WriteLineAsync(usage.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    return ExitUsage;
             }
+        }
+
+        TransportAddress address;
+        TransportToken? token;
+        try
+        {
+            address = TransportAddress.Parse(listen);
+            token = tokenFile.Length > 0 ? TransportToken.Load(tokenFile) : null;
+            if (address.IsTcp && token is null)
+            {
+                throw new InvalidOperationException("TCP listen requires --token-file <owner-only-file>");
+            }
+
+            if (address.IsExternal && address.Kind == TransportAddressKind.Http && !unsafeExternal)
+            {
+                throw new InvalidOperationException("plaintext non-loopback listen requires --unsafe-allow-external");
+            }
+        }
+        catch (InvalidOperationException failure)
+        {
+            await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return ExitUsage;
         }
 
         var configuration = await LoadConfiguration(cancellationToken).ConfigureAwait(false);
@@ -328,10 +370,28 @@ internal sealed class CommandDispatcher(
         }
 
         await WarnAboutMissingCliUtilities(composition.CliUtilities, cancellationToken).ConfigureAwait(false);
-        await output.WriteLineAsync($"parrot serving on port {port} (ctrl-c to stop)".AsMemory(), cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            await using var server = await GrpcServer.Start(composition.Service, address, token, cancellationToken)
+                .ConfigureAwait(false);
+            if (address.IsExternal && address.Kind == TransportAddressKind.Http)
+            {
+                var warning = "parrot: warning: serving bearer-authenticated control traffic "
+                    + "over external plaintext HTTP";
+                await error.WriteLineAsync(warning.AsMemory(), cancellationToken).ConfigureAwait(false);
+            }
 
-        return await GrpcServer.Run(composition.Service, port, cancellationToken).ConfigureAwait(false);
+            await output.WriteLineAsync(
+                $"parrot serving on {address.Value} (ctrl-c to stop)".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return await server.Run(cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException failure)
+        {
+            await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            return ExitFailure;
+        }
     }
 
     private async Task<Configuration?> LoadConfiguration(CancellationToken cancellationToken)
@@ -358,6 +418,7 @@ internal sealed class CommandDispatcher(
         var modelOverridden = false;
         var mode = string.Empty;
         var connect = string.Empty;
+        var tokenFile = string.Empty;
         var variant = (string?)null;
         var basic = false;
         var words = new List<string>();
@@ -390,6 +451,10 @@ internal sealed class CommandDispatcher(
                     connect = arguments[++index];
                     break;
 
+                case "--token-file" when index + 1 < arguments.Count:
+                    tokenFile = arguments[++index];
+                    break;
+
                 case "--basic":
                     basic = true;
                     break;
@@ -417,14 +482,26 @@ internal sealed class CommandDispatcher(
         // process is only a client of the same contract (principle 11).
         if (connect.Length > 0)
         {
-            using var channel = GrpcChannel.ForAddress(
-                NormalizeRemoteAddress(connect),
-                new GrpcChannelOptions
+            TransportAddress address;
+            TransportToken? token;
+            try
+            {
+                address = TransportAddress.Parse(connect);
+                token = tokenFile.Length > 0 ? TransportToken.Load(tokenFile) : null;
+                if (address.IsTcp && token is null)
                 {
-                    MaxReceiveMessageSize = GrpcTransportLimits.MessageBytes,
-                    MaxSendMessageSize = GrpcTransportLimits.MessageBytes,
-                });
-            var remote = new GeneratedParrot.ParrotClient(channel);
+                    throw new InvalidOperationException("TCP transport requires --token-file <owner-only-file>");
+                }
+            }
+            catch (InvalidOperationException failure)
+            {
+                await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                return ExitUsage;
+            }
+
+            using var remoteConnection = GrpcTransportClient.Connect(address, token);
+            var remote = remoteConnection.Client;
             if (variant is not null)
             {
                 var overridden = await OverrideVariant(remote, model, variant, error, cancellationToken)

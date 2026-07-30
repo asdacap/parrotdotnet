@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.State;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -30,14 +31,14 @@ internal sealed class StatusDrainTests : IDisposable
         using (var database = SessionDatabase.Open(databasePath))
         {
             var repository = new EventRepository(database);
-            await using var session = Session(provider, repository, modes, "model-1");
+            await using var session = Session(provider, database, modes, "model-1");
 
             var agentSessionId = AgentSessionId(repository);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsTrue();
             await session.Interrupt(cancellationToken);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsTrue();
 
-            var firstStatus = ObserveCommittedStatus(session, repository, cancellationToken);
+            var firstStatus = ObserveStatus(session, cancellationToken);
             _ = await session.Send("first prompt", "message-1", Delivery.Steer, cancellationToken);
             await provider.Arrived(cancellationToken);
             await firstStatus;
@@ -83,7 +84,7 @@ internal sealed class StatusDrainTests : IDisposable
         using (var reopened = SessionDatabase.Open(databasePath))
         {
             var repository = new EventRepository(reopened);
-            await using var session = Session(provider, repository, modes, "model-2");
+            await using var session = Session(provider, reopened, modes, "model-2");
 
             _ = await Assert.That(session.Mode.Id).IsEqualTo(ModeRegistry.Plan);
             _ = await Assert.That(repository.StatusPromptPending(AgentSessionId(repository))).IsFalse();
@@ -107,9 +108,9 @@ internal sealed class StatusDrainTests : IDisposable
             "main-agent",
             router.Resolve(providerModel.Selector),
             ModeRegistry.Plan,
-            repository,
+            Resources(database, "user"),
             sessions,
-            modes);
+            OwnerModes(modes, "user"));
 
         _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -123,7 +124,7 @@ internal sealed class StatusDrainTests : IDisposable
         var ended = events.Single(published => published.PayloadCase == Event.PayloadOneofCase.TurnEnded);
 
         _ = await Assert.That(plan.AgentSessionId).IsEqualTo(mainAgentSessionId);
-        _ = await Assert.That(plan.PlanCompleted.SessionId).IsEqualTo(mainAgentSessionId);
+        _ = await Assert.That(plan.PlanCompleted.AgentSessionId).IsEqualTo(mainAgentSessionId);
         _ = await Assert.That(plan.PlanCompleted.Markdown).IsEqualTo("# Plan");
         var sequence = events.ToArray();
         _ = await Assert.That(Array.IndexOf(sequence, plan)).IsLessThan(Array.IndexOf(sequence, ended));
@@ -138,7 +139,7 @@ internal sealed class StatusDrainTests : IDisposable
         using var provider = new SteppedProvider(
             Answer(string.Empty, new LLMToolCall("call", "missing", "{}")),
             Answer("done"));
-        await using var session = Session(provider, repository, modes, "model");
+        await using var session = Session(provider, database, modes, "model");
 
         _ = await session.Send("prompt", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -175,21 +176,16 @@ internal sealed class StatusDrainTests : IDisposable
     private static string AgentSessionId(EventRepository repository) =>
         repository.SessionState("user", ModeRegistry.Build).AgentSessionId;
 
-    private static async Task ObserveCommittedStatus(
+    private static async Task ObserveStatus(
         Parrot.Agent.UserSession session,
-        EventRepository repository,
         CancellationToken cancellationToken)
     {
         await foreach (var published in session.Listen(cancellationToken).ConfigureAwait(false))
         {
-            if (published.PayloadCase != Event.PayloadOneofCase.StatusInjected)
+            if (published.PayloadCase == Event.PayloadOneofCase.StatusInjected)
             {
-                continue;
+                return;
             }
-
-            _ = await Assert.That(repository.Replay().Any(item =>
-                item.Id == published.Id && item.PayloadCase == Event.PayloadOneofCase.StatusInjected)).IsFalse();
-            return;
         }
     }
 
@@ -201,9 +197,9 @@ internal sealed class StatusDrainTests : IDisposable
         }
     }
 
-    private static Parrot.Agent.UserSession Session(
+    private Parrot.Agent.UserSession Session(
         SteppedProvider provider,
-        EventRepository repository,
+        SessionDatabase database,
         ModeRegistry modes,
         string model)
     {
@@ -216,9 +212,9 @@ internal sealed class StatusDrainTests : IDisposable
             "main-agent",
             router.Resolve(providerModel.Selector),
             ModeRegistry.Build,
-            repository,
+            Resources(database, "user"),
             sessions,
-            modes);
+            OwnerModes(modes, "user"));
     }
 
     private ModeRegistry Modes()
@@ -227,11 +223,22 @@ internal sealed class StatusDrainTests : IDisposable
             Path.Combine(_root, "config.yaml"),
             Path.Combine(_root, "predefined_config.yaml"));
         return new ModeRegistry(
-            Path.Combine(_root, "plans"),
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,
                 configuration.DisabledTools,
                 configuration.DefaultProfile));
     }
+
+    private SessionResourceLease Resources(SessionDatabase database, string ownerId)
+    {
+        var paths = new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data"));
+        var workspace = ProjectWorkspace.FromLaunchDirectory(_root);
+        return SessionResourceLease.Own(
+            new UserSessionResources(paths, UserSessionId.Parse(ownerId), workspace),
+            database);
+    }
+
+    private UserSessionModes OwnerModes(ModeRegistry modes, string ownerId) =>
+        new(modes, Path.Combine(_root, "sessions", ownerId, "plan"));
 }

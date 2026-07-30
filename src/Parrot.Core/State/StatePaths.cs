@@ -14,6 +14,8 @@ internal sealed class StatePaths(string state, string config, string data)
 
     public string CredentialsFile => Path.Combine(Config, "credentials.json");
 
+    public string Control => Path.Combine(State, "control");
+
     public static StatePaths Resolve(IReadOnlyDictionary<string, string> environment)
     {
         ArgumentNullException.ThrowIfNull(environment);

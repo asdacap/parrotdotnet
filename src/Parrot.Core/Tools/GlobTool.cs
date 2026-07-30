@@ -58,6 +58,16 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
             return $"error: invalid glob pattern: {failure.Message}";
         }
 
+        (string Lexical, string Physical) root;
+        try
+        {
+            root = workspace.ResolveRead(".");
+        }
+        catch (Exception failure) when (failure is InvalidOperationException or IOException)
+        {
+            return $"error: {failure.Message}";
+        }
+
         using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCancellation.CancelAfter(Timeout);
 
@@ -67,8 +77,8 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
             var visited = 0;
             Walk(
                 workspace,
-                workspace.Root,
-                workspace.Root,
+                root.Physical,
+                root.Physical,
                 regex,
                 results,
                 ref visited,

@@ -216,9 +216,12 @@ internal sealed class AgentSession(
 
     internal bool IsIdle() => State == DrainState.Idle;
 
-    internal Task<(Admission Admission, bool FollowUp)> Send(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
-        AdmitAndWake(text, messageId, delivery, cancellationToken);
+    internal async Task<(Admission Admission, bool FollowUp)> Send(
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
+    {
+        var admitted = await AdmitAndWake(text, messageId, delivery, cancellationToken).ConfigureAwait(false);
+        return (admitted.Admission, admitted.FollowUp);
+    }
 
     internal async Task<bool> ReceiveQueueNotification(
         QueueNotification notification,
@@ -287,7 +290,11 @@ internal sealed class AgentSession(
             {
                 followUp = _started;
                 _started = true;
-                started = Execute(message, messageId, followUp ? cancellationToken : CancellationToken.None);
+                started = Execute(
+                    message,
+                    messageId,
+                    selectedDrain: null,
+                    followUp ? cancellationToken : CancellationToken.None);
                 _execution = started;
             }
         }
@@ -305,10 +312,10 @@ internal sealed class AgentSession(
         ArgumentNullException.ThrowIfNull(message);
 
         var messageId = Identifier.MessageId();
-        var (_, startedFollowUp) = await Send(message, messageId, Delivery.Steer, cancellationToken)
+        var admitted = await AdmitAndWake(message, messageId, Delivery.Steer, cancellationToken)
             .ConfigureAwait(false);
 
-        if (ParentSessionId.Length == 0 || !startedFollowUp)
+        if (ParentSessionId.Length == 0 || !admitted.FollowUp)
         {
             return;
         }
@@ -316,7 +323,7 @@ internal sealed class AgentSession(
         lock (_executionGate)
         {
             _started = true;
-            _execution = Execute(message, messageId, cancellationToken);
+            _execution = Execute(message, messageId, admitted.SelectedDrain, cancellationToken);
         }
     }
 
@@ -487,6 +494,7 @@ internal sealed class AgentSession(
     private async Task<AgentExecution> Execute(
         string prompt,
         string messageId,
+        Task<AgentExecution>? selectedDrain,
         CancellationToken cancellationToken)
     {
         await Task.Yield();
@@ -506,8 +514,15 @@ internal sealed class AgentSession(
         try
         {
             await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
-            _ = await Send(prompt, messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
-            completed = BoundResult(await ResultSettled().ConfigureAwait(false));
+            if (selectedDrain is null)
+            {
+                _ = await Send(prompt, messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
+                completed = BoundResult(await ResultSettled().ConfigureAwait(false));
+            }
+            else
+            {
+                completed = BoundResult(await selectedDrain.WaitAsync(CancellationToken.None).ConfigureAwait(false));
+            }
         }
         catch (Exception failure)
         {
@@ -550,7 +565,7 @@ internal sealed class AgentSession(
         return completed;
     }
 
-    private async Task<(Admission Admission, bool FollowUp)> AdmitAndWake(
+    private async Task<(Admission Admission, bool FollowUp, Task<AgentExecution> SelectedDrain)> AdmitAndWake(
         string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
     {
         var admission = eventRepository.Admit(
@@ -579,20 +594,23 @@ internal sealed class AgentSession(
             await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
         }
 
-        return (admission, Wake());
+        var (followUp, selectedDrain) = WakeSelected();
+        return (admission, followUp, selectedDrain);
     }
 
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
     // principle 2: one owner, however many prompts arrive.
-    private bool Wake()
+    private bool Wake() => WakeSelected().FollowUp;
+
+    private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected()
     {
         lock (_drainGate)
         {
             if (_drainCancellation is not null)
             {
                 _wake = true;
-                return false;
+                return (false, _drain);
             }
 
             // Linked to the session's lifetime, never to the request that woke
@@ -601,7 +619,7 @@ internal sealed class AgentSession(
             _drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             State = DrainState.Running;
             _drain = Drain(_drainCancellation.Token);
-            return true;
+            return (true, _drain);
         }
     }
 
@@ -751,7 +769,7 @@ internal sealed class AgentSession(
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
                     await SettleToolCalls(snapshot, completed.ToolCalls, cancellationToken).ConfigureAwait(false);
 
-                    if (snapshot.Tools.Count == 0)
+                    if (providerRequests == maxTurns)
                     {
                         await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
                         return AgentExecution.Failed(RunawayMessage);

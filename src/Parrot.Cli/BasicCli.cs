@@ -4,8 +4,6 @@ using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
 using Parrot.Protocol;
-using Parrot.State;
-using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
@@ -291,8 +289,7 @@ internal sealed class BasicCli(
             new ApplicationExit(application),
             credentials,
             oauthClient,
-            providerIds,
-            new SessionIndex(StatePaths.ResolveFromEnvironment().State));
+            providerIds);
         var interrupting = Interrupting(session, application.Token);
 
         interrupts.Install(this);

@@ -23,6 +23,8 @@ internal sealed class SecurityProfile
     public IReadOnlyList<SandboxRule> Rules =>
         [.. OrderedBaseRules(), .. _runtimeCapabilities];
 
+    public IReadOnlyList<SandboxRule> RuntimeCapabilities => _runtimeCapabilities;
+
     public static SecurityProfile Compose(
         bool readOnly,
         IEnumerable<SandboxRule> modeRules,

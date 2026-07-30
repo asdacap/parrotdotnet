@@ -22,9 +22,9 @@ internal sealed class ModeRegistryTests : IDisposable
     {
         var registry = Registry();
 
-        _ = await Assert.That(registry.Resolve(string.Empty, "session").Id).IsEqualTo(ModeRegistry.Build);
+        _ = await Assert.That(registry.Resolve(string.Empty).Id).IsEqualTo(ModeRegistry.Build);
         _ = await Assert.That(string.Join(" | ", registry.List())).IsEqualTo("build | plan | query");
-        _ = await Assert.That(() => registry.Resolve("child", "session")).Throws<ModeRegistryException>();
+        _ = await Assert.That(() => registry.Resolve("child")).Throws<ModeRegistryException>();
     }
 
     [Test]
@@ -57,7 +57,7 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_prepare_creates_private_artifact_and_preserves_existing_content()
     {
-        var profile = Registry().Resolve(ModeRegistry.Plan, "session");
+        var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
 
         _ = await Assert.That(profile.PlanArtifact).IsEmpty();
         profile.Prepare();
@@ -91,7 +91,7 @@ internal sealed class ModeRegistryTests : IDisposable
         string promptFragment,
         string ruleFragment)
     {
-        var profile = Registry().Resolve(id, "session");
+        var profile = OwnerModes("session").Resolve(id);
 
         _ = await Assert.That(profile.Id).IsEqualTo(id);
         _ = await Assert.That(profile.ReadOnly).IsEqualTo(readOnly);
@@ -104,7 +104,7 @@ internal sealed class ModeRegistryTests : IDisposable
         {
             profile.Prepare();
             _ = await Assert.That(profile.Prompt).Contains(profile.PlanArtifact);
-            _ = await Assert.That(profile.Prompt).Contains(Path.Combine(_root, "plan"));
+            _ = await Assert.That(profile.Prompt).Contains(Path.Combine(_root, "sessions", "session", "plan"));
         }
     }
 
@@ -123,15 +123,15 @@ internal sealed class ModeRegistryTests : IDisposable
             SandboxRules = [new SandboxRule(allowed, SandboxRuleAction.AllowWrite)],
         };
         var registry = new ModeRegistry(
-            Path.Combine(_root, "plans"),
             new ProfileRegistry(
                 profiles,
                 [new SandboxRule(denied, SandboxRuleAction.DenyWrite)],
                 configuration.DisabledTools,
                 ModeRegistry.Build));
 
-        var build = registry.Resolve(ModeRegistry.Build, "session");
-        var plan = registry.Resolve(ModeRegistry.Plan, "session");
+        var ownerModes = new UserSessionModes(registry, Path.Combine(_root, "plans"));
+        var build = ownerModes.Resolve(ModeRegistry.Build);
+        var plan = ownerModes.Resolve(ModeRegistry.Plan);
 
         _ = await Assert.That(build.ReadOnly).IsTrue();
         _ = await Assert.That(build.SecurityProfile.AllowsWrite(allowed)).IsTrue();
@@ -149,7 +149,7 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_trims_artifact_and_declares_approval_policy()
     {
-        var profile = Registry().Resolve(ModeRegistry.Plan, "session");
+        var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(profile.PlanArtifact, "  # Plan\n\n- change code\n");
 
@@ -160,7 +160,7 @@ internal sealed class ModeRegistryTests : IDisposable
             throw new InvalidOperationException("plan completion was not emitted");
         }
 
-        _ = await Assert.That(emitted.SessionId).IsEqualTo("session");
+        _ = await Assert.That(emitted.AgentSessionId).IsEqualTo("session");
         _ = await Assert.That(emitted.MessageId).IsEqualTo("message");
         _ = await Assert.That(emitted.Markdown).IsEqualTo("# Plan\n\n- change code");
         _ = await Assert.That(emitted.Dialog.Prompt).IsEqualTo("Plan complete: ");
@@ -172,7 +172,7 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_uses_the_user_session_artifact_and_the_main_agent_identity()
     {
-        var profile = Registry().Resolve(ModeRegistry.Plan, "user-session");
+        var profile = OwnerModes("user-session").Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(profile.PlanArtifact, "# Plan");
 
@@ -183,14 +183,14 @@ internal sealed class ModeRegistryTests : IDisposable
             throw new InvalidOperationException("plan completion was not emitted");
         }
 
-        _ = await Assert.That(emitted.SessionId).IsEqualTo("main-agent-session");
+        _ = await Assert.That(emitted.AgentSessionId).IsEqualTo("main-agent-session");
         _ = await Assert.That(emitted.Markdown).IsEqualTo("# Plan");
     }
 
     [Test]
     public async Task Plan_completion_omits_a_blank_artifact()
     {
-        var profile = Registry().Resolve(ModeRegistry.Plan, "session");
+        var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(profile.PlanArtifact, " \n\t ");
 
@@ -198,12 +198,29 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    public async Task Plan_artifacts_are_private_random_files_in_the_state_plan_directory()
+    public async Task Fresh_owner_state_does_not_revive_an_artifact_from_an_earlier_attempt()
+    {
+        var planDirectory = Path.Combine(_root, "sessions", "same-owner", "plan");
+        var previous = new UserSessionModes(Registry(), planDirectory).Resolve(ModeRegistry.Plan);
+        previous.Prepare();
+        await File.WriteAllTextAsync(previous.PlanArtifact, "stale plan");
+
+        var current = new UserSessionModes(Registry(), planDirectory).Resolve(ModeRegistry.Plan);
+        current.Prepare();
+
+        _ = await Assert.That(current.PlanArtifact).IsNotEqualTo(previous.PlanArtifact);
+        _ = await Assert.That(await File.ReadAllTextAsync(current.PlanArtifact)).IsEmpty();
+    }
+
+    [Test]
+    public async Task Plan_artifacts_are_private_random_files_in_the_owner_plan_directory()
     {
         var registry = Registry();
-        var first = registry.Resolve(ModeRegistry.Plan, "first");
-        var firstAgain = registry.Resolve(ModeRegistry.Plan, "first");
-        var second = registry.Resolve(ModeRegistry.Plan, "second");
+        var firstModes = new UserSessionModes(registry, Path.Combine(_root, "sessions", "first", "plan"));
+        var secondModes = new UserSessionModes(registry, Path.Combine(_root, "sessions", "second", "plan"));
+        var first = firstModes.Resolve(ModeRegistry.Plan);
+        var firstAgain = firstModes.Resolve(ModeRegistry.Plan);
+        var second = secondModes.Resolve(ModeRegistry.Plan);
 
         _ = await Assert.That(first.PlanArtifact).IsEmpty();
         _ = await Assert.That(firstAgain.PlanArtifact).IsEmpty();
@@ -214,8 +231,11 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(first.PlanArtifact).IsEqualTo(firstAgain.PlanArtifact);
         _ = await Assert.That(first.PlanArtifact).IsNotEqualTo(second.PlanArtifact);
         _ = await Assert.That(Path.GetFileName(first.PlanArtifact)).StartsWith("plan-").And.EndsWith(".md");
-        _ = await Assert.That(Path.GetDirectoryName(first.PlanArtifact)).IsEqualTo(Path.Combine(_root, "plan"));
+        _ = await Assert.That(Path.GetDirectoryName(first.PlanArtifact)).IsEqualTo(Path.Combine(_root, "sessions", "first", "plan"));
     }
+
+    private UserSessionModes OwnerModes(string ownerId) =>
+        new(Registry(), Path.Combine(_root, "sessions", ownerId, "plan"));
 
     private ModeRegistry Registry()
     {
@@ -223,7 +243,6 @@ internal sealed class ModeRegistryTests : IDisposable
             Path.Combine(_root, "config.yaml"),
             Path.Combine(_root, "predefined_config.yaml"));
         return new ModeRegistry(
-            Path.Combine(_root, "plan"),
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,

@@ -15,6 +15,7 @@ service Parrot {
   rpc ListModelAliases (ListModelAliasesRequest) returns (ListModelAliasesResponse);
   rpc ConfigureModelAlias (ConfigureModelAliasRequest) returns (ConfigureModelAliasResponse);
   rpc ListModes (ListModesRequest) returns (ListModesResponse);
+  rpc ListSessions (ListSessionsRequest) returns (ListSessionsResponse);
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
@@ -99,6 +100,28 @@ message ListModesResponse {
 
 message Mode {
   string id = 1;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated SessionSummary sessions = 1;
+}
+
+message SessionSummary {
+  string user_session_id = 1;
+  string model = 2;
+  string mode = 3;
+  string created_at = 4;
+  SessionState state = 5;
+  string root_agent_name = 6;
+}
+
+enum SessionState {
+  SESSION_STATE_UNSPECIFIED = 0;
+  SESSION_STATE_ACTIVE = 1;
+  SESSION_STATE_INACTIVE = 2;
+  SESSION_STATE_CORRUPT = 3;
 }
 
 // When an admitted prompt is promoted into the conversation.
@@ -362,7 +385,7 @@ message TurnEnded {
 }
 
 message PlanCompleted {
-  string session_id = 1;
+  string agent_session_id = 1;
   string message_id = 2;
   string markdown = 3;
   TurnCompleteDialog dialog = 4;
