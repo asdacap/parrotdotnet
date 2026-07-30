@@ -1,3 +1,6 @@
+using Parrot.Config;
+using Parrot.Process;
+
 namespace Parrot.Cli.Tests;
 
 internal sealed class CommandDispatcherTests
@@ -59,6 +62,21 @@ internal sealed class CommandDispatcherTests
         _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
         _ = await Assert.That(output.ToString()).IsEmpty();
         _ = await Assert.That(error.ToString()).Contains(argument);
+    }
+
+    [Test]
+    public async Task Cli_utility_warning_is_exact_sorted_and_empty_when_expected_commands_are_available()
+    {
+        var missing = CliUtilityAvailability.Inspect(
+            new CliUtilityCandidates(["zeta", "alpha"], []),
+            new ExecutableLocator(string.Empty, string.Empty));
+        var available = CliUtilityAvailability.Inspect(
+            new CliUtilityCandidates([], ["optional"]),
+            new ExecutableLocator(string.Empty, string.Empty));
+
+        _ = await Assert.That(CommandDispatcher.CliUtilityWarning(missing)).IsEqualTo(
+            "warning: expected CLI utilities are unavailable: alpha, zeta; Bash shell commands may fail");
+        _ = await Assert.That(CommandDispatcher.CliUtilityWarning(available)).IsEmpty();
     }
 
     private static string[] ArgumentVector(string argument) =>

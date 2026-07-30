@@ -16,7 +16,9 @@ internal sealed class ProcessRunner(string bubblewrapPath)
     // a null so the fail-closed check is explicit.
     public bool SandboxAvailable => bubblewrapPath.Length > 0;
 
-    public static ProcessRunner Locate() => new(FindOnPath("bwrap"));
+    public static ProcessRunner Locate() => Locate(ExecutableLocator.Capture());
+
+    public static ProcessRunner Locate(ExecutableLocator locator) => new(locator.Locate("bwrap"));
 
     public async Task<ProcessResult> Run(
         string command,
@@ -392,21 +394,4 @@ internal sealed class ProcessRunner(string bubblewrapPath)
 
     private static string ResolvePath(string baseDirectory, string path) =>
         Path.GetFullPath(Path.IsPathFullyQualified(path) ? path : Path.Combine(baseDirectory, path));
-
-    private static string FindOnPath(string name)
-    {
-        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-
-        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var candidate = Path.Combine(directory, name);
-
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return string.Empty;
-    }
 }

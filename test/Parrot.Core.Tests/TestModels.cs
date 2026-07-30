@@ -51,7 +51,14 @@ internal static class TestModels
         new CompositeSystemPromptProvider(
             "test:system-prompt",
             [
-                new SystemContextProvider(workingDirectory, configDirectory, "2026-07-24", ProfileRegistry()),
+                new SystemContextProvider(
+                    workingDirectory,
+                    configDirectory,
+                    "2026-07-24",
+                    ProfileRegistry(),
+                    Parrot.Process.CliUtilityAvailability.Inspect(
+                        new CliUtilityCandidates([], []),
+                        new Parrot.Process.ExecutableLocator(string.Empty, string.Empty))),
                 new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)),
             ]);
 

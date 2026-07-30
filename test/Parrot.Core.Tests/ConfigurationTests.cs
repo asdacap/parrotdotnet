@@ -76,6 +76,59 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Cli_utility_candidates_have_exact_defaults()
+    {
+        var candidates = Load(Path.Combine(_directory, "config.yaml")).CliUtilities;
+
+        _ = await Assert.That(candidates.Expected.SequenceEqual(
+            ["awk", "bash", "bwrap", "curl", "find", "git", "grep", "jq", "rg", "sed", "stat", "tar", "xargs"],
+            StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(candidates.Optional.SequenceEqual(
+            [
+                "bat", "bun", "cargo", "clang", "cmake", "composer", "delta", "deno", "docker", "dotnet", "fd", "fzf",
+                "gcc", "gh", "go", "gradle", "java", "javac", "kubectl", "make", "mvn", "ninja", "nix", "node", "npm",
+                "perl", "php", "pip", "pip3", "pnpm", "python", "python3", "ruby", "rustc", "shellcheck", "swift", "tree", "yarn",
+            ],
+            StringComparer.Ordinal)).IsTrue();
+    }
+
+    [Test]
+    public async Task Cli_utility_sequences_override_independently_and_expected_wins_across_lists()
+    {
+        var candidates = Load(Write("""
+            cli_utilities:
+              expected:
+                - custom
+                - shared
+              optional:
+                - other
+                - shared
+            """)).CliUtilities;
+
+        _ = await Assert.That(candidates.Expected.SequenceEqual(["custom", "shared"], StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(candidates.Optional.SequenceEqual(["other"], StringComparer.Ordinal)).IsTrue();
+
+        var expectedOnly = Load(Write("cli_utilities:\n  expected: [docker]\n")).CliUtilities;
+        _ = await Assert.That(expectedOnly.Expected.SequenceEqual(["docker"], StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(expectedOnly.Optional).Count().IsEqualTo(37);
+        _ = await Assert.That(expectedOnly.Optional).DoesNotContain("docker");
+    }
+
+    [Test]
+    [Arguments("cli_utilities: []\n")]
+    [Arguments("cli_utilities:\n  expected: null\n")]
+    [Arguments("cli_utilities:\n  optional: value\n")]
+    [Arguments("cli_utilities:\n  expected: [git, git]\n")]
+    [Arguments("cli_utilities:\n  optional: [git, git]\n")]
+    [Arguments("cli_utilities:\n  expected: ['']\n")]
+    [Arguments("cli_utilities:\n  expected: ['git hub']\n")]
+    [Arguments("cli_utilities:\n  expected: ['git\\hub']\n")]
+    [Arguments("cli_utilities:\n  expected: ['bin/git']\n")]
+    [Arguments("cli_utilities:\n  extra: []\n")]
+    public async Task Invalid_cli_utility_configuration_is_rejected(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
+
+    [Test]
     public async Task Web_fetch_private_access_is_opt_in()
     {
         var missing = Load(Path.Combine(_directory, "missing.yaml"));

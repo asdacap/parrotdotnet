@@ -118,6 +118,23 @@ disabled_tools:
   web_fetch: true
 ```
 
+CLI executable discovery is configured with ordered `cli_utilities.expected`
+and `cli_utilities.optional` sequences. User sequences replace their respective
+predefined defaults. Names must be nonempty executable basenames without
+whitespace or path separators and must be unique within each sequence. A name
+may occur in both sequences; in that case the expected classification wins.
+Both keys are required in the effective merged configuration.
+
+```yaml
+cli_utilities:
+  expected:
+    - git
+    - rg
+  optional:
+    - docker
+    - dotnet
+```
+
 The plan foreground profile receives its private plan-artifact location and
 runtime-only write permission from Parrot; child profiles never inherit this
 capability. Legacy `profiles.<id>.status` input is accepted and ignored for

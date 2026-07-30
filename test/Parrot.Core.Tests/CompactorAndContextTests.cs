@@ -38,7 +38,12 @@ internal sealed class CompactorAndContextTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_configDirectory, "AGENTS.md"), "GLOBAL RULE: be concise.");
         await File.WriteAllTextAsync(Path.Combine(_workspace, "AGENTS.md"), "PROJECT RULE: be terse.");
 
-        var prompt = new SystemContextProvider(_workspace, _configDirectory, "2026-07-24", TestModels.ProfileRegistry())
+        var prompt = new SystemContextProvider(
+            _workspace,
+            _configDirectory,
+            "2026-07-24",
+            TestModels.ProfileRegistry(),
+            EmptyCliUtilities())
             .Materialize(AgentIdentity.Main("session", string.Empty));
         prompt.RenewEpoch();
         var built = prompt.Build(Selection());
@@ -47,8 +52,19 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(built).Contains(_workspace);
         _ = await Assert.That(built).Contains("GLOBAL RULE: be concise.");
         _ = await Assert.That(built).Contains("PROJECT RULE: be terse.");
+        _ = await Assert.That(built).Contains("Available CLI utilities: none");
+        _ = await Assert.That(built).Contains("Available optional CLI utilities: none");
+        var projectIndex = built.IndexOf("PROJECT RULE: be terse.", StringComparison.Ordinal);
+        var expectedIndex = built.IndexOf("Available CLI utilities: none", StringComparison.Ordinal);
+        var dateIndex = built.IndexOf("Date: 2026-07-24", StringComparison.Ordinal);
+        var optionalIndex = built.IndexOf("Available optional CLI utilities: none", StringComparison.Ordinal);
+        var subagentsIndex = built.IndexOf("Available subagents;", StringComparison.Ordinal);
         _ = await Assert.That(built.IndexOf("GLOBAL RULE: be concise.", StringComparison.Ordinal))
-            .IsLessThan(built.IndexOf("PROJECT RULE: be terse.", StringComparison.Ordinal));
+            .IsLessThan(projectIndex);
+        _ = await Assert.That(projectIndex).IsLessThan(expectedIndex);
+        _ = await Assert.That(expectedIndex).IsLessThan(dateIndex);
+        _ = await Assert.That(dateIndex).IsLessThan(optionalIndex);
+        _ = await Assert.That(optionalIndex).IsLessThan(subagentsIndex);
     }
 
     [Test]
@@ -161,7 +177,12 @@ internal sealed class CompactorAndContextTests : IDisposable
     {
         var agents = Path.Combine(_workspace, "AGENTS.md");
         await File.WriteAllTextAsync(agents, "first");
-        var prompt = new SystemContextProvider(_workspace, _configDirectory, "2026-07-24", TestModels.ProfileRegistry())
+        var prompt = new SystemContextProvider(
+            _workspace,
+            _configDirectory,
+            "2026-07-24",
+            TestModels.ProfileRegistry(),
+            EmptyCliUtilities())
             .Materialize(AgentIdentity.Main("session", string.Empty));
 
         prompt.RenewEpoch();
@@ -266,6 +287,11 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(compacted[2].ToolCallId).IsEqualTo("call-1");
         _ = await Assert.That(compacted[3].ToolCallId).IsEqualTo("call-2");
     }
+
+    private static Parrot.Process.CliUtilityAvailability EmptyCliUtilities() =>
+        Parrot.Process.CliUtilityAvailability.Inspect(
+            new Parrot.Config.CliUtilityCandidates([], []),
+            new Parrot.Process.ExecutableLocator(string.Empty, string.Empty));
 
     private static AgentTurnSelection Selection() => Selection(null);
 

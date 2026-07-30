@@ -36,6 +36,64 @@ model_aliases:
 # Entries merge by selector. An explicit empty value clears an inherited prompt.
 model_augment_system_prompts: {}
 
+# CLI executable names to discover on PATH. Expected utilities should normally be
+# available; optional utilities are reported only when installed. User sequences
+# replace these defaults. A name present in both lists is treated as expected.
+cli_utilities:
+  expected:
+    - awk
+    - bash
+    - bwrap
+    - curl
+    - find
+    - git
+    - grep
+    - jq
+    - rg
+    - sed
+    - stat
+    - tar
+    - xargs
+  optional:
+    - bat
+    - bun
+    - cargo
+    - clang
+    - cmake
+    - composer
+    - delta
+    - deno
+    - docker
+    - dotnet
+    - fd
+    - fzf
+    - gcc
+    - gh
+    - go
+    - gradle
+    - java
+    - javac
+    - kubectl
+    - make
+    - mvn
+    - ninja
+    - nix
+    - node
+    - npm
+    - perl
+    - php
+    - pip
+    - pip3
+    - pnpm
+    - python
+    - python3
+    - ruby
+    - rustc
+    - shellcheck
+    - swift
+    - tree
+    - yarn
+
 # Render changed lines inline. Set to false for a side-by-side diff viewer.
 inline_diff: true
 

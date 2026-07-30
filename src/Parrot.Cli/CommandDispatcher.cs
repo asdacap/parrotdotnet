@@ -4,6 +4,7 @@ using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.State;
 using Parrot.Store;
@@ -130,8 +131,26 @@ internal sealed class CommandDispatcher(
         return replacement.Selector;
     }
 
+    internal static string CliUtilityWarning(CliUtilityAvailability availability) =>
+        availability.MissingExpected.Count == 0
+            ? string.Empty
+            : "warning: expected CLI utilities are unavailable: "
+                + string.Join(", ", availability.MissingExpected)
+                + "; Bash shell commands may fail";
+
     private static string NormalizeRemoteAddress(string target) =>
         target.StartsWith("http", StringComparison.Ordinal) ? target : $"http://{target}";
+
+    private async Task WarnAboutMissingCliUtilities(
+        CliUtilityAvailability availability,
+        CancellationToken cancellationToken)
+    {
+        var warning = CliUtilityWarning(availability);
+        if (warning.Length > 0)
+        {
+            await error.WriteLineAsync(warning.AsMemory(), cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     private async Task<int> Authenticate(
         IReadOnlyList<string> arguments,
@@ -308,6 +327,7 @@ internal sealed class CommandDispatcher(
             return ExitFailure;
         }
 
+        await WarnAboutMissingCliUtilities(composition.CliUtilities, cancellationToken).ConfigureAwait(false);
         await output.WriteLineAsync($"parrot serving on port {port} (ctrl-c to stop)".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
 
@@ -481,6 +501,7 @@ internal sealed class CommandDispatcher(
             return ExitFailure;
         }
 
+        await WarnAboutMissingCliUtilities(composition.CliUtilities, cancellationToken).ConfigureAwait(false);
         var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service));
         if (variant is not null)
         {

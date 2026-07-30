@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Parrot.Agent;
+using Parrot.Process;
 
 namespace Parrot.Context;
 
@@ -10,7 +11,8 @@ internal sealed class SystemContextPrompt(
     string configDirectory,
     string date,
     string sessionContext,
-    IReadOnlyList<AgentProfile> childProfiles) : ISystemPrompt
+    IReadOnlyList<AgentProfile> childProfiles,
+    CliUtilityAvailability cliUtilities) : ISystemPrompt
 {
     private const string BasePrompt =
         "You are parrot, a coding agent. You work in the user's project directory. "
@@ -24,36 +26,40 @@ internal sealed class SystemContextPrompt(
 
     public void RenewEpoch()
     {
-        var text = new System.Text.StringBuilder();
-        _ = text.Append(BasePrompt).Append("\n\n");
-        _ = text.Append("Date: ").Append(date).Append('\n');
-        _ = text.Append("Platform: ").Append(RuntimeInformation.RuntimeIdentifier).Append('\n');
-        _ = text.Append("Working directory: ").Append(workingDirectory).Append('\n');
+        var sections = new List<string> { BasePrompt };
+
+        foreach (var (path, content) in AgentsFiles())
+        {
+            sections.Add($"--- {path} ---\n{content}");
+        }
+
+        sections.Add($"Available CLI utilities: {Format(cliUtilities.AvailableExpected)}");
+        sections.Add(
+            $"Date: {date}\nPlatform: {RuntimeInformation.RuntimeIdentifier}\nWorking directory: {workingDirectory}");
+        sections.Add($"Available optional CLI utilities: {Format(cliUtilities.AvailableOptional)}");
 
         if (sessionContext.Length > 0)
         {
-            _ = text.Append(sessionContext).Append('\n');
+            sections.Add(sessionContext.TrimEnd());
         }
 
         if (childProfiles.Count == 0)
         {
-            _ = text.Append("Available subagents: none\n");
+            sections.Add("Available subagents: none");
         }
         else
         {
-            _ = text.Append("Available subagents; delegate according to their configured usage:\n");
+            var subagents = new System.Text.StringBuilder(
+                "Available subagents; delegate according to their configured usage:");
             foreach (var profile in childProfiles)
             {
-                _ = text.Append("- ").Append(profile.Id).Append(": ").Append(profile.Usage).Append('\n');
+                _ = subagents.Append("\n- ").Append(profile.Id).Append(": ").Append(profile.Usage);
             }
+
+            sections.Add(subagents.ToString());
         }
 
-        foreach (var (path, content) in AgentsFiles())
-        {
-            _ = text.Append("\n--- ").Append(path).Append(" ---\n").Append(content);
-        }
-
-        _epochContext = text.ToString();
+        _epochContext = string.Join("\n\n", sections);
         _renewed = true;
     }
 
@@ -65,6 +71,9 @@ internal sealed class SystemContextPrompt(
             ? _epochContext
             : throw new InvalidOperationException("The system context has not been sampled for this epoch.");
     }
+
+    private static string Format(System.Collections.ObjectModel.ReadOnlyCollection<string> utilities) =>
+        utilities.Count == 0 ? "none" : string.Join(", ", utilities);
 
     // From the working directory upward to the filesystem root, nearest last so
     // the most specific instructions win by appearing closest to the prompt.

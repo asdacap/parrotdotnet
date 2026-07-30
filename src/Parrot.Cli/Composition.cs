@@ -53,7 +53,18 @@ internal partial class Composition
                 ctx.Inject<StatePaths>(out var paths);
                 return new SessionIndex(paths.State);
             })
-            .Bind().As(Lifetime.Singleton).To(_ => ProcessRunner.Locate())
+            .Bind().As(Lifetime.Singleton).To(_ => ExecutableLocator.Capture())
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<Configuration>(out var configuration);
+                ctx.Inject<ExecutableLocator>(out var locator);
+                return CliUtilityAvailability.Inspect(configuration.CliUtilities, locator);
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<ExecutableLocator>(out var locator);
+                return ProcessRunner.Locate(locator);
+            })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
@@ -110,10 +121,11 @@ internal partial class Composition
                 ctx.Inject<StatePaths>(out var paths);
                 ctx.Inject<string>("date", out var date);
                 ctx.Inject<ProfileRegistry>(out var profiles);
+                ctx.Inject<CliUtilityAvailability>(out var cliUtilities);
                 return new CompositeSystemPromptProvider(
                     "runtime:system-prompt",
                     [
-                        new SystemContextProvider(workingDirectory, paths.Config, date, profiles),
+                        new SystemContextProvider(workingDirectory, paths.Config, date, profiles, cliUtilities),
                         new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
                         new QueueGuidanceProvider(),
                     ]);
@@ -186,6 +198,7 @@ internal partial class Composition
 
             .Root<StatePaths>("Paths")
             .Root<Configuration>("Configuration")
+            .Root<CliUtilityAvailability>("CliUtilities")
             .Root<SessionStore>("Store")
             .Root<ParrotService>("Service");
 }

@@ -13,6 +13,7 @@ internal sealed class Configuration(string path)
     private const string ModelKey = "model";
     private const string DefaultProfileKey = "default_profile";
     private const string DisabledToolsKey = "disabled_tools";
+    private const string CliUtilitiesKey = "cli_utilities";
 
     private readonly Lock _writeLock = new();
 
@@ -45,6 +46,8 @@ internal sealed class Configuration(string path)
 
     public string DefaultProfile { get; private set; } = string.Empty;
 
+    public CliUtilityCandidates CliUtilities { get; private set; } = new([], []);
+
     public static Configuration Load(string path, string predefinedPath)
     {
         CopyPredefined(predefinedPath);
@@ -62,6 +65,7 @@ internal sealed class Configuration(string path)
             DisabledTools = ReadDisabledTools(root),
             Profiles = ReadProfiles(root),
             DefaultProfile = ReadDefaultProfile(root),
+            CliUtilities = ReadCliUtilities(root),
         };
     }
 
@@ -455,6 +459,46 @@ internal sealed class Configuration(string path)
         }
 
         return values;
+    }
+
+    private static CliUtilityCandidates ReadCliUtilities(YamlMappingNode root)
+    {
+        if (!Child(root, CliUtilitiesKey, out var node) || node is not YamlMappingNode utilities)
+        {
+            throw new InvalidDataException($"{CliUtilitiesKey} must be a mapping");
+        }
+
+        ValidateKeys(utilities, CliUtilitiesKey, "expected", "optional");
+        var expected = ReadCliUtilityNames(utilities, "expected");
+        var optional = ReadCliUtilityNames(utilities, "optional");
+        var expectedNames = expected.ToHashSet(StringComparer.Ordinal);
+
+        return new(expected, [.. optional.Where(name => !expectedNames.Contains(name))]);
+    }
+
+    private static List<string> ReadCliUtilityNames(YamlMappingNode utilities, string key)
+    {
+        var path = $"{CliUtilitiesKey}.{key}";
+        if (!Child(utilities, key, out var node) || node is not YamlSequenceNode sequence)
+        {
+            throw new InvalidDataException($"{path} must be a string sequence");
+        }
+
+        var names = new List<string>(sequence.Children.Count);
+        foreach (var item in sequence.Children)
+        {
+            if (item is not YamlScalarNode { Value: { } name } || name.Length == 0 ||
+                name.Any(char.IsWhiteSpace) || name.Contains('/', StringComparison.Ordinal) ||
+                name.Contains('\\', StringComparison.Ordinal) || names.Contains(name, StringComparer.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"{path} must contain unique nonempty utility names without whitespace or path separators");
+            }
+
+            names.Add(name);
+        }
+
+        return names;
     }
 
     private static List<string>? ReadAllowedTools(YamlMappingNode parent, string path)
