@@ -12,6 +12,7 @@ internal sealed class ShellProcessOwner(
     CancellationToken lifetime) : IActiveWorkSource
 {
     private readonly Dictionary<string, ManagedShellProcess> _processes = new(StringComparer.Ordinal);
+    private readonly List<ManagedShellProcess> _ownedProcesses = [];
     private readonly Lock _gate = new();
     private int _generated;
     private bool _settling;
@@ -36,16 +37,26 @@ internal sealed class ShellProcessOwner(
 
             name = requestedName ?? GenerateName();
 
-            if (_processes.ContainsKey(name))
+            if (_processes.TryGetValue(name, out var existing) && !existing.Completed)
             {
                 throw new InvalidOperationException($"Shell process name '{name}' is already reserved.");
             }
 
             var execution = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
-            var result = runner.Run(command, environment, resources, securityProfile, execution.Token);
-            var process = new ManagedShellProcess(name, agent, result, execution, lifetime);
-            _processes.Add(name, process);
-            return process;
+
+            try
+            {
+                var result = runner.Run(command, environment, resources, securityProfile, execution.Token);
+                var process = new ManagedShellProcess(name, agent, result, execution, lifetime);
+                _processes[name] = process;
+                _ownedProcesses.Add(process);
+                return process;
+            }
+            catch
+            {
+                execution.Dispose();
+                throw;
+            }
         }
     }
 
@@ -85,7 +96,7 @@ internal sealed class ShellProcessOwner(
         lock (_gate)
         {
             _settling = true;
-            processes = [.. _processes.Values];
+            processes = [.. _ownedProcesses];
         }
 
         await Task.WhenAll(processes.Select(process => process.Settle())).ConfigureAwait(false);

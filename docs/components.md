@@ -751,9 +751,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   full absolute path. A narrow runtime capability permits access to that artifact
   without opening the private root. Child agents share their owning user
   session's private root.
-  Process names are ordinal and unique within their owning agent session:
-  supplied duplicates fail before launch, while omitted names are generated and
-  reserved atomically. Wait and interrupt can address only that agent's owner.
+  Process names are ordinal and unique among running processes within their
+  owning agent session: supplied duplicates fail before launch while the current
+  binding is running, completed bindings can be replaced atomically, and omitted
+  names are generated and reserved atomically. A completed binding remains the
+  current lookup target until it is replaced, subject to the existing wait and
+  delivery claim rules. Wait and interrupt can address only that agent's current
+  binding, while the owner retains every launched process for settlement.
   User-session-wide active-work observations qualify repeated local names with
   the owning agent session id. Runs use the user-session lifetime token, survive
   tool-call yield and cancellation, and all per-agent owners are cancelled and

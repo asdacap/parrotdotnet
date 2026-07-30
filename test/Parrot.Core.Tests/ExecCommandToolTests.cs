@@ -139,22 +139,29 @@ internal sealed class ExecCommandToolTests : IDisposable
             cancellationToken);
         var waited = await new WaitProcessTool(processes).Execute(
             """{"name":"later"}""", cancellationToken);
-        var duplicate = await tool.Execute(
-            """{"command":"true","name":"later"}""", cancellationToken);
+        var reusedAfterCompletion = await tool.Execute(
+            """{"command":"printf reused","name":"later"}""", cancellationToken);
         var unknown = await new WaitProcessTool(processes).Execute(
             """{"name":"missing"}""", cancellationToken);
         var running = await tool.Execute(
             """{"command":"sleep 30","name":"running","yield_after_ms":0}""",
             cancellationToken);
+        var runningDuplicate = await tool.Execute(
+            """{"command":"true","name":"running"}""", cancellationToken);
         var interrupted = await new InterruptProcessTool(processes).Execute(
             """{"name":"running"}""", cancellationToken);
+        var reusedAfterInterrupt = await tool.Execute(
+            """{"command":"printf restarted","name":"running"}""", cancellationToken);
 
         _ = await Assert.That(yielded).IsEqualTo("later");
         _ = await Assert.That(waited).IsEqualTo("Process exited with code 0\n[stdout]\nlater");
-        _ = await Assert.That(duplicate).IsEqualTo("error: Shell process name 'later' is already reserved.");
+        _ = await Assert.That(reusedAfterCompletion).IsEqualTo("Process exited with code 0\n[stdout]\nreused");
         _ = await Assert.That(unknown).IsEqualTo("error: Unknown shell process 'missing'.");
         _ = await Assert.That(running).IsEqualTo("running");
+        _ = await Assert.That(runningDuplicate)
+            .IsEqualTo("error: Shell process name 'running' is already reserved.");
         _ = await Assert.That(interrupted).IsEqualTo("Shell process 'running' interrupted.");
+        _ = await Assert.That(reusedAfterInterrupt).IsEqualTo("Process exited with code 0\n[stdout]\nrestarted");
     }
 
     private static string CreateSandboxPassThrough(string workspace)
