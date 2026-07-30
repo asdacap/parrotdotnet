@@ -124,7 +124,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var baseModel = new LLMModel("model", provider.Id);
         var variant = new Parrot.Llm.ModelVariant("high", "xhigh");
         var model = new ProviderModel(provider, baseModel, variant);
-        var alias = new ModelAliasDefinition("preferred", model.Selector, "primary", "alias augmentation");
+        var alias = new ModelAliasDefinition("preferred", model.Selector, "primary", "alias augmentation", null);
         var snapshot = new ModelAliasSnapshot([alias]);
         var prompt = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)
         {

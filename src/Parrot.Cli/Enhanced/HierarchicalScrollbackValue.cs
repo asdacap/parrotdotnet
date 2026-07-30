@@ -22,6 +22,6 @@ internal sealed class HierarchicalScrollbackValue(
         var prefixWidth = (depth * 2) + (label is null ? 0 : label.Length + 3);
         return [.. value.Render(context with { Columns = Math.Max(1, context.Columns - prefixWidth) })
             .Select((line, index) =>
-                HierarchicalActivityValue.Format(line, depth, label, owner, successfulIcon, index == 0))];
+                HierarchicalActivityValue.Format(line, depth, label, owner, successfulIcon, string.Empty, index == 0))];
     }
 }

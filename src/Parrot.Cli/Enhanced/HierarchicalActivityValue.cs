@@ -10,6 +10,7 @@ internal static class HierarchicalActivityValue
         string? label,
         string owner,
         string? successfulIcon,
+        string adornment,
         bool first)
     {
         if (value.StartsWith("\u001b[", StringComparison.Ordinal)
@@ -19,7 +20,8 @@ internal static class HierarchicalActivityValue
         {
             var style = value[..(styleEnd + 1)];
             var styledContent = value[(styleEnd + 1)..^TerminalStyle.Reset.Length];
-            return style + Format(styledContent, depth, label, owner, successfulIcon, first) + TerminalStyle.Reset;
+            return style + Format(styledContent, depth, label, owner, successfulIcon, adornment, first) +
+                TerminalStyle.Reset;
         }
 
         var indentation = new string(' ', Math.Max(0, depth) * 2);
@@ -32,7 +34,9 @@ internal static class HierarchicalActivityValue
 
         var (icon, content) = SplitIcon(value, successfulIcon);
         content = TrimOwner(content, owner);
-        return $"{indentation}{icon} {agent}{content}".TrimEnd();
+        var cleanAdornment = TerminalText.Sanitize(adornment).Replace("\n", string.Empty, StringComparison.Ordinal);
+        var decoratedAgent = cleanAdornment.Length == 0 ? agent : $"{agent}{cleanAdornment} ";
+        return $"{indentation}{icon} {decoratedAgent}{content}".TrimEnd();
     }
 
     private static (string Icon, string Content) SplitIcon(string value, string? successfulIcon)

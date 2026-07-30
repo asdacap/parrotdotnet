@@ -32,7 +32,8 @@ internal sealed class ParrotServiceTests : IDisposable
                 alias.Key,
                 alias.Value.ModelString,
                 alias.Value.Usage,
-                alias.Value.AugmentSystemPrompt)));
+                alias.Value.AugmentSystemPrompt,
+                alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
         _router = new ModelRouter(_registry, _catalog, Selection);
     }
 
@@ -261,7 +262,8 @@ internal sealed class ParrotServiceTests : IDisposable
                 alias.Key,
                 alias.Value.ModelString,
                 alias.Value.Usage,
-                alias.Value.AugmentSystemPrompt)));
+                alias.Value.AugmentSystemPrompt,
+                alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
         var configurator = new ModelAliasConfigurator(configuration, catalog);
 
         _ = await Assert.That(() => configurator.Configure("high_llm", Selection)).Throws<IOException>();

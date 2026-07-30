@@ -40,9 +40,9 @@ internal static class TerminalText
         var rows = new List<string>();
         var row = new StringBuilder();
         var cells = 0;
-        foreach (var rune in value.EnumerateRunes())
+        foreach (var grapheme in EnumerateGraphemes(value))
         {
-            if (rune.Value == '\n')
+            if (grapheme == "\n")
             {
                 rows.Add(row.ToString());
                 _ = row.Clear().Append(indent);
@@ -50,16 +50,16 @@ internal static class TerminalText
                 continue;
             }
 
-            var runeWidth = Width(rune);
-            if (cells > 0 && cells + runeWidth > width)
+            var graphemeWidth = WidthGrapheme(grapheme);
+            if (cells > 0 && cells + graphemeWidth > width)
             {
                 rows.Add(row.ToString());
                 _ = row.Clear().Append(indent);
                 cells = Width(indent);
             }
 
-            _ = row.Append(rune);
-            cells += runeWidth;
+            _ = row.Append(grapheme);
+            cells += graphemeWidth;
         }
 
         rows.Add(row.ToString());
@@ -70,16 +70,16 @@ internal static class TerminalText
     {
         var rendered = new StringBuilder();
         var used = 0;
-        foreach (var rune in value.EnumerateRunes())
+        foreach (var grapheme in EnumerateGraphemes(value))
         {
-            var runeWidth = Width(rune);
-            if (used + runeWidth > Math.Max(0, width))
+            var graphemeWidth = WidthGrapheme(grapheme);
+            if (used + graphemeWidth > Math.Max(0, width))
             {
                 break;
             }
 
-            _ = rendered.Append(rune);
-            used += runeWidth;
+            _ = rendered.Append(grapheme);
+            used += graphemeWidth;
         }
 
         return rendered.ToString();
@@ -88,7 +88,8 @@ internal static class TerminalText
     public static int Width(Rune rune)
     {
         var category = Rune.GetUnicodeCategory(rune);
-        if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark)
+        if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark ||
+            rune.Value is 0x200d or >= 0x1f3fb and <= 0x1f3ff or >= 0xfe00 and <= 0xfe0f or >= 0xe0100 and <= 0xe01ef)
         {
             return 0;
         }
@@ -111,11 +112,46 @@ internal static class TerminalText
     public static int Width(string value)
     {
         var width = 0;
-        foreach (var rune in value.EnumerateRunes())
+        foreach (var grapheme in EnumerateGraphemes(value))
         {
-            width += Width(rune);
+            width += WidthGrapheme(grapheme);
         }
 
         return width;
+    }
+
+    public static IEnumerable<string> EnumerateGraphemes(string value)
+    {
+        var elements = StringInfo.GetTextElementEnumerator(value);
+        while (elements.MoveNext())
+        {
+            yield return (string)elements.Current;
+        }
+    }
+
+    private static int WidthGrapheme(string grapheme)
+    {
+        var width = 0;
+        var maximumRuneWidth = 0;
+        var regionalIndicators = 0;
+        var runeCount = 0;
+        var hasJoiner = false;
+
+        foreach (var rune in grapheme.EnumerateRunes())
+        {
+            runeCount++;
+            hasJoiner |= rune.Value == 0x200d;
+            regionalIndicators += rune.Value is >= 0x1f1e6 and <= 0x1f1ff ? 1 : 0;
+            var runeWidth = Width(rune);
+            width += runeWidth;
+            maximumRuneWidth = Math.Max(maximumRuneWidth, runeWidth);
+        }
+
+        if (runeCount == 2 && regionalIndicators == 2)
+        {
+            return 2;
+        }
+
+        return hasJoiner ? maximumRuneWidth : width;
     }
 }

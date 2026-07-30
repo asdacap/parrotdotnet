@@ -152,7 +152,7 @@ internal sealed class ProviderRegistryTests
         var registry = Build([("p", ["vendor/model"])], string.Empty);
         var catalog = new ModelAliasCatalog(
             registry,
-            [new("preferred", "p/vendor/model", "primary", "system prompt")]);
+            [new("preferred", "p/vendor/model", "primary", "system prompt", null)]);
         var router = new ModelRouter(registry, catalog, string.Empty);
 
         var selection = router.Resolve("preferred");
@@ -170,8 +170,8 @@ internal sealed class ProviderRegistryTests
         var catalog = new ModelAliasCatalog(
             registry,
             [
-                new("default", "p/not-listed", "primary", null),
-                new("unlisted", "p/also-not-listed", "secondary", null),
+                new("default", "p/not-listed", "primary", null, null),
+                new("unlisted", "p/also-not-listed", "secondary", null, null),
             ]);
         var router = new ModelRouter(registry, catalog, "default");
 
@@ -197,11 +197,11 @@ internal sealed class ProviderRegistryTests
     public async Task Replace_retargets_future_resolutions_while_captured_snapshot_keeps_old_alias()
     {
         var registry = Build([("p", ["old", "new"])], string.Empty);
-        var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null)]);
+        var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null, null)]);
         var router = new ModelRouter(registry, catalog, string.Empty);
         var beforeReplacement = router.Resolve("preferred");
 
-        catalog.Replace([new("preferred", "p/new", "primary", null)]);
+        catalog.Replace([new("preferred", "p/new", "primary", null, null)]);
         var afterReplacement = router.Resolve("preferred");
 
         _ = await Assert.That(beforeReplacement.CanonicalModel.Selector).IsEqualTo("p/old");
@@ -214,16 +214,16 @@ internal sealed class ProviderRegistryTests
     public async Task Replacement_rejections_are_atomic_and_disallow_self_or_chained_aliases()
     {
         var registry = Build([("p", ["old"])], string.Empty);
-        var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null)]);
+        var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null, null)]);
 
         _ = await Assert.That(() => new ModelAliasCatalog(
             registry,
-            [new("self", "self", "primary", null)])).Throws<LLMProviderException>();
+            [new("self", "self", "primary", null, null)])).Throws<LLMProviderException>();
         _ = await Assert.That(() => new ModelAliasCatalog(
             registry,
-            [new("first", "second", "primary", null), new("second", "p/old", "primary", null)]))
+            [new("first", "second", "primary", null, null), new("second", "p/old", "primary", null, null)]))
             .Throws<LLMProviderException>();
-        _ = await Assert.That(() => catalog.Replace([new("preferred", "preferred", "primary", null)]))
+        _ = await Assert.That(() => catalog.Replace([new("preferred", "preferred", "primary", null, null)]))
             .Throws<LLMProviderException>();
         _ = await Assert.That(catalog.Capture().Find("preferred")?.ModelString).IsEqualTo("p/old");
     }

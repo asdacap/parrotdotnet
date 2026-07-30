@@ -36,17 +36,20 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string ModelineLabel => $"agent {Name}";
 
+    public LiveModelAliasIcon? ModelAliasIcon { get; private set; }
+
     public void UpdateName(string name) => _name = name;
 
     public void UpdateStatistics(AgentStatisticsUpdatedEvent statistics) => _statistics = statistics;
 
-    public string? StartTurn()
+    public string? StartTurn(LiveModelAliasIcon? modelAliasIcon)
     {
         if (!_activities.Add(AgentActivity))
         {
             return null;
         }
 
+        ModelAliasIcon = modelAliasIcon;
         _terminalCommitted = false;
         _foldedTools.Clear();
         _foldedToolOrder = 0;

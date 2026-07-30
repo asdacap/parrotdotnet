@@ -364,14 +364,19 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
-    public async Task Spawn_inherits_the_omitted_selector_and_accepts_alias_or_canonical_overrides(
+    public async Task Spawn_inherits_the_omitted_selector_and_propagates_alias_icons_in_turn_order(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "inherited", []),
             LLMEvent.Completed("stop", 1, 0, 1, "alias", []),
             LLMEvent.Completed("stop", 1, 0, 1, "canonical", []));
-        var alias = new ModelAliasDefinition("fast", "stepped/replacement", "Fast work", null);
+        var alias = new ModelAliasDefinition(
+            "fast",
+            "stepped/replacement",
+            "Fast work",
+            null,
+            new ModelAliasIcon("F", ModelAliasIconColor.Cyan));
         var router = Router(provider, [alias]);
         var sessions = new TestAgentSessions(router, deliversCompletions: false);
         await using var registry = new AgentRegistry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
@@ -393,13 +398,24 @@ internal sealed class SubagentTests : IDisposable
 
         _ = await Assert.That(string.Join(',', sessions.Models.Select(model => model.Value)))
             .IsEqualTo("fast,fast,stepped/model");
+        var started = _repository.Replay()
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
+            .Select(published => published.TurnStarted)
+            .ToArray();
+        _ = await Assert.That(string.Join(',', started.Select(turn => turn.Model)))
+            .IsEqualTo("stepped/replacement,stepped/replacement,stepped/model");
+        _ = await Assert.That(started[0].ModelAliasIcon.Glyph).IsEqualTo("F");
+        _ = await Assert.That(started[0].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Cyan);
+        _ = await Assert.That(started[1].ModelAliasIcon.Glyph).IsEqualTo("F");
+        _ = await Assert.That(started[1].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Cyan);
+        _ = await Assert.That(started[2].ModelAliasIcon).IsNull();
     }
 
     [Test]
     public async Task Spawn_rejects_an_invalid_alias(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        var invalid = new ModelAliasDefinition("broken", string.Empty, "Unavailable", null);
+        var invalid = new ModelAliasDefinition("broken", string.Empty, "Unavailable", null, null);
         var router = Router(provider, [invalid]);
         var sessions = new TestAgentSessions(router, deliversCompletions: false);
         await using var registry = new AgentRegistry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);

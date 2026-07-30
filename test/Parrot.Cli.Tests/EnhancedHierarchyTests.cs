@@ -1,5 +1,6 @@
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Llm;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
@@ -455,6 +456,183 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Child_model_alias_icon_follows_only_its_current_agent_activity(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new List<IReadOnlyList<ILiveBufferItem>>();
+        var committed = new List<string>();
+        var context = new LiveBufferRenderContext(80, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(80, context.Palette);
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(items);
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            drawn.Add(items);
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.ReplaceContent([new SpinnerValue("existing content", 0)], cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                TurnStarted = new TurnStarted
+                {
+                    Model = "root-model",
+                    ModelAliasIcon = new TurnModelAliasIcon
+                    {
+                        Glyph = "R",
+                        Color = TurnModelAliasIconColor.Yellow,
+                    },
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                TurnStarted = new TurnStarted
+                {
+                    Model = "child-model",
+                    ModelAliasIcon = new TurnModelAliasIcon
+                    {
+                        Glyph = "◆",
+                        Color = TurnModelAliasIconColor.Red,
+                    },
+                },
+            },
+            cancellationToken);
+
+        var spinner = Render(drawn[^1], context);
+        _ = await Assert.That(spinner).Contains("  ⠋ [worker] ◆ agent worker");
+        _ = await Assert.That(Count(spinner, "◆")).IsEqualTo(1);
+        _ = await Assert.That(spinner).DoesNotContain("R");
+        _ = await Assert.That(spinner).Contains("existing content");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolStarted = new ToolStarted { ToolCallId = "tool", ToolName = "read" },
+            },
+            cancellationToken);
+        var withTool = Render(drawn[^1], context);
+        _ = await Assert.That(withTool).Contains("read");
+        _ = await Assert.That(Count(withTool, "◆")).IsEqualTo(1);
+
+        await view.Render(
+            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "first response" } },
+            cancellationToken);
+        var response = Render(drawn[^1], context);
+        _ = await Assert.That(response).Contains("  ● [worker] ◆ first response");
+        _ = await Assert.That(Count(response, "◆")).IsEqualTo(1);
+
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("◆");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("R");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                TurnStarted = new TurnStarted
+                {
+                    Model = "next-model",
+                    ModelAliasIcon = new TurnModelAliasIcon
+                    {
+                        Glyph = "◇",
+                        Color = TurnModelAliasIconColor.Blue,
+                    },
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                TurnStarted = new TurnStarted
+                {
+                    Model = "duplicate",
+                    ModelAliasIcon = new TurnModelAliasIcon
+                    {
+                        Glyph = "△",
+                        Color = TurnModelAliasIconColor.Green,
+                    },
+                },
+            },
+            cancellationToken);
+        var nextSpinner = Render(drawn[^1], context);
+        _ = await Assert.That(nextSpinner).Contains("[worker] ◇ agent worker");
+        _ = await Assert.That(nextSpinner).DoesNotContain("◆");
+        _ = await Assert.That(nextSpinner).DoesNotContain("△");
+
+        await view.Render(
+            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "replacement" } },
+            cancellationToken);
+        var nextResponse = Render(drawn[^1], context);
+        _ = await Assert.That(nextResponse).Contains("[worker] ◇ replacement");
+        _ = await Assert.That(nextResponse).DoesNotContain("first response");
+
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "unaliased" } },
+            cancellationToken);
+        var clearedSpinner = Render(drawn[^1], context);
+        _ = await Assert.That(clearedSpinner).Contains("[worker] agent worker");
+        _ = await Assert.That(clearedSpinner).DoesNotContain("◇");
+        _ = await Assert.That(clearedSpinner).DoesNotContain("replacement");
+    }
+
+    [Test]
+    public async Task Child_model_alias_icon_styles_only_the_glyph_and_reserves_its_cell_width()
+    {
+        var palette = new TerminalPalette(true);
+        var value = new HierarchicalLiveValue(
+            new MarqueeValue("● ", "12345678901234567890", 0),
+            1,
+            "界 worker",
+            "worker",
+            "♟",
+            new LiveModelAliasIcon("界", ModelAliasIconColor.Cyan));
+
+        var rendered = value.Render(new LiveBufferRenderContext(20, palette));
+        var line = rendered.Lines.Single();
+        var span = line.StyleSpans.Single();
+        var labelEnd = line.Text.IndexOf("] ", StringComparison.Ordinal) + 2;
+        var glyphStart = line.Text.IndexOf('界', labelEnd);
+
+        _ = await Assert.That(line.Text).StartsWith("  ● [界 worker] 界 ");
+        _ = await Assert.That(TerminalText.Width(line.Text)).IsLessThanOrEqualTo(20);
+        _ = await Assert.That(span.StartCell).IsEqualTo(TerminalText.Width(line.Text[..glyphStart]));
+        _ = await Assert.That(span.Length).IsEqualTo(2);
+        _ = await Assert.That(span.Style).IsEqualTo(palette.GetLiveIconStyle(ModelAliasIconColor.Cyan));
+    }
+
+    [Test]
     public async Task Hierarchy_resolves_depth_orphans_cycles_and_post_order()
     {
         var hierarchy = new AgentSessionHierarchy();
@@ -488,4 +666,10 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(order["child"]).IsLessThan(order["root"]);
         _ = await Assert.That(order.Count).IsEqualTo(5);
     }
+
+    private static string Render(IReadOnlyList<ILiveBufferItem> items, LiveBufferRenderContext context) =>
+        string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(static line => line.Text));
+
+    private static int Count(string value, string fragment) =>
+        value.Split(fragment, StringSplitOptions.None).Length - 1;
 }

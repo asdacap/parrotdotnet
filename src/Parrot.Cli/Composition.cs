@@ -87,11 +87,18 @@ internal partial class Composition
                 ctx.Inject<Configuration>(out var configuration);
                 return new ModelAliasCatalog(
                     registry,
-                    configuration.ModelAliases.Select(alias => new ModelAliasDefinition(
-                        alias.Key,
-                        alias.Value.ModelString,
-                        alias.Value.Usage,
-                        alias.Value.AugmentSystemPrompt)));
+                    configuration.ModelAliases.Select(alias =>
+                    {
+                        var icon = alias.Value.Icon is null
+                            ? null
+                            : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color);
+                        return new ModelAliasDefinition(
+                            alias.Key,
+                            alias.Value.ModelString,
+                            alias.Value.Usage,
+                            alias.Value.AugmentSystemPrompt,
+                            icon);
+                    }));
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {

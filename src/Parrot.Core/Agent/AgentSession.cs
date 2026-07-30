@@ -719,11 +719,33 @@ internal sealed class AgentSession(
                         captured.SecurityProfile);
                     providerRequests = 0;
                     turnOpen = true;
+                    var aliasIcon = resolved.Alias?.Icon;
                     var started = new Event
                     {
                         Id = Identifier.EventId(),
                         AgentSessionId = SessionId,
-                        TurnStarted = new TurnStarted { Model = resolved.CanonicalModel.Selector },
+                        TurnStarted = new TurnStarted
+                        {
+                            Model = resolved.CanonicalModel.Selector,
+                            ModelAliasIcon = aliasIcon is null
+                                ? null
+                                : new TurnModelAliasIcon
+                                {
+                                    Glyph = aliasIcon.Glyph,
+                                    Color = aliasIcon.Color switch
+                                    {
+                                        ModelAliasIconColor.Black => TurnModelAliasIconColor.Black,
+                                        ModelAliasIconColor.Red => TurnModelAliasIconColor.Red,
+                                        ModelAliasIconColor.Green => TurnModelAliasIconColor.Green,
+                                        ModelAliasIconColor.Yellow => TurnModelAliasIconColor.Yellow,
+                                        ModelAliasIconColor.Blue => TurnModelAliasIconColor.Blue,
+                                        ModelAliasIconColor.Magenta => TurnModelAliasIconColor.Magenta,
+                                        ModelAliasIconColor.Cyan => TurnModelAliasIconColor.Cyan,
+                                        ModelAliasIconColor.White => TurnModelAliasIconColor.White,
+                                        _ => throw new InvalidOperationException("The model alias icon color is invalid."),
+                                    },
+                                },
+                        },
                     };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);

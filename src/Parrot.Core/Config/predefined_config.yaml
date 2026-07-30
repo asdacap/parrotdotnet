@@ -22,18 +22,30 @@ model_aliases:
     # Optional alias-specific system-prompt augmentation. An explicit empty
     # string suppresses this augmentation rather than inheriting it.
     augment_system_prompt: null
+    icon:
+      glyph: ◆
+      color: blue
   medium_llm:
     model_string: ""
     usage: Decently capable, specific clear task, component level task, two or three file window
     augment_system_prompt: null
+    icon:
+      glyph: ◆
+      color: cyan
   high_llm:
     model_string: ""
     usage: General purpose, agent spawner, tactical decision making and planning, debugging, colaborator
     augment_system_prompt: null
+    icon:
+      glyph: ◆
+      color: yellow
   xhigh_llm:
     model_string: ""
     usage: Strategic work spanning multiple modules or parties, ambiguous or open-ended requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.
     augment_system_prompt: For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent.
+    icon:
+      glyph: ◆
+      color: red
 
 # System-prompt augmentations keyed by exact provider/model[/variant] selector.
 # Entries merge by selector. An explicit empty value clears an inherited prompt.

@@ -310,19 +310,23 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(aliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
             "mechanical, single file task, text or code processing when no suitable cli tool available.",
-            null));
+            null,
+            new ModelAliasIconConfig("◆", "blue")));
         _ = await Assert.That(aliases["medium_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
             "Decently capable, specific clear task, component level task, two or three file window",
-            null));
+            null,
+            new ModelAliasIconConfig("◆", "cyan")));
         _ = await Assert.That(aliases["high_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
             "General purpose, agent spawner, tactical decision making and planning, debugging, colaborator",
-            null));
+            null,
+            new ModelAliasIconConfig("◆", "yellow")));
         _ = await Assert.That(aliases["xhigh_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
             "Strategic work spanning multiple modules or parties, ambiguous or open-ended requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.",
-            "For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent."));
+            "For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent.",
+            new ModelAliasIconConfig("◆", "red")));
     }
 
     [Test]
@@ -343,13 +347,15 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(aliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             "openai/gpt-5",
             "mechanical, single file task, text or code processing when no suitable cli tool available.",
-            null));
+            null,
+            new ModelAliasIconConfig("◆", "blue")));
         _ = await Assert.That(aliases["xhigh_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
             "Specialized strategic work",
-            "For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent."));
+            "For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent.",
+            new ModelAliasIconConfig("◆", "red")));
         _ = await Assert.That(aliases["local"]).IsEqualTo(new ModelAliasConfig(
-            "ollama/qwen3", "Local implementation work", "Use local tools first."));
+            "ollama/qwen3", "Local implementation work", "Use local tools first.", null));
     }
 
     [Test]
@@ -365,6 +371,31 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(aliases["custom"].AugmentSystemPrompt).IsNull();
         _ = await Assert.That(aliases["low_llm"].AugmentSystemPrompt).IsEqualTo(string.Empty);
+    }
+
+    [Test]
+    public async Task Model_alias_icons_support_custom_graphemes_and_explicit_disabling()
+    {
+        var aliases = Load(Write("""
+            model_aliases:
+              low_llm:
+                icon:
+                  glyph: 🦜
+                  color: green
+              medium_llm:
+                icon: null
+              high_llm:
+                icon: ""
+              xhigh_llm:
+                icon:
+                  glyph: ""
+                  color: red
+            """)).ModelAliases;
+
+        _ = await Assert.That(aliases["low_llm"].Icon).IsEqualTo(new ModelAliasIconConfig("🦜", "green"));
+        _ = await Assert.That(aliases["medium_llm"].Icon).IsNull();
+        _ = await Assert.That(aliases["high_llm"].Icon).IsNull();
+        _ = await Assert.That(aliases["xhigh_llm"].Icon).IsNull();
     }
 
     [Test]
@@ -391,6 +422,11 @@ internal sealed class ConfigurationTests : IDisposable
     [Arguments("model_aliases:\n  custom:\n    usage: A usage\n    model_string: ' provider/model'\n")]
     [Arguments("model_aliases:\n  custom:\n    usage: A usage\n    model_string: provider//model\n")]
     [Arguments("model_aliases: []\n")]
+    [Arguments("model_aliases:\n  custom:\n    usage: A usage\n    icon: ◆\n")]
+    [Arguments("model_aliases:\n  custom:\n    usage: A usage\n    icon:\n      glyph: ◆\n")]
+    [Arguments("model_aliases:\n  custom:\n    usage: A usage\n    icon:\n      glyph: ◆\n      color: orange\n")]
+    [Arguments("model_aliases:\n  custom:\n    usage: A usage\n    icon:\n      glyph: ab\n      color: blue\n")]
+    [Arguments("model_aliases:\n  custom:\n    usage: A usage\n    icon:\n      glyph: ◆\n      color: blue\n      extra: value\n")]
     [Arguments("model_aliases:\n  custom: A usage\n")]
     [Arguments("model_aliases:\n  custom:\n    usage: A usage\n    unsupported: value\n")]
     [Arguments("model_augment_system_prompts: []\n")]
@@ -419,7 +455,7 @@ internal sealed class ConfigurationTests : IDisposable
         var reloaded = Load(path);
         var rewritten = await File.ReadAllTextAsync(path);
         _ = await Assert.That(reloaded.ModelAliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
-            "openai/gpt-5.6", "Fast local work", null));
+            "openai/gpt-5.6", "Fast local work", null, new ModelAliasIconConfig("◆", "blue")));
         _ = await Assert.That(rewritten).Contains("theme: dark");
     }
 
@@ -441,7 +477,8 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.ModelAliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             "openai/gpt-5",
             "mechanical, single file task, text or code processing when no suitable cli tool available.",
-            null));
+            null,
+            new ModelAliasIconConfig("◆", "blue")));
         _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules.Count).IsEqualTo(1);
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules[0])
