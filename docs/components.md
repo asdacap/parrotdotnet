@@ -48,7 +48,7 @@ deleted rather than skipped, and no block in `architecture.md` absorbs it.
 | Dropped | Upstream | Reason |
 | --- | --- | --- |
 | MCP | `internal/mcp` (2045 lines), `internal/tool/mcp.go`, MCP transport config | Dropped entirely by decision, 2026-07-24. Removes one of upstream's five extension boundaries, leaving four: provider protocols, secret storage, tools, formatters. |
-| Transactional file edits | `internal/change` (1172 lines): the all-or-nothing apply, rollback, and `FileStore`/`FileState` machinery | Dropped entirely by decision, 2026-07-24. Tools write files directly. `apply_patch` is kept and the patch model and parsing survive with it, folded into the tool. It applies directly, so a failed apply can leave files partially written and must report what it wrote. |
+| Transactional file edits | `internal/change` (1172 lines): the all-or-nothing apply, rollback, and `FileStore`/`FileState` machinery | Dropped entirely by decision, 2026-07-24. Tools write files directly. |
 | Windows support | Windows paths, credential storage, process trees, terminal behaviour | Upstream targets macOS and Linux; so does this. |
 
 ## Deliberate divergences
@@ -602,8 +602,7 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 
 ### `ITool` — rank 7, M3
 
-- **Absorbs** `tool` (the interface and the builtins), `change` (patch model
-  and parsing only).
+- **Absorbs** `tool` (the interface and the builtins).
 - **Owns** nothing shared; each tool owns its own arguments and plan.
 - **Inbound** describe, plan, execute. **Display differences are methods on the
   tool, never a branch on its id.** `exec_command` accepts optional `name` and

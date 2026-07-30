@@ -100,7 +100,7 @@ profiles:
     max_turns: 64
     allowed_tools:
       - read
-      - apply_patch
+      - edit
 ```
 
 `allowed_tools` has three meanings: omit it (or use `null`) to retain every

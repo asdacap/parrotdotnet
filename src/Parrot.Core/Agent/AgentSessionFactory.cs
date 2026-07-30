@@ -5,7 +5,6 @@ using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
-using Parrot.Tools.ApplyPatch;
 using Parrot.Web;
 
 namespace Parrot.Agent;
@@ -36,7 +35,6 @@ internal sealed class AgentSessionFactory(
             new GrepToolFactory(_workspace),
             new WriteToolFactory(_workspace),
             new EditToolFactory(_workspace),
-            new ApplyPatchToolFactory(_workspace),
             new WebFetchToolFactory(webFetcher),
             new AgentSpawnToolFactory(owner.Registry, router),
             new AgentSendToolFactory(owner.Registry),
