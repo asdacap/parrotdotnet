@@ -118,6 +118,25 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Queue_guidance_is_omitted_when_queue_creation_is_globally_disabled()
+    {
+        var prompt = new QueueGuidancePrompt();
+        var enabled = prompt.Build(Selection(Profile(
+            allowedTools: null,
+            new HashSet<string>(StringComparer.Ordinal))));
+        var disallowed = prompt.Build(Selection(Profile(
+            ["read"],
+            new HashSet<string>(StringComparer.Ordinal))));
+        var disabled = prompt.Build(Selection(Profile(
+            ["queue_create"],
+            new HashSet<string>(["queue_create"], StringComparer.Ordinal))));
+
+        _ = await Assert.That(enabled).Contains("use queue");
+        _ = await Assert.That(disallowed).IsEmpty();
+        _ = await Assert.That(disabled).IsEmpty();
+    }
+
+    [Test]
     public async Task Composite_system_prompt_validates_orders_and_materializes_per_session()
     {
         var first = new PromptTestProvider("test:z", "z");
@@ -245,7 +264,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(compacted[3].ToolCallId).IsEqualTo("call-2");
     }
 
-    private static AgentTurnSelection Selection()
+    private static AgentTurnSelection Selection() => Selection(null);
+
+    private static AgentTurnSelection Selection(MainAgentProfile? profile)
     {
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
@@ -256,9 +277,24 @@ internal sealed class CompactorAndContextTests : IDisposable
                 null,
                 model,
                 new ModelAliasSnapshot([])),
-            null,
+            profile,
             SecurityProfile.Compose(readOnly: false, [], [], []));
     }
+
+    private static MainAgentProfile Profile(
+        IReadOnlyList<string>? allowedTools,
+        IReadOnlySet<string> disabledTools) => new(
+        new AgentProfile(
+            "test",
+            new Parrot.Config.ProfileConfig(
+                "Test prompt", "Test profile.", ["Test rule"], allowedTools, 2, 3, false, true, []),
+            [],
+            disabledTools),
+        static () => "Test prompt",
+        static () => string.Empty,
+        SecurityProfile.Compose(readOnly: false, [], [], []),
+        static () => { },
+        static (_, _) => null);
 
     private sealed class PromptTestProvider(string key, string text) : ISystemPromptProvider
     {

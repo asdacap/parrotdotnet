@@ -139,7 +139,11 @@ internal sealed class SessionStoreTests : IDisposable
             Path.Combine(_root, "predefined_config.yaml"));
         return new ModeRegistry(
             Path.Combine(_root, "plans"),
-            new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, configuration.DefaultProfile));
+            new ProfileRegistry(
+                configuration.Profiles,
+                configuration.SandboxRules,
+                configuration.DisabledTools,
+                configuration.DefaultProfile));
     }
 
     private void PublishOwner(string workingDirectory, string sessionId)

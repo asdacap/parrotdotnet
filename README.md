@@ -107,6 +107,17 @@ offer only those tools. The same filtered set is both sent to the model and
 used for execution. `explore` is accepted as a compatibility alias for the
 canonical `explorer` child profile.
 
+`disabled_tools` is a global mapping keyed by exact tool ID. A `true` value
+disables that tool for every profile, even when the profile lists it in
+`allowed_tools`. A `false` value re-enables an entry set to `true` by a
+lower-precedence configuration layer. Only entries whose effective value is
+`true` are disabled.
+
+```yaml
+disabled_tools:
+  web_fetch: true
+```
+
 The plan foreground profile receives its private plan-artifact location and
 runtime-only write permission from Parrot; child profiles never inherit this
 capability. Legacy `profiles.<id>.status` input is accepted and ignored for

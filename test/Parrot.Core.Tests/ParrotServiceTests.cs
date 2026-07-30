@@ -286,7 +286,11 @@ internal sealed class ParrotServiceTests : IDisposable
 
     private ModeRegistry Modes() => new(
         Path.Combine(_root, "plans"),
-        new ProfileRegistry(_configuration.Profiles, _configuration.SandboxRules, _configuration.DefaultProfile));
+        new ProfileRegistry(
+            _configuration.Profiles,
+            _configuration.SandboxRules,
+            _configuration.DisabledTools,
+            _configuration.DefaultProfile));
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 

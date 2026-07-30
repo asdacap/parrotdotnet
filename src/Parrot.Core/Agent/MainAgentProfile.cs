@@ -19,6 +19,8 @@ internal sealed class MainAgentProfile(
 
     public IReadOnlyList<string>? AllowedTools => profile.AllowedTools;
 
+    public IReadOnlyList<string> DisabledTools => profile.DisabledTools;
+
     public int MaxTurns => profile.MaxTurns;
 
     public int RecursionLimit => profile.RecursionLimit;
