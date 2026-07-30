@@ -122,13 +122,27 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                 // No reason: a header retry is silent, per upstream.
                 return Advance.Retrying(headerDelay, state.TimeoutAttempt, string.Empty);
 
+            case ProviderHttpException when ProviderErrors.IsEngineOverloaded(failure):
+                if (state.TakeOverload(out var httpOverloadAttempt))
+                {
+                    return Advance.Retrying(
+                        OverloadDelay(httpOverloadAttempt),
+                        httpOverloadAttempt,
+                        OverloadReason(httpOverloadAttempt));
+                }
+
+                throw failure;
+
             case ProviderHttpException or ProviderResponseException when ProviderErrors.IsUsageLimit(failure):
                 throw failure;
 
-            case ProviderHttpException or ProviderResponseException when ProviderErrors.IsEngineOverloaded(failure):
-                if (state.TakeOverload(out var overloadAttempt))
+            case ProviderResponseException when ProviderErrors.IsEngineOverloaded(failure):
+                if (state.TakeOverload(out var responseOverloadAttempt))
                 {
-                    return Advance.Retrying(OverloadDelay(overloadAttempt), overloadAttempt, OverloadReason(overloadAttempt));
+                    return Advance.Retrying(
+                        OverloadDelay(responseOverloadAttempt),
+                        responseOverloadAttempt,
+                        OverloadReason(responseOverloadAttempt));
                 }
 
                 throw failure;

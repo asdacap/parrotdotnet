@@ -59,6 +59,29 @@ internal sealed class RetryingProviderTests
     }
 
     [Test]
+    [Arguments("")]
+    [Arguments("insufficient_quota")]
+    public async Task Service_unavailable_uses_the_visible_overload_retry(
+        string errorCode,
+        CancellationToken cancellationToken)
+    {
+        var scripted = new ReplayProvider(
+            () => ThrowImmediately(new ProviderHttpException(503, string.Empty, errorCode, "Service Unavailable")));
+        var provider = new RetryingProvider(scripted);
+        await using var enumerator = provider.Call(Request, cancellationToken).GetAsyncEnumerator(cancellationToken);
+
+        var moved = await enumerator.MoveNextAsync();
+        var retry = enumerator.Current;
+
+        _ = await Assert.That(moved).IsTrue();
+        _ = await Assert.That(scripted.Calls).IsEqualTo(1);
+        _ = await Assert.That(retry.Kind).IsEqualTo(LLMEventKind.Retry);
+        _ = await Assert.That(retry.Attempt).IsEqualTo(1);
+        _ = await Assert.That(retry.RetryAfter).IsEqualTo(TimeSpan.FromSeconds(2));
+        _ = await Assert.That(retry.Text).IsEqualTo("Provider servers are overloaded. Retrying (attempt 1/5).");
+    }
+
+    [Test]
     public async Task Credential_availability_is_delegated_without_retry(CancellationToken cancellationToken)
     {
         var scripted = new ReplayProvider();
