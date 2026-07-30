@@ -20,23 +20,29 @@ internal sealed class QuestionTool(QuestionBroker broker) : ITool
         {
             var input = JsonSerializer.Deserialize(argumentsJson, QuestionJsonContext.Default.QuestionToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            var questions = input.Questions ?? throw new FormatException("Tool arguments require an array 'questions'.");
-            var reply = await broker.Ask([.. questions.Select(ToDomain)], cancellationToken).ConfigureAwait(false);
-            var result = new QuestionToolResult
-            {
-                Answers = [.. reply.Answers.Select(answer => new QuestionWireAnswer
-                {
-                    QuestionId = answer.QuestionId,
-                    OptionIds = [.. answer.OptionIds],
-                    Custom = answer.Custom,
-                })],
-            };
-            return JsonSerializer.Serialize(result, QuestionJsonContext.Default.QuestionToolResult);
+            var wireQuestions = input.Questions ?? throw new FormatException("Tool arguments require an array 'questions'.");
+            QuestionDefinition[] questions = [.. wireQuestions.Select(ToDomain)];
+            var reply = await broker.Ask(questions, cancellationToken).ConfigureAwait(false);
+            return FormatReply(questions, reply);
         }
         catch (Exception failure) when (failure is JsonException or FormatException or QuestionException or QuestionRejectedException)
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    private static string FormatReply(IReadOnlyList<QuestionDefinition> questions, QuestionReply reply)
+    {
+        var answers = reply.Answers.ToDictionary(answer => answer.QuestionId, StringComparer.Ordinal);
+        return string.Join("\n\n", questions.Select(question =>
+        {
+            var answer = answers[question.Id];
+            var options = question.Options.ToDictionary(option => option.Id, StringComparer.Ordinal);
+            var values = answer.OptionIds
+                .Select(optionId => options[optionId].Label)
+                .Concat(answer.Custom.Length == 0 ? [] : [answer.Custom]);
+            return $"Question: {question.Prompt}\nAnswer: {string.Join(", ", values)}";
+        }));
     }
 
     private static QuestionDefinition ToDomain(QuestionWireDefinition question) => new(
