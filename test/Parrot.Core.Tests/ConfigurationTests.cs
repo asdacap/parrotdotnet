@@ -28,6 +28,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Model).IsEmpty();
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
+        _ = await Assert.That(configuration.DisabledTools).IsEmpty();
         _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
         _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(7);
         var build = configuration.Profiles["build"];
@@ -40,6 +41,10 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["query"].ReadOnly).IsTrue();
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
             .Contains("Predefined configuration reference.");
+        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
+            .Contains("disabled_tools: {}");
+        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
+            .DoesNotContain("tool_blacklist");
     }
 
     [Test]
@@ -79,6 +84,36 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(missing.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configured.WebFetch.AllowPrivate).IsTrue();
     }
+
+    [Test]
+    public async Task Disabled_tools_contains_only_effective_true_entries()
+    {
+        var configuration = Load(Write("""
+            disabled_tools:
+              web_fetch: true
+              agent_spawn: false
+              future_tool: true
+            """));
+
+        _ = await Assert.That(configuration.DisabledTools).Count().IsEqualTo(2);
+        _ = await Assert.That(configuration.DisabledTools).Contains("web_fetch");
+        _ = await Assert.That(configuration.DisabledTools).Contains("future_tool");
+        _ = await Assert.That(configuration.DisabledTools).DoesNotContain("agent_spawn");
+    }
+
+    [Test]
+    [Arguments("disabled_tools: null\n")]
+    [Arguments("disabled_tools: web_fetch\n")]
+    [Arguments("disabled_tools: []\n")]
+    [Arguments("disabled_tools:\n  web_fetch: yes\n")]
+    [Arguments("disabled_tools:\n  web_fetch: null\n")]
+    [Arguments("disabled_tools:\n  web_fetch: {}\n")]
+    [Arguments("disabled_tools:\n  web_fetch: []\n")]
+    [Arguments("disabled_tools:\n  '': true\n")]
+    [Arguments("disabled_tools:\n  ' web_fetch': true\n")]
+    [Arguments("disabled_tools:\n  'web_fetch ': true\n")]
+    public async Task Disabled_tools_rejects_invalid_configuration(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
     public async Task Security_configuration_is_strict_and_ordered()

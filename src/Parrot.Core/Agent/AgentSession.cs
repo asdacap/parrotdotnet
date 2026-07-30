@@ -713,6 +713,7 @@ internal sealed class AgentSession(
                         [.. toolFactories
                             .Where(factory => factory.Supports(this))
                             .Select(factory => factory.Create(this, activeSelection))])
+                        .Without(activeSelection.Profile?.DisabledTools ?? [])
                         .Only(activeSelection.Profile?.AllowedTools);
                 }
 

@@ -254,6 +254,39 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Globally_disabled_tools_are_omitted_even_when_the_profile_allows_them(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-disabled", "settled", "{}")),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled")), new FixedToolFactory(new HeldTool())],
+            Profile(
+                3,
+                ["settled", "held"],
+                new HashSet<string>(["settled"], StringComparer.Ordinal)),
+            cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(string.Join(" | ", provider.Requests[0].Tools.Select(tool => tool.Name)))
+            .IsEqualTo("held");
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(string.Join(" | ", provider.Requests[1].Tools.Select(tool => tool.Name)))
+            .IsEqualTo("held");
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:call-disabled:settled | error:call-disabled:settled:unknown tool settled");
+    }
+
+    [Test]
     public async Task A_profile_turn_omits_tools_on_its_final_provider_request_and_resets_for_queued_input(
         CancellationToken cancellationToken)
     {
@@ -441,11 +474,18 @@ internal sealed class DrainTests : IDisposable
                 _ => null,
             }).Where(value => value is not null));
 
-    private static MainAgentProfile Profile(int maxTurns) => new(
+    private static MainAgentProfile Profile(int maxTurns) =>
+        Profile(maxTurns, null, new HashSet<string>(StringComparer.Ordinal));
+
+    private static MainAgentProfile Profile(
+        int maxTurns,
+        IReadOnlyList<string>? allowedTools,
+        IReadOnlySet<string> disabledTools) => new(
         new AgentProfile(
             "test",
-            new ProfileConfig("Test prompt", "Test profile.", ["Test rule"], null, maxTurns, 3, false, true, []),
-            []),
+            new ProfileConfig("Test prompt", "Test profile.", ["Test rule"], allowedTools, maxTurns, 3, false, true, []),
+            [],
+            disabledTools),
         static () => "Test prompt",
         static () => string.Empty,
         SecurityProfile.Compose(readOnly: false, [], [], []),

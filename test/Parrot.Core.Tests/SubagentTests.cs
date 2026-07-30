@@ -533,7 +533,8 @@ internal sealed class SubagentTests : IDisposable
             new AgentProfile(
                 id,
                 new ProfileConfig("Test prompt", "Test profile.", ["Test rule"], null, 1, 3, readOnly, true, []),
-                []),
+                [],
+                new HashSet<string>(StringComparer.Ordinal)),
             static () => "Test prompt",
             static () => string.Empty,
             SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities),

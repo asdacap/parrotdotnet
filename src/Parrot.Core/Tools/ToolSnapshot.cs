@@ -20,4 +20,12 @@ internal sealed class ToolSnapshot(IReadOnlyList<ITool> tools)
     public ToolSnapshot Only(IReadOnlyList<string>? allowedTools) => allowedTools is null
         ? this
         : new ToolSnapshot([.. _tools.Where(tool => allowedTools.Contains(tool.Name, StringComparer.Ordinal))]);
+
+    public ToolSnapshot Without(IReadOnlyList<string> disabledTools)
+    {
+        ArgumentNullException.ThrowIfNull(disabledTools);
+        return disabledTools.Count == 0
+            ? this
+            : new ToolSnapshot([.. _tools.Where(tool => !disabledTools.Contains(tool.Name, StringComparer.Ordinal))]);
+    }
 }

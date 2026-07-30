@@ -36,6 +36,7 @@ internal sealed class ModeRegistryTests : IDisposable
         var profiles = new ProfileRegistry(
             configuration.Profiles,
             configuration.SandboxRules,
+            configuration.DisabledTools,
             configuration.DefaultProfile);
 
         _ = await Assert.That(string.Join(" | ", profiles.Foreground.Select(profile => profile.Id)))
@@ -123,7 +124,11 @@ internal sealed class ModeRegistryTests : IDisposable
         };
         var registry = new ModeRegistry(
             Path.Combine(_root, "plans"),
-            new ProfileRegistry(profiles, [new SandboxRule(denied, SandboxRuleAction.DenyWrite)], ModeRegistry.Build));
+            new ProfileRegistry(
+                profiles,
+                [new SandboxRule(denied, SandboxRuleAction.DenyWrite)],
+                configuration.DisabledTools,
+                ModeRegistry.Build));
 
         var build = registry.Resolve(ModeRegistry.Build, "session");
         var plan = registry.Resolve(ModeRegistry.Plan, "session");
@@ -219,6 +224,10 @@ internal sealed class ModeRegistryTests : IDisposable
             Path.Combine(_root, "predefined_config.yaml"));
         return new ModeRegistry(
             Path.Combine(_root, "plan"),
-            new ProfileRegistry(configuration.Profiles, configuration.SandboxRules, configuration.DefaultProfile));
+            new ProfileRegistry(
+                configuration.Profiles,
+                configuration.SandboxRules,
+                configuration.DisabledTools,
+                configuration.DefaultProfile));
     }
 }

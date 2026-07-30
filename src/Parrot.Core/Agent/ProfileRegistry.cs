@@ -11,10 +11,12 @@ internal sealed class ProfileRegistry
     public ProfileRegistry(
         IReadOnlyDictionary<string, ProfileConfig> profiles,
         IReadOnlyList<SandboxRule> globalRules,
+        IReadOnlySet<string> disabledTools,
         string defaultProfile)
     {
         ArgumentNullException.ThrowIfNull(profiles);
         ArgumentNullException.ThrowIfNull(globalRules);
+        ArgumentNullException.ThrowIfNull(disabledTools);
         ArgumentException.ThrowIfNullOrWhiteSpace(defaultProfile);
         _profiles = profiles.ToDictionary(
             item => !string.IsNullOrWhiteSpace(item.Key)
@@ -23,7 +25,8 @@ internal sealed class ProfileRegistry
             item => new AgentProfile(
                 item.Key,
                 item.Value ?? throw new ArgumentException("Agent profiles must not be null.", nameof(profiles)),
-                globalRules),
+                globalRules,
+                disabledTools),
             StringComparer.Ordinal);
         _defaultProfile = defaultProfile;
         _ = ResolveForeground(string.Empty);

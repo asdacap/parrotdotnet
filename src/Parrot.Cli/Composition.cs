@@ -100,6 +100,7 @@ internal partial class Composition
                 return new ProfileRegistry(
                     configuration.Profiles,
                     configuration.SandboxRules,
+                    configuration.DisabledTools,
                     configuration.DefaultProfile);
             })
             .Bind().As(Lifetime.Singleton).To<ISystemPromptProvider>(ctx =>

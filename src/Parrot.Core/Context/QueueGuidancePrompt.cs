@@ -15,7 +15,9 @@ internal sealed class QueueGuidancePrompt : ISystemPrompt
     {
         ArgumentNullException.ThrowIfNull(selection);
         var allowedTools = selection.Profile?.AllowedTools;
-        return allowedTools is null || allowedTools.Contains("queue_create", StringComparer.Ordinal)
+        var disabledTools = selection.Profile?.DisabledTools;
+        return (allowedTools is null || allowedTools.Contains("queue_create", StringComparer.Ordinal))
+            && (disabledTools is null || !disabledTools.Contains("queue_create", StringComparer.Ordinal))
             ? Guidance
             : string.Empty;
     }

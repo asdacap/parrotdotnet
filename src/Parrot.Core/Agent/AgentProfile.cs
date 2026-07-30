@@ -7,17 +7,24 @@ internal sealed class AgentProfile
 {
     private readonly string[] _hardRules;
     private readonly string[]? _allowedTools;
+    private readonly string[] _disabledTools;
 
-    public AgentProfile(string id, ProfileConfig configuration, IReadOnlyList<SandboxRule> globalRules)
+    public AgentProfile(
+        string id,
+        ProfileConfig configuration,
+        IReadOnlyList<SandboxRule> globalRules,
+        IReadOnlySet<string> disabledTools)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(globalRules);
+        ArgumentNullException.ThrowIfNull(disabledTools);
         Id = id;
         Prompt = configuration.Prompt;
         Usage = configuration.Usage;
         _hardRules = [.. configuration.HardRules];
         _allowedTools = configuration.AllowedTools is null ? null : [.. configuration.AllowedTools];
+        _disabledTools = [.. disabledTools];
         MaxTurns = configuration.MaxTurns;
         RecursionLimit = configuration.RecursionLimit;
         ReadOnly = configuration.ReadOnly;
@@ -34,6 +41,8 @@ internal sealed class AgentProfile
     public IReadOnlyList<string> HardRules => [.. _hardRules];
 
     public IReadOnlyList<string>? AllowedTools => _allowedTools is null ? null : [.. _allowedTools];
+
+    public IReadOnlyList<string> DisabledTools => [.. _disabledTools];
 
     public int MaxTurns { get; }
 

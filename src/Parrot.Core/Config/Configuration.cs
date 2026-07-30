@@ -12,6 +12,7 @@ internal sealed class Configuration(string path)
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
     private const string DefaultProfileKey = "default_profile";
+    private const string DisabledToolsKey = "disabled_tools";
 
     private readonly Lock _writeLock = new();
 
@@ -37,6 +38,8 @@ internal sealed class Configuration(string path)
 
     public IReadOnlyList<SandboxRule> SandboxRules { get; private set; } = [];
 
+    public IReadOnlySet<string> DisabledTools { get; private set; } = new HashSet<string>(StringComparer.Ordinal);
+
     public IReadOnlyDictionary<string, ProfileConfig> Profiles { get; private set; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
 
@@ -56,6 +59,7 @@ internal sealed class Configuration(string path)
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules"),
+            DisabledTools = ReadDisabledTools(root),
             Profiles = ReadProfiles(root),
             DefaultProfile = ReadDefaultProfile(root),
         };
@@ -478,6 +482,42 @@ internal sealed class Configuration(string path)
         }
 
         return values;
+    }
+
+    private static HashSet<string> ReadDisabledTools(YamlMappingNode root)
+    {
+        if (!Child(root, DisabledToolsKey, out var node))
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        if (node is not YamlMappingNode configured)
+        {
+            throw new InvalidDataException($"{DisabledToolsKey} must be a mapping");
+        }
+
+        var disabled = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in configured.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { } name } || name.Length == 0 ||
+                !string.Equals(name.Trim(), name, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"{DisabledToolsKey} keys must be nonblank trimmed tool names");
+            }
+
+            switch (entry.Value)
+            {
+                case YamlScalarNode { Value: "true" }:
+                    _ = disabled.Add(name);
+                    break;
+                case YamlScalarNode { Value: "false" }:
+                    break;
+                default:
+                    throw new InvalidDataException($"{DisabledToolsKey}.{name} must be true or false");
+            }
+        }
+
+        return disabled;
     }
 
     private static List<SandboxRule> ReadSandboxRules(YamlMappingNode parent, string path)

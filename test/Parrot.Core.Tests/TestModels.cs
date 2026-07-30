@@ -44,7 +44,8 @@ internal static class TestModels
                 []),
         };
 
-    public static ProfileRegistry ProfileRegistry() => new(Profiles, [], ModeRegistry.Build);
+    public static ProfileRegistry ProfileRegistry() =>
+        new(Profiles, [], new HashSet<string>(StringComparer.Ordinal), ModeRegistry.Build);
 
     public static ISystemPromptProvider PromptProvider(string workingDirectory, string configDirectory) =>
         new CompositeSystemPromptProvider(
