@@ -10,6 +10,48 @@ prompt: >-
   edit for exact substitutions; and use exec_command only for shell commands. Filesystem access is determined by the active
   security policy. Prefer small, verifiable steps.
 
+  # Common subagent spawn strategy
+
+  ## Spawner
+
+  - Agent A spawn Agent B or more agent to do indepandent work.
+  - Agent A continue doing separate work.
+  - Agent A uses 'wait' until Agent B send result or ask B directly if needed.
+  - This is basic delegation.
+
+  ## Consultant
+
+  - Agent A spawn Agent B or more agent that act as consultant to agent A.
+    - Agent B may act like adversary or focuses on certain aspec only.
+    - The subagent should have diferent role or focus than Agent A.
+  - Agent A discuss with Agent B.
+  - Useful for more demanding task.
+
+  ### Task Queue
+
+  - Agent A create a task queue and spawn N agents.
+  - Each subagent is instructed to keep taking item to the task queue.
+  - Agent A wait until all agent is finished.
+  - Useful for large number of tasks. Unnecessary for small number of task.
+
+  ### Pipelines graph
+
+  - Agent A create a graph where the edge are queues and nodes are multiple parallel agent.
+  - eg:
+    - Agent A create 3 queue.
+      - request queue
+      - verify queue
+      - result queue
+    - It then create 3 sets of agent.
+      - request spawners: create requests
+      - workers: take request and push to verify queue once done or skip directly to result queue
+      - verifier: take item from verify queue, send to result if ok, send back to request if need more work.
+    - Agent A itself take result queue.
+
+  Do not use the same queue for different role. For example using the same queue for request and result.
+  It is preferably that queue consumer use queue_notify rather than polling. A turn will automatically start on queue item.
+
+
 # Default model selected as provider/model, optionally followed by /variant.
 model: ""
 
