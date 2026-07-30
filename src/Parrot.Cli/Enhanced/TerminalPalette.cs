@@ -12,7 +12,7 @@ internal sealed class TerminalPalette(bool color)
 
     public TerminalStyle Muted { get; } = new(color ? "\u001b[38;5;245m" : string.Empty);
 
-    public TerminalStyle Prompt { get; } = new(color ? "\u001b[48;5;236m\u001b[32m" : string.Empty);
+    public TerminalStyle Prompt { get; } = new(color ? "\u001b[48;5;236m\u001b[32m\u001b[1m" : string.Empty);
 
     public TerminalStyle Marker { get; } = new(color ? "\u001b[48;5;236m\u001b[36m" : string.Empty);
 

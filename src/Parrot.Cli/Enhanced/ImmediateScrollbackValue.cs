@@ -26,7 +26,7 @@ internal sealed class ImmediateScrollbackValue(
     public IReadOnlyList<string> Render(ScrollbackRenderContext context) => Layout switch
     {
         ScrollbackLayout.User => RenderMessage(
-            TerminalIcons.UserPrompt,
+            TerminalIcons.UserMessage,
             lines[0],
             context.Columns,
             context.Palette.UserMessage),

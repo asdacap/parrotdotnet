@@ -175,7 +175,7 @@ internal sealed class TerminalFrameRendererTests
         var final = sequence.Complete([]);
         var other = otherSequence.Append(["other"]);
 
-        _ = await Assert.That(string.Join('|', immediate.Render(context))).IsEqualTo("$ ab|  界");
+        _ = await Assert.That(string.Join('|', immediate.Render(context))).IsEqualTo("◆ ab|  界");
         _ = await Assert.That(immediate.IsCompleted).IsTrue();
         _ = await Assert.That(immediate.Continues(first)).IsFalse();
         _ = await Assert.That(first.IsCompleted).IsFalse();

@@ -67,12 +67,16 @@ internal sealed class EnhancedTerminalFoundationTests
         var user = ImmediateScrollbackValue.User("abcdef界").Render(context);
         var assistant = ImmediateScrollbackValue.Assistant("abcdef界").Render(context);
 
-        _ = await Assert.That(string.Join('|', user)).IsEqualTo("$ abcdef|  界");
+        _ = await Assert.That(string.Join('|', user)).IsEqualTo("◆ abcdef|  界");
         _ = await Assert.That(string.Join('|', assistant)).IsEqualTo("● abcdef|  界");
         _ = await Assert.That(new ModelineValue("build", "working", "provider/model").Render(32))
             .IsEqualTo("─ mode: build ─ provider/model ");
         _ = await Assert.That(new ModelineValue("build", "working", "model").Render(1)).IsEqualTo("─");
         _ = await Assert.That(new ModelineValue("build", "working", "model").Render(2)).IsEqualTo("─");
+
+        var colorPalette = new TerminalPalette(true);
+        _ = await Assert.That(colorPalette.Prompt.Start).IsEqualTo("\u001b[48;5;236m\u001b[32m\u001b[1m");
+        _ = await Assert.That(colorPalette.UserMessage.Start).IsEqualTo("\u001b[32m");
     }
 
     [Test]
@@ -108,7 +112,7 @@ internal sealed class EnhancedTerminalFoundationTests
             string.Empty,
             "after block",
             string.Empty,
-            "$ question",
+            "◆ question",
             string.Empty,
             "● answer",
             string.Empty,

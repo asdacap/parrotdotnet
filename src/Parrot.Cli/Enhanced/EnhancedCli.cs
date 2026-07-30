@@ -25,7 +25,7 @@ internal sealed class EnhancedCli(
     private const string EnableBracketedPaste = "\u001b[?2004h";
     private const string EnableKeyboardEnhancement = "\u001b[>1u";
     private const int MaximumVisibleCompletions = 8;
-    private const string Prompt = "$ ";
+    private const string Prompt = TerminalIcons.UserPrompt + " ";
 
     private readonly Channel<bool> _interrupts =
         Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });

@@ -102,7 +102,7 @@ internal sealed class EnhancedCliTests
         var outputBeforeApproval = driver.Output.Length;
         driver.Input.Type("yes");
         await driver.Sent(2, cancellationToken);
-        await driver.OutputContainsAfter(outputBeforeApproval, "\u001b[2K$ ", cancellationToken);
+        await driver.OutputContainsAfter(outputBeforeApproval, "\u001b[2K❯ ", cancellationToken);
 
         _ = await Assert.That(driver.Invoker.Sent.Count).IsEqualTo(2);
         _ = await Assert.That(driver.Invoker.Sent[0]).IsEqualTo("draft plan");
@@ -919,7 +919,7 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(filtered[filteredAt..]).DoesNotContain("Leave the session");
 
         terminal.Type("\u001b[B\t");
-        await OutputContains(terminal, "$ /model", cancellationToken);
+        await OutputContains(terminal, "❯ /model", cancellationToken);
         _ = await Assert.That(invoker.Sent).IsEmpty();
 
         terminal.Type("\u0001\u000b/exit\r");
