@@ -233,11 +233,13 @@ internal sealed class EnhancedCli(
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var session = new SlashSession(client, initialSession, configuration, !exitOnFirstCompletion, this);
+        var activeSession = initialSession;
         var rendering = Task.CompletedTask;
         var interrupting = Interrupting(session, listening.Token);
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
         var currentInput = (IReadOnlyList<ILiveBufferItem>)[editor.Prompt];
         var currentBody = (IReadOnlyList<ILiveBufferItem>)[];
+        var currentQueueRows = (IReadOnlyList<ILiveBufferItem>)[];
         var usage = new RuntimeUsageTracker();
         var foregroundForModeline = new ForegroundTurn();
         var mainAgentActivity = string.Empty;
@@ -258,9 +260,11 @@ internal sealed class EnhancedCli(
         var updating = updates.Run(listening.Token);
         var spinner = new TerminalSpinner(DrawInitialBody);
         var exiting = false;
-        var firstTurnCompleted = false;
-        var streaming = (CancellationTokenSource?)null;
-        var call = (AsyncServerStreamingCall<Event>?)null;
+        var firstTurnCompleted = !exitOnFirstCompletion;
+        var binding = (EnhancedListenBinding?)null;
+        using var spinnerLifecycle = new SemaphoreSlim(1, 1);
+        var spinnerRendering = Task.CompletedTask;
+        var spinnerStop = (TaskCompletionSource?)null;
         var planRequests = Channel.CreateUnbounded<PlanCompletionRequest>();
         var questionRequests = Channel.CreateUnbounded<(string UserSessionId, PendingQuestion Pending)>();
         var discoveredQuestionRequests = new HashSet<string>(StringComparer.Ordinal);
@@ -268,7 +272,8 @@ internal sealed class EnhancedCli(
         PermissionInteractionPresenter.Session? permissionSession = null;
         var reconcilingPermissions = Task.CompletedTask;
 
-        IReadOnlyList<ILiveBufferItem> Snapshot() => [.. currentBody, currentModeline, .. currentInput];
+        IReadOnlyList<ILiveBufferItem> Snapshot() =>
+            [.. currentBody, .. currentQueueRows, currentModeline, .. currentInput];
 
         ModelineValue CreateModeline()
         {
@@ -326,6 +331,31 @@ internal sealed class EnhancedCli(
                     modelineActivity = string.Empty;
                 }
             }
+        }
+
+        async Task ReplaceQueueRows(IReadOnlyList<QueueState> queues, CancellationToken token)
+        {
+            var rows = queues
+                .Where(queue => queue.Name.Length > 0 && queue.ItemCount > 0)
+                .GroupBy(queue => queue.Name, StringComparer.Ordinal)
+                .Select(group => group.Last())
+                .OrderBy(queue => queue.Name, StringComparer.Ordinal)
+                .Select(queue => (ILiveBufferItem)new QueueLiveBufferItem(
+                    queue.Name,
+                    queue.Description,
+                    queue.ItemCount))
+                .ToArray();
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                currentQueueRows = rows;
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+
+            _ = updates.Invalidate();
         }
 
         async Task UpdateMainAgentActivity(string activity, CancellationToken token)
@@ -446,7 +476,47 @@ internal sealed class EnhancedCli(
             }
         }
 
-        async Task StartTurn(string entered, AsyncServerStreamingCall<Event> activeCall)
+        async Task StopSpinner()
+        {
+            await spinnerLifecycle.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                _ = spinnerStop?.TrySetResult();
+                await spinnerRendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                spinnerStop = null;
+                spinnerRendering = Task.CompletedTask;
+            }
+            finally
+            {
+                _ = spinnerLifecycle.Release();
+            }
+        }
+
+        async Task StartSpinner(CancellationToken token)
+        {
+            await spinnerLifecycle.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                _ = spinnerStop?.TrySetResult();
+                await spinnerRendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                spinnerStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                var stop = spinnerStop;
+                spinnerRendering = spinner.Run(
+                    index => new SpinnerValue("thinking", index),
+                    async (preserve, lifetimeToken) =>
+                    {
+                        await stop.Task.WaitAsync(lifetimeToken).ConfigureAwait(false);
+                        await preserve().ConfigureAwait(false);
+                    },
+                    token);
+            }
+            finally
+            {
+                _ = spinnerLifecycle.Release();
+            }
+        }
+
+        async Task StartTurn(string entered)
         {
             _busy = true;
             var committed = ImmediateScrollbackValue.User(entered);
@@ -463,107 +533,98 @@ internal sealed class EnhancedCli(
                 _ = composing.Release();
             }
 
+            await StartSpinner(binding?.Token ?? cancellationToken).ConfigureAwait(false);
             _ = await client.SendMessageAsync(
                 Message(session.Id, entered), cancellationToken: cancellationToken);
-            if (rendering.IsCompleted)
+        }
+
+        async Task StartRendering(AsyncServerStreamingCall<Event> activeCall, CancellationToken streamToken)
+        {
+            firstTurnCompleted = await RenderRaw(
+                new QueueSnapshotStreamReader(activeCall.ResponseStream, ReplaceQueueRows),
+                ReplaceBody,
+                CommitBody,
+                UpdateMainAgentActivity,
+                async (published, eventToken) =>
             {
-                rendering = spinner.Run(
-                    index => new SpinnerValue("thinking", index),
-                    async (stopSpinner, token) => firstTurnCompleted = await RenderRaw(
-                        activeCall.ResponseStream,
-                        ReplaceBody,
-                        CommitBody,
-                        UpdateMainAgentActivity,
-                        async (published, eventToken) =>
-                        {
-                            var discoverQuestions = published.PayloadCase == Event.PayloadOneofCase.ToolStarted
-                                && string.Equals(
-                                    published.ToolStarted.ToolName,
-                                    "question",
-                                    StringComparison.Ordinal);
-                            await composing.WaitAsync(eventToken).ConfigureAwait(false);
-                            try
-                            {
-                                foregroundForModeline.Observe(published);
-                                usage.Observe(published);
-                                ObserveModelineActivity(published);
-                                currentModeline = CreateModeline();
-                            }
-                            finally
-                            {
-                                _ = composing.Release();
-                            }
+                var discoverQuestions = published.PayloadCase == Event.PayloadOneofCase.ToolStarted
+                    && string.Equals(published.ToolStarted.ToolName, "question", StringComparison.Ordinal);
+                await composing.WaitAsync(eventToken).ConfigureAwait(false);
+                try
+                {
+                    foregroundForModeline.Observe(published);
+                    usage.Observe(published);
+                    ObserveModelineActivity(published);
+                    currentModeline = CreateModeline();
+                }
+                finally
+                {
+                    _ = composing.Release();
+                }
 
-                            if (discoverQuestions)
-                            {
-                                await DiscoverQuestions(
-                                    session.Id,
-                                    questionRequests.Writer,
-                                    discoveredQuestionRequests,
-                                    eventToken).ConfigureAwait(false);
-                            }
+                if (discoverQuestions)
+                {
+                    await DiscoverQuestions(
+                        activeSession.Id,
+                        questionRequests.Writer,
+                        discoveredQuestionRequests,
+                        eventToken).ConfigureAwait(false);
+                }
 
-                            if (published.PayloadCase == Event.PayloadOneofCase.PermissionPending
-                                && permissionSession is { } attached)
-                            {
-                                permissions.Observe(attached, published.PermissionPending);
-                            }
-                        },
-                        async readyToken =>
-                        {
-                            await composing.WaitAsync(readyToken).ConfigureAwait(false);
-                            try
-                            {
-                                mainAgentActivity = string.Empty;
-                                modelineActivity = string.Empty;
-                                currentModeline = CreateModeline();
-                            }
-                            finally
-                            {
-                                _ = composing.Release();
-                            }
+                if (published.PayloadCase == Event.PayloadOneofCase.PermissionPending
+                    && permissionSession is { } attached)
+                {
+                    permissions.Observe(attached, published.PermissionPending);
+                }
+            },
+                async readyToken =>
+            {
+                await composing.WaitAsync(readyToken).ConfigureAwait(false);
+                try
+                {
+                    mainAgentActivity = string.Empty;
+                    modelineActivity = string.Empty;
+                    currentModeline = CreateModeline();
+                }
+                finally
+                {
+                    _ = composing.Release();
+                }
 
-                            _ = updates.Invalidate();
-                        },
-                        stopSpinner,
-                        updates.Invalidate,
-                        async (completed, eventToken) =>
-                        {
-                            var pending = new PlanCompletionRequest(completed);
-                            await planRequests.Writer.WriteAsync(pending, eventToken).ConfigureAwait(false);
-                            await pending.Answered.Task.WaitAsync(eventToken).ConfigureAwait(false);
-                        },
-                        exitOnFirstCompletion,
-                        token).ConfigureAwait(false),
-                    streaming?.Token ?? cancellationToken);
-            }
+                _ = updates.Invalidate();
+            },
+                StopSpinner,
+                updates.Invalidate,
+                async (completed, eventToken) =>
+            {
+                var pending = new PlanCompletionRequest(completed);
+                await planRequests.Writer.WriteAsync(pending, eventToken).ConfigureAwait(false);
+                await pending.Answered.Task.WaitAsync(eventToken).ConfigureAwait(false);
+            },
+                exitOnFirstCompletion,
+                streamToken).ConfigureAwait(false);
         }
 
         async Task ReplaceSession(UserSession replacement, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            if (streaming is null || call is null)
+            if (binding is null)
             {
                 throw new InvalidOperationException("the enhanced session stream is not running");
             }
 
-            var replacementStreaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
-            var replacementCall = client.Listen(
-                new ListenRequest { UserSessionId = replacement.Id },
-                cancellationToken: replacementStreaming.Token);
-            await streaming.CancelAsync().ConfigureAwait(false);
-            await rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            streaming.Dispose();
-            call.Dispose();
-            streaming = replacementStreaming;
-            call = replacementCall;
-            rendering = Task.CompletedTask;
+            await StopSpinner().ConfigureAwait(false);
+            await binding.DisposeAsync().ConfigureAwait(false);
+            await ReplaceQueueRows([], CancellationToken.None).ConfigureAwait(false);
             discoveredQuestionRequests.Clear();
             while (questionRequests.Reader.TryRead(out _))
             {
             }
 
+            activeSession = replacement;
             permissionSession = permissions.Attach(replacement.Id);
+            binding = EnhancedListenBinding.Open(client, replacement.Id, StartRendering, listening.Token);
+            rendering = binding.Rendering;
             usage.Reset();
             foregroundForModeline.Reset();
             modelineTools.Clear();
@@ -613,11 +674,10 @@ internal sealed class EnhancedCli(
         {
             await SetBracketedPaste(output, true, cancellationToken).ConfigureAwait(false);
             await SetKeyboardEnhancement(output, true, cancellationToken).ConfigureAwait(false);
-            streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
-            call = client.Listen(
-                new ListenRequest { UserSessionId = session.Id }, cancellationToken: streaming.Token);
-            permissionSession = permissions.Attach(session.Id);
+            permissionSession = permissions.Attach(activeSession.Id);
             reconcilingPermissions = permissions.Reconcile(listening.Token);
+            binding = EnhancedListenBinding.Open(client, activeSession.Id, StartRendering, listening.Token);
+            rendering = binding.Rendering;
             if (initialSession.Loaded && !exitOnFirstCompletion)
             {
                 await renderer.Commit(
@@ -637,7 +697,7 @@ internal sealed class EnhancedCli(
             await DrawPrompt(cancellationToken).ConfigureAwait(false);
             if (initialPrompt.Length > 0)
             {
-                await StartTurn(initialPrompt, call).ConfigureAwait(false);
+                await StartTurn(initialPrompt).ConfigureAwait(false);
             }
 
             while (!cancellationToken.IsCancellationRequested && !exiting)
@@ -780,7 +840,7 @@ internal sealed class EnhancedCli(
                         }
                         else
                         {
-                            await StartTurn(entered, call).ConfigureAwait(false);
+                            await StartTurn(entered).ConfigureAwait(false);
                         }
                     }
                 }
@@ -799,6 +859,7 @@ internal sealed class EnhancedCli(
                 _replaceSession = null;
                 interrupts.Remove();
                 _ = _interrupts.Writer.TryComplete();
+                await StopSpinner().ConfigureAwait(false);
                 await listening.CancelAsync().ConfigureAwait(false);
                 try
                 {
@@ -818,8 +879,11 @@ internal sealed class EnhancedCli(
             }
             finally
             {
-                streaming?.Dispose();
-                call?.Dispose();
+                if (binding is not null)
+                {
+                    await binding.DisposeAsync().ConfigureAwait(false);
+                }
+
                 await SetKeyboardEnhancement(output, false, CancellationToken.None).ConfigureAwait(false);
                 await SetBracketedPaste(output, false, CancellationToken.None).ConfigureAwait(false);
             }
@@ -1037,7 +1101,6 @@ internal sealed class EnhancedCli(
         bool exitOnFirstCompletion,
         CancellationToken cancellationToken)
     {
-        var spinning = true;
         var foreground = new ForegroundTurn();
         using var activity = new RawActivityView(
             draw,
@@ -1075,12 +1138,7 @@ internal sealed class EnhancedCli(
                     }
 
                     await observe(published, token).ConfigureAwait(false);
-                    if (spinning)
-                    {
-                        spinning = false;
-                        await stopSpinner().ConfigureAwait(false);
-                    }
-
+                    await stopSpinner().ConfigureAwait(false);
                     await activity.Prepare(published, token).ConfigureAwait(false);
                 }
 
@@ -1132,6 +1190,10 @@ internal sealed class EnhancedCli(
                 }
             }
 
+            return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
             return false;
         }
         finally

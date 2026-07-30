@@ -292,6 +292,11 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   independent store instances/processes share one read-modify-write discipline.
   The queue item is removed only after a root transaction durably admits its
   stable notification id, allowing retry after either durability domain fails.
+  The store also owns a typed replay-latest visible-inventory feed containing
+  only queue name, description, and item count. It emits complete snapshots of
+  non-empty queues after durable count changes; queue contents and internal
+  delivery metadata never cross that boundary. Its in-memory revision orders
+  one hosted feed incarnation and is not durable history or a reconnect cursor.
 
 ### `EventBroker` — rank 3, M1
 
@@ -827,6 +832,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **`Listen` is indefinite.** It ends when the client stops listening, not when
   a turn finishes, because a subagent keeps publishing long afterwards. The
   client decides when it has heard enough; `BasicCli` cancels on `TurnEnded`.
+  `UserSession` merges the live-only agent broker with its independent
+  replay-latest queue inventory feed. Every listener receives a complete initial
+  inventory, including an explicit empty snapshot, without changing
+  `EventBroker` into a historical replay mechanism.
 - **The model is session state, not a message property.** Selection belongs to
   `AgentSession`, so changing it is an explicit `UpdateSession` rather than a
   different value on the next prompt. A session is created explicitly too:
@@ -927,7 +936,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   accumulates the foreground assistant text for one turn. The **live terminal
   renderer** owns display-width layout, sanitisation, bounded mutable rows,
   serialized ANSI cursor operations, the raw-mode thinking animation, and
-  promotion of stable rows into ordinary terminal scrollback.
+  promotion of stable rows into ordinary terminal scrollback. It also owns a
+  persistent queue-inventory row layer between transient turn content and the
+  modeline/editor. Queue rows use fixed retention and survive turn redraws.
 - **Inbound** the same event stream and payloads as `BasicCli`; every event is
   rendered so admission, promotion, turn, retry, provider, tool, agent, and
   completion activity remains observable. In raw mode event activity replaces
@@ -940,7 +951,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Boundary** no. Both sub-components remain private to the
   `Parrot.Cli.Enhanced` package; neither is shared with `BasicCli` or moved into
   the domain.
-- **Note** complete physical assistant rows become immutable scrollback while
+- **Note** enhanced mode starts its sole stream consumer immediately and keeps
+  it active while idle and across turns. Queue snapshots are demultiplexed
+  before turn rendering, so they cannot stop thinking animation, split text or
+  reasoning, establish foreground hierarchy, or enter activity/scrollback.
+  Complete physical assistant rows become immutable scrollback while
   only the unfinished final row remains redrawable. No alternate screen is
   used. On a supported terminal the raw-mode editor provides rune-aware cursor
   movement, multiline input, bracketed paste, editing controls, and a modeline;

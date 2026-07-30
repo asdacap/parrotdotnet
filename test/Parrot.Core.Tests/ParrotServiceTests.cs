@@ -4,6 +4,7 @@ using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Protocol;
+using Parrot.Queues;
 using Parrot.State;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -423,6 +424,36 @@ internal sealed class ParrotServiceTests : IDisposable
 
         _ = await Assert.That(create?.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(send?.StatusCode).IsEqualTo(StatusCode.Unavailable);
+    }
+
+    [Test]
+    public async Task Listener_receives_the_current_queue_inventory_first(CancellationToken cancellationToken)
+    {
+        var store = Store();
+        await using var service = Service(store);
+        var context = new InProcessServerCallContext(cancellationToken);
+        var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
+        var resources = new UserSessionResources(
+            new StatePaths(_root, _root, _root),
+            UserSessionId.Parse(session.Id),
+            ProjectWorkspace.FromLaunchDirectory(Path.Combine(_root, "work")));
+        using (var queues = new QueueStore(resources.QueueDirectory))
+        {
+            _ = queues.Create("release", "release tasks");
+            _ = queues.Push("release", ["one", "two"], QueueDirection.Back);
+        }
+
+        var stream = new ChannelStreamWriter<Event>();
+        var listening = service.Listen(new ListenRequest { UserSessionId = session.Id }, stream, context);
+
+        _ = await Assert.That(await stream.Reader.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(stream.Reader.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues).HasSingleItem();
+        _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues[0].Name).IsEqualTo("release");
+        _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues[0].ItemCount).IsEqualTo(2);
+
+        await service.DisposeAsync();
+        await listening;
     }
 
     [Test]

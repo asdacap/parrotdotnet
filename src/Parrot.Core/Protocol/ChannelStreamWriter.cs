@@ -23,6 +23,8 @@ internal sealed class ChannelStreamWriter<T> : IServerStreamWriter<T>, IAsyncStr
 
     public Task WriteAsync(T message) => _messages.Writer.WriteAsync(message).AsTask();
 
+    public bool TryWrite(T message) => _messages.Writer.TryWrite(message);
+
     // The cancellable overload is a default interface method that throws unless
     // the implementation provides it. A channel write takes a token natively.
     public Task WriteAsync(T message, CancellationToken cancellationToken) =>

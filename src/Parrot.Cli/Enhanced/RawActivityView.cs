@@ -151,6 +151,11 @@ internal sealed class RawActivityView(
     {
         ArgumentNullException.ThrowIfNull(published);
 
+        if (published.PayloadCase == Event.PayloadOneofCase.QueueSnapshot)
+        {
+            return;
+        }
+
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {

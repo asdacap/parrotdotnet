@@ -10,7 +10,9 @@ internal sealed class ScriptedInvoker : CallInvoker
 {
     // The production stream, not a second implementation of it: both halves of
     // an in-process stream are what ChannelStreamWriter already is.
-    private readonly Dictionary<string, ChannelStreamWriter<Event>> _events = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ChannelStreamWriter<Event>> _activeEvents = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<Event>> _eventsAwaitingListeners = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<QueueState>> _initialQueues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingQuestion>> _pendingQuestions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingPermission>> _pendingPermissions = new(StringComparer.Ordinal);
     private readonly List<string> _sent = [];
@@ -188,23 +190,31 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public void SetInitialQueues(string userSessionId, params QueueState[] queues)
+    {
+        lock (_gate)
+        {
+            _initialQueues[userSessionId] = [.. queues.Select(queue => queue.Clone())];
+        }
+    }
+
     public Task Publish(Event published)
     {
         lock (_gate)
         {
-            var sessionIds = _events.Keys.ToArray();
-            if (sessionIds.Length == 1)
+            if (_activeEvents.Count == 1)
             {
-                return _events[sessionIds[0]].WriteAsync(published);
+                return _activeEvents.Values.Single().WriteAsync(published);
             }
 
-            if (sessionIds.Length == 0 && _created.Count <= 1)
+            if (_activeEvents.Count == 0 && _created.Count <= 1)
             {
-                return GetEvents("session-1").WriteAsync(published);
+                GetEventsAwaitingListeners("session-1").Add(published);
+                return Task.CompletedTask;
             }
 
             throw new InvalidOperationException(
-                "a user session must be specified when the invoker does not have exactly one stream");
+                "a user session must be specified when the invoker does not have exactly one active stream");
         }
     }
 
@@ -212,7 +222,13 @@ internal sealed class ScriptedInvoker : CallInvoker
     {
         lock (_gate)
         {
-            return GetEvents(userSessionId).WriteAsync(published);
+            if (_activeEvents.TryGetValue(userSessionId, out var events))
+            {
+                return events.WriteAsync(published);
+            }
+
+            GetEventsAwaitingListeners(userSessionId).Add(published);
+            return Task.CompletedTask;
         }
     }
 
@@ -400,7 +416,22 @@ internal sealed class ScriptedInvoker : CallInvoker
         ChannelStreamWriter<Event> events;
         lock (_gate)
         {
-            events = GetEvents(listen.UserSessionId);
+            events = new ChannelStreamWriter<Event>();
+            _activeEvents[listen.UserSessionId] = events;
+            if (!events.TryWrite(InitialQueueSnapshot(listen.UserSessionId)))
+            {
+                throw new InvalidOperationException("the scripted stream rejected its initial queue snapshot");
+            }
+
+            foreach (var awaiting in GetEventsAwaitingListeners(listen.UserSessionId))
+            {
+                if (!events.TryWrite(awaiting))
+                {
+                    throw new InvalidOperationException("the scripted stream rejected a queued event");
+                }
+            }
+
+            _ = _eventsAwaitingListeners.Remove(listen.UserSessionId);
         }
 
         if (events.Reader is not IAsyncStreamReader<TResponse> stream)
@@ -413,7 +444,7 @@ internal sealed class ScriptedInvoker : CallInvoker
             Task.FromResult(new Metadata()),
             static () => Status.DefaultSuccess,
             static () => [],
-            static () => { });
+            () => ReleaseEvents(listen.UserSessionId, events));
     }
 
     public override TResponse BlockingUnaryCall<TRequest, TResponse>(
@@ -436,12 +467,42 @@ internal sealed class ScriptedInvoker : CallInvoker
             static () => [],
             static () => { });
 
-    private ChannelStreamWriter<Event> GetEvents(string userSessionId)
+    private Event InitialQueueSnapshot(string userSessionId)
     {
-        if (!_events.TryGetValue(userSessionId, out var events))
+        var snapshot = new QueueSnapshot
         {
-            events = new ChannelStreamWriter<Event>();
-            _events.Add(userSessionId, events);
+            Revision = 0,
+            ChunkIndex = 0,
+            FinalChunk = true,
+        };
+        if (_initialQueues.TryGetValue(userSessionId, out var queues))
+        {
+            snapshot.Queues.Add(queues.Select(queue => queue.Clone()));
+        }
+
+        return new Event { QueueSnapshot = snapshot };
+    }
+
+    private void ReleaseEvents(string userSessionId, ChannelStreamWriter<Event> events)
+    {
+        lock (_gate)
+        {
+            if (_activeEvents.TryGetValue(userSessionId, out var active)
+                && ReferenceEquals(active, events))
+            {
+                _ = _activeEvents.Remove(userSessionId);
+            }
+        }
+
+        events.Complete();
+    }
+
+    private List<Event> GetEventsAwaitingListeners(string userSessionId)
+    {
+        if (!_eventsAwaitingListeners.TryGetValue(userSessionId, out var events))
+        {
+            events = [];
+            _eventsAwaitingListeners.Add(userSessionId, events);
         }
 
         return events;

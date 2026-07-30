@@ -984,6 +984,112 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Queue_inventory_is_visible_before_the_first_turn(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        driver.Invoker.SetInitialQueues(
+            "session-1",
+            new QueueState { Name = "release", Description = "release tasks", ItemCount = 3 });
+
+        var driving = driver.Drive(cancellationToken);
+
+        await driver.OutputContains("queue: release tasks · 3 items", cancellationToken);
+        driver.Input.End();
+        _ = await driving;
+    }
+
+    [Test]
+    public async Task Queue_inventory_keeps_more_than_ten_fixed_rows(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        driver.Invoker.SetInitialQueues(
+            "session-1",
+            [.. Enumerable.Range(1, 12).Select(index => new QueueState
+            {
+                Name = $"queue-{index:D2}",
+                Description = $"work list {index:D2}",
+                ItemCount = index,
+            })]);
+
+        var driving = driver.Drive(cancellationToken);
+
+        await driver.OutputContains("queue: work list 12 · 12 items", cancellationToken);
+        driver.Input.End();
+        _ = await driving;
+    }
+
+    [Test]
+    public async Task Queue_inventory_updates_while_turn_text_is_streaming(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("prompt");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event
+        {
+            Id = "start",
+            AgentSessionId = "agent",
+            TurnStarted = new TurnStarted { Model = "model" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            Id = "text",
+            AgentSessionId = "agent",
+            TextChunk = new TextChunk { Fragment = "partial answer" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            QueueSnapshot = new QueueSnapshot
+            {
+                Revision = 1,
+                FinalChunk = true,
+                Queues = { new QueueState { Name = "work", Description = "pending work", ItemCount = 2 } },
+            },
+        });
+
+        await driver.OutputContains("partial answer", cancellationToken);
+        await driver.OutputContains("queue: pending work · 2 items", cancellationToken);
+        await driver.Invoker.Publish(new Event
+        {
+            QueueSnapshot = new QueueSnapshot { Revision = 2, FinalChunk = true },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            Id = "end",
+            AgentSessionId = "agent",
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
+        });
+
+        driver.Input.End();
+        _ = await driving;
+    }
+
+    [Test]
+    public async Task Spinner_rearms_for_each_turn_and_shutdown_joins_the_active_spinner(
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("first prompt");
+        await driver.Sent(1, cancellationToken);
+        await driver.OutputContains("thinking", cancellationToken);
+        await driver.Invoker.Publish(
+            new Event { Id = "start-1", AgentSessionId = "agent", TurnStarted = new TurnStarted { Model = "model" } });
+        await driver.Invoker.Publish(
+            new Event { Id = "ended-1", AgentSessionId = "agent", TurnEnded = new TurnEnded { FinishReason = "stop" } });
+
+        var secondTurnOutput = driver.Output.Length;
+        driver.Input.Type("second prompt");
+        await driver.Sent(2, cancellationToken);
+        await driver.OutputContainsAfter(secondTurnOutput, "thinking", cancellationToken);
+
+        driver.Input.End();
+        _ = await driving.WaitAsync(cancellationToken);
+    }
+
+    [Test]
     public async Task Interactive_chat_accepts_another_turn_after_a_failure(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);

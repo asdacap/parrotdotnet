@@ -16,7 +16,10 @@ internal sealed class QueueStore(string directory) : IDisposable
 
     private const UnixFileMode FilePermissions = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
+    private readonly QueueInventoryFeed _inventory = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private Dictionary<string, QueueState>? _inventoryIndex;
+    private ulong _inventoryRevision;
 
     public string Directory { get; } = Provision(directory);
 
@@ -75,6 +78,7 @@ internal sealed class QueueStore(string directory) : IDisposable
             }
 
             Write(path, metadata, stored);
+            PublishInventoryLocked(metadata, stored.Count);
             return ToInfo(path, metadata, stored.Count);
         }
         catch (OperationCanceledException failure)
@@ -101,7 +105,9 @@ internal sealed class QueueStore(string directory) : IDisposable
         try
         {
             using var held = await AcquireFileLockAsync(path, cancellationToken).ConfigureAwait(false);
-            return TakeLocked(path, name, count, direction);
+            var taken = TakeLocked(path, name, count, direction);
+            PublishInventoryLocked(taken.Info);
+            return taken;
         }
         finally
         {
@@ -129,6 +135,7 @@ internal sealed class QueueStore(string directory) : IDisposable
             }
 
             var taken = TakeLocked(path, name, count, direction);
+            PublishInventoryLocked(taken.Info);
             return new QueueTryTakeResult(true, taken.Items, taken.Info);
         }
         finally
@@ -262,7 +269,9 @@ internal sealed class QueueStore(string directory) : IDisposable
                 }
 
                 items.RemoveAt(0);
-                Write(path, metadata with { DeliveryId = null }, items);
+                metadata = metadata with { DeliveryId = null };
+                Write(path, metadata, items);
+                PublishInventoryLocked(metadata, items.Count);
                 return true;
             }
 
@@ -274,7 +283,25 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
     }
 
-    public void Dispose() => _gate.Dispose();
+    public QueueInventorySubscription SubscribeInventory()
+    {
+        _gate.Wait();
+        try
+        {
+            InitializeInventoryLocked();
+            return _inventory.Subscribe(CaptureInventoryLocked());
+        }
+        finally
+        {
+            _ = _gate.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        _inventory.Dispose();
+        _gate.Dispose();
+    }
 
     private static string Provision(string directory)
     {
@@ -670,6 +697,78 @@ internal sealed class QueueStore(string directory) : IDisposable
             ErrorFileNotFound => new QueueFileLock(string.Empty),
             _ => throw new QueueException("queue: could not acquire lock", new Win32Exception(error)),
         };
+    }
+
+    private QueueInventorySnapshot CaptureInventoryLocked()
+    {
+        var queues = _inventoryIndex?.Values
+            .OrderBy(state => state.Name, StringComparer.Ordinal)
+            .ToArray() ?? [];
+        return new(_inventoryRevision, queues);
+    }
+
+    private void InitializeInventoryLocked()
+    {
+        if (_inventoryIndex is not null)
+        {
+            return;
+        }
+
+        var index = new Dictionary<string, QueueState>(StringComparer.Ordinal);
+        if (System.IO.Directory.Exists(Directory))
+        {
+            foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*.jsonl")
+                         .Order(StringComparer.Ordinal))
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                ValidateName(name);
+                var (metadata, items) = Read(path, name);
+                if (items.Count > 0)
+                {
+                    index.Add(name, new(name, metadata.Description ?? string.Empty, items.Count));
+                }
+            }
+        }
+
+        _inventoryIndex = index;
+    }
+
+    private void PublishInventoryLocked(QueueMetadata metadata, int itemCount) =>
+        PublishInventoryLocked(ToInfo(string.Empty, metadata, itemCount));
+
+    private void PublishInventoryLocked(QueueInfo info)
+    {
+        if (_inventoryIndex is null)
+        {
+            return;
+        }
+
+        var changed = info.Size > 0
+            ? SetInventoryLocked(new(info.Name, info.Description, info.Size))
+            : _inventoryIndex.Remove(info.Name);
+        if (!changed)
+        {
+            return;
+        }
+
+        _inventoryRevision++;
+        _inventory.Publish(CaptureInventoryLocked());
+    }
+
+    private bool SetInventoryLocked(QueueState state)
+    {
+        if (_inventoryIndex is null)
+        {
+            return false;
+        }
+
+        if (_inventoryIndex.TryGetValue(state.Name, out var current) && current == state)
+        {
+            return false;
+        }
+
+        _inventoryIndex[state.Name] = state;
+        return true;
     }
 
     private string ResolvePath(string name)
