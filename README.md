@@ -346,7 +346,10 @@ activity, and modeline remain visible. Use Up/Down to navigate, type to filter,
 Enter to accept, and Escape or Ctrl-C to dismiss. In the enhanced chat prompt,
 type `/` to show slash-command suggestions, type to filter them, use Up/Down to
 highlight one, and press Tab to complete it; Enter then runs the completed
-command.
+command. In the enhanced main chat input, Shift+Enter inserts a newline. Enter
+submits after 100ms of quiet; typing or editing during that grace period instead
+inserts a newline, allowing fast unbracketed multiline messages. The basic CLI
+remains line-based.
 
 > **`git add` new files before `nix build`/`nix run`.** A flake sees only
 > git-tracked files, so an untracked `.cs` file is silently dropped from the

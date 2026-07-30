@@ -13,6 +13,86 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedCliTests
 {
     [Test]
+    public async Task Main_prompt_submits_after_one_hundred_milliseconds_of_quiet(
+        CancellationToken cancellationToken)
+    {
+        var delay = new ControlledSubmitDelay();
+        using var driver = new CliLifecycleDriver(
+            true,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            delay.Wait);
+        var running = driver.Drive(cancellationToken);
+
+        driver.Input.Type("hello");
+        var pending = await delay.Read(cancellationToken);
+
+        _ = await Assert.That(pending.Interval).IsEqualTo(TimeSpan.FromMilliseconds(100));
+        _ = await Assert.That(driver.Invoker.Sent).IsEmpty();
+
+        pending.Release();
+        await driver.Sent(1, cancellationToken);
+        driver.Input.End();
+        _ = await running;
+
+        _ = await Assert.That(driver.Invoker.Sent).HasSingleItem();
+        _ = await Assert.That(driver.Invoker.Sent[0]).IsEqualTo("hello");
+    }
+
+    [Test]
+    public async Task Fast_lines_are_combined_before_the_quiet_submit(CancellationToken cancellationToken)
+    {
+        var delay = new ControlledSubmitDelay();
+        using var driver = new CliLifecycleDriver(
+            true,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            delay.Wait);
+        var running = driver.Drive(cancellationToken);
+
+        driver.Input.Type("first");
+        var first = await delay.Read(cancellationToken);
+        driver.Input.Type("second");
+        var second = await delay.Read(cancellationToken);
+
+        await first.Canceled.WaitAsync(cancellationToken);
+        _ = await Assert.That(driver.Invoker.Sent).IsEmpty();
+
+        second.Release();
+        await driver.Sent(1, cancellationToken);
+        driver.Input.End();
+        _ = await running;
+
+        _ = await Assert.That(driver.Invoker.Sent).HasSingleItem();
+        _ = await Assert.That(driver.Invoker.Sent[0]).IsEqualTo("first\nsecond");
+    }
+
+    [Test]
+    public async Task Repeated_fast_enter_preserves_an_interior_blank_line(CancellationToken cancellationToken)
+    {
+        var delay = new ControlledSubmitDelay();
+        using var driver = new CliLifecycleDriver(
+            true,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            delay.Wait);
+        var running = driver.Drive(cancellationToken);
+
+        driver.Input.Type("first");
+        var first = await delay.Read(cancellationToken);
+        driver.Input.Type(string.Empty);
+        var blank = await delay.Read(cancellationToken);
+        driver.Input.Type("second");
+        var second = await delay.Read(cancellationToken);
+
+        await first.Canceled.WaitAsync(cancellationToken);
+        await blank.Canceled.WaitAsync(cancellationToken);
+        second.Release();
+        await driver.Sent(1, cancellationToken);
+        driver.Input.End();
+        _ = await running;
+
+        _ = await Assert.That(driver.Invoker.Sent[0]).IsEqualTo("first\n\nsecond");
+    }
+
+    [Test]
     [Arguments("\u001b")]
     [Arguments("\u0003")]
     public async Task Interrupt_keys_preserve_draft_input(string key, CancellationToken cancellationToken)
@@ -30,7 +110,8 @@ internal sealed class EnhancedCliTests
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
             terminal,
-            Presenters());
+            Presenters(),
+            ImmediateDelay());
         var running = cli.Run(cancellationToken);
 
         terminal.Type("first prompt\r");
@@ -389,7 +470,8 @@ internal sealed class EnhancedCliTests
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
             terminal,
-            Presenters()).RenderTurn(stream.Reader, cancellationToken);
+            Presenters(),
+            ImmediateDelay()).RenderTurn(stream.Reader, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
@@ -442,7 +524,8 @@ internal sealed class EnhancedCliTests
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
             terminal,
-            Presenters()).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
+            Presenters(),
+            ImmediateDelay()).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))
@@ -909,7 +992,8 @@ internal sealed class EnhancedCliTests
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
             terminal,
-            Presenters());
+            Presenters(),
+            ImmediateDelay());
         var running = cli.Run(cancellationToken);
 
         terminal.Type("/m");
@@ -1128,6 +1212,11 @@ internal sealed class EnhancedCliTests
         var driving = driver.Drive(cancellationToken);
 
         driver.Input.Type("/clear");
+        if (enhanced)
+        {
+            await driver.OutputContains("Select a provider", cancellationToken);
+        }
+
         driver.Input.Type("provider");
         driver.Input.Type("model");
         driver.Input.Type("query");
@@ -1200,9 +1289,13 @@ internal sealed class EnhancedCliTests
             new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
             ["provider"],
             terminal,
-            Presenters()).RenderTurn(stream.Reader, cancellationToken);
+            Presenters(),
+            ImmediateDelay()).RenderTurn(stream.Reader, cancellationToken);
         return (completed, output.ToString(), error.ToString());
     }
+
+    private static Func<TimeSpan, CancellationToken, Task> ImmediateDelay() =>
+        static (_, cancellationToken) => Task.Delay(1, cancellationToken);
 
     private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
 
@@ -1245,5 +1338,50 @@ internal sealed class EnhancedCliTests
         }
 
         return count;
+    }
+
+    private sealed class ControlledSubmitDelay
+    {
+        private readonly Channel<PendingDelay> _pending = Channel.CreateUnbounded<PendingDelay>();
+
+        public Task Wait(TimeSpan interval, CancellationToken cancellationToken)
+        {
+            var pending = new PendingDelay(interval, cancellationToken);
+            if (!_pending.Writer.TryWrite(pending))
+            {
+                throw new InvalidOperationException("unable to queue the submit delay");
+            }
+
+            return pending.Wait();
+        }
+
+        public ValueTask<PendingDelay> Read(CancellationToken cancellationToken) =>
+            _pending.Reader.ReadAsync(cancellationToken);
+    }
+
+    private sealed class PendingDelay(
+        TimeSpan interval,
+        CancellationToken cancellationToken)
+    {
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Canceled { get; } = ObserveCancellation(cancellationToken);
+
+        public TimeSpan Interval { get; } = interval;
+
+        public void Release() => _released.TrySetResult();
+
+        public Task Wait() => _released.Task.WaitAsync(cancellationToken);
+
+        private static async Task ObserveCancellation(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+        }
     }
 }

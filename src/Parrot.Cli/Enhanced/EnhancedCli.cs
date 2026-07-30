@@ -18,7 +18,8 @@ internal sealed class EnhancedCli(
     Configuration configuration,
     IReadOnlyList<string> providerIds,
     ITerminal terminal,
-    ToolPresenterRegistry toolPresenters) : IInterruptListener, ISlashSessionBinding
+    ToolPresenterRegistry toolPresenters,
+    Func<TimeSpan, CancellationToken, Task> delaySubmit) : IInterruptListener, ISlashSessionBinding
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
     private const string DisableKeyboardEnhancement = "\u001b[<u";
@@ -26,6 +27,7 @@ internal sealed class EnhancedCli(
     private const string EnableKeyboardEnhancement = "\u001b[>1u";
     private const int MaximumVisibleCompletions = 8;
     private const string Prompt = TerminalIcons.UserPrompt + " ";
+    private static readonly TimeSpan SubmitDelay = TimeSpan.FromMilliseconds(100);
 
     private readonly Channel<bool> _interrupts =
         Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
@@ -261,6 +263,7 @@ internal sealed class EnhancedCli(
         var spinner = new TerminalSpinner(DrawInitialBody);
         var exiting = false;
         var firstTurnCompleted = !exitOnFirstCompletion;
+        var pendingSubmit = (PendingSubmit?)null;
         var binding = (EnhancedListenBinding?)null;
         using var spinnerLifecycle = new SemaphoreSlim(1, 1);
         var spinnerRendering = Task.CompletedTask;
@@ -668,6 +671,85 @@ internal sealed class EnhancedCli(
             return ReplaceInput(items, token);
         }
 
+        void DeferSubmit() => pendingSubmit = new PendingSubmit(delaySubmit, SubmitDelay, cancellationToken);
+
+        async Task ClearDeferredSubmit(bool cancel)
+        {
+            var pending = pendingSubmit ?? throw new InvalidOperationException("there is no deferred submit");
+            pendingSubmit = null;
+            if (cancel)
+            {
+                await pending.Cancel().ConfigureAwait(false);
+            }
+            else
+            {
+                await pending.Complete().ConfigureAwait(false);
+            }
+        }
+
+        async Task ApplyPromptKey(TerminalKey key, bool defer)
+        {
+            if (defer && key.Kind == TerminalKeyKind.Submit)
+            {
+                DeferSubmit();
+                await DrawPrompt(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            string? entered;
+            if (key.Kind == TerminalKeyKind.Up && completion.Commands.Count > 0)
+            {
+                completion.SelectPrevious();
+                entered = null;
+            }
+            else if (key.Kind == TerminalKeyKind.Down && completion.Commands.Count > 0)
+            {
+                completion.SelectNext();
+                entered = null;
+            }
+            else if (key.Kind == TerminalKeyKind.Complete)
+            {
+                var accepted = completion.Accept(editor.Prompt.Text);
+                if (accepted is not null)
+                {
+                    editor.Replace(accepted);
+                }
+
+                entered = null;
+            }
+            else
+            {
+                entered = editor.Apply(key);
+            }
+
+            await DrawPrompt(cancellationToken).ConfigureAwait(false);
+            if (entered is null || entered.Length == 0)
+            {
+                return;
+            }
+
+            if (entered.StartsWith('/'))
+            {
+                try
+                {
+                    await commands.Dispatch(entered, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
+                }
+
+                if (applicationExit.IsCancellationRequested)
+                {
+                    exiting = true;
+                }
+            }
+            else
+            {
+                await StartTurn(entered).ConfigureAwait(false);
+            }
+        }
+
         interrupts.Install(this);
 
         try
@@ -745,38 +827,54 @@ internal sealed class EnhancedCli(
                 var questionTask = questionRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
                 var permissionTask = permissions.WaitToRead(cancellationToken).AsTask();
                 var completionTask = exitOnFirstCompletion ? rendering : Task.Delay(Timeout.Infinite, cancellationToken);
+                var submitTask = pendingSubmit?.Task ?? Task.Delay(Timeout.Infinite, cancellationToken);
                 _ = await Task.WhenAny(
                     keyTask,
                     planTask,
                     questionTask,
                     permissionTask,
                     completionTask,
-                    updating).ConfigureAwait(false);
-                if (!keyTask.IsCompleted)
+                    updating,
+                    submitTask).ConfigureAwait(false);
+                var key = (TerminalKey?)null;
+                if (keyTask.IsCompletedSuccessfully)
+                {
+                    key = await keyTask.ConfigureAwait(false);
+                }
+                else
                 {
                     await reading.CancelAsync().ConfigureAwait(false);
                     try
                     {
-                        _ = await keyTask.ConfigureAwait(false);
+                        key = await keyTask.ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {
+                    }
+                }
+
+                if (key is null)
+                {
+                    if (pendingSubmit?.Task.IsCompleted == true)
+                    {
+                        await ClearDeferredSubmit(false).ConfigureAwait(false);
+                        await ApplyPromptKey(new TerminalKey(TerminalKeyKind.Submit), false).ConfigureAwait(false);
                     }
 
                     continue;
                 }
 
-                var key = await keyTask.ConfigureAwait(false);
-                if (key.Kind is TerminalKeyKind.Escape or TerminalKeyKind.Interrupt)
+                var received = key.Value;
+                if (received.Kind is TerminalKeyKind.Escape or TerminalKeyKind.Interrupt)
                 {
                     _ = Interrupted();
                 }
-                else if (key.Kind == TerminalKeyKind.EndOfFile && editor.IsEmpty)
+                else if (received.Kind == TerminalKeyKind.EndOfFile && editor.IsEmpty)
                 {
                     exiting = true;
                     break;
                 }
-                else if (key.Kind == TerminalKeyKind.Mode)
+                else if (received.Kind == TerminalKeyKind.Mode)
                 {
                     var mode = await NextMode(client, session.Mode, dialog, cancellationToken)
                         .ConfigureAwait(false);
@@ -785,64 +883,20 @@ internal sealed class EnhancedCli(
                         await session.SelectMode(mode, cancellationToken).ConfigureAwait(false);
                     }
                 }
+                else if (received.Kind == TerminalKeyKind.EndOfFile)
+                {
+                    await ApplyPromptKey(received, false).ConfigureAwait(false);
+                }
                 else
                 {
-                    string? entered;
-                    if (key.Kind == TerminalKeyKind.Up && completion.Commands.Count > 0)
+                    if (pendingSubmit is not null)
                     {
-                        completion.SelectPrevious();
-                        entered = null;
-                    }
-                    else if (key.Kind == TerminalKeyKind.Down && completion.Commands.Count > 0)
-                    {
-                        completion.SelectNext();
-                        entered = null;
-                    }
-                    else if (key.Kind == TerminalKeyKind.Complete)
-                    {
-                        var accepted = completion.Accept(editor.Prompt.Text);
-                        if (accepted is not null)
-                        {
-                            editor.Replace(accepted);
-                        }
-
-                        entered = null;
-                    }
-                    else
-                    {
-                        entered = editor.Apply(key);
+                        await ClearDeferredSubmit(true).ConfigureAwait(false);
+                        _ = editor.Apply(new TerminalKey(TerminalKeyKind.Newline));
+                        completion.Refresh(editor.Prompt.Text);
                     }
 
-                    await DrawPrompt(cancellationToken).ConfigureAwait(false);
-                    if (entered is not null)
-                    {
-                        if (entered.Length == 0)
-                        {
-                            continue;
-                        }
-
-                        if (entered.StartsWith('/'))
-                        {
-                            try
-                            {
-                                await commands.Dispatch(entered, cancellationToken).ConfigureAwait(false);
-                            }
-                            finally
-                            {
-                                await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
-                            }
-
-                            if (applicationExit.IsCancellationRequested)
-                            {
-                                exiting = true;
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            await StartTurn(entered).ConfigureAwait(false);
-                        }
-                    }
+                    await ApplyPromptKey(received, true).ConfigureAwait(false);
                 }
 
                 if (!_busy && !exiting)
@@ -856,6 +910,11 @@ internal sealed class EnhancedCli(
         {
             try
             {
+                if (pendingSubmit is not null)
+                {
+                    await ClearDeferredSubmit(true).ConfigureAwait(false);
+                }
+
                 _replaceSession = null;
                 interrupts.Remove();
                 _ = _interrupts.Writer.TryComplete();

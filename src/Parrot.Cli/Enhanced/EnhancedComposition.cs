@@ -19,6 +19,9 @@ internal partial class EnhancedComposition
             .Arg<IReadOnlyList<string>>("providerIds")
             .Arg<EnhancedChatRequest>("request")
             .Arg<ITerminal>("terminal")
+            .Bind<Func<TimeSpan, CancellationToken, Task>>()
+            .To<Func<TimeSpan, CancellationToken, Task>>(
+                static _ => static (delay, cancellationToken) => Task.Delay(delay, cancellationToken))
             .Bind<ToolPresenterRegistry>()
             .To(static _ => new ToolPresenterRegistry(
                 [
