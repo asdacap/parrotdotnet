@@ -51,15 +51,15 @@ internal static class TestModels
         new CompositeSystemPromptProvider(
             "test:system-prompt",
             [
-                new SystemContextProvider(
-                    "Test base prompt.",
-                    workingDirectory,
-                    configDirectory,
-                    "2026-07-24",
-                    ProfileRegistry(),
-                    Parrot.Process.CliUtilityAvailability.Inspect(
-                        new CliUtilityCandidates([], []),
-                        new Parrot.Process.ExecutableLocator(string.Empty, string.Empty))),
+                new BasePromptProvider("Test base prompt."),
+                new AgentsPromptProvider(workingDirectory, configDirectory),
+                new ExpectedCliUtilitiesProvider(EmptyCliUtilities()),
+                new DateProvider("2026-07-24"),
+                new PlatformProvider(),
+                new WorkingDirectoryProvider(workingDirectory),
+                new OptionalCliUtilitiesProvider(EmptyCliUtilities()),
+                new SessionIdentityProvider(),
+                new SubagentsProvider(ProfileRegistry()),
                 new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)),
             ]);
 
@@ -84,6 +84,11 @@ internal static class TestModels
     }
 
     public static ResolvedModelSelection Resolve(ProviderModel model) => Route(model).Resolve(model.Selector);
+
+    private static Parrot.Process.CliUtilityAvailability EmptyCliUtilities() =>
+        Parrot.Process.CliUtilityAvailability.Inspect(
+            new CliUtilityCandidates([], []),
+            new Parrot.Process.ExecutableLocator(string.Empty, string.Empty));
 
     private static ProfileConfig Profile(string prompt, string hardRule, bool readOnly) => new(
         prompt,

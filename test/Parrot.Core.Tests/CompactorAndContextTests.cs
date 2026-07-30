@@ -38,20 +38,13 @@ internal sealed class CompactorAndContextTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_configDirectory, "AGENTS.md"), "GLOBAL RULE: be concise.");
         await File.WriteAllTextAsync(Path.Combine(_workspace, "AGENTS.md"), "PROJECT RULE: be terse.");
 
-        var prompt = new SystemContextProvider(
-            "Configured base prompt.",
-            _workspace,
-            _configDirectory,
-            "2026-07-24",
-            TestModels.ProfileRegistry(),
-            EmptyCliUtilities())
-            .Materialize(AgentIdentity.Main("session", string.Empty));
+        var prompt = ComposeSystemContextProvider().Materialize(AgentIdentity.Main("session", string.Empty));
         prompt.RenewEpoch();
         var built = prompt.Build(Selection());
 
         _ = await Assert.That(built).StartsWith("Configured base prompt.");
-        _ = await Assert.That(built).Contains("2026-07-24");
-        _ = await Assert.That(built).Contains(_workspace);
+        _ = await Assert.That(built).Contains("Date: 2026-07-24\n\nPlatform:");
+        _ = await Assert.That(built).Contains($"\n\nWorking directory: {_workspace}");
         _ = await Assert.That(built).Contains("GLOBAL RULE: be concise.");
         _ = await Assert.That(built).Contains("PROJECT RULE: be terse.");
         _ = await Assert.That(built).Contains("Available CLI utilities: none");
@@ -59,14 +52,41 @@ internal sealed class CompactorAndContextTests : IDisposable
         var projectIndex = built.IndexOf("PROJECT RULE: be terse.", StringComparison.Ordinal);
         var expectedIndex = built.IndexOf("Available CLI utilities: none", StringComparison.Ordinal);
         var dateIndex = built.IndexOf("Date: 2026-07-24", StringComparison.Ordinal);
+        var platformIndex = built.IndexOf("Platform:", StringComparison.Ordinal);
+        var workingDirectoryIndex = built.IndexOf("Working directory:", StringComparison.Ordinal);
         var optionalIndex = built.IndexOf("Available optional CLI utilities: none", StringComparison.Ordinal);
         var subagentsIndex = built.IndexOf("Available subagents;", StringComparison.Ordinal);
         _ = await Assert.That(built.IndexOf("GLOBAL RULE: be concise.", StringComparison.Ordinal))
             .IsLessThan(projectIndex);
         _ = await Assert.That(projectIndex).IsLessThan(expectedIndex);
         _ = await Assert.That(expectedIndex).IsLessThan(dateIndex);
-        _ = await Assert.That(dateIndex).IsLessThan(optionalIndex);
+        _ = await Assert.That(dateIndex).IsLessThan(platformIndex);
+        _ = await Assert.That(platformIndex).IsLessThan(workingDirectoryIndex);
+        _ = await Assert.That(workingDirectoryIndex).IsLessThan(optionalIndex);
         _ = await Assert.That(optionalIndex).IsLessThan(subagentsIndex);
+    }
+
+    [Test]
+    public async Task Session_identity_provider_omits_main_identity_and_renders_child_identity_before_subagents()
+    {
+        var main = ComposeSystemContextProvider().Materialize(AgentIdentity.Main("main", string.Empty));
+        var child = ComposeSystemContextProvider().Materialize(
+            AgentIdentity.Child("child", "main", "main-agent", "worker", 1));
+        main.RenewEpoch();
+        child.RenewEpoch();
+
+        var mainBuilt = main.Build(Selection());
+        var childBuilt = child.Build(Selection());
+
+        _ = await Assert.That(mainBuilt).DoesNotContain("Child agent session:");
+        _ = await Assert.That(childBuilt).Contains(
+            "Child agent session: child\n"
+            + "Parent agent session: main\n"
+            + "Parent agent name: main-agent\n"
+            + "Child agent name: worker\n"
+            + "Child agent depth: 1");
+        _ = await Assert.That(childBuilt.IndexOf("Child agent session:", StringComparison.Ordinal))
+            .IsLessThan(childBuilt.IndexOf("Available subagents;", StringComparison.Ordinal));
     }
 
     [Test]
@@ -175,17 +195,11 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task System_context_is_stable_until_the_epoch_is_renewed()
+    public async Task Agents_prompt_is_stable_until_the_epoch_is_renewed()
     {
         var agents = Path.Combine(_workspace, "AGENTS.md");
         await File.WriteAllTextAsync(agents, "first");
-        var prompt = new SystemContextProvider(
-            "Configured base prompt.",
-            _workspace,
-            _configDirectory,
-            "2026-07-24",
-            TestModels.ProfileRegistry(),
-            EmptyCliUtilities())
+        var prompt = new AgentsPromptProvider(_workspace, _configDirectory)
             .Materialize(AgentIdentity.Main("session", string.Empty));
 
         prompt.RenewEpoch();
@@ -327,6 +341,21 @@ internal sealed class CompactorAndContextTests : IDisposable
         SecurityProfile.Compose(readOnly: false, [], [], []),
         static () => { },
         static (_, _) => null);
+
+    private CompositeSystemPromptProvider ComposeSystemContextProvider() =>
+        new(
+            "test:system-context",
+            [
+                new BasePromptProvider("Configured base prompt."),
+                new AgentsPromptProvider(_workspace, _configDirectory),
+                new ExpectedCliUtilitiesProvider(EmptyCliUtilities()),
+                new DateProvider("2026-07-24"),
+                new PlatformProvider(),
+                new WorkingDirectoryProvider(_workspace),
+                new OptionalCliUtilitiesProvider(EmptyCliUtilities()),
+                new SessionIdentityProvider(),
+                new SubagentsProvider(TestModels.ProfileRegistry()),
+            ]);
 
     private sealed class PromptTestProvider(string key, string text) : ISystemPromptProvider
     {
