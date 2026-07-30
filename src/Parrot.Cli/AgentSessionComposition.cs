@@ -1,4 +1,6 @@
 using Parrot.Agent;
+using Parrot.Process;
+using Parrot.Tools;
 using Pure.DI;
 
 namespace Parrot.Cli;
@@ -9,6 +11,21 @@ internal partial class AgentSessionComposition
         DI.Setup(nameof(AgentSessionComposition))
             .Hint(Hint.Resolve, "Off")
             .Arg<AgentSessionScopeArguments>("arguments")
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.ShellProcesses.Prepare(arguments.Identity.SessionId);
+            })
+            .Bind<IReadOnlyList<IToolFactory>>("toolFactories").As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<ShellProcessOwner>(out var processes);
+                return arguments.ToolFactories
+                    .Prepend<IToolFactory>(new InterruptProcessToolFactory(processes))
+                    .Prepend(new WaitProcessToolFactory(processes))
+                    .Prepend(new ExecCommandToolFactory(processes))
+                    .ToArray();
+            })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -27,13 +44,15 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<TodoCollection>(out var todos);
                 ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
-                return new AgentSession(
+                ctx.Inject<ShellProcessOwner>(out var processes);
+                ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
+                var session = new AgentSession(
                     arguments.Identity,
                     arguments.Model,
                     arguments.Router,
                     arguments.EventBroker,
                     arguments.EventRepository,
-                    arguments.ToolFactories,
+                    toolFactories,
                     arguments.SystemPromptProvider,
                     todos,
                     toolOutputBlobs,
@@ -44,6 +63,8 @@ internal partial class AgentSessionComposition
                     arguments.Registry,
                     arguments.Owner,
                     arguments.Lifetime);
+                arguments.ShellProcesses.Register(processes);
+                return session;
             })
             .Root<AgentSession>("Session");
 }

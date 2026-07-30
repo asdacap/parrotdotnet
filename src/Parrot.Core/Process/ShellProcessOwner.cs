@@ -6,6 +6,7 @@ using Parrot.Store;
 namespace Parrot.Process;
 
 internal sealed class ShellProcessOwner(
+    string sessionId,
     UserSessionResources resources,
     ProcessRunner runner,
     CancellationToken lifetime) : IActiveWorkSource
@@ -14,6 +15,8 @@ internal sealed class ShellProcessOwner(
     private readonly Lock _gate = new();
     private int _generated;
     private bool _settling;
+
+    public string SessionId => sessionId;
 
     public ManagedShellProcess Start(
         string? requestedName,
@@ -67,7 +70,7 @@ internal sealed class ShellProcessOwner(
             return [.. _processes.Values
                 .Where(process => !process.Completed)
                 .Select(process => new ActiveWorkObservation(
-                    process.Name,
+                    $"{sessionId}/{process.Name}",
                     process.Name,
                     ActiveWorkKind.Shell,
                     ActiveWorkState.Running))

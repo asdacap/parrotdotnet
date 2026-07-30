@@ -11,7 +11,7 @@ internal sealed class AgentSendTool(
     public string Name => "agent_send";
 
     public string Description =>
-        "Send a message to an agent session, including this agent's parent. Running agents are steered; "
+        "Send a message to an agent session, including this agent's parent. Canonical session IDs resolve globally; friendly names resolve among this session's direct children, with the parent name taking precedence. Running agents are steered; "
         + "idle agents start a follow-up turn.";
 
     public string ParametersJson =>

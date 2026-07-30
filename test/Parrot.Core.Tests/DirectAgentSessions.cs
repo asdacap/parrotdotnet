@@ -25,7 +25,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 
     public IAgentSessionFactory Create(UserSession owner) => new OwnerAgentSessions(this, owner);
 
-    public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
+    public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
         new(owner.Resources, new ProcessRunner(string.Empty), owner.Lifetime);
 
     public QueueStore CreateQueues(UserSession owner) =>
@@ -45,6 +45,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             CancellationToken lifetime)
         {
             source._identities.Add(identity);
+            _ = owner.ShellProcesses.Create(identity.SessionId);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
             return new AgentSessionLease(new AgentSession(
                 identity,

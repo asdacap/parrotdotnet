@@ -62,6 +62,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var processes = new ShellProcessOwner(
+            session.SessionId,
             resources,
             new ProcessRunner(CreateSandboxPassThrough(_workspace)),
             CancellationToken.None);

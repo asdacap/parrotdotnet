@@ -27,7 +27,7 @@ internal sealed class AgentSessionFactorySource(
             systemPromptProvider,
             scopes);
 
-    public ShellProcessOwner CreateShellProcesses(UserSession owner) =>
+    public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
         new(owner.Resources, processes, owner.Lifetime);
 
     public QueueStore CreateQueues(UserSession owner) =>

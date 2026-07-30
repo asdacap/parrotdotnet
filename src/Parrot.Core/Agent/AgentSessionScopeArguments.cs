@@ -1,6 +1,7 @@
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -15,6 +16,7 @@ internal sealed record AgentSessionScopeArguments(
     EventBroker EventBroker,
     EventRepository EventRepository,
     IReadOnlyList<IToolFactory> ToolFactories,
+    ShellProcessOwners ShellProcesses,
     ISystemPromptProvider SystemPromptProvider,
     string BlobDirectory,
     Compactor Compactor,

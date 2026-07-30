@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -18,6 +19,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         EventBroker eventBroker,
         EventRepository eventRepository,
         IReadOnlyList<IToolFactory> toolFactories,
+        ShellProcessOwners shellProcesses,
         ISystemPromptProvider systemPromptProvider,
         string blobDirectory,
         Compactor compactor,
@@ -35,6 +37,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             eventBroker,
             eventRepository,
             toolFactories,
+            shellProcesses,
             systemPromptProvider,
             blobDirectory,
             compactor,

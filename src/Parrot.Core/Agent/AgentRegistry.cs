@@ -17,7 +17,7 @@ internal sealed class AgentRegistry(
     private const int MaxDepth = 4;
     private const int MaxRetained = 1024;
     private readonly Dictionary<string, IAgentSessionLease> _entries = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, string>> _namesByParent = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AgentSession> _parents = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Lock _gate = new();
@@ -81,7 +81,8 @@ internal sealed class AgentRegistry(
             }
 
             var sessionId = Identifier.AgentSession();
-            var name = UniqueName(requestedName, sessionId);
+            var names = NamesFor(parent.SessionId);
+            var name = UniqueName(names, requestedName, sessionId);
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, parent.Name, name, depth);
             var lease = agentSessions.Create(
                 identity,
@@ -95,16 +96,18 @@ internal sealed class AgentRegistry(
                 _lifetime.Token);
 
             _entries.Add(sessionId, lease);
-            _names.Add(name, sessionId);
+            names.Add(name, sessionId);
             return lease.Session;
         }
     }
 
-    public AgentSession Get(string sessionIdOrName)
+    public AgentSession GetChild(AgentSession caller, string sessionIdOrName)
     {
+        ArgumentNullException.ThrowIfNull(caller);
+
         lock (_gate)
         {
-            return Resolve(sessionIdOrName);
+            return ResolveChild(caller.SessionId, sessionIdOrName);
         }
     }
 
@@ -114,6 +117,11 @@ internal sealed class AgentRegistry(
 
         lock (_gate)
         {
+            if (_entries.TryGetValue(sessionIdOrName, out var canonical))
+            {
+                return canonical.Session;
+            }
+
             if ((string.Equals(sessionIdOrName, sender.ParentSessionId, StringComparison.Ordinal)
                     || string.Equals(sessionIdOrName, sender.ParentSessionName, StringComparison.Ordinal))
                 && _parents.TryGetValue(sender.ParentSessionId, out var parent))
@@ -121,7 +129,7 @@ internal sealed class AgentRegistry(
                 return parent;
             }
 
-            return Resolve(sessionIdOrName);
+            return ResolveChild(sender.SessionId, sessionIdOrName);
         }
     }
 
@@ -218,6 +226,27 @@ internal sealed class AgentRegistry(
         return sanitized.ToString().TrimEnd('-');
     }
 
+    private static string UniqueName(Dictionary<string, string> names, string requestedName, string sessionId)
+    {
+        var basis = Sanitize(requestedName);
+
+        if (basis.Length == 0)
+        {
+            basis = $"agent-{sessionId[^6..]}";
+        }
+
+        var candidate = basis;
+        var suffix = 2;
+
+        while (names.ContainsKey(candidate))
+        {
+            candidate = $"{basis}-{suffix}";
+            suffix++;
+        }
+
+        return candidate;
+    }
+
     private int ProfileOccurrences(AgentSession parent, string profileId)
     {
         var occurrences = 0;
@@ -250,11 +279,25 @@ internal sealed class AgentRegistry(
         _lifetime.Dispose();
     }
 
-    private AgentSession Resolve(string sessionIdOrName)
+    private Dictionary<string, string> NamesFor(string parentSessionId)
     {
-        var sessionId = _entries.ContainsKey(sessionIdOrName)
-            ? sessionIdOrName
-            : _names.GetValueOrDefault(sessionIdOrName);
+        if (!_namesByParent.TryGetValue(parentSessionId, out var names))
+        {
+            names = new Dictionary<string, string>(StringComparer.Ordinal);
+            _namesByParent.Add(parentSessionId, names);
+        }
+
+        return names;
+    }
+
+    private AgentSession ResolveChild(string callerSessionId, string sessionIdOrName)
+    {
+        if (_entries.TryGetValue(sessionIdOrName, out var canonical))
+        {
+            return canonical.Session;
+        }
+
+        var sessionId = _namesByParent.GetValueOrDefault(callerSessionId)?.GetValueOrDefault(sessionIdOrName);
 
         if (sessionId is null || !_entries.TryGetValue(sessionId, out var child))
         {
@@ -262,26 +305,5 @@ internal sealed class AgentRegistry(
         }
 
         return child.Session;
-    }
-
-    private string UniqueName(string requestedName, string sessionId)
-    {
-        var basis = Sanitize(requestedName);
-
-        if (basis.Length == 0)
-        {
-            basis = $"agent-{sessionId[^6..]}";
-        }
-
-        var candidate = basis;
-        var suffix = 2;
-
-        while (_names.ContainsKey(candidate))
-        {
-            candidate = $"{basis}-{suffix}";
-            suffix++;
-        }
-
-        return candidate;
     }
 }

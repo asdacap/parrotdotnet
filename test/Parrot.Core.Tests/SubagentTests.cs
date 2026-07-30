@@ -36,7 +36,7 @@ internal sealed class SubagentTests : IDisposable
             sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent, Turn(parent, Router(provider)));
-        var wait = new WaitAgentTool(registry);
+        var wait = new WaitAgentTool(registry, parent);
 
         var startedJson = await spawn.Execute(
             """{"prompt":"do the subtask","agent":"worker","name":"  Child Helper!  "}""", cancellationToken);
@@ -90,6 +90,142 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(systemPrompt).Contains("Parent agent session: agent");
         _ = await Assert.That(systemPrompt).Contains("Parent agent name: ");
         _ = await Assert.That(systemPrompt).Contains("Child agent name: child-helper");
+    }
+
+    [Test]
+    public async Task Friendly_names_are_scoped_to_direct_siblings(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var firstParent = Session(provider, 0, "first-parent", cancellationToken);
+        var secondParent = Session(provider, 0, "second-parent", cancellationToken);
+        var first = registry.Spawn(
+            firstParent,
+            Turn(firstParent, Router(provider)),
+            "worker",
+            firstParent.Selection().RequestedModel,
+            "helper");
+        var sibling = registry.Spawn(
+            firstParent,
+            Turn(firstParent, Router(provider)),
+            "worker",
+            firstParent.Selection().RequestedModel,
+            "helper");
+        var otherBranch = registry.Spawn(
+            secondParent,
+            Turn(secondParent, Router(provider)),
+            "worker",
+            secondParent.Selection().RequestedModel,
+            "helper");
+
+        _ = await Assert.That(first.Name).IsEqualTo("helper");
+        _ = await Assert.That(sibling.Name).IsEqualTo("helper-2");
+        _ = await Assert.That(otherBranch.Name).IsEqualTo("helper");
+        _ = await Assert.That(registry.GetChild(firstParent, "helper")).IsSameReferenceAs(first);
+        _ = await Assert.That(registry.GetChild(secondParent, "helper")).IsSameReferenceAs(otherBranch);
+    }
+
+    [Test]
+    public async Task Canonical_ids_resolve_globally_while_names_stay_local(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var firstParent = Session(provider, 0, "first-parent", cancellationToken);
+        var secondParent = Session(provider, 0, "second-parent", cancellationToken);
+        var target = registry.Spawn(
+            firstParent,
+            Turn(firstParent, Router(provider)),
+            "worker",
+            firstParent.Selection().RequestedModel,
+            "helper");
+
+        _ = await Assert.That(registry.GetChild(secondParent, target.SessionId)).IsSameReferenceAs(target);
+        _ = await Assert.That(registry.GetRecipient(secondParent, target.SessionId)).IsSameReferenceAs(target);
+        _ = await Assert.That(() => registry.GetChild(secondParent, "helper")).Throws<AgentRegistryException>();
+        _ = await Assert.That(() => registry.GetRecipient(secondParent, "helper")).Throws<AgentRegistryException>();
+    }
+
+    [Test]
+    public async Task Send_resolution_prefers_canonical_ids_then_the_parent_name(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var root = Session(provider, 0, "root-id", cancellationToken);
+        var parent = registry.Spawn(
+            root,
+            Turn(root, Router(provider)),
+            "worker",
+            root.Selection().RequestedModel,
+            "parent-name");
+        var caller = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "caller");
+        var parentNameCollision = registry.Spawn(
+            caller,
+            Turn(caller, Router(provider)),
+            "worker",
+            caller.Selection().RequestedModel,
+            parent.Name);
+        var canonicalCollision = registry.Spawn(
+            caller,
+            Turn(caller, Router(provider)),
+            "worker",
+            caller.Selection().RequestedModel,
+            parentNameCollision.SessionId);
+
+        _ = await Assert.That(registry.GetRecipient(caller, parent.Name)).IsSameReferenceAs(parent);
+        _ = await Assert.That(registry.GetChild(caller, parent.Name)).IsSameReferenceAs(parentNameCollision);
+        _ = await Assert.That(canonicalCollision.Name).IsEqualTo(parentNameCollision.SessionId);
+        _ = await Assert.That(registry.GetRecipient(caller, canonicalCollision.Name))
+            .IsSameReferenceAs(parentNameCollision);
+    }
+
+    [Test]
+    public async Task Generated_names_are_scoped_to_the_spawning_parent(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var firstParent = Session(provider, 0, "first-parent", cancellationToken);
+        var secondParent = Session(provider, 0, "second-parent", cancellationToken);
+        var first = registry.Spawn(
+            firstParent,
+            Turn(firstParent, Router(provider)),
+            "worker",
+            firstParent.Selection().RequestedModel,
+            string.Empty);
+        var second = registry.Spawn(
+            secondParent,
+            Turn(secondParent, Router(provider)),
+            "worker",
+            secondParent.Selection().RequestedModel,
+            first.Name);
+
+        _ = await Assert.That(second.Name).IsEqualTo(first.Name);
+        _ = await Assert.That(registry.GetChild(firstParent, first.Name)).IsSameReferenceAs(first);
+        _ = await Assert.That(registry.GetChild(secondParent, first.Name)).IsSameReferenceAs(second);
     }
 
     [Test]
