@@ -734,7 +734,8 @@ internal sealed class AgentSession(
                                     Glyph = aliasIcon.Glyph,
                                     Color = aliasIcon.Color switch
                                     {
-                                        ModelAliasIconColor.Black => TurnModelAliasIconColor.Black,
+                                        ModelAliasIconColor.Black or ModelAliasIconColor.Gray =>
+                                            TurnModelAliasIconColor.Black,
                                         ModelAliasIconColor.Red => TurnModelAliasIconColor.Red,
                                         ModelAliasIconColor.Green => TurnModelAliasIconColor.Green,
                                         ModelAliasIconColor.Yellow => TurnModelAliasIconColor.Yellow,
@@ -744,6 +745,7 @@ internal sealed class AgentSession(
                                         ModelAliasIconColor.White => TurnModelAliasIconColor.White,
                                         _ => throw new InvalidOperationException("The model alias icon color is invalid."),
                                     },
+                                    Muted = aliasIcon.Color is ModelAliasIconColor.Gray,
                                 },
                         },
                     };

@@ -14,6 +14,7 @@ internal sealed record ModelAliasIcon(string Glyph, ModelAliasIconColor Color)
             "magenta" => ModelAliasIconColor.Magenta,
             "cyan" => ModelAliasIconColor.Cyan,
             "white" => ModelAliasIconColor.White,
+            "gray" => ModelAliasIconColor.Gray,
             _ => throw new InvalidDataException($"unsupported model alias icon color {color}"),
         };
 

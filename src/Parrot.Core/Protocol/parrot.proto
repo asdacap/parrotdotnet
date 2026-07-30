@@ -329,6 +329,7 @@ message TurnStarted {
 message TurnModelAliasIcon {
   string                  glyph = 1;
   TurnModelAliasIconColor color = 2;
+  bool                    muted = 3;
 }
 
 enum TurnModelAliasIconColor {
