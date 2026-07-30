@@ -585,6 +585,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Inbound** resolve an agent profile; create and retrieve a child session.
   Friendly names are unique and resolvable only among one caller's direct
   children; canonical session ids remain resolvable throughout the user session.
+  Send addressing resolves an exact canonical spawned-agent id first. For a
+  sender with a registered direct parent, the case-sensitive literal `parent`,
+  actual parent id, or actual parent friendly name resolves second and takes
+  precedence over a colliding direct-child friendly name; direct-child names
+  resolve last. A root therefore falls through and may resolve its direct child
+  named `parent`. `wait_agent` remains child-only and retains ordinary child
+  resolution without a parent alias.
 - **Outbound** `Configuration`, `AgentSession`.
 - **Boundary** no.
 - **Note** mutually dependent with `AgentSession`; both rank 9. The registry
