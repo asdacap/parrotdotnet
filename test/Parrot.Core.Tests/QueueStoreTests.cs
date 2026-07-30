@@ -69,6 +69,49 @@ internal sealed class QueueStoreTests : IDisposable
     }
 
     [Test]
+    public async Task Inventory_replays_persisted_state_and_tracks_visible_mutations(
+        CancellationToken cancellationToken)
+    {
+        using (var persisted = new QueueStore(_directory))
+        {
+            _ = persisted.Create("zeta", "later");
+            _ = persisted.Push("zeta", ["one", "two"], QueueDirection.Back);
+            _ = persisted.Create("alpha", "first");
+            _ = persisted.Push("alpha", ["one"], QueueDirection.Back);
+            _ = persisted.Create("empty", "hidden");
+        }
+
+        using var store = new QueueStore(_directory);
+        using var subscription = store.SubscribeInventory();
+        var initial = await subscription.Reader.ReadAsync(cancellationToken);
+
+        _ = await Assert.That(string.Join(",", initial.Queues.Select(queue => queue.Name))).IsEqualTo("alpha,zeta");
+        _ = await Assert.That(initial.Queues[0].Description).IsEqualTo("first");
+        _ = await Assert.That(initial.Queues[1].ItemCount).IsEqualTo(2);
+
+        _ = await store.Take("alpha", 1, QueueDirection.Front, cancellationToken);
+        var changed = await subscription.Reader.ReadAsync(cancellationToken);
+        _ = await Assert.That(changed.Revision).IsGreaterThan(initial.Revision);
+        _ = await Assert.That(string.Join(",", changed.Queues.Select(queue => queue.Name))).IsEqualTo("zeta");
+    }
+
+    [Test]
+    public async Task Inventory_coalesces_to_latest_including_empty(CancellationToken cancellationToken)
+    {
+        using var store = new QueueStore(_directory);
+        _ = store.Create("work", "tasks");
+        using var subscription = store.SubscribeInventory();
+        _ = await subscription.Reader.ReadAsync(cancellationToken);
+
+        _ = store.Push("work", ["one"], QueueDirection.Back);
+        _ = store.Push("work", ["two"], QueueDirection.Back);
+        _ = await store.Take("work", 2, QueueDirection.Front, cancellationToken);
+
+        var latest = await subscription.Reader.ReadAsync(cancellationToken);
+        _ = await Assert.That(latest.Queues).IsEmpty();
+    }
+
+    [Test]
     public async Task A_filesystem_lock_bounds_take_and_try_take_does_not_wait(CancellationToken cancellationToken)
     {
         using var store = new QueueStore(_directory);

@@ -160,8 +160,70 @@ internal sealed class UserSession : IAsyncDisposable
     // Indefinite by design. It ends when the caller stops listening, not when
     // a turn finishes -- and it does not wait for an agent session to exist, so
     // a client can subscribe before sending anything.
-    public IAsyncEnumerable<Event> Listen(CancellationToken cancellationToken) =>
-        _eventBroker.Subscribe(cancellationToken);
+    public async IAsyncEnumerable<Event> Listen(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        using var events = _eventBroker.Subscribe();
+        using var inventory = Queues.SubscribeInventory();
+        var initial = await inventory.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var published in QueueInventoryProtocol.Convert(initial))
+        {
+            yield return published;
+        }
+
+        var eventPending = (Task<bool>?)events.Reader.WaitToReadAsync(cancellationToken).AsTask();
+        var inventoryPending = (Task<bool>?)inventory.Reader.WaitToReadAsync(cancellationToken).AsTask();
+
+        while (eventPending is not null || inventoryPending is not null)
+        {
+            Task<bool> completed;
+            if (eventPending is null)
+            {
+                completed = inventoryPending ?? throw new InvalidOperationException("queue inventory read is missing");
+            }
+            else if (inventoryPending is null)
+            {
+                completed = eventPending;
+            }
+            else
+            {
+                completed = await Task.WhenAny(eventPending, inventoryPending).ConfigureAwait(false);
+            }
+
+            if (ReferenceEquals(completed, eventPending))
+            {
+                if (!await completed.ConfigureAwait(false))
+                {
+                    eventPending = null;
+                    continue;
+                }
+
+                if (events.Reader.TryRead(out var published))
+                {
+                    yield return published;
+                }
+
+                eventPending = events.Reader.WaitToReadAsync(cancellationToken).AsTask();
+                continue;
+            }
+
+            if (!await completed.ConfigureAwait(false))
+            {
+                inventoryPending = null;
+                continue;
+            }
+
+            if (inventory.Reader.TryRead(out var snapshot))
+            {
+                foreach (var published in QueueInventoryProtocol.Convert(snapshot))
+                {
+                    yield return published;
+                }
+            }
+
+            inventoryPending = inventory.Reader.WaitToReadAsync(cancellationToken).AsTask();
+        }
+    }
 
     // The user talks to the user session; the main agent session is what
     // actually runs the turn. Admitting is not running it: it returns as soon

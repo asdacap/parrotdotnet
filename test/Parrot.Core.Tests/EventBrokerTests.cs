@@ -36,6 +36,18 @@ internal sealed class EventBrokerTests
     }
 
     [Test]
+    public async Task Eager_subscription_receives_before_reading(CancellationToken cancellationToken)
+    {
+        using var broker = new EventBroker();
+        using var subscription = broker.Subscribe();
+
+        await broker.Publish(new Event { Id = "ready" }, cancellationToken);
+        var published = await subscription.Reader.ReadAsync(cancellationToken);
+
+        _ = await Assert.That(published.Id).IsEqualTo("ready");
+    }
+
+    [Test]
     public async Task A_departed_subscriber_stops_receiving(CancellationToken cancellationToken)
     {
         using var broker = new EventBroker();

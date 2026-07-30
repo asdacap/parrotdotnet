@@ -318,7 +318,21 @@ message Event {
     AgentStatisticsUpdatedEvent agent_statistics_updated = 21;
     PlanCompleted          plan_completed          = 22;
     PendingPermission      permission_pending      = 23;
+    QueueSnapshot          queue_snapshot          = 24;
   }
+}
+
+message QueueState {
+  string name        = 1;
+  string description = 2;
+  int32 item_count   = 3;
+}
+
+message QueueSnapshot {
+  uint64 revision             = 1;
+  uint32 chunk_index          = 2;
+  bool final_chunk            = 3;
+  repeated QueueState queues  = 4;
 }
 
 message AgentStarted {

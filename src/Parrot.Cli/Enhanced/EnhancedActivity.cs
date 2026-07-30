@@ -13,6 +13,7 @@ internal static class EnhancedActivity
             $"{(started ? "queued" : "input admitted")}: {TerminalText.Sanitize(published.InputAdmitted.Content)}",
         Event.PayloadOneofCase.InputPromoted =>
             $"input promoted: {TerminalText.Sanitize(published.InputPromoted.InputId)}",
+        Event.PayloadOneofCase.QueueSnapshot => string.Empty,
         Event.PayloadOneofCase.ToolCallChunk =>
             $"tool call {TerminalText.Sanitize(published.ToolCallChunk.ToolName)}: " +
             TerminalText.Sanitize(published.ToolCallChunk.ArgumentsFragment),

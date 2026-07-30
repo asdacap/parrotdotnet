@@ -59,6 +59,45 @@ internal sealed class TerminalSpinnerTests
     }
 
     [Test]
+    public async Task Run_joins_the_animation_and_clears_when_its_lifetime_is_cancelled(
+        CancellationToken cancellationToken)
+    {
+        var drawItemCounts = new ConcurrentQueue<int>();
+        var animationStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var animationStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var spinner = new TerminalSpinner(
+            (items, _) =>
+            {
+                drawItemCounts.Enqueue(items.Count);
+                return Task.CompletedTask;
+            },
+            async token =>
+            {
+                _ = animationStarted.TrySetResult();
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                }
+                finally
+                {
+                    _ = animationStopped.TrySetResult();
+                }
+            });
+
+        var running = spinner.Run(
+            static index => new SpinnerValue("thinking", index),
+            static (_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            stopping.Token);
+        await animationStarted.Task.WaitAsync(cancellationToken);
+        await stopping.CancelAsync();
+        await running.WaitAsync(cancellationToken);
+
+        _ = await Assert.That(animationStopped.Task.IsCompleted).IsTrue();
+        _ = await Assert.That(string.Join(',', drawItemCounts)).IsEqualTo("1,0");
+    }
+
+    [Test]
     public async Task Run_clears_when_the_lifetime_ends_without_preserving_the_frame(
         CancellationToken cancellationToken)
     {

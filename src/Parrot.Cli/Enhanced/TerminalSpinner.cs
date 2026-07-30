@@ -41,6 +41,9 @@ internal sealed class TerminalSpinner(
         {
             await lifetime(PreserveFrame, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
         finally
         {
             await StopAnimation().ConfigureAwait(false);

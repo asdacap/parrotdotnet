@@ -42,7 +42,16 @@ internal sealed class SlashSession(
                 InteractivePermissions = interactivePermissions,
             },
             cancellationToken: cancellationToken);
-        await binding.Replace(session, cancellationToken).ConfigureAwait(false);
+        var previous = _current;
         _current = session;
+        try
+        {
+            await binding.Replace(session, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _current = previous;
+            throw;
+        }
     }
 }

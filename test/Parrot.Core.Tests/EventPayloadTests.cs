@@ -101,6 +101,37 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Queue_snapshot_roundtrips_as_field_twenty_four()
+    {
+        var source = new Event
+        {
+            QueueSnapshot = new QueueSnapshot
+            {
+                Revision = 7,
+                ChunkIndex = 2,
+                FinalChunk = true,
+                Queues =
+                {
+                    new QueueState { Name = "release", Description = "release tasks", ItemCount = 3 },
+                },
+            },
+        };
+
+        var bytes = source.ToByteArray();
+        var roundtripped = Event.Parser.ParseFrom(bytes);
+
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        _ = await Assert.That(roundtripped.QueueSnapshot.Revision).IsEqualTo(7UL);
+        _ = await Assert.That(roundtripped.QueueSnapshot.ChunkIndex).IsEqualTo(2U);
+        _ = await Assert.That(roundtripped.QueueSnapshot.FinalChunk).IsTrue();
+        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].Name).IsEqualTo("release");
+        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].Description).IsEqualTo("release tasks");
+        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].ItemCount).IsEqualTo(3);
+        _ = await Assert.That(bytes[0]).IsEqualTo((byte)0xc2);
+        _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+    }
+
+    [Test]
     public async Task Status_injected_roundtrips_as_a_protobuf_payload()
     {
         var source = new Event

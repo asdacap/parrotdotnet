@@ -39,7 +39,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
         new(owner.Resources, new ProcessRunner(string.Empty), owner.Lifetime);
 
     public QueueStore CreateQueues(UserSession owner) =>
-        new(Path.Combine(Path.GetTempPath(), "parrot-tests", owner.Id, "queues"));
+        new(owner.Resources.QueueDirectory);
 
     private sealed class OwnerAgentSessions(DirectAgentSessions source, UserSession owner) : IAgentSessionFactory
     {

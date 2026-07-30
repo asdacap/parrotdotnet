@@ -29,7 +29,8 @@ internal sealed class EnhancedTurnView(
 
     public async Task Prepare(Event published, CancellationToken cancellationToken)
     {
-        if (foreground.IsChild(published.AgentSessionId))
+        if (published.PayloadCase == Event.PayloadOneofCase.QueueSnapshot
+            || foreground.IsChild(published.AgentSessionId))
         {
             return;
         }
@@ -80,6 +81,7 @@ internal sealed class EnhancedTurnView(
                 break;
 
             case Event.PayloadOneofCase.AgentStatisticsUpdated:
+            case Event.PayloadOneofCase.QueueSnapshot:
                 break;
 
             case Event.PayloadOneofCase.StatusInjected:
