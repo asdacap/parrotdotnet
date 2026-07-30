@@ -10,9 +10,10 @@ internal sealed class ManagedShellProcess
     private readonly CancellationToken _lifetime;
     private readonly Lock _gate = new();
     private readonly Task<ProcessResult> _result;
+    private readonly Task _delivery;
+    private TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _claimed = true;
     private bool _delivered;
-    private Task _delivery;
 
     public ManagedShellProcess(
         string name,
@@ -48,6 +49,7 @@ internal sealed class ManagedShellProcess
             }
 
             _claimed = true;
+            _released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
     }
 
@@ -120,8 +122,14 @@ internal sealed class ManagedShellProcess
             delivery = _delivery;
         }
 
-        await delivery.ConfigureAwait(false);
-        _execution.Dispose();
+        try
+        {
+            await delivery.ConfigureAwait(false);
+        }
+        finally
+        {
+            _execution.Dispose();
+        }
     }
 
     private async Task DeliverWhenUnclaimed()
@@ -142,14 +150,27 @@ internal sealed class ManagedShellProcess
             output = $"error: {failure.Message}";
         }
 
-        lock (_gate)
+        while (true)
         {
-            if (_claimed || _delivered)
+            Task released;
+
+            lock (_gate)
             {
-                return;
+                if (_delivered)
+                {
+                    return;
+                }
+
+                if (!_claimed)
+                {
+                    _delivered = true;
+                    break;
+                }
+
+                released = _released.Task;
             }
 
-            _delivered = true;
+            await released.ConfigureAwait(false);
         }
 
         var text = $"Shell process '{Name}' completed.\n{output}";
@@ -167,22 +188,31 @@ internal sealed class ManagedShellProcess
 
     private void MarkWaitDelivered()
     {
+        TaskCompletionSource released;
+
         lock (_gate)
         {
             _delivered = true;
             _claimed = false;
+            released = _released;
         }
+
+        _ = released.TrySetResult();
     }
 
     private void ReleaseClaim()
     {
+        TaskCompletionSource? released = null;
+
         lock (_gate)
         {
             if (_claimed && !_delivered)
             {
                 _claimed = false;
-                _delivery = DeliverWhenUnclaimed();
+                released = _released;
             }
         }
+
+        _ = released?.TrySetResult();
     }
 }
