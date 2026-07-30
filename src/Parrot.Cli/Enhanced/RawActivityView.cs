@@ -5,11 +5,12 @@ using Parrot.Protocol;
 namespace Parrot.Cli.Enhanced;
 
 internal sealed class RawActivityView(
-    Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
+    Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
     Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
     Func<CancellationToken, Task> delay,
     ToolPresenterRegistry presenters,
-    Func<string, CancellationToken, Task> updateMainAgentActivity) : IDisposable
+    Func<string, CancellationToken, Task> updateMainAgentActivity,
+    Func<bool> invalidate) : IDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
 
@@ -24,16 +25,37 @@ internal sealed class RawActivityView(
     private int _frame;
 
     public RawActivityView(
-        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
         Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
         ToolPresenterRegistry presenters,
         Func<string, CancellationToken, Task> updateMainAgentActivity)
+        : this(replace, commit, presenters, updateMainAgentActivity, static () => false)
+    {
+    }
+
+    public RawActivityView(
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        ToolPresenterRegistry presenters,
+        Func<string, CancellationToken, Task> updateMainAgentActivity,
+        Func<bool> invalidate)
         : this(
-            draw,
+            replace,
             commit,
             static cancellationToken => Task.Delay(SpinnerIntervalMilliseconds, cancellationToken),
             presenters,
-            updateMainAgentActivity)
+            updateMainAgentActivity,
+            invalidate)
+    {
+    }
+
+    internal RawActivityView(
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        Func<CancellationToken, Task> delay,
+        ToolPresenterRegistry presenters,
+        Func<string, CancellationToken, Task> updateMainAgentActivity)
+        : this(replace, commit, delay, presenters, updateMainAgentActivity, static () => false)
     {
     }
 
@@ -52,7 +74,8 @@ internal sealed class RawActivityView(
                     _frame++;
                     if (_activities.Count > 0)
                     {
-                        await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                        _ = invalidate();
                     }
                 }
                 finally
@@ -66,7 +89,7 @@ internal sealed class RawActivityView(
         }
     }
 
-    public async Task DrawContent(
+    public async Task ReplaceContent(
         IReadOnlyList<ILiveBufferItem> items,
         CancellationToken cancellationToken)
     {
@@ -76,7 +99,7 @@ internal sealed class RawActivityView(
         try
         {
             _content = Capture(items);
-            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -97,19 +120,6 @@ internal sealed class RawActivityView(
         {
             _content = Capture(items);
             await commit(scrollback, Snapshot(), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _rendering.Release();
-        }
-    }
-
-    public async Task Redraw(CancellationToken cancellationToken)
-    {
-        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -158,7 +168,7 @@ internal sealed class RawActivityView(
                         published.AgentSessionId,
                         published.AgentStatisticsUpdated,
                         cancellationToken).ConfigureAwait(false);
-                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.AgentFinished:
                     await FinishAgent(published, failed: false, cancellationToken).ConfigureAwait(false);
@@ -168,7 +178,7 @@ internal sealed class RawActivityView(
                     break;
                 case Event.PayloadOneofCase.TurnStarted:
                     await StartTurn(published.AgentSessionId, cancellationToken).ConfigureAwait(false);
-                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.TurnEnded:
                     await FinishTurn(published, failed: false, cancellationToken).ConfigureAwait(false);
@@ -181,11 +191,11 @@ internal sealed class RawActivityView(
                     break;
                 case Event.PayloadOneofCase.TextChunk when _hierarchy.IsChild(published.AgentSessionId):
                     GetNamedAgentSession(published.AgentSessionId).CollectResponse(published.TextChunk.Fragment);
-                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.ToolStarted:
                     StartTool(published);
-                    await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.ToolFinished:
                 case Event.PayloadOneofCase.ToolCancelled:
@@ -209,7 +219,7 @@ internal sealed class RawActivityView(
                     else
                     {
                         _ = _reasoning.Append(fragment);
-                        await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+                        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     }
 
                     break;
@@ -375,7 +385,7 @@ internal sealed class RawActivityView(
         _ = _activities.Remove((state, activityId));
         if (scrollback is null)
         {
-            await draw(Snapshot(), cancellationToken).ConfigureAwait(false);
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
         else
         {

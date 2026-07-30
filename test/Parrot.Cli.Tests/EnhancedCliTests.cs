@@ -588,7 +588,7 @@ internal sealed class EnhancedCliTests
                 ToolStarted = new ToolStarted { ToolCallId = "shared-call", ToolName = "read\u001b[2J" },
             },
             cancellationToken);
-        await view.DrawContent([new LiveTextValue("answer")], cancellationToken);
+        await view.ReplaceContent([new LiveTextValue("answer")], cancellationToken);
 
         var live = draws.Last();
         _ = await Assert.That(live).Contains("answer");
@@ -628,7 +628,7 @@ internal sealed class EnhancedCliTests
             new Event { AgentSessionId = "main-session", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
         _ = await Assert.That(mainActivities.Last()).IsEmpty();
-        await view.Redraw(cancellationToken);
+        await view.ReplaceContent([], cancellationToken);
         _ = await Assert.That(draws.Last()).Contains("agent explorer[31m");
         _ = await Assert.That(draws.Last()).DoesNotContain("agent main");
 
@@ -751,6 +751,44 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Turn_view_events_replace_cached_content_without_drawing_the_terminal(
+        CancellationToken cancellationToken)
+    {
+        var replacements = new List<string>();
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(80, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(80, liveContext.Palette);
+
+        Task Replace(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            replacements.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines)
+                .Select(static line => line.Text)));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        using var error = new StringWriter();
+        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn());
+        var text = new Event { TextChunk = new TextChunk { Fragment = "pending" } };
+        await view.Prepare(text, cancellationToken);
+        _ = await view.Render(text, cancellationToken);
+        var reasoning = new Event { ReasoningChunk = new ReasoningChunk { Fragment = "thinking" } };
+        await view.Prepare(reasoning, cancellationToken);
+        _ = await view.Render(reasoning, cancellationToken);
+
+        _ = await Assert.That(replacements).Contains("● pending");
+        _ = await Assert.That(replacements.Any(static value => value.Contains("thinking", StringComparison.Ordinal))).IsTrue();
+        _ = await Assert.That(committed).Contains("● pending");
+    }
+
+    [Test]
     public async Task Cancel_retries_the_same_stream_completion_after_commit_cancellation(
         CancellationToken cancellationToken)
     {
@@ -772,7 +810,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        await using var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn());
+        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn());
         _ = await view.Render(
             new Event { TextChunk = new TextChunk { Fragment = "complete line\nsuffix" } },
             cancellationToken);
