@@ -2,10 +2,10 @@ using Parrot.Llm.Wire;
 
 namespace Parrot.Llm;
 
-// Classifies structured provider failures. HTTP status and free-text message are
-// deliberately ignored for usage-limit detection so a transient 429 cannot
-// suspend autonomous work; only structured type/code fields decide. Port of the
-// classification half of Go's provider.go.
+// Classifies provider failures. HTTP 503 is always an overload; other overloads
+// use structured fields or a known message. Usage-limit detection deliberately
+// ignores status and free text so a transient 429 cannot suspend autonomous
+// work. Port of the classification half of Go's provider.go.
 internal static class ProviderErrors
 {
     public static bool IsUsageLimit(string type, string code) =>
@@ -25,7 +25,8 @@ internal static class ProviderErrors
     public static bool IsEngineOverloaded(Exception failure) =>
         failure switch
         {
-            ProviderHttpException http => IsEngineOverloaded(http.ErrorType, http.ErrorCode, http.Detail),
+            ProviderHttpException http => http.StatusCode == 503
+                || IsEngineOverloaded(http.ErrorType, http.ErrorCode, http.Detail),
             ProviderResponseException response => IsEngineOverloaded(response.ErrorType, response.ErrorCode, response.Detail),
             _ => false,
         };

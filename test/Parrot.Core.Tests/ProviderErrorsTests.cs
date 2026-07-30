@@ -27,4 +27,16 @@ internal sealed class ProviderErrorsTests
 
         _ = await Assert.That(ProviderErrors.IsUsageLimit(failure)).IsFalse();
     }
+
+    [Test]
+    public async Task Service_unavailable_is_overloaded_regardless_of_vendor_payload()
+    {
+        var failure = new ProviderHttpException(
+            503,
+            string.Empty,
+            "biscuit_baker_service_me_circuit_open",
+            "Service Unavailable");
+
+        _ = await Assert.That(ProviderErrors.IsEngineOverloaded(failure)).IsTrue();
+    }
 }
