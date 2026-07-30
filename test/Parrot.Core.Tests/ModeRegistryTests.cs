@@ -89,7 +89,7 @@ internal sealed class ModeRegistryTests : IDisposable
         bool readOnly,
         int maxToolRounds,
         string promptFragment,
-        string ruleFragment)
+        string policyFragment)
     {
         var profile = OwnerModes("session").Resolve(id);
 
@@ -97,7 +97,7 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.ReadOnly).IsEqualTo(readOnly);
         _ = await Assert.That(profile.MaxTurns).IsEqualTo(maxToolRounds);
         _ = await Assert.That(profile.Prompt).Contains(promptFragment);
-        _ = await Assert.That(profile.HardRules[0]).Contains(ruleFragment);
+        _ = await Assert.That(profile.Prompt).Contains(policyFragment);
         _ = await Assert.That(profile.PlanArtifact).IsEmpty();
 
         if (id == ModeRegistry.Plan)

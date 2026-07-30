@@ -12,20 +12,16 @@ internal static class TestModels
         {
             [ModeRegistry.Build] = Profile(
                 "You are Parrot's build mode. Implement and verify the requested changes.",
-                "Keep tool side effects within the authorized workspace.",
                 readOnly: false),
             [ModeRegistry.Plan] = Profile(
                 "You are Parrot's plan mode. Inspect the project and write the complete implementation plan as Markdown",
-                "The plan directory is the only writable location; do not modify workspace files.",
                 readOnly: true),
             [ModeRegistry.Query] = Profile(
                 "You are Parrot's query mode. Inspect the project and answer the user's question without making changes.",
-                "Read-only mode: do not modify the workspace.",
                 readOnly: true),
             ["explorer"] = new ProfileConfig(
                 "You are an explorer agent.",
                 "Test read-only child profile.",
-                ["Do not modify files."],
                 null,
                 32,
                 3,
@@ -35,7 +31,6 @@ internal static class TestModels
             ["worker"] = new ProfileConfig(
                 "You are a worker agent.",
                 "Test child profile.",
-                ["Keep changes contained."],
                 null,
                 64,
                 3,
@@ -90,10 +85,9 @@ internal static class TestModels
             new CliUtilityCandidates([], []),
             new Parrot.Process.ExecutableLocator(string.Empty, string.Empty));
 
-    private static ProfileConfig Profile(string prompt, string hardRule, bool readOnly) => new(
+    private static ProfileConfig Profile(string prompt, bool readOnly) => new(
         prompt,
         "Test profile.",
-        [hardRule],
         null,
         64,
         3,

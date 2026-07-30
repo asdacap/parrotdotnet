@@ -3,7 +3,6 @@ namespace Parrot.Statuses;
 internal sealed class ProfileStatusProvider(
     string key,
     string prompt,
-    IReadOnlyList<string> hardRules,
     string status) : IStatusProvider
 {
     public string Key { get; } = key;
@@ -12,17 +11,10 @@ internal sealed class ProfileStatusProvider(
     {
         cancellationToken.ThrowIfCancellationRequested();
         var sections = new List<string>(2);
-        var rules = hardRules.Where(rule => !string.IsNullOrWhiteSpace(rule)).ToArray();
-        var instructions = prompt;
 
-        if (rules.Length > 0)
+        if (!string.IsNullOrWhiteSpace(prompt))
         {
-            instructions += $"\n\nHard rules:\n- {string.Join("\n- ", rules)}";
-        }
-
-        if (!string.IsNullOrWhiteSpace(instructions))
-        {
-            sections.Add(instructions);
+            sections.Add(prompt);
         }
 
         if (!string.IsNullOrWhiteSpace(status))

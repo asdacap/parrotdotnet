@@ -461,7 +461,7 @@ internal sealed class Configuration(string path)
             }
 
             _ = profile.Children.Remove(new YamlScalarNode("status"));
-            ValidateKeys(profile, $"profiles.{id}", "prompt", "usage", "hard_rules", "allowed_tools", "max_turns", "recursion_limit", "read_only", "is_user_agent", "sandbox_rules");
+            ValidateKeys(profile, $"profiles.{id}", "prompt", "usage", "allowed_tools", "max_turns", "recursion_limit", "read_only", "is_user_agent", "sandbox_rules");
         }
 
         foreach (var id in ids)
@@ -474,7 +474,6 @@ internal sealed class Configuration(string path)
             result[id] = new ProfileConfig(
                 NonEmptyScalar(profile, "prompt", $"profiles.{id}.prompt"),
                 NonEmptyScalar(profile, "usage", $"profiles.{id}.usage"),
-                NonEmptyStrings(profile, "hard_rules", $"profiles.{id}.hard_rules"),
                 ReadAllowedTools(profile, $"profiles.{id}.allowed_tools"),
                 PositiveInteger(profile, "max_turns", $"profiles.{id}.max_turns"),
                 NonNegativeInteger(profile, "recursion_limit", $"profiles.{id}.recursion_limit"),
@@ -502,27 +501,6 @@ internal sealed class Configuration(string path)
         }
 
         return selected;
-    }
-
-    private static List<string> NonEmptyStrings(YamlMappingNode parent, string key, string path)
-    {
-        if (!Child(parent, key, out var node) || node is not YamlSequenceNode sequence || sequence.Children.Count == 0)
-        {
-            throw new InvalidDataException($"{path} must be a non-empty string sequence");
-        }
-
-        var values = new List<string>(sequence.Children.Count);
-        foreach (var item in sequence.Children)
-        {
-            if (item is not YamlScalarNode { Value: { } value } || string.IsNullOrWhiteSpace(value))
-            {
-                throw new InvalidDataException($"{path} must be a non-empty string sequence");
-            }
-
-            values.Add(value);
-        }
-
-        return values;
     }
 
     private static CliUtilityCandidates ReadCliUtilities(YamlMappingNode root)
