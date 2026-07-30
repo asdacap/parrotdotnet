@@ -10,8 +10,16 @@ namespace Parrot.Core.Tests;
 internal sealed class WriteEditToolTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-write-edit-tests", Guid.NewGuid().ToString("n"));
+    private readonly string _externalRoot = Path.Combine(
+        Path.GetTempPath(),
+        "parrot-write-edit-external-tests",
+        Guid.NewGuid().ToString("n"));
 
-    public WriteEditToolTests() => Directory.CreateDirectory(_root);
+    public WriteEditToolTests()
+    {
+        _ = Directory.CreateDirectory(_root);
+        _ = Directory.CreateDirectory(_externalRoot);
+    }
 
     public void Dispose()
     {
@@ -19,6 +27,9 @@ internal sealed class WriteEditToolTests : IDisposable
         {
             Directory.Delete(_root, recursive: true);
         }
+
+        DeleteFiles(_externalRoot);
+        DeleteEmptyDirectories(_externalRoot);
     }
 
     [Test]
@@ -284,8 +295,7 @@ internal sealed class WriteEditToolTests : IDisposable
     [Test]
     public async Task Write_allows_external_new_file_until_later_deny(CancellationToken cancellationToken)
     {
-        var externalDirectory = Directory.CreateDirectory(
-            Path.Combine(Path.GetTempPath(), $"parrot-write-external-{Guid.NewGuid():n}"));
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_externalRoot, "write-external"));
         var external = Path.Combine(externalDirectory.FullName, "new.txt");
         try
         {
@@ -311,7 +321,7 @@ internal sealed class WriteEditToolTests : IDisposable
         }
         finally
         {
-            externalDirectory.Delete(recursive: true);
+            File.Delete(external);
         }
     }
 
@@ -339,7 +349,7 @@ internal sealed class WriteEditToolTests : IDisposable
     [Arguments("edit")]
     public async Task Mutations_allow_authorized_absolute_external_paths(string toolName, CancellationToken cancellationToken)
     {
-        var external = Path.Combine(Path.GetTempPath(), $"parrot-write-edit-external-{Guid.NewGuid():n}.txt");
+        var external = Path.Combine(_externalRoot, $"authorized-{toolName}.txt");
         await File.WriteAllTextAsync(external, "old", cancellationToken);
         try
         {
@@ -361,8 +371,7 @@ internal sealed class WriteEditToolTests : IDisposable
         string toolName,
         CancellationToken cancellationToken)
     {
-        var externalDirectory = Directory.CreateDirectory(
-            Path.Combine(Path.GetTempPath(), $"parrot-write-grant-files-{Guid.NewGuid():n}"));
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_externalRoot, $"file-grant-{toolName}"));
         var granted = Path.Combine(externalDirectory.FullName, "granted.txt");
         var denied = Path.Combine(externalDirectory.FullName, "denied.txt");
         await File.WriteAllTextAsync(granted, "old", cancellationToken);
@@ -383,14 +392,14 @@ internal sealed class WriteEditToolTests : IDisposable
         _ = await Assert.That(deniedResult).StartsWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(granted, cancellationToken)).IsEqualTo("new");
         _ = await Assert.That(await File.ReadAllTextAsync(denied, cancellationToken)).IsEqualTo("old");
-        externalDirectory.Delete(recursive: true);
+        File.Delete(granted);
+        File.Delete(denied);
     }
 
     [Test]
     public async Task Directory_grants_authorize_descendant_edits_and_create_paths(CancellationToken cancellationToken)
     {
-        var externalDirectory = Directory.CreateDirectory(
-            Path.Combine(Path.GetTempPath(), $"parrot-write-grant-directory-{Guid.NewGuid():n}"));
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_externalRoot, "directory-grant"));
         var granted = externalDirectory.FullName;
         var existing = Path.Combine(granted, "existing.txt");
         await File.WriteAllTextAsync(existing, "old", cancellationToken);
@@ -405,7 +414,8 @@ internal sealed class WriteEditToolTests : IDisposable
         var edited = await Tool("edit", profile, grants).Execute(
             EditArguments(existing, "old", "new", false),
             cancellationToken);
-        var createdPath = Path.Combine(granted, "nested", "created.txt");
+        var createdDirectory = Path.Combine(granted, "nested");
+        var createdPath = Path.Combine(createdDirectory, "created.txt");
         var written = await Tool("write", profile, grants).Execute(
             WriteArguments(createdPath, "created"),
             cancellationToken);
@@ -414,7 +424,8 @@ internal sealed class WriteEditToolTests : IDisposable
         _ = await Assert.That(written).DoesNotStartWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(existing, cancellationToken)).IsEqualTo("new");
         _ = await Assert.That(await File.ReadAllTextAsync(createdPath, cancellationToken)).IsEqualTo("created");
-        externalDirectory.Delete(recursive: true);
+        File.Delete(existing);
+        File.Delete(createdPath);
     }
 
     [Test]
@@ -447,8 +458,7 @@ internal sealed class WriteEditToolTests : IDisposable
         string toolName,
         CancellationToken cancellationToken)
     {
-        var externalDirectory = Directory.CreateDirectory(
-            Path.Combine(Path.GetTempPath(), $"parrot-write-grant-overrides-{Guid.NewGuid():n}"));
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_externalRoot, $"grant-overrides-{toolName}"));
         var target = Path.Combine(externalDirectory.FullName, "target.txt");
         await File.WriteAllTextAsync(target, "old", cancellationToken);
         var grants = new SandboxWriteGrants();
@@ -470,7 +480,7 @@ internal sealed class WriteEditToolTests : IDisposable
         _ = await Assert.That(readOnlyResult).StartsWith("error: ");
         _ = await Assert.That(deniedResult).StartsWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(target, cancellationToken)).IsEqualTo("old");
-        externalDirectory.Delete(recursive: true);
+        File.Delete(target);
     }
 
     [Test]
@@ -489,6 +499,47 @@ internal sealed class WriteEditToolTests : IDisposable
     }
 
     private static SecurityProfile WritableProfile() => SecurityProfile.Compose(false, [], [], []);
+
+    private static void DeleteFiles(string root)
+    {
+        if (!Directory.Exists(root))
+        {
+            return;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static void DeleteEmptyDirectories(string root)
+    {
+        if (!Directory.Exists(root))
+        {
+            return;
+        }
+
+        foreach (var path in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+                     .OrderDescending())
+        {
+            try
+            {
+                Directory.Delete(path);
+            }
+            catch (IOException)
+            {
+            }
+        }
+
+        try
+        {
+            Directory.Delete(root);
+        }
+        catch (IOException)
+        {
+        }
+    }
 
     private static string Arguments(string name, string path) => name == "write" ? WriteArguments(path, "new") : EditArguments(path, "old", "new", false);
 

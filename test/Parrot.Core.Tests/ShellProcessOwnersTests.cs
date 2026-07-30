@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Security;
 using Parrot.State;
@@ -52,11 +53,26 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var security = SecurityProfile.Compose(readOnly: false, [], [], []);
 
         var firstProcess = first.Start(
-            "shared", "sleep 30", ProcessEnvironmentOverrides.Empty, firstAgent, security);
+            "shared",
+            "sleep 30",
+            ProcessEnvironmentOverrides.Empty,
+            firstAgent,
+            security,
+            SandboxWriteGrantSnapshot.Empty);
         var secondProcess = second.Start(
-            "shared", "sleep 30", ProcessEnvironmentOverrides.Empty, secondAgent, security);
+            "shared",
+            "sleep 30",
+            ProcessEnvironmentOverrides.Empty,
+            secondAgent,
+            security,
+            SandboxWriteGrantSnapshot.Empty);
         var firstOnlyProcess = first.Start(
-            "first-only", "sleep 30", ProcessEnvironmentOverrides.Empty, firstAgent, security);
+            "first-only",
+            "sleep 30",
+            ProcessEnvironmentOverrides.Empty,
+            firstAgent,
+            security,
+            SandboxWriteGrantSnapshot.Empty);
         _ = await firstProcess.Wait(TimeSpan.Zero, cancellationToken);
         _ = await secondProcess.Wait(TimeSpan.Zero, cancellationToken);
         _ = await firstOnlyProcess.Wait(TimeSpan.Zero, cancellationToken);
@@ -64,10 +80,10 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         _ = await Assert.That(() => second.Claim("first-only"))
             .Throws<InvalidOperationException>();
         var observations = coordinator.Active();
-        _ = await Assert.That(observations.Select(item => item.Id).ToArray())
-            .IsEqualTo(["agent-1/first-only", "agent-1/shared", "agent-2/shared"]);
-        _ = await Assert.That(observations.Select(item => item.Name).ToArray())
-            .IsEqualTo(["first-only", "shared", "shared"]);
+        _ = await Assert.That(string.Join('|', observations.Select(item => item.Id)))
+            .IsEqualTo("agent-1/first-only|agent-1/shared|agent-2/shared");
+        _ = await Assert.That(string.Join('|', observations.Select(item => item.Name)))
+            .IsEqualTo("first-only|shared|shared");
 
         await lifetime.CancelAsync();
         await coordinator.Settle();

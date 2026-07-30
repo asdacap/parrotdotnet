@@ -187,7 +187,7 @@ internal sealed class ProviderRegistryTests
     public async Task Resolve_rejects_disabled_alias()
     {
         var registry = Build([("p", ["listed"])], string.Empty);
-        var catalog = new ModelAliasCatalog(registry, [new("disabled", string.Empty, "primary", null)]);
+        var catalog = new ModelAliasCatalog(registry, [new("disabled", string.Empty, "primary", null, null)]);
         var router = new ModelRouter(registry, catalog, string.Empty);
 
         _ = await Assert.That(() => router.Resolve("disabled")).Throws<LLMProviderException>();
