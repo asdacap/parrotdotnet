@@ -3,8 +3,13 @@ using System.Text.Json;
 
 namespace Parrot.Cli.Enhanced.Tools;
 
-internal sealed class ExecCommandToolPresenter : IToolPresenter
+internal sealed class ExecCommandToolPresenter(TimeProvider timeProvider) : IToolPresenter
 {
+    public ExecCommandToolPresenter()
+        : this(TimeProvider.System)
+    {
+    }
+
     public string ToolName => "exec_command";
 
     public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
@@ -12,7 +17,12 @@ internal sealed class ExecCommandToolPresenter : IToolPresenter
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var command = Command(call.ArgumentsJson);
-        return new ToolLiveValue($"{call.Owner}: $ {command}", [], Metadata, frame);
+        return new ToolLiveValue(
+            $"{call.Owner}: $ {command}",
+            [],
+            Metadata,
+            frame,
+            new RunningDuration(timeProvider));
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)

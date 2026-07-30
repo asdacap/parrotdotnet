@@ -71,6 +71,33 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
+    public async Task Active_exec_process_shows_elapsed_runtime_across_animation_frames()
+    {
+        var timeProvider = new ControlledTimeProvider();
+        var presenter = new ExecCommandToolPresenter(timeProvider);
+        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"dotnet test\"}");
+        var live = (ToolLiveValue)presenter.PresentLive(call, 0);
+
+        _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
+            .IsEqualTo("⠋ main: $ dotnet test (running 0s)");
+
+        timeProvider.SetElapsed(TimeSpan.FromSeconds(12));
+        live = live.Animate(1);
+        _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
+            .IsEqualTo("⠙ main: $ dotnet test (running 12s)");
+
+        timeProvider.SetElapsed(TimeSpan.FromSeconds(125));
+        live = live.Animate(2);
+        _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
+            .IsEqualTo("⠹ main: $ dotnet test (running 2m 05s)");
+
+        timeProvider.SetElapsed(TimeSpan.FromSeconds(3723));
+        live = live.Animate(3);
+        _ = await Assert.That(live.Render(LiveContext).Lines[0].Text)
+            .IsEqualTo("⠸ main: $ dotnet test (running 1h 02m 03s)");
+    }
+
+    [Test]
     public async Task Exec_process_output_is_not_colored()
     {
         var presenter = new ExecCommandToolPresenter();
@@ -113,5 +140,16 @@ internal sealed class ProcessToolPresenterTests
 
         _ = await Assert.That(string.Join('\n', live)).Contains(liveExpected);
         _ = await Assert.That(string.Join('\n', terminalLines)).Contains(terminalExpected);
+    }
+
+    private sealed class ControlledTimeProvider : TimeProvider
+    {
+        private long _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => _timestamp;
+
+        public void SetElapsed(TimeSpan elapsed) => _timestamp = elapsed.Ticks;
     }
 }
