@@ -77,6 +77,8 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public List<PendingQuestion> PendingQuestions => GetPendingQuestions("session-1");
+
     public IReadOnlyList<ConfigureModelAliasRequest> ConfiguredAliases
     {
         get
