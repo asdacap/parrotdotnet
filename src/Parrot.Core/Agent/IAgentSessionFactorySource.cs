@@ -10,7 +10,7 @@ internal interface IAgentSessionFactorySource
 {
     IAgentSessionFactory Create(UserSession owner);
 
-    ShellProcessOwner CreateShellProcesses(UserSession owner);
+    ShellProcessOwners CreateShellProcesses(UserSession owner);
 
     QueueStore CreateQueues(UserSession owner);
 }

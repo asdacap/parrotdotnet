@@ -3,13 +3,13 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class WaitAgentTool(AgentRegistry agents) : ITool
+internal sealed class WaitAgentTool(AgentRegistry agents, AgentSession session) : ITool
 {
     public string Name => "wait_agent";
 
     public string Description =>
         "Wait for a child agent session to complete, yielding if the requested period elapses. "
-        + "session_id accepts the canonical child session ID or friendly name. Waiting never stops the agent.";
+        + "Canonical session IDs resolve globally; friendly names resolve among this session's direct children. Waiting never stops the agent.";
 
     public string ParametersJson =>
         """
@@ -44,7 +44,7 @@ internal sealed class WaitAgentTool(AgentRegistry agents) : ITool
 
         try
         {
-            return (await agents.Get(sessionId).Wait(
+            return (await agents.GetChild(session, sessionId).Wait(
                 yieldAfterMilliseconds,
                 cancellationToken).ConfigureAwait(false)).Format();
         }

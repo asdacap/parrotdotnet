@@ -28,9 +28,6 @@ internal sealed class AgentSessionFactory(
     private IReadOnlyList<IToolFactory> ToolFactories =>
         field ??=
         [
-            new ExecCommandToolFactory(owner.ShellProcesses),
-            new WaitProcessToolFactory(owner.ShellProcesses),
-            new InterruptProcessToolFactory(owner.ShellProcesses),
             new ReadToolFactory(_workspace),
             new GlobToolFactory(_workspace),
             new GrepToolFactory(_workspace),
@@ -68,6 +65,7 @@ internal sealed class AgentSessionFactory(
             eventBroker,
             eventRepository,
             ToolFactories,
+            owner.ShellProcesses,
             systemPromptProvider,
             blobDirectory,
             compactor,

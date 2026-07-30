@@ -579,9 +579,12 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 ### `AgentRegistry` — rank 9, M5
 
 - **Absorbs** `agent` (registry, provider resolution), `subagent`.
-- **Owns** agent profiles, the child session table, recursion limits, and
+- **Owns** agent profiles, the user-session-wide canonical child session table,
+  per-parent direct-child friendly-name namespaces, recursion limits, and
   **the lifetime of every spawned child session**.
 - **Inbound** resolve an agent profile; create and retrieve a child session.
+  Friendly names are unique and resolvable only among one caller's direct
+  children; canonical session ids remain resolvable throughout the user session.
 - **Outbound** `Configuration`, `AgentSession`.
 - **Boundary** no.
 - **Note** mutually dependent with `AgentSession`; both rank 9. The registry
@@ -692,8 +695,8 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   including when nested beneath the workspace or reached through a symlink.
   Runtime-owned plans and blobs use narrow capabilities rather than an
   exception for their containing root.
-- **Outbound** `PermissionBroker`, the user session's shell-process owner,
-  `ProcessRunner`, `WebFetcher`, the filesystem.
+- **Outbound** `PermissionBroker`, the invoking agent session's shell-process
+  owner, `ProcessRunner`, `WebFetcher`, the filesystem.
 - **Boundary** **yes** — tools.
 - **Divergence** `grep` uses .NET's `RegexOptions.NonBacktracking` engine
   rather than Go's RE2. The two reject the same pathological inputs (both
@@ -723,10 +726,12 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 
 - **Absorbs** `process`.
 - **Owns** OS child execution, output capture, output storage, and the sandbox.
-  A per-`UserSession` shell-process owner owns named run state and delivery.
+  A per-`AgentSession` shell-process owner owns named run state and delivery. A
+  user-session coordinator creates and observes those owners and joins all of
+  them at shutdown without exposing process lookup or control.
 - **Inbound** `Run(string command, ProcessEnvironmentOverrides environment,
   UserSessionResources resources, SecurityProfile securityProfile,
-  CancellationToken cancellationToken)`. The user-session shell-process owner
+  CancellationToken cancellationToken)`. An agent-session shell-process owner
   starts named runs through `Start(string? requestedName, string command,
   ProcessEnvironmentOverrides environment, AgentSession agent,
   SecurityProfile securityProfile)`. By default the child inherits the complete
@@ -746,10 +751,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   full absolute path. A narrow runtime capability permits access to that artifact
   without opening the private root. Child agents share their owning user
   session's private root.
-  Process names are ordinal and unique for the user-session lifetime: supplied
-  duplicates fail before launch, while omitted names are generated and reserved
-  atomically. Runs use the user-session lifetime token, survive tool-call yield
-  and cancellation, and are cancelled and joined when that session is disposed.
+  Process names are ordinal and unique within their owning agent session:
+  supplied duplicates fail before launch, while omitted names are generated and
+  reserved atomically. Wait and interrupt can address only that agent's owner.
+  User-session-wide active-work observations qualify repeated local names with
+  the owning agent session id. Runs use the user-session lifetime token, survive
+  tool-call yield and cancellation, and all per-agent owners are cancelled and
+  joined when that user session is disposed.
 - **Outbound** bubblewrap on Linux, Seatbelt on macOS, and
   `sessions/<id>/blob` for overflow output.
 - **Boundary** no.

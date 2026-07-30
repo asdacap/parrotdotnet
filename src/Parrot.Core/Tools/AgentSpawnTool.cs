@@ -13,7 +13,7 @@ internal sealed class AgentSpawnTool(
     public string Name => "agent_spawn";
 
     public string Description =>
-        "Start a child agent in an isolated session and return its session ID immediately. Its terminal result is automatically sent to this session.";
+        "Start a child agent in an isolated session and return its session ID immediately. Friendly names are unique among this session's direct children. Its terminal result is automatically sent to this session.";
 
     public string ParametersJson =>
         """

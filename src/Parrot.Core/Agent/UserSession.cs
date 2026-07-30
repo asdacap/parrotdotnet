@@ -96,7 +96,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal QueueStore Queues { get; }
 
-    internal ShellProcessOwner ShellProcesses { get; }
+    internal ShellProcessOwners ShellProcesses { get; }
 
     internal AgentRegistry Registry { get; }
 

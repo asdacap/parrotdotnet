@@ -8,7 +8,7 @@ internal sealed class WaitProcessTool(ShellProcessOwner processes) : ITool
     public string Name => "wait_process";
 
     public string Description =>
-        "Wait for a named shell process. A timeout returns its name without stopping it, allowing a later wait.";
+        "Wait for a shell process owned by this agent session. A timeout returns its name without stopping it, allowing a later wait.";
 
     public string ParametersJson =>
         """

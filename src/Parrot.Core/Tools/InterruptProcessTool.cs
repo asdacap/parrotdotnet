@@ -7,7 +7,7 @@ internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
 {
     public string Name => "interrupt_process";
 
-    public string Description => "Interrupt a named running shell process and its process tree.";
+    public string Description => "Interrupt a running shell process owned by this agent session and its process tree.";
 
     public string ParametersJson =>
         """

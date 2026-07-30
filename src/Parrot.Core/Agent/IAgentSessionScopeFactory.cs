@@ -1,6 +1,7 @@
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -17,6 +18,7 @@ internal interface IAgentSessionScopeFactory
         EventBroker eventBroker,
         EventRepository eventRepository,
         IReadOnlyList<IToolFactory> toolFactories,
+        ShellProcessOwners shellProcesses,
         ISystemPromptProvider systemPromptProvider,
         string blobDirectory,
         Compactor compactor,

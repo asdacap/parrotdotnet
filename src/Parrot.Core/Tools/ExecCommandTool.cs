@@ -16,12 +16,12 @@ internal sealed class ExecCommandTool(
     public string Name => "exec_command";
 
     public string Description =>
-        "Run a sandboxed shell command. Optionally reserve a unique session name and yield without stopping it; "
+        "Run a sandboxed shell command. Optionally reserve a unique name within this agent session and yield without stopping it; "
         + "omitted names are generated. Completion after a yield is steered back to this agent unless wait_process claims it.";
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"command":{"type":"string","description":"The shell command to run"},"env":{"type":"object","additionalProperties":{"type":"string"},"description":"Environment variables for the command. Values override the inherited environment."},"name":{"type":"string","description":"Unique name within this user session; generated when omitted"},"yield_after_ms":{"type":"integer","minimum":0,"description":"Return the process name if still running after this many milliseconds"}},"required":["command"],"additionalProperties":false}
+        {"type":"object","properties":{"command":{"type":"string","description":"The shell command to run"},"env":{"type":"object","additionalProperties":{"type":"string"},"description":"Environment variables for the command. Values override the inherited environment."},"name":{"type":"string","description":"Unique name within this agent session; generated when omitted"},"yield_after_ms":{"type":"integer","minimum":0,"description":"Return the process name if still running after this many milliseconds"}},"required":["command"],"additionalProperties":false}
         """;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
