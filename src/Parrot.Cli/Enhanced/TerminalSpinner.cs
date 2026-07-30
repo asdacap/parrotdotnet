@@ -23,20 +23,31 @@ internal sealed class TerminalSpinner(
 
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = Animate(frame, stopping.Token);
+        var preserveFrame = false;
 
-        async Task Stop()
+        async Task StopAnimation()
         {
             await stopping.CancelAsync().ConfigureAwait(false);
             await animation.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
+        async Task PreserveFrame()
+        {
+            preserveFrame = true;
+            await StopAnimation().ConfigureAwait(false);
+        }
+
         try
         {
-            await lifetime(Stop, cancellationToken).ConfigureAwait(false);
+            await lifetime(PreserveFrame, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            await Stop().ConfigureAwait(false);
+            await StopAnimation().ConfigureAwait(false);
+            if (!preserveFrame)
+            {
+                await draw([], CancellationToken.None).ConfigureAwait(false);
+            }
         }
     }
 
@@ -52,10 +63,6 @@ internal sealed class TerminalSpinner(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-        }
-        finally
-        {
-            await draw([], CancellationToken.None).ConfigureAwait(false);
         }
     }
 }

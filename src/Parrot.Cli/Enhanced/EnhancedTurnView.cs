@@ -4,13 +4,13 @@ using Parrot.Protocol;
 namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedTurnView(
-    Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
+    Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
     Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
     TextWriter error,
     Func<int> columns,
     bool renderActivityEvents,
     bool color,
-    ForegroundTurn foreground) : IAsyncDisposable
+    ForegroundTurn foreground)
 {
     private const string Dim = "\u001b[2m";
     private const string Cyan = "\u001b[36m";
@@ -19,7 +19,6 @@ internal sealed class EnhancedTurnView(
     private const string Reset = "\u001b[0m";
 
     private readonly MarkdownLiveRenderer _live = new(columns, color);
-    private readonly LiveUpdateScheduler _updates = new(draw, commit);
     private readonly StringBuilder _reasoning = new();
     private MarkdownLiveUpdate? _pendingTextCompletion;
     private bool _started;
@@ -27,8 +26,6 @@ internal sealed class EnhancedTurnView(
     private int _textSegment;
 
     private string TextId => $"assistant-{_textSegment}";
-
-    public ValueTask DisposeAsync() => _updates.DisposeAsync();
 
     public async Task Prepare(Event published, CancellationToken cancellationToken)
     {
@@ -156,12 +153,17 @@ internal sealed class EnhancedTurnView(
         if (_textActive)
         {
             await CommitText(CancellationToken.None).ConfigureAwait(false);
-            await draw([], cancellationToken).ConfigureAwait(false);
+            await replace([], cancellationToken).ConfigureAwait(false);
         }
     }
 
     private static string Summarise(TurnEnded ended) =>
         $"{TerminalText.Sanitize(ended.FinishReason)} - {ended.InputTokens} total in / {ended.OutputTokens} total out";
+
+    private static IReadOnlyList<ILiveBufferItem> Items(MarkdownLiveUpdate update) =>
+        update.Preview.Count == 0
+            ? []
+            : [new MarqueeValue(update.Prefix, string.Join(' ', update.Preview), 0)];
 
     private Task RenderActivity(Event published, CancellationToken cancellationToken)
     {
@@ -181,14 +183,15 @@ internal sealed class EnhancedTurnView(
     }
 
     private Task Apply(MarkdownLiveUpdate update, CancellationToken cancellationToken) =>
-        _updates.Publish(update, cancellationToken);
+        update.Scrollback is { } scrollback
+            ? commit(scrollback, Items(update), cancellationToken)
+            : replace(Items(update), cancellationToken);
 
     private Task Commit(IScrollbackItem item, CancellationToken cancellationToken) =>
         commit(item, [], cancellationToken);
 
     private async Task CommitText(CancellationToken cancellationToken)
     {
-        await _updates.Flush(cancellationToken).ConfigureAwait(false);
         _pendingTextCompletion ??= _live.Commit();
         await Apply(_pendingTextCompletion.Value, cancellationToken).ConfigureAwait(false);
         _pendingTextCompletion = null;
@@ -212,7 +215,7 @@ internal sealed class EnhancedTurnView(
         }
 
         _ = _reasoning.Append(fragment);
-        await draw([new SpinnerValue(_reasoning.ToString(), 0)], cancellationToken).ConfigureAwait(false);
+        await replace([new SpinnerValue(_reasoning.ToString(), 0)], cancellationToken).ConfigureAwait(false);
         if (chunk.Completed)
         {
             EndReasoning();

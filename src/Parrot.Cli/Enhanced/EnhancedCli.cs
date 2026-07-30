@@ -135,7 +135,7 @@ internal sealed class EnhancedCli(
             await terminal.Output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
-        await using var view = new EnhancedTurnView(
+        var view = new EnhancedTurnView(
             draw ?? NoLiveDraw,
             commit ?? CommitStandalone,
             terminal.Error,
@@ -255,7 +255,9 @@ internal sealed class EnhancedCli(
             TerminalFrameRenderer.DefaultLiveRows,
             TerminalFrameRenderer.DefaultInputRows,
             configuration.InlineDiff);
-        var spinner = new TerminalSpinner(DrawBody);
+        var updates = new LiveUpdateScheduler(DrawScheduled);
+        var updating = updates.Run(listening.Token);
+        var spinner = new TerminalSpinner(DrawInitialBody);
         var exiting = false;
         var firstTurnCompleted = false;
         var streaming = (CancellationTokenSource?)null;
@@ -336,7 +338,7 @@ internal sealed class EnhancedCli(
             }
         }
 
-        async Task DrawBody(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        async Task ReplaceBody(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             await composing.WaitAsync(token).ConfigureAwait(false);
             try
@@ -344,6 +346,34 @@ internal sealed class EnhancedCli(
                 currentBody = [.. items];
                 modelineFrame++;
                 currentModeline = CreateModeline();
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+        }
+
+        async Task DrawInitialBody(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                currentBody = [.. items];
+                modelineFrame++;
+                currentModeline = CreateModeline();
+                await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+        }
+
+        async Task DrawScheduled(CancellationToken token)
+        {
+            await composing.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
                 await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
             }
             finally
@@ -437,7 +467,7 @@ internal sealed class EnhancedCli(
                     index => new SpinnerValue("thinking", index),
                     async (stopSpinner, token) => firstTurnCompleted = await RenderRaw(
                         activeCall.ResponseStream,
-                        DrawBody,
+                        ReplaceBody,
                         CommitBody,
                         UpdateMainAgentActivity,
                         async (published, eventToken) =>
@@ -469,9 +499,10 @@ internal sealed class EnhancedCli(
                                 _ = composing.Release();
                             }
 
-                            await DrawState(currentModeline, readyToken).ConfigureAwait(false);
+                            _ = updates.Invalidate();
                         },
                         stopSpinner,
+                        updates.Invalidate,
                         async (completed, eventToken) =>
                         {
                             var pending = new PlanCompletionRequest(completed);
@@ -572,6 +603,11 @@ internal sealed class EnhancedCli(
 
             while (!cancellationToken.IsCancellationRequested && !exiting)
             {
+                if (updating.IsCompleted)
+                {
+                    await updating.ConfigureAwait(false);
+                }
+
                 if (exitOnFirstCompletion && rendering.IsCompleted)
                 {
                     await rendering.ConfigureAwait(false);
@@ -603,7 +639,7 @@ internal sealed class EnhancedCli(
                 var keyTask = liveInput.ReadKey(reading.Token).AsTask();
                 var planTask = planRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
                 var completionTask = exitOnFirstCompletion ? rendering : Task.Delay(Timeout.Infinite, cancellationToken);
-                _ = await Task.WhenAny(keyTask, planTask, completionTask).ConfigureAwait(false);
+                _ = await Task.WhenAny(keyTask, planTask, completionTask, updating).ConfigureAwait(false);
                 if (!keyTask.IsCompleted)
                 {
                     await reading.CancelAsync().ConfigureAwait(false);
@@ -714,7 +750,7 @@ internal sealed class EnhancedCli(
                 await listening.CancelAsync().ConfigureAwait(false);
                 try
                 {
-                    await rendering.ConfigureAwait(false);
+                    await Task.WhenAll(updating, rendering).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -914,13 +950,19 @@ internal sealed class EnhancedCli(
         Func<Event, CancellationToken, Task> observe,
         Func<CancellationToken, Task> ready,
         Func<Task> stopSpinner,
+        Func<bool> invalidate,
         Func<PlanCompleted, CancellationToken, Task> completePlan,
         bool exitOnFirstCompletion,
         CancellationToken cancellationToken)
     {
         var spinning = true;
         var foreground = new ForegroundTurn();
-        using var activity = new RawActivityView(draw, commit, toolPresenters, updateMainAgentActivity);
+        using var activity = new RawActivityView(
+            draw,
+            commit,
+            toolPresenters,
+            updateMainAgentActivity,
+            invalidate);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = activity.Run(animating.Token);
 
@@ -964,8 +1006,15 @@ internal sealed class EnhancedCli(
                     stream,
                     BeforeRender,
                     false,
-                    activity.Render,
-                    activity.DrawContent,
+                    async (published, eventToken) =>
+                    {
+                        await activity.Render(published, eventToken).ConfigureAwait(false);
+
+                        // Events update cached state or commit scrollback. This delayed invalidation
+                        // coalesces event bursts; user interaction can still redraw immediately.
+                        _ = invalidate();
+                    },
+                    activity.ReplaceContent,
                     activity.CommitContent,
                     foreground,
                     cancellationToken).ConfigureAwait(false);
@@ -998,7 +1047,6 @@ internal sealed class EnhancedCli(
                 if (!cancellationToken.IsCancellationRequested && !_busy)
                 {
                     await ready(cancellationToken).ConfigureAwait(false);
-                    await activity.Redraw(cancellationToken).ConfigureAwait(false);
                 }
             }
 

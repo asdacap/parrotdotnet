@@ -1,210 +1,52 @@
+using System.Threading.Channels;
+
 namespace Parrot.Cli.Enhanced;
 
-internal sealed class LiveUpdateScheduler : IAsyncDisposable
+internal sealed class LiveUpdateScheduler
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(1d / 30d);
 
-    private readonly Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> _draw;
-    private readonly Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> _commit;
+    private readonly Func<CancellationToken, Task> _draw;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
-    private readonly SemaphoreSlim _publishing = new(1, 1);
-    private readonly SemaphoreSlim _state = new(1, 1);
+    private readonly Channel<bool> _invalidations = Channel.CreateBounded<bool>(
+        new BoundedChannelOptions(1)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+        });
 
-    private CancellationTokenSource? _timerCancellation;
-    private Task? _timer;
-    private MarkdownLiveUpdate? _pending;
-    private bool _disposed;
-
-    public LiveUpdateScheduler(
-        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
-        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit)
-        : this(draw, commit, static (delay, cancellationToken) => Task.Delay(delay, cancellationToken))
+    public LiveUpdateScheduler(Func<CancellationToken, Task> draw)
+        : this(draw, static (delay, cancellationToken) => Task.Delay(delay, cancellationToken))
     {
     }
 
     internal LiveUpdateScheduler(
-        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
-        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        Func<CancellationToken, Task> draw,
         Func<TimeSpan, CancellationToken, Task> delay)
     {
         _draw = draw;
-        _commit = commit;
         _delay = delay;
     }
 
-    public Task Publish(MarkdownLiveUpdate update, CancellationToken cancellationToken) =>
-        update.Scrollback is { } scrollback
-            ? Commit(scrollback, update, cancellationToken)
-            : Queue(update, cancellationToken);
+    public bool Invalidate() => _invalidations.Writer.TryWrite(true);
 
-    public async Task Flush(CancellationToken cancellationToken)
+    public async Task Run(CancellationToken cancellationToken)
     {
-        Task? timer;
-        CancellationTokenSource? timerCancellation;
-        MarkdownLiveUpdate? pending;
-        await _state.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            timer = _timer;
-            timerCancellation = _timerCancellation;
-            pending = _pending;
-            _timer = null;
-            _timerCancellation = null;
-            _pending = null;
-        }
-        finally
-        {
-            _ = _state.Release();
-        }
-
-        if (timerCancellation is not null)
-        {
-            await timerCancellation.CancelAsync().ConfigureAwait(false);
-        }
-
-        if (timer is not null)
-        {
-            await timer.ConfigureAwait(false);
-        }
-
-        timerCancellation?.Dispose();
-        if (pending is { } update)
-        {
-            await Draw(update, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        await Flush(CancellationToken.None).ConfigureAwait(false);
-        await _publishing.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        _ = _publishing.Release();
-        _publishing.Dispose();
-        _state.Dispose();
-    }
-
-    private static List<ILiveBufferItem> Items(MarkdownLiveUpdate update) =>
-        update.Preview.Count == 0
-            ? []
-            : [new MarqueeValue(update.Prefix, string.Join(' ', update.Preview), 0)];
-
-    private async Task Queue(MarkdownLiveUpdate update, CancellationToken cancellationToken)
-    {
-        await _state.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            _pending = update;
-            if (_timer is null)
+            while (await _invalidations.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                StartTimer();
+                _ = _invalidations.Reader.TryRead(out _);
+                await _delay(Interval, cancellationToken).ConfigureAwait(false);
+                while (_invalidations.Reader.TryRead(out _))
+                {
+                }
+
+                await _draw(cancellationToken).ConfigureAwait(false);
             }
         }
-        finally
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _ = _state.Release();
-        }
-    }
-
-    private async Task Commit(
-        IScrollbackItem scrollback,
-        MarkdownLiveUpdate update,
-        CancellationToken cancellationToken)
-    {
-        await Flush(cancellationToken).ConfigureAwait(false);
-        await _publishing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await _commit(scrollback, Items(update), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _publishing.Release();
-        }
-    }
-
-    private void StartTimer()
-    {
-        var cancellation = new CancellationTokenSource();
-        _timerCancellation = cancellation;
-        _timer = PublishAfterDelay(cancellation);
-    }
-
-    private async Task PublishAfterDelay(CancellationTokenSource cancellation)
-    {
-        try
-        {
-            while (true)
-            {
-                await _delay(Interval, cancellation.Token).ConfigureAwait(false);
-                MarkdownLiveUpdate? update;
-                await _state.WaitAsync(cancellation.Token).ConfigureAwait(false);
-                try
-                {
-                    if (!ReferenceEquals(_timerCancellation, cancellation))
-                    {
-                        return;
-                    }
-
-                    update = _pending;
-                    _pending = null;
-                }
-                finally
-                {
-                    _ = _state.Release();
-                }
-
-                if (update is not null)
-                {
-                    await Draw(update.Value, CancellationToken.None).ConfigureAwait(false);
-                }
-
-                await _state.WaitAsync(cancellation.Token).ConfigureAwait(false);
-                try
-                {
-                    if (!ReferenceEquals(_timerCancellation, cancellation))
-                    {
-                        return;
-                    }
-
-                    if (_pending is null)
-                    {
-                        _timer = null;
-                        _timerCancellation = null;
-                        return;
-                    }
-                }
-                finally
-                {
-                    _ = _state.Release();
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-        }
-        finally
-        {
-            cancellation.Dispose();
-        }
-    }
-
-    private async Task Draw(MarkdownLiveUpdate update, CancellationToken cancellationToken)
-    {
-        await _publishing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await _draw(Items(update), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _ = _publishing.Release();
         }
     }
 }
