@@ -39,6 +39,7 @@ message UserSession {
   string id    = 1;
   string model = 2;
   string mode  = 3;
+  bool loaded  = 4;
 }
 
 message CreateSessionRequest {

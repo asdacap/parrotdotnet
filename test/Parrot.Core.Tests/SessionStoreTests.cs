@@ -75,6 +75,31 @@ internal sealed class SessionStoreTests : IDisposable
     }
 
     [Test]
+    public async Task Open_reports_whether_it_loaded_an_existing_session()
+    {
+        const string id = "user-session-existing";
+        var existingWork = Path.Combine(_root, "existing-work");
+        var freshWork = Path.Combine(_root, "fresh-work");
+        var index = new SessionIndex(_root);
+        index.Publish(Meta(id, "main", existingWork, "2026-07-27T01:00:00Z"));
+        PublishOwner(existingWork, id);
+
+        var loaded = Open(existingWork, ModeRegistry.Build, out var loadedStore);
+        using (loadedStore)
+        await using (loaded.Session)
+        {
+            _ = await Assert.That(loaded.Loaded).IsTrue();
+        }
+
+        var created = Open(freshWork, ModeRegistry.Build, out var createdStore);
+        using (createdStore)
+        await using (created.Session)
+        {
+            _ = await Assert.That(created.Loaded).IsFalse();
+        }
+    }
+
+    [Test]
     public async Task Failed_session_construction_does_not_consume_a_root_agent_name()
     {
         var model = Model();
@@ -130,6 +155,22 @@ internal sealed class SessionStoreTests : IDisposable
             router,
             Modes());
         return store.Open(router.Resolve(model.Selector));
+    }
+
+    private OpenedSession Open(string workingDirectory, string mode, out SessionStore store)
+    {
+        var sessions = new DirectAgentSessions();
+        var model = Model();
+        var router = TestModels.Route(model);
+        sessions.Use(router);
+        store = new SessionStore(
+            _root,
+            workingDirectory,
+            "host",
+            new UserSessionFactory(sessions, Modes()),
+            router,
+            Modes());
+        return store.Open(router.Resolve(model.Selector), mode);
     }
 
     private ModeRegistry Modes()

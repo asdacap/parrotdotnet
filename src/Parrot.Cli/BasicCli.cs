@@ -267,6 +267,12 @@ internal sealed class BasicCli(
         TextWriter error,
         CancellationToken cancellationToken)
     {
+        if (initialSession.Loaded)
+        {
+            await output.WriteLineAsync($"Loaded session {initialSession.Id}".AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         await output.WriteLineAsync(
             $"parrot {BuildInfo.Version} — /help for commands, /exit to leave".AsMemory(), cancellationToken)
             .ConfigureAwait(false);

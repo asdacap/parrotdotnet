@@ -587,6 +587,14 @@ internal sealed class EnhancedCli(
             streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
             call = client.Listen(
                 new ListenRequest { UserSessionId = session.Id }, cancellationToken: streaming.Token);
+            if (initialSession.Loaded && !exitOnFirstCompletion)
+            {
+                await renderer.Commit(
+                    ImmediateScrollbackValue.Muted([$"Loaded session {session.Id}"]),
+                    Snapshot(),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             var aliasWarnings = await ModelAliasWarnings.List(client, cancellationToken).ConfigureAwait(false);
             if (aliasWarnings.Count > 0)
             {

@@ -101,6 +101,8 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     public bool ReplyQuestionNotFound { get; set; }
 
+    public bool SessionLoaded { get; set; }
+
     public List<ModelAlias> ModelAliases { get; } = [];
 
     public List<PendingQuestion> PendingQuestions { get; } = [];
@@ -147,6 +149,7 @@ internal sealed class ScriptedInvoker : CallInvoker
                     Id = $"session-{_created.Count}",
                     Model = create.Model,
                     Mode = create.Mode,
+                    Loaded = SessionLoaded,
                 };
                 break;
             case UpdateSessionRequest update:

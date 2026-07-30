@@ -7,6 +7,22 @@ internal sealed class BasicCliTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
+    public async Task Startup_logs_when_an_existing_session_is_loaded(
+        bool enhanced,
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced);
+        driver.Invoker.SessionLoaded = true;
+
+        var driving = driver.Drive(cancellationToken);
+        await driver.OutputContains("Loaded session session-1", cancellationToken);
+        driver.Input.End();
+        _ = await driving;
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Startup_warns_for_unconfigured_aliases_in_name_order(
         bool enhanced,
         CancellationToken cancellationToken)

@@ -21,9 +21,9 @@ internal sealed class SessionStore(
 
     public SessionIndex Index { get; } = new(stateDirectory);
 
-    public UserSession Open(ResolvedModelSelection model) => Open(model, modes.Default);
+    public UserSession Open(ResolvedModelSelection model) => Open(model, modes.Default).Session;
 
-    public UserSession Open(ResolvedModelSelection model, string mode)
+    public OpenedSession Open(ResolvedModelSelection model, string mode)
     {
         var claim = new WorkingDirectoryClaim(stateDirectory, hostKey);
         var claimed = claim.Claim(workingDirectory, Identifier.UserSession(), ProcessIsAlive);
@@ -70,7 +70,7 @@ internal sealed class SessionStore(
                     ?? DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
             });
             _open.Add(database);
-            return session;
+            return new OpenedSession(session, existing is not null);
         }
         catch
         {

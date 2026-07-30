@@ -109,21 +109,21 @@ internal sealed class ParrotService(
             throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
 
-        Agent.UserSession created;
+        OpenedSession opened;
 
         try
         {
             _ = modes.Resolve(request.Mode, string.Empty);
-            created = store.Open(model, request.Mode);
+            opened = store.Open(model, request.Mode);
         }
         catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
         {
             throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
         }
 
-        _ = _userSessions.TryAdd(created.Id, created);
+        _ = _userSessions.TryAdd(opened.Session.Id, opened.Session);
 
-        return Task.FromResult(UserSession.From(created));
+        return Task.FromResult(UserSession.From(opened.Session, opened.Loaded));
     }
 
     public override Task<UserSession> UpdateSession(UpdateSessionRequest request, ServerCallContext context)
@@ -155,7 +155,7 @@ internal sealed class ParrotService(
         found.Update(selectedModel, selectedMode);
         store.Publish(found);
 
-        return Task.FromResult(UserSession.From(found));
+        return Task.FromResult(UserSession.From(found, false));
     }
 
     public override async Task<SendMessageResponse> SendMessage(
