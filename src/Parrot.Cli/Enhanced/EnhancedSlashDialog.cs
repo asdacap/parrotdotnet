@@ -105,16 +105,20 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
             selected - MaximumVisibleOptions + 1,
             0,
             Math.Max(0, matches.Count - MaximumVisibleOptions));
-        List<ILiveBufferItem> items = matches.Count == 0
-            ? [new PickerOptionValue("No matches", string.Empty, false)]
-            : [.. matches
-                .Skip(start)
-                .Take(MaximumVisibleOptions)
-                .Select((option, index) => (ILiveBufferItem)new PickerOptionValue(
-                    option.Label,
-                    option.Description,
-                    start + index == selected))];
-        items.Add(prompt);
+        List<ILiveBufferItem> items = [prompt];
+        if (matches.Count == 0)
+        {
+            items.Add(new PickerOptionValue("No matches", string.Empty, false));
+            return items;
+        }
+
+        items.AddRange(matches
+            .Skip(start)
+            .Take(MaximumVisibleOptions)
+            .Select((option, index) => (ILiveBufferItem)new PickerOptionValue(
+                option.Label,
+                option.Description,
+                start + index == selected)));
         return items;
     }
 
