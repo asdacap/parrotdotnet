@@ -1,10 +1,14 @@
 using System.Text;
 using System.Text.Json;
+using Parrot.Permissions;
 using Parrot.Security;
 
 namespace Parrot.Tools;
 
-internal sealed class WriteTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
+internal sealed class WriteTool(
+    ToolWorkspace workspace,
+    SecurityProfile securityProfile,
+    SandboxWriteGrants writeGrants) : ITool
 {
     private static readonly UTF8Encoding Utf8WithoutBom = new(false);
 
@@ -21,6 +25,8 @@ internal sealed class WriteTool(ToolWorkspace workspace, SecurityProfile securit
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
+        var writeGrantSnapshot = writeGrants.Capture();
+
         try
         {
             var input = JsonSerializer.Deserialize(
@@ -35,7 +41,7 @@ internal sealed class WriteTool(ToolWorkspace workspace, SecurityProfile securit
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var resolved = workspace.ResolveMutation(path, create: true, securityProfile);
+            var resolved = workspace.ResolveMutation(path, create: true, securityProfile, writeGrantSnapshot);
             FileMutation.RequireRegularFileOrMissing(resolved.Physical);
             var before = File.Exists(resolved.Physical)
                 ? await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false)
@@ -46,7 +52,7 @@ internal sealed class WriteTool(ToolWorkspace workspace, SecurityProfile securit
                 return FileMutation.NoChanges;
             }
 
-            resolved = workspace.ResolveMutation(path, create: true, securityProfile);
+            resolved = workspace.ResolveMutation(path, create: true, securityProfile, writeGrantSnapshot);
             await FileMutation.Write(
                 resolved.Physical,
                 after,

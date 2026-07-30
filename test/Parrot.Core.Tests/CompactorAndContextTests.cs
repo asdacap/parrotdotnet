@@ -96,9 +96,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var snapshot = new ModelAliasSnapshot(
         [
-            new("zeta", model.Selector, "last", null),
-            new("disabled", string.Empty, "hidden", null),
-            new("alpha", model.Selector, "first", null),
+            new("zeta", model.Selector, "last", null, null),
+            new("disabled", string.Empty, "hidden", null, null),
+            new("alpha", model.Selector, "first", null, null),
         ]);
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),

@@ -80,6 +80,9 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
                 await service.ListPendingQuestions(list, context).ConfigureAwait(false),
             ReplyQuestionRequest reply => await service.ReplyQuestion(reply, context).ConfigureAwait(false),
             RejectQuestionRequest reject => await service.RejectQuestion(reject, context).ConfigureAwait(false),
+            ListPendingPermissionsRequest list =>
+                await service.ListPendingPermissions(list, context).ConfigureAwait(false),
+            ReplyPermissionRequest reply => await service.ReplyPermission(reply, context).ConfigureAwait(false),
             _ => throw new NotImplementedException($"no in-process route for {request.GetType().Name}"),
         };
 

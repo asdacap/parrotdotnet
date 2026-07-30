@@ -122,6 +122,7 @@ internal sealed class EnhancedCliTests
             new EnhancedChatRequest(new() { Model = "provider/model", Mode = "plan" }, "draft plan"));
         var running = driver.Drive(cancellationToken);
         await driver.Sent(1, cancellationToken);
+        _ = await Assert.That(driver.Invoker.Created.Single().InteractivePermissions).IsFalse();
         await driver.Invoker.Publish(new Event
         {
             AgentSessionId = "agent",
@@ -1035,6 +1036,8 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(driver.Invoker.Created.Count).IsEqualTo(2);
         _ = await Assert.That(driver.Invoker.Created[1].Model).IsEqualTo("provider/model");
         _ = await Assert.That(driver.Invoker.Created[1].Mode).IsEqualTo("query");
+        _ = await Assert.That(driver.Invoker.Created[0].InteractivePermissions).IsTrue();
+        _ = await Assert.That(driver.Invoker.Created[1].InteractivePermissions).IsTrue();
         _ = await Assert.That(string.Join('|', driver.Invoker.ListenedTo)).IsEqualTo("session-1|session-2");
         _ = await Assert.That(string.Join('|', driver.Invoker.Sent)).IsEqualTo("new prompt");
         _ = await Assert.That(string.Join('|', driver.Invoker.SentTo)).IsEqualTo("session-2");

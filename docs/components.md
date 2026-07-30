@@ -471,12 +471,24 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 ### `PermissionBroker` — rank 5, M3
 
 - **Absorbs** `permission`.
-- **Owns** pending permission requests and granted scopes.
-- **Inbound** authorise a **canonical operation**, never a tool name
-  (principle 7). Authorisation stays separate from OS containment
+- **Owns** pending write-permission requests and the runtime grants accepted
+  for the requesting `AgentSession`.
+- **Inbound** `request_write_permission` requires one or more exact existing
+  absolute paths and a nonblank reason. The broker resolves canonical physical
+  targets: a file grant is exact-file; a directory grant includes descendants.
+  It authorises a **canonical operation**, never a tool name (principle 7).
+  Only the server-declared Grant, Reject, and Reject-with-reason replies are
+  accepted; cancelled selection or reason entry is Reject, and a blank required
+  rejection reason is invalid. Noninteractive sessions reject immediately and
+  pending requests time out. Authorisation stays separate from OS containment
   (principle 8).
-- **Outbound** `EventBroker` to ask, `Configuration` for standing grants.
-- **Boundary** no.
+- **Outbound** typed permission requests and replies through `EventBroker`,
+  `Configuration` for standing grants, and the requesting agent's sandbox for
+  accepted runtime grants.
+- **Boundary** no. A grant enables write, edit, and shell access within its
+  target, is runtime-only and nonpersistent, and does not transfer to child or
+  sibling agents or merge into `SecurityProfile`. A read-only profile, explicit
+  static deny, and protected roots override it; it has no network effect.
 
 ### `QuestionBroker` — rank 5, M3
 
@@ -696,8 +708,8 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   `replace_all` it requires exactly one match, while `replace_all` permits zero
   or more. Both write directly under the active filesystem security profile;
   they do not restore the dropped transactional change machinery.
-- **Protected roots.** `read`, `glob`, `grep`, `write`, `edit`, and
-  `apply_patch` additionally enforce Parrot's mandatory protected-root policy.
+- **Protected roots.** `read`, `glob`, `grep`, `write`, and `edit`
+  additionally enforce Parrot's mandatory protected-root policy.
   Profile rules cannot grant access to state, configuration, or data roots,
   including when nested beneath the workspace or reached through a symlink.
   Runtime-owned plans and blobs use narrow capabilities rather than an
@@ -738,10 +750,12 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   them at shutdown without exposing process lookup or control.
 - **Inbound** `Run(string command, ProcessEnvironmentOverrides environment,
   UserSessionResources resources, SecurityProfile securityProfile,
-  CancellationToken cancellationToken)`. An agent-session shell-process owner
-  starts named runs through `Start(string? requestedName, string command,
+  SandboxWriteGrantSnapshot writeGrants, CancellationToken cancellationToken)`.
+  An agent-session shell-process owner starts named runs through
+  `Start(string? requestedName, string command,
   ProcessEnvironmentOverrides environment, AgentSession agent,
-  SecurityProfile securityProfile)`. By default the child inherits the complete
+  SecurityProfile securityProfile, SandboxWriteGrantSnapshot writeGrants)`.
+  By default the child inherits the complete
   launch environment. Explicit overrides replace inherited child variables and
   become deterministically sorted bubblewrap `--setenv` entries. No runtime
   environment variables are protected, cleared, or forced. **Fails closed**: no

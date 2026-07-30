@@ -42,6 +42,7 @@ internal sealed class EnhancedCli(
 
         try
         {
+            request.Session.InteractivePermissions = request.Prompt.Length == 0;
             session = await client.CreateSessionAsync(request.Session, cancellationToken: cancellationToken);
         }
         catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
@@ -231,7 +232,7 @@ internal sealed class EnhancedCli(
         CancellationToken cancellationToken)
     {
         using var listening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var session = new SlashSession(client, initialSession, configuration, this);
+        var session = new SlashSession(client, initialSession, configuration, !exitOnFirstCompletion, this);
         var rendering = Task.CompletedTask;
         var interrupting = Interrupting(session, listening.Token);
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
@@ -263,6 +264,9 @@ internal sealed class EnhancedCli(
         var planRequests = Channel.CreateUnbounded<PlanCompletionRequest>();
         var questionRequests = Channel.CreateUnbounded<(string UserSessionId, PendingQuestion Pending)>();
         var discoveredQuestionRequests = new HashSet<string>(StringComparer.Ordinal);
+        var permissions = new PermissionInteractionPresenter(client);
+        PermissionInteractionPresenter.Session? permissionSession = null;
+        var reconcilingPermissions = Task.CompletedTask;
 
         IReadOnlyList<ILiveBufferItem> Snapshot() => [.. currentBody, currentModeline, .. currentInput];
 
@@ -498,6 +502,12 @@ internal sealed class EnhancedCli(
                                     discoveredQuestionRequests,
                                     eventToken).ConfigureAwait(false);
                             }
+
+                            if (published.PayloadCase == Event.PayloadOneofCase.PermissionPending
+                                && permissionSession is { } attached)
+                            {
+                                permissions.Observe(attached, published.PermissionPending);
+                            }
                         },
                         async readyToken =>
                         {
@@ -548,6 +558,12 @@ internal sealed class EnhancedCli(
             streaming = replacementStreaming;
             call = replacementCall;
             rendering = Task.CompletedTask;
+            discoveredQuestionRequests.Clear();
+            while (questionRequests.Reader.TryRead(out _))
+            {
+            }
+
+            permissionSession = permissions.Attach(replacement.Id);
             usage.Reset();
             foregroundForModeline.Reset();
             modelineTools.Clear();
@@ -600,6 +616,8 @@ internal sealed class EnhancedCli(
             streaming = CancellationTokenSource.CreateLinkedTokenSource(listening.Token);
             call = client.Listen(
                 new ListenRequest { UserSessionId = session.Id }, cancellationToken: streaming.Token);
+            permissionSession = permissions.Attach(session.Id);
+            reconcilingPermissions = permissions.Reconcile(listening.Token);
             if (initialSession.Loaded && !exitOnFirstCompletion)
             {
                 await renderer.Commit(
@@ -636,6 +654,13 @@ internal sealed class EnhancedCli(
                     continue;
                 }
 
+                if (permissions.Read() is { } permissionRequest)
+                {
+                    await permissions.Present(permissionRequest, dialog, cancellationToken).ConfigureAwait(false);
+                    await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
+                    continue;
+                }
+
                 if (planRequests.Reader.TryRead(out var planRequest))
                 {
                     await CompletePlan(planRequest, dialog, session, cancellationToken).ConfigureAwait(false);
@@ -658,8 +683,15 @@ internal sealed class EnhancedCli(
                 var keyTask = liveInput.ReadKey(reading.Token).AsTask();
                 var planTask = planRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
                 var questionTask = questionRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
+                var permissionTask = permissions.WaitToRead(cancellationToken).AsTask();
                 var completionTask = exitOnFirstCompletion ? rendering : Task.Delay(Timeout.Infinite, cancellationToken);
-                _ = await Task.WhenAny(keyTask, planTask, questionTask, completionTask, updating).ConfigureAwait(false);
+                _ = await Task.WhenAny(
+                    keyTask,
+                    planTask,
+                    questionTask,
+                    permissionTask,
+                    completionTask,
+                    updating).ConfigureAwait(false);
                 if (!keyTask.IsCompleted)
                 {
                     await reading.CancelAsync().ConfigureAwait(false);
@@ -780,7 +812,7 @@ internal sealed class EnhancedCli(
                     }
                     finally
                     {
-                        await interrupting.ConfigureAwait(false);
+                        await Task.WhenAll(interrupting, reconcilingPermissions).ConfigureAwait(false);
                     }
                 }
             }

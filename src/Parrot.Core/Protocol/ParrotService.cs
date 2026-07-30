@@ -2,6 +2,7 @@ using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Questions;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -141,7 +142,8 @@ internal sealed class ParrotService(
         try
         {
             _ = modes.Resolve(request.Mode);
-            created = await _userSessions.Host(() => store.CreateFresh(model, request.Mode)).ConfigureAwait(false);
+            created = await _userSessions.Host(() =>
+                store.CreateFresh(model, request.Mode, request.InteractivePermissions)).ConfigureAwait(false);
         }
         catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
         {
@@ -297,6 +299,48 @@ internal sealed class ParrotService(
         }
     }
 
+    public override Task<ListPendingPermissionsResponse> ListPendingPermissions(
+        ListPendingPermissionsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var response = new ListPendingPermissionsResponse();
+        response.Permissions.AddRange(Find(request.UserSessionId).Permissions.Pending().Select(ToProtocol));
+        return Task.FromResult(response);
+    }
+
+    public override Task<ReplyPermissionResponse> ReplyPermission(
+        ReplyPermissionRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (request.PermissionRequestId.Length == 0)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "a permission request id is required"));
+        }
+
+        try
+        {
+            Find(request.UserSessionId).Permissions.Reply(
+                request.PermissionRequestId,
+                request.ChoiceValue,
+                request.Reason);
+            return Task.FromResult(new ReplyPermissionResponse());
+        }
+        catch (PermissionNotFoundException failure)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, failure.Message));
+        }
+        catch (PermissionException failure)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+    }
+
     // Indefinite. It ends when the client stops listening or the call is
     // cancelled -- not when a turn finishes, because a subagent spawned by the
     // agent keeps publishing to this same stream long afterwards.
@@ -345,6 +389,34 @@ internal sealed class ParrotService(
                 Label = option.Label,
             }));
             return converted;
+        }));
+        return pending;
+    }
+
+    private static PendingPermission ToProtocol(PermissionPending request)
+    {
+        var pending = new PendingPermission
+        {
+            Id = request.Id,
+            AgentSessionId = request.AgentSessionId,
+            Reason = request.Reason,
+        };
+        pending.Targets.AddRange(request.Targets.Select(target => new PermissionTarget
+        {
+            Kind = target.Kind == SandboxWriteTargetKind.File
+                ? PermissionTargetKind.File
+                : PermissionTargetKind.Directory,
+            Scope = PermissionTargetScope.Write,
+            Path = target.Path,
+        }));
+        pending.Choices.AddRange(request.Choices.Select(choice => new global::Parrot.Protocol.PermissionChoice
+        {
+            Value = choice.Value,
+            Label = choice.Label,
+            Action = choice.Decision == PermissionDecision.Grant
+                ? PermissionAction.Allow
+                : PermissionAction.Deny,
+            RequiresReason = choice.RequiresReason,
         }));
         return pending;
     }

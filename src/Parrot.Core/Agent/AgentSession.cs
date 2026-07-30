@@ -3,6 +3,7 @@ using System.Text;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Security;
@@ -102,6 +103,8 @@ internal sealed class AgentSession(
     public string ParentSessionName => identity.ParentSessionName;
 
     public TodoCollection Todos { get; } = todos;
+
+    public SandboxWriteGrants WriteGrants { get; } = new();
 
     // Selection is execution state supplied by the owning user session. One
     // immutable snapshot is used for a whole turn because a running

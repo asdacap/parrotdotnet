@@ -1,3 +1,4 @@
+using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.State;
 
@@ -27,7 +28,11 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
         return (lexical, physical);
     }
 
-    public ToolMutationPath ResolveMutation(string path, bool create, SecurityProfile security)
+    public ToolMutationPath ResolveMutation(
+        string path,
+        bool create,
+        SecurityProfile security,
+        SandboxWriteGrantSnapshot writeGrants)
     {
         var lexical = Path.IsPathFullyQualified(path)
             ? Path.GetFullPath(path)
@@ -36,21 +41,23 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
 
         _fileSystemPolicy.RequireUnprotected(lexical);
 
-        if (!inWorkspace && !HasExternalCapability(lexical, security))
-        {
-            throw new InvalidOperationException($"Write access denied for '{path}'.");
-        }
-
         var physical = ResolveMutationPath(lexical, path, create);
         _fileSystemPolicy.RequireUnprotected(physical);
-        if (!security.AllowsWrite(physical) || (!inWorkspace && !HasExternalCapability(physical, security)))
+        writeGrants.Validate(lexical);
+        if (!string.Equals(physical, lexical, StringComparison.Ordinal))
+        {
+            writeGrants.Validate(physical);
+        }
+
+        if (!AllowsMutation(lexical, security, writeGrants, inWorkspace)
+            || !AllowsMutation(physical, security, writeGrants, inWorkspace))
         {
             throw new InvalidOperationException($"Write access denied for '{path}'.");
         }
 
         if (create)
         {
-            RequireWritableMissingParents(physical, path, security, inWorkspace);
+            RequireWritableMissingParents(physical, path, security, writeGrants, inWorkspace);
         }
 
         return new ToolMutationPath(physical, DisplayPath(physical));
@@ -91,15 +98,62 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
         return full;
     }
 
-    private static void RequireWritableMissingParents(string path, string requested, SecurityProfile security, bool inWorkspace)
+    private static void RequireWritableMissingParents(
+        string path,
+        string requested,
+        SecurityProfile security,
+        SandboxWriteGrantSnapshot writeGrants,
+        bool inWorkspace)
     {
         for (var parent = Path.GetDirectoryName(path); parent is not null && !Directory.Exists(parent); parent = Path.GetDirectoryName(parent))
         {
-            if (!security.AllowsWrite(parent) || (!inWorkspace && !HasExternalCapability(parent, security)))
+            if (!AllowsMutation(parent, security, writeGrants, inWorkspace))
             {
                 throw new InvalidOperationException($"Write access denied for '{requested}'.");
             }
         }
+    }
+
+    private static bool AllowsMutation(
+        string path,
+        SecurityProfile security,
+        SandboxWriteGrantSnapshot writeGrants,
+        bool inWorkspace)
+    {
+        var staticallyAllowed = security.AllowsWrite(path)
+            && (inWorkspace || HasExternalCapability(path, security));
+        var granted = !security.ReadOnly
+            && !IsExplicitlyDenied(path, security)
+            && AllowsGrant(path, writeGrants);
+        return staticallyAllowed || granted;
+    }
+
+    private static bool AllowsGrant(string path, SandboxWriteGrantSnapshot writeGrants) =>
+        writeGrants.Targets.Any(target => target.Kind == SandboxWriteTargetKind.Directory
+            ? PathContains(target.Path, path)
+            : string.Equals(target.Path, path, StringComparison.Ordinal));
+
+    private static bool IsExplicitlyDenied(string path, SecurityProfile security)
+    {
+        var denied = false;
+        foreach (var rule in security.WithoutRuntimeCapabilities().Rules)
+        {
+            if (!PathContains(rule.Path, path))
+            {
+                continue;
+            }
+
+            if (rule.Action is SandboxRuleAction.DenyRead or SandboxRuleAction.DenyWrite)
+            {
+                denied = true;
+            }
+            else if (rule.Action == SandboxRuleAction.AllowWrite)
+            {
+                denied = false;
+            }
+        }
+
+        return denied;
     }
 
     private static bool HasExternalCapability(string path, SecurityProfile security)

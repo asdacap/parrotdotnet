@@ -1,3 +1,4 @@
+using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Security;
 using Parrot.State;
@@ -34,6 +35,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                     ProcessEnvironmentOverrides.Empty,
                     Resources(_workspace),
                     WritableProfile(),
+                    SandboxWriteGrantSnapshot.Empty,
                     CancellationToken.None))
             .Throws<SandboxUnavailableException>();
 
@@ -57,6 +59,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             WritableProfile(),
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         _ = await Assert.That(result.ExitCode).IsEqualTo(7);
@@ -93,6 +96,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             WritableProfile(),
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         _ = await Assert.That(result.Spilled).IsTrue();
@@ -122,6 +126,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                     ProcessEnvironmentOverrides.Empty,
                     resources,
                     WritableProfile(),
+                    SandboxWriteGrantSnapshot.Empty,
                     cancellationToken))
             .Throws<IOException>();
     }
@@ -142,6 +147,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             WritableProfile(),
+            SandboxWriteGrantSnapshot.Empty,
             cancellation.Token);
         var childPid = await ReadPid(pidPath);
 
@@ -192,6 +198,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             Resources(worktree),
             WritableProfile(),
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -207,6 +214,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             Resources(worktree),
             SecurityProfile.Compose(true, [], [], []),
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -238,6 +246,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ]),
             Resources(_workspace),
             WritableProfile(),
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -265,6 +274,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             resources,
             WritableProfile(),
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -302,6 +312,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             profile,
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -318,6 +329,195 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(FindSources(arguments, nested)).Contains("--bind");
         _ = await Assert.That(FindSources(arguments, hidden)).Contains("--ro-bind");
         _ = await Assert.That(arguments).DoesNotContain(Path.Combine(home, ".cache"));
+    }
+
+    [Test]
+    public async Task Session_grants_are_snapshotted_and_ordered_below_static_policy(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var granted = Directory.CreateDirectory(Path.Combine(_workspace, "granted")).FullName;
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var grants = new SandboxWriteGrants();
+        grants.Grant(SandboxWriteTarget.Resolve(granted));
+        var snapshot = grants.Capture();
+        var profile = SecurityProfile.Compose(
+            false,
+            [new SandboxRule(granted, SandboxRuleAction.DenyWrite)],
+            [],
+            []);
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            Resources(_workspace),
+            profile,
+            snapshot,
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(string.Join(',', FindMounts(arguments, granted)))
+            .IsEqualTo("--bind,--ro-bind");
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            Resources(_workspace),
+            SecurityProfile.Compose(true, [], [], []),
+            snapshot,
+            cancellationToken);
+
+        arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(FindMounts(arguments, granted)).IsEmpty();
+    }
+
+    [Test]
+    public async Task Protected_roots_override_session_grants(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var resources = Resources(_workspace);
+        var protectedRoot = Directory.CreateDirectory(resources.ProtectedRoots[0]).FullName;
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var grants = new SandboxWriteGrants();
+        grants.Grant(SandboxWriteTarget.Resolve(protectedRoot));
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            WritableProfile(),
+            grants.Capture(),
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(FindMounts(arguments, protectedRoot)[^1]).IsEqualTo("--tmpfs");
+    }
+
+    [Test]
+    public async Task Real_sandbox_applies_directory_grants_and_static_precedence(
+        CancellationToken cancellationToken)
+    {
+        var runner = ProcessRunner.Locate();
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        var external = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), $"parrot-runner-grants-{Guid.NewGuid():n}"));
+        try
+        {
+            var granted = Directory.CreateDirectory(Path.Combine(external.FullName, "granted")).FullName;
+            var allowed = Path.Combine(granted, "allowed.txt");
+            var staticallyDenied = Path.Combine(granted, "denied.txt");
+            var outsideGrant = Path.Combine(external.FullName, "outside.txt");
+            await File.WriteAllTextAsync(allowed, "old", cancellationToken);
+            await File.WriteAllTextAsync(staticallyDenied, "old", cancellationToken);
+            await File.WriteAllTextAsync(outsideGrant, "old", cancellationToken);
+            var grants = new SandboxWriteGrants();
+            grants.Grant(SandboxWriteTarget.Resolve(granted));
+            var profile = SecurityProfile.Compose(
+                false,
+                [new SandboxRule(staticallyDenied, SandboxRuleAction.DenyWrite)],
+                [],
+                []);
+
+            var result = await runner.Run(
+                $"printf allowed > '{allowed}'; "
+                + $"if printf denied > '{staticallyDenied}' 2>/dev/null; then echo static-writable; else echo static-denied; fi; "
+                + $"printf outside > '{outsideGrant}' 2>/dev/null",
+                ProcessEnvironmentOverrides.Empty,
+                Resources(_workspace),
+                profile,
+                grants.Capture(),
+                cancellationToken);
+
+            _ = await Assert.That(result.Stdout).Contains("static-denied");
+            _ = await Assert.That(await File.ReadAllTextAsync(allowed, cancellationToken)).IsEqualTo("allowed");
+            _ = await Assert.That(await File.ReadAllTextAsync(staticallyDenied, cancellationToken)).IsEqualTo("old");
+            _ = await Assert.That(await File.ReadAllTextAsync(outsideGrant, cancellationToken)).IsEqualTo("old");
+        }
+        finally
+        {
+            external.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Real_sandbox_applies_exact_file_grants(CancellationToken cancellationToken)
+    {
+        var runner = ProcessRunner.Locate();
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        var external = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), $"parrot-runner-file-grants-{Guid.NewGuid():n}"));
+        try
+        {
+            var allowed = Path.Combine(external.FullName, "allowed.txt");
+            var denied = Path.Combine(external.FullName, "denied.txt");
+            await File.WriteAllTextAsync(allowed, "old", cancellationToken);
+            await File.WriteAllTextAsync(denied, "old", cancellationToken);
+            var grants = new SandboxWriteGrants();
+            grants.Grant(SandboxWriteTarget.Resolve(allowed));
+
+            _ = await runner.Run(
+                $"printf allowed > '{allowed}'; printf denied > '{denied}' 2>/dev/null",
+                ProcessEnvironmentOverrides.Empty,
+                Resources(_workspace),
+                WritableProfile(),
+                grants.Capture(),
+                cancellationToken);
+
+            _ = await Assert.That(await File.ReadAllTextAsync(allowed, cancellationToken)).IsEqualTo("allowed");
+            _ = await Assert.That(await File.ReadAllTextAsync(denied, cancellationToken)).IsEqualTo("old");
+        }
+        finally
+        {
+            external.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Replaced_grant_is_ignored_before_launch(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var granted = Directory.CreateDirectory(Path.Combine(_workspace, "granted")).FullName;
+        var replacement = Directory.CreateDirectory(Path.Combine(_workspace, "replacement")).FullName;
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var grants = new SandboxWriteGrants();
+        grants.Grant(SandboxWriteTarget.Resolve(granted));
+        var snapshot = grants.Capture();
+        Directory.Delete(granted);
+        _ = Directory.CreateSymbolicLink(granted, replacement);
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            Resources(_workspace),
+            WritableProfile(),
+            snapshot,
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(FindMounts(arguments, granted)).IsEmpty();
     }
 
     [Test]
@@ -346,6 +546,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             resources,
             profile,
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
@@ -392,6 +593,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             resources,
             WritableProfile(),
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         _ = await Assert.That(result.Stdout).IsEqualTo($"hidden\nresult\n{home}|{cache}");
@@ -414,6 +616,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             WritableProfile(),
+            SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         _ = await Assert.That(File.Exists(Path.Combine(_workspace, "inside.txt"))).IsTrue();

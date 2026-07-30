@@ -23,6 +23,8 @@ service Parrot {
   rpc ListPendingQuestions (ListPendingQuestionsRequest) returns (ListPendingQuestionsResponse);
   rpc ReplyQuestion (ReplyQuestionRequest) returns (ReplyQuestionResponse);
   rpc RejectQuestion (RejectQuestionRequest) returns (RejectQuestionResponse);
+  rpc ListPendingPermissions (ListPendingPermissionsRequest) returns (ListPendingPermissionsResponse);
+  rpc ReplyPermission (ReplyPermissionRequest) returns (ReplyPermissionResponse);
   rpc Listen (ListenRequest) returns (stream Event);
 }
 
@@ -46,6 +48,7 @@ message UserSession {
 message CreateSessionRequest {
   string model = 1;
   string mode  = 2;
+  bool interactive_permissions = 3;
 }
 
 message UpdateSessionRequest {
@@ -215,6 +218,61 @@ message RejectQuestionRequest {
 
 message RejectQuestionResponse {}
 
+message ListPendingPermissionsRequest {
+  string user_session_id = 1;
+}
+
+message ListPendingPermissionsResponse {
+  repeated PendingPermission permissions = 1;
+}
+
+message PendingPermission {
+  string id = 1;
+  string agent_session_id = 2;
+  string reason = 3;
+  repeated PermissionTarget targets = 4;
+  repeated PermissionChoice choices = 5;
+}
+
+enum PermissionTargetKind {
+  PERMISSION_TARGET_KIND_UNSPECIFIED = 0;
+  PERMISSION_TARGET_KIND_FILE = 1;
+  PERMISSION_TARGET_KIND_DIRECTORY = 2;
+}
+
+enum PermissionTargetScope {
+  PERMISSION_TARGET_SCOPE_UNSPECIFIED = 0;
+  PERMISSION_TARGET_SCOPE_WRITE = 1;
+}
+
+message PermissionTarget {
+  PermissionTargetKind kind = 1;
+  PermissionTargetScope scope = 2;
+  string path = 3;
+}
+
+enum PermissionAction {
+  PERMISSION_ACTION_UNSPECIFIED = 0;
+  PERMISSION_ACTION_ALLOW = 1;
+  PERMISSION_ACTION_DENY = 2;
+}
+
+message PermissionChoice {
+  string value = 1;
+  string label = 2;
+  PermissionAction action = 3;
+  bool requires_reason = 4;
+}
+
+message ReplyPermissionRequest {
+  string user_session_id = 1;
+  string permission_request_id = 2;
+  string choice_value = 3;
+  string reason = 4;
+}
+
+message ReplyPermissionResponse {}
+
 message ListenRequest {
   string user_session_id = 1;
 }
@@ -259,6 +317,7 @@ message Event {
     StatusInjected         status_injected          = 20;
     AgentStatisticsUpdatedEvent agent_statistics_updated = 21;
     PlanCompleted          plan_completed          = 22;
+    PendingPermission      permission_pending      = 23;
   }
 }
 

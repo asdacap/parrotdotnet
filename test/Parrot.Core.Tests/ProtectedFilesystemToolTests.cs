@@ -1,7 +1,7 @@
+using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Tools;
-using Parrot.Tools.ApplyPatch;
 
 namespace Parrot.Core.Tests;
 
@@ -103,7 +103,6 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
     [Test]
     [Arguments("write")]
     [Arguments("edit")]
-    [Arguments("apply_patch")]
     public async Task Mutations_cannot_reopen_protected_roots(
         string toolName,
         CancellationToken cancellationToken)
@@ -115,18 +114,18 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             [],
             [],
             [new SandboxRule(_paths.State, SandboxRuleAction.AllowWrite)]);
+        var grants = new SandboxWriteGrants();
+        grants.Grant(SandboxWriteTarget.Resolve(path));
         ITool tool = toolName switch
         {
-            "write" => new WriteTool(_toolWorkspace, profile),
-            "edit" => new EditTool(_toolWorkspace, profile),
-            "apply_patch" => new ApplyPatchTool(_toolWorkspace, profile),
+            "write" => new WriteTool(_toolWorkspace, profile, grants),
+            "edit" => new EditTool(_toolWorkspace, profile, grants),
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
         var arguments = toolName switch
         {
             "write" => "{\"path\":\"private-state/claim.txt\",\"content\":\"new\"}",
             "edit" => "{\"path\":\"private-state/claim.txt\",\"old_string\":\"old\",\"new_string\":\"new\",\"replace_all\":false}",
-            "apply_patch" => "{\"patchText\":\"private-state/claim.txt\\n<<<<<<< SEARCH\\nold\\n=======\\nnew\\n>>>>>>> REPLACE\"}",
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 

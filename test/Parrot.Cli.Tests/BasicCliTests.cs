@@ -53,6 +53,92 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Pending_permission_wakes_input_and_replies_with_the_typed_choice(
+        bool enhanced,
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("work");
+        await driver.Sent(1, cancellationToken);
+
+        var pending = Permission("permission-1", requiresReason: false);
+        driver.Invoker.AddPendingPermission(pending);
+        await driver.Invoker.Publish(new Event { PermissionPending = pending.Clone() });
+        await driver.OutputContains("Allow this write", cancellationToken);
+        driver.Input.Type(enhanced ? string.Empty : "allow");
+
+        while (driver.Invoker.PermissionReplies.Count == 0)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        var reply = driver.Invoker.PermissionReplies.Single();
+        _ = await Assert.That(reply.PermissionRequestId).IsEqualTo("permission-1");
+        _ = await Assert.That(reply.ChoiceValue).IsEqualTo("allow");
+        _ = await Assert.That(reply.Reason).IsEmpty();
+        _ = await Assert.That(driver.Invoker.Created.Single().InteractivePermissions).IsTrue();
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Periodic_permission_reconciliation_recovers_a_dropped_event(
+        bool enhanced,
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced);
+        var running = driver.Drive(cancellationToken);
+        driver.Invoker.AddPendingPermission(Permission("permission-dropped", requiresReason: false));
+
+        await driver.OutputContains("Allow this write", cancellationToken);
+        driver.Input.Type(enhanced ? string.Empty : "allow");
+        while (driver.Invoker.PermissionReplies.Count == 0)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        _ = await Assert.That(driver.Invoker.PendingPermissionLists).IsGreaterThanOrEqualTo(1);
+        _ = await Assert.That(driver.Invoker.PermissionReplies.Single().PermissionRequestId)
+            .IsEqualTo("permission-dropped");
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    public async Task Blank_permission_reason_re_presents_without_replying(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: false);
+        var running = driver.Drive(cancellationToken);
+        var pending = Permission("permission-reason", requiresReason: true);
+        driver.Invoker.AddPendingPermission(pending);
+        await driver.Invoker.Publish(new Event { PermissionPending = pending.Clone() });
+
+        await driver.OutputContains("Allow this write", cancellationToken);
+        driver.Input.Type("allow");
+        driver.Input.Type("   ");
+        await driver.ErrorContains("A reason is required.", cancellationToken);
+        _ = await Assert.That(driver.Invoker.PermissionReplies).IsEmpty();
+
+        driver.Input.Type("allow");
+        driver.Input.Type("  needed for the build  ");
+        while (driver.Invoker.PermissionReplies.Count == 0)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        _ = await Assert.That(driver.Invoker.PermissionReplies.Single().Reason).IsEqualTo("needed for the build");
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
     public async Task Tool_lifecycle_events_render_as_plain_lines(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();
@@ -308,5 +394,35 @@ internal sealed class BasicCliTests
 
         driver.Input.End();
         _ = await driving;
+    }
+
+    private static PendingPermission Permission(string id, bool requiresReason)
+    {
+        var pending = new PendingPermission
+        {
+            Id = id,
+            AgentSessionId = "agent",
+            Reason = "Allow this write",
+        };
+        pending.Targets.Add(new PermissionTarget
+        {
+            Kind = PermissionTargetKind.File,
+            Scope = PermissionTargetScope.Write,
+            Path = "/workspace/file.txt",
+        });
+        pending.Choices.Add(new PermissionChoice
+        {
+            Value = "allow",
+            Label = "Allow",
+            Action = PermissionAction.Allow,
+            RequiresReason = requiresReason,
+        });
+        pending.Choices.Add(new PermissionChoice
+        {
+            Value = "reject",
+            Label = "Reject",
+            Action = PermissionAction.Deny,
+        });
+        return pending;
     }
 }

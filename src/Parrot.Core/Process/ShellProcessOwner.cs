@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -24,7 +25,8 @@ internal sealed class ShellProcessOwner(
         string command,
         ProcessEnvironmentOverrides environment,
         AgentSession agent,
-        SecurityProfile securityProfile)
+        SecurityProfile securityProfile,
+        SandboxWriteGrantSnapshot writeGrants)
     {
         string name;
 
@@ -46,7 +48,13 @@ internal sealed class ShellProcessOwner(
 
             try
             {
-                var result = runner.Run(command, environment, resources, securityProfile, execution.Token);
+                var result = runner.Run(
+                    command,
+                    environment,
+                    resources,
+                    securityProfile,
+                    writeGrants,
+                    execution.Token);
                 var process = new ManagedShellProcess(name, agent, result, execution, lifetime);
                 _processes[name] = process;
                 _ownedProcesses.Add(process);

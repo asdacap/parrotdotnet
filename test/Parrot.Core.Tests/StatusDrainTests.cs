@@ -110,7 +110,9 @@ internal sealed class StatusDrainTests : IDisposable
             ModeRegistry.Plan,
             Resources(database, "user"),
             sessions,
-            OwnerModes(modes, "user"));
+            OwnerModes(modes, "user"),
+            false,
+            TimeSpan.FromSeconds(30));
 
         _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -214,7 +216,9 @@ internal sealed class StatusDrainTests : IDisposable
             ModeRegistry.Build,
             Resources(database, "user"),
             sessions,
-            OwnerModes(modes, "user"));
+            OwnerModes(modes, "user"),
+            false,
+            TimeSpan.FromSeconds(30));
     }
 
     private ModeRegistry Modes()
