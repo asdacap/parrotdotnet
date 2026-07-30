@@ -239,12 +239,17 @@ canonical route and matching prompt configuration.
 
 A spawned child runs independently and `agent_spawn` returns its session ID
 immediately. Friendly child names are unique only among one agent's direct
-children and resolve only in that direct-child namespace; canonical agent
-session IDs remain usable throughout the enclosing user session. `agent_send`
-also lets a child address its direct parent by that parent's ID or friendly name.
+children, while canonical agent session IDs remain usable throughout the
+enclosing user session. `agent_send` checks exact canonical spawned-agent IDs
+first. For a sender with a registered direct parent, the case-sensitive literal
+`parent`, actual parent ID, or actual parent friendly name resolves second and
+takes precedence over a colliding direct-child friendly name; direct-child names
+resolve last. For a root sender, `parent` has no special meaning and can resolve
+a direct child with that name. `wait_agent` remains child-only and uses unchanged
+child resolution: a canonical child ID or direct-child friendly name.
 When each child execution finishes, Parrot automatically sends its terminal
-status and result to its direct parent as normal steering input. `wait_agent`
-remains available when the parent needs to block for the retained result instead.
+status and result to its direct parent as normal steering input. A parent can use
+`wait_agent` when it needs to block for the retained child result instead.
 
 Configured aliases may be used anywhere a model selector is accepted,
 including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits

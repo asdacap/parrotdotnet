@@ -229,6 +229,96 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Send_resolves_literal_parent_before_a_direct_child_name_collision(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var root = Session(provider, 0, "root-id", "root", cancellationToken);
+        var parent = registry.Spawn(
+            root,
+            Turn(root, Router(provider)),
+            "worker",
+            root.Selection().RequestedModel,
+            "actual-parent");
+        var caller = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "caller");
+        var namedParent = registry.Spawn(
+            caller,
+            Turn(caller, Router(provider)),
+            "worker",
+            caller.Selection().RequestedModel,
+            "parent");
+
+        _ = await Assert.That(registry.GetRecipient(caller, "parent")).IsSameReferenceAs(parent);
+        _ = await Assert.That(registry.GetRecipient(caller, parent.SessionId)).IsSameReferenceAs(parent);
+        _ = await Assert.That(registry.GetRecipient(caller, parent.Name)).IsSameReferenceAs(parent);
+        _ = await Assert.That(registry.GetChild(caller, "parent")).IsSameReferenceAs(namedParent);
+        _ = await Assert.That(registry.GetChild(caller, namedParent.SessionId)).IsSameReferenceAs(namedParent);
+    }
+
+    [Test]
+    public async Task Root_resolves_a_child_named_parent_and_otherwise_reports_not_found(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var root = Session(provider, 0, "root-id", "root", cancellationToken);
+        var emptyRoot = Session(provider, 0, "empty-root-id", "empty-root", cancellationToken);
+        var child = registry.Spawn(
+            root,
+            Turn(root, Router(provider)),
+            "worker",
+            root.Selection().RequestedModel,
+            "parent");
+
+        _ = await Assert.That(registry.GetRecipient(root, "parent")).IsSameReferenceAs(child);
+        _ = await Assert.That(registry.GetChild(root, "parent")).IsSameReferenceAs(child);
+        var missing = await Assert.That(() => registry.GetRecipient(emptyRoot, "parent"))
+            .Throws<AgentRegistryException>();
+        _ = await Assert.That(missing?.Message).IsEqualTo("child agent not found: parent");
+    }
+
+    [Test]
+    public async Task Send_metadata_describes_literal_parent_and_accepted_recipient_forms(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var session = Session(provider, 0, "root-id", cancellationToken);
+        var send = new AgentSendTool(registry, session, Turn(session, Router(provider)));
+        using var schema = JsonDocument.Parse(send.ParametersJson);
+        var sessionIdDescription = schema.RootElement.GetProperty("properties").GetProperty("session_id")
+            .GetProperty("description").GetString();
+
+        _ = await Assert.That(send.Description).Contains("literal 'parent'");
+        _ = await Assert.That(send.Description).Contains("canonical spawned-agent session IDs");
+        _ = await Assert.That(send.Description).Contains("Direct-child friendly names");
+        _ = await Assert.That(sessionIdDescription).Contains("literal 'parent'");
+        _ = await Assert.That(sessionIdDescription).Contains("canonical spawned-agent session ID");
+        _ = await Assert.That(sessionIdDescription).Contains("direct-child friendly name");
+    }
+
+    [Test]
     public async Task Completion_automatically_starts_a_parent_follow_up(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
@@ -515,6 +605,38 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Send_delivers_a_child_message_to_its_literal_parent(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "acknowledged", []));
+        await using var registry = new AgentRegistry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
+        var parent = Session(provider, 0, "parent-id", cancellationToken);
+        _ = await parent.Send("initial", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        _ = await parent.Wait(0, cancellationToken);
+        var child = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
+        var send = new AgentSendTool(registry, child, Turn(child, Router(provider)));
+
+        var sent = await send.Execute(
+            """{"session_id":"parent","message":"task completed"}""",
+            cancellationToken);
+        using var result = JsonDocument.Parse(sent);
+
+        _ = await Assert.That(result.RootElement.GetProperty("session_id").GetString()).IsEqualTo(parent.SessionId);
+        _ = await Assert.That(result.RootElement.GetProperty("status").GetString()).IsEqualTo("running");
+        await provider.Arrived(cancellationToken);
+        var conversation = string.Join('\n', provider.Requests[1].Messages.Select(message => message.Content));
+        _ = await Assert.That(conversation).Contains("task completed");
+        provider.Release();
+        var completed = await parent.Wait(0, cancellationToken);
+
+        _ = await Assert.That(completed.Output).IsEqualTo("acknowledged");
+    }
+
+    [Test]
     public async Task Send_at_completion_boundary_is_delivered_once(
         CancellationToken cancellationToken)
     {
@@ -723,12 +845,20 @@ internal sealed class SubagentTests : IDisposable
         SteppedProvider provider,
         int depth,
         string sessionId,
+        CancellationToken cancellationToken) =>
+        Session(provider, depth, sessionId, depth == 0 ? string.Empty : "parent", cancellationToken);
+
+    private AgentSession Session(
+        SteppedProvider provider,
+        int depth,
+        string sessionId,
+        string name,
         CancellationToken cancellationToken)
     {
         var router = Router(provider);
         var identity = depth == 0
-            ? AgentIdentity.Main(sessionId, string.Empty)
-            : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", "parent", depth);
+            ? AgentIdentity.Main(sessionId, name)
+            : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", name, depth);
         return new AgentSession(
             identity,
             new ModelSelector("stepped/model"),

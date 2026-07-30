@@ -14,6 +14,7 @@ internal sealed class AgentRegistry(
     ProfileRegistry profiles,
     CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource
 {
+    private const string ParentRecipient = "parent";
     private const int MaxDepth = 4;
     private const int MaxRetained = 1024;
     private readonly Dictionary<string, IAgentSessionLease> _entries = new(StringComparer.Ordinal);
@@ -122,9 +123,10 @@ internal sealed class AgentRegistry(
                 return canonical.Session;
             }
 
-            if ((string.Equals(sessionIdOrName, sender.ParentSessionId, StringComparison.Ordinal)
-                    || string.Equals(sessionIdOrName, sender.ParentSessionName, StringComparison.Ordinal))
-                && _parents.TryGetValue(sender.ParentSessionId, out var parent))
+            if (_parents.TryGetValue(sender.ParentSessionId, out var parent)
+                && (string.Equals(sessionIdOrName, ParentRecipient, StringComparison.Ordinal)
+                    || string.Equals(sessionIdOrName, sender.ParentSessionId, StringComparison.Ordinal)
+                    || string.Equals(sessionIdOrName, sender.ParentSessionName, StringComparison.Ordinal)))
             {
                 return parent;
             }

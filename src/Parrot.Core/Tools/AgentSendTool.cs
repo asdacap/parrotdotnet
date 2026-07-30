@@ -11,12 +11,12 @@ internal sealed class AgentSendTool(
     public string Name => "agent_send";
 
     public string Description =>
-        "Send a message to an agent session, including this agent's parent. Canonical session IDs resolve globally; friendly names resolve among this session's direct children, with the parent name taking precedence. Running agents are steered; "
+        "Send a message to an agent session. Exact canonical spawned-agent session IDs resolve globally first. For an agent with a registered direct parent, the case-sensitive literal 'parent', actual parent ID, or actual parent friendly name resolves next and takes precedence over a colliding direct-child friendly name. Direct-child friendly names resolve last. Running agents are steered; "
         + "idle agents start a follow-up turn.";
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"session_id":{"type":"string","minLength":1,"description":"Agent session ID or friendly name. A child can use the parent session ID or name from its context."},"message":{"type":"string","minLength":1,"description":"Message to send."}},"required":["session_id","message"],"additionalProperties":false}
+        {"type":"object","properties":{"session_id":{"type":"string","minLength":1,"description":"Exact canonical spawned-agent session ID; or, for an agent with a registered direct parent, the case-sensitive literal 'parent', actual parent ID, or actual parent friendly name; or a direct-child friendly name. Resolution follows that precedence."},"message":{"type":"string","minLength":1,"description":"Message to send."}},"required":["session_id","message"],"additionalProperties":false}
         """;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
