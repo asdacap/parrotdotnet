@@ -7,8 +7,7 @@ internal static class ProcessResultFormatter
         if (result.Spilled)
         {
             return $"Process exited with code {result.ExitCode}\n"
-                + $"Tool output exceeded 64 KiB and was saved to {result.BlobPath}. "
-                + "Use exec_command to read the file.";
+                + $"Tool output exceeded 64 KiB and was saved to {result.BlobPath}.";
         }
 
         var text = new System.Text.StringBuilder();

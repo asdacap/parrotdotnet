@@ -60,7 +60,7 @@ internal sealed class ToolOutputBlobStore
                     await using var writer = new StreamWriter(stream, Utf8WithoutBom, leaveOpen: true);
                     await writer.WriteAsync(output.AsMemory(), cancellationToken).ConfigureAwait(false);
                     await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
-                    return $"Tool output exceeded 64 KiB and was saved to {path}. Use exec_command to read the file.";
+                    return $"Tool output exceeded 64 KiB and was saved to {path}.";
                 }
                 catch
                 {

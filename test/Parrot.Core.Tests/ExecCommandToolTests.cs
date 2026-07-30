@@ -128,7 +128,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             cancellationToken);
         const string spilledPrefix =
             "Process exited with code 0\nTool output exceeded 64 KiB and was saved to ";
-        const string spilledSuffix = ". Use exec_command to read the file.";
+        const string spilledSuffix = ".";
         var spilledPath = spilled[spilledPrefix.Length..^spilledSuffix.Length];
         _ = await Assert.That(spilled).IsEqualTo(spilledPrefix + spilledPath + spilledSuffix);
         _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();

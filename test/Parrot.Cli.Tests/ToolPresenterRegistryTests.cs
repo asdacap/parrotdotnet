@@ -46,7 +46,7 @@ internal sealed class ToolPresenterRegistryTests
     {
         var registry = new ToolPresenterRegistry([new TodoReadToolPresenter()], new GenericToolPresenter());
         const string notice =
-            "Tool output exceeded 64 KiB and was saved to /tmp/output. Use exec_command to read the file.";
+            "Tool output exceeded 64 KiB and was saved to /tmp/output.";
         var presented = registry.PresentTerminal(
             new ToolCallPresentation("main", "todoread", "{}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, notice, string.Empty))

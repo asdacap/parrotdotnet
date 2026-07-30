@@ -433,7 +433,7 @@ internal sealed class DrainTests : IDisposable
     private static string BlobPath(string notice)
     {
         const string prefix = "Tool output exceeded 64 KiB and was saved to ";
-        const string suffix = ". Use exec_command to read the file.";
+        const string suffix = ".";
         return notice[prefix.Length..^suffix.Length];
     }
 

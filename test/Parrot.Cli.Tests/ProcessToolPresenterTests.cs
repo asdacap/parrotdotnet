@@ -60,7 +60,7 @@ internal sealed class ProcessToolPresenterTests
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             true,
-            "Process exited with code 7\nTool output exceeded 64 KiB and was saved to /tmp/output. Use exec_command to read the file.",
+            "Process exited with code 7\nTool output exceeded 64 KiB and was saved to /tmp/output.",
             string.Empty);
 
         var rendered = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);

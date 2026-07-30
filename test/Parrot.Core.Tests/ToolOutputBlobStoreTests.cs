@@ -39,7 +39,7 @@ internal sealed class ToolOutputBlobStoreTests : IDisposable
         _ = await Assert.That(await File.ReadAllTextAsync(collision, cancellationToken)).IsEqualTo("existing");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo(output);
         _ = await Assert.That(notice).IsEqualTo(
-            $"Tool output exceeded 64 KiB and was saved to {path}. Use exec_command to read the file.");
+            $"Tool output exceeded 64 KiB and was saved to {path}.");
     }
 
     [Test]
