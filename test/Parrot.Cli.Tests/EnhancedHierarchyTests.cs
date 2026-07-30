@@ -617,7 +617,7 @@ internal sealed class EnhancedHierarchyTests
             "界 worker",
             "worker",
             "♟",
-            new LiveModelAliasIcon("界", ModelAliasIconColor.Cyan));
+            new LiveModelAliasIcon("界", ModelAliasIconColor.Gray));
 
         var rendered = value.Render(new LiveBufferRenderContext(20, palette));
         var line = rendered.Lines.Single();
@@ -629,7 +629,8 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(TerminalText.Width(line.Text)).IsLessThanOrEqualTo(20);
         _ = await Assert.That(span.StartCell).IsEqualTo(TerminalText.Width(line.Text[..glyphStart]));
         _ = await Assert.That(span.Length).IsEqualTo(2);
-        _ = await Assert.That(span.Style).IsEqualTo(palette.GetLiveIconStyle(ModelAliasIconColor.Cyan));
+        _ = await Assert.That(span.Style).IsEqualTo(palette.GetLiveIconStyle(ModelAliasIconColor.Gray));
+        _ = await Assert.That(span.Style.Start).IsEqualTo("\u001b[48;5;236m\u001b[38;5;245m");
     }
 
     [Test]

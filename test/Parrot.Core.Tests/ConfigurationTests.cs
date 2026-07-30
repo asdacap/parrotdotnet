@@ -311,7 +311,7 @@ internal sealed class ConfigurationTests : IDisposable
             string.Empty,
             "mechanical, single file task, text or code processing when no suitable cli tool available.",
             null,
-            new ModelAliasIconConfig("◆", "blue")));
+            new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(aliases["medium_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
             "Decently capable, specific clear task, component level task, two or three file window",
@@ -348,7 +348,7 @@ internal sealed class ConfigurationTests : IDisposable
             "openai/gpt-5",
             "mechanical, single file task, text or code processing when no suitable cli tool available.",
             null,
-            new ModelAliasIconConfig("◆", "blue")));
+            new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(aliases["xhigh_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
             "Specialized strategic work",
@@ -455,7 +455,7 @@ internal sealed class ConfigurationTests : IDisposable
         var reloaded = Load(path);
         var rewritten = await File.ReadAllTextAsync(path);
         _ = await Assert.That(reloaded.ModelAliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
-            "openai/gpt-5.6", "Fast local work", null, new ModelAliasIconConfig("◆", "blue")));
+            "openai/gpt-5.6", "Fast local work", null, new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(rewritten).Contains("theme: dark");
     }
 
@@ -478,7 +478,7 @@ internal sealed class ConfigurationTests : IDisposable
             "openai/gpt-5",
             "mechanical, single file task, text or code processing when no suitable cli tool available.",
             null,
-            new ModelAliasIconConfig("◆", "blue")));
+            new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules.Count).IsEqualTo(1);
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules[0])

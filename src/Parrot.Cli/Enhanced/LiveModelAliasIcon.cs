@@ -22,6 +22,7 @@ internal sealed record LiveModelAliasIcon(string Glyph, ModelAliasIconColor Colo
             TurnModelAliasIconColor.Magenta => ModelAliasIconColor.Magenta,
             TurnModelAliasIconColor.Cyan => ModelAliasIconColor.Cyan,
             TurnModelAliasIconColor.White => ModelAliasIconColor.White,
+            TurnModelAliasIconColor.Gray => ModelAliasIconColor.Gray,
             _ => throw new InvalidOperationException("The model alias icon color is invalid."),
         };
         return new LiveModelAliasIcon(icon.Glyph, color);

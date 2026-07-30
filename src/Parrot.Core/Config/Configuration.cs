@@ -322,9 +322,9 @@ internal sealed class Configuration(string path)
         ValidateKeys(icon, path, "glyph", "color");
         var glyph = ScalarValue(icon, "glyph", $"{path}.glyph");
         var color = ScalarValue(icon, "color", $"{path}.color");
-        if (color is not ("black" or "red" or "green" or "yellow" or "blue" or "magenta" or "cyan" or "white"))
+        if (color is not ("black" or "red" or "green" or "yellow" or "blue" or "magenta" or "cyan" or "white" or "gray"))
         {
-            throw new InvalidDataException($"{path}.color must be a basic color");
+            throw new InvalidDataException($"{path}.color must be a supported color");
         }
 
         if (glyph.Length == 0)

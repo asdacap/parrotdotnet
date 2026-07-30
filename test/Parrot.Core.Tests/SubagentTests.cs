@@ -466,7 +466,7 @@ internal sealed class SubagentTests : IDisposable
             "stepped/replacement",
             "Fast work",
             null,
-            new ModelAliasIcon("F", ModelAliasIconColor.Cyan));
+            new ModelAliasIcon("F", ModelAliasIconColor.Gray));
         var router = Router(provider, [alias]);
         var sessions = new TestAgentSessions(router, deliversCompletions: false);
         await using var registry = new AgentRegistry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
@@ -495,9 +495,9 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(string.Join(',', started.Select(turn => turn.Model)))
             .IsEqualTo("stepped/replacement,stepped/replacement,stepped/model");
         _ = await Assert.That(started[0].ModelAliasIcon.Glyph).IsEqualTo("F");
-        _ = await Assert.That(started[0].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Cyan);
+        _ = await Assert.That(started[0].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Gray);
         _ = await Assert.That(started[1].ModelAliasIcon.Glyph).IsEqualTo("F");
-        _ = await Assert.That(started[1].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Cyan);
+        _ = await Assert.That(started[1].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Gray);
         _ = await Assert.That(started[2].ModelAliasIcon).IsNull();
     }
 

@@ -335,14 +335,14 @@ internal sealed class TerminalFrameRendererTests
                     [new TerminalCellStyleSpan(
                         1,
                         2,
-                        palette.GetLiveIconStyle(ModelAliasIconColor.Red))])],
+                        palette.GetLiveIconStyle(ModelAliasIconColor.Gray))])],
                 new ModelineValue("chat", string.Empty, "model"),
                 new PromptValue("> ", string.Empty, 0)),
             cancellationToken);
 
         _ = await Assert.That(output.ToString()).Contains(
             "\u001b[48;5;236m\u001b[38;5;252ma\u001b[0m" +
-            "\u001b[48;5;236m\u001b[31m界\u001b[0m" +
+            "\u001b[48;5;236m\u001b[38;5;245m界\u001b[0m" +
             "\u001b[48;5;236m\u001b[38;5;252mb");
     }
 

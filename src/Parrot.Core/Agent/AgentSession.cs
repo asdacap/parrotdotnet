@@ -742,6 +742,7 @@ internal sealed class AgentSession(
                                         ModelAliasIconColor.Magenta => TurnModelAliasIconColor.Magenta,
                                         ModelAliasIconColor.Cyan => TurnModelAliasIconColor.Cyan,
                                         ModelAliasIconColor.White => TurnModelAliasIconColor.White,
+                                        ModelAliasIconColor.Gray => TurnModelAliasIconColor.Gray,
                                         _ => throw new InvalidOperationException("The model alias icon color is invalid."),
                                     },
                                 },

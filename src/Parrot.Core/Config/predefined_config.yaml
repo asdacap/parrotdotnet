@@ -24,7 +24,7 @@ model_aliases:
     augment_system_prompt: null
     icon:
       glyph: ◆
-      color: blue
+      color: gray
   medium_llm:
     model_string: ""
     usage: Decently capable, specific clear task, component level task, two or three file window

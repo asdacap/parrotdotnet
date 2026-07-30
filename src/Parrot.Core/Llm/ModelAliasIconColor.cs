@@ -10,4 +10,5 @@ internal enum ModelAliasIconColor
     Magenta,
     Cyan,
     White,
+    Gray,
 }

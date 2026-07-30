@@ -47,14 +47,15 @@ internal sealed class TerminalPalette(bool color)
 
         var foreground = iconColor switch
         {
-            ModelAliasIconColor.Black => 30,
-            ModelAliasIconColor.Red => 31,
-            ModelAliasIconColor.Green => 32,
-            ModelAliasIconColor.Yellow => 33,
-            ModelAliasIconColor.Blue => 34,
-            ModelAliasIconColor.Magenta => 35,
-            ModelAliasIconColor.Cyan => 36,
-            ModelAliasIconColor.White => 37,
+            ModelAliasIconColor.Black => "30",
+            ModelAliasIconColor.Red => "31",
+            ModelAliasIconColor.Green => "32",
+            ModelAliasIconColor.Yellow => "33",
+            ModelAliasIconColor.Blue => "34",
+            ModelAliasIconColor.Magenta => "35",
+            ModelAliasIconColor.Cyan => "36",
+            ModelAliasIconColor.White => "37",
+            ModelAliasIconColor.Gray => "38;5;245",
             _ => throw new ArgumentOutOfRangeException(nameof(iconColor), iconColor, null),
         };
         return new TerminalStyle($"\u001b[48;5;236m\u001b[{foreground}m");
