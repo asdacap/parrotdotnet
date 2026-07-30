@@ -1,5 +1,6 @@
 using System.Globalization;
 using Parrot.Security;
+using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace Parrot.Config;
@@ -11,6 +12,7 @@ internal sealed class Configuration(string path)
     private const string ModelAliasesKey = "model_aliases";
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
+    private const string PromptKey = "prompt";
     private const string DefaultProfileKey = "default_profile";
     private const string DisabledToolsKey = "disabled_tools";
     private const string CliUtilitiesKey = "cli_utilities";
@@ -21,6 +23,8 @@ internal sealed class Configuration(string path)
     // hosts, so this is last-write-wins for a global preference -- which is
     // what upstream accepts for the model too.
     public string Model { get; private set; } = string.Empty;
+
+    public string Prompt { get; private set; } = string.Empty;
 
     public bool InlineDiff { get; private set; } = true;
 
@@ -56,6 +60,7 @@ internal sealed class Configuration(string path)
         return new(path)
         {
             Model = Scalar(root, ModelKey),
+            Prompt = NonEmptyScalar(root, PromptKey, PromptKey),
             InlineDiff = ReadInlineDiff(root),
             ModelAliases = ReadModelAliases(root),
             ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
@@ -157,7 +162,7 @@ internal sealed class Configuration(string path)
     {
         YamlMappingNode mapping => CloneMapping(mapping),
         YamlSequenceNode sequence => CloneSequence(sequence),
-        YamlScalarNode scalar => new YamlScalarNode(scalar.Value),
+        YamlScalarNode scalar => new YamlScalarNode(scalar.Value) { Style = scalar.Style },
         _ => throw new InvalidDataException("configuration contains an unsupported YAML node"),
     };
 
@@ -636,8 +641,9 @@ internal sealed class Configuration(string path)
 
     private static string NonEmptyScalar(YamlMappingNode parent, string key, string path)
     {
-        if (!Child(parent, key, out var node) || node is not YamlScalarNode { Value: { } value } ||
-            string.IsNullOrWhiteSpace(value))
+        if (!Child(parent, key, out var node) || node is not YamlScalarNode { Value: { } value } scalar ||
+            string.IsNullOrWhiteSpace(value) ||
+            (scalar.Style == ScalarStyle.Plain && value is "null" or "Null" or "NULL" or "~"))
         {
             throw new InvalidDataException($"{path} must be a non-empty string");
         }

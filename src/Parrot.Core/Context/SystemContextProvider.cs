@@ -4,6 +4,7 @@ using Parrot.Process;
 namespace Parrot.Context;
 
 internal sealed class SystemContextProvider(
+    string basePrompt,
     string workingDirectory,
     string configDirectory,
     string date,
@@ -16,6 +17,7 @@ internal sealed class SystemContextProvider(
     {
         ArgumentNullException.ThrowIfNull(identity);
         return new SystemContextPrompt(
+            basePrompt,
             workingDirectory,
             configDirectory,
             date,

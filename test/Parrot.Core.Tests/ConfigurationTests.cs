@@ -26,6 +26,12 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(File.Exists(path)).IsFalse();
         _ = await Assert.That(configuration.Model).IsEmpty();
+        _ = await Assert.That(configuration.Prompt).IsEqualTo(
+            "You are parrot, a coding agent. You work in the user's project directory. "
+            + "Prefer read, glob, and grep for inspection; write for whole-file creation or replacement; "
+            + "edit for exact substitutions; apply_patch for structured or multi-file edits; and exec_command only "
+            + "for shell commands. Filesystem access is determined by the active "
+            + "security policy. Prefer small, verifiable steps.");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configuration.DisabledTools).IsEmpty();
@@ -54,6 +60,22 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(Load(path).Model).IsEqualTo("deepseek-v4-pro");
     }
+
+    [Test]
+    public async Task The_base_prompt_is_read_from_the_file()
+    {
+        var path = Write("prompt: Custom base prompt.\n");
+
+        _ = await Assert.That(Load(path).Prompt).IsEqualTo("Custom base prompt.");
+    }
+
+    [Test]
+    [Arguments("prompt: ''\n")]
+    [Arguments("prompt: null\n")]
+    [Arguments("prompt: ~\n")]
+    [Arguments("prompt: []\n")]
+    public async Task The_base_prompt_must_be_a_non_empty_string(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
     public async Task Inline_diff_defaults_to_true_and_accepts_boolean_configuration()

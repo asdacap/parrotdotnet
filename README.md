@@ -76,6 +76,8 @@ for a bare model selection.
 Parrot writes an agent-readable `predefined_config.yaml` alongside the
 user-owned `config.yaml`. The user file is recursively layered over the
 predefined defaults and is never rewritten except by an interactive setting.
+The top-level `prompt` supplies the base agent prompt included in the system
+context.
 
 Profiles are configured under `profiles`. `build`, `plan`, and `query` are
 foreground modes, while `explorer`, `review`, `worker`, and `thinker` are child

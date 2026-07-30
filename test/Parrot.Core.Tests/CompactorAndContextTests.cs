@@ -39,6 +39,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_workspace, "AGENTS.md"), "PROJECT RULE: be terse.");
 
         var prompt = new SystemContextProvider(
+            "Configured base prompt.",
             _workspace,
             _configDirectory,
             "2026-07-24",
@@ -48,6 +49,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         prompt.RenewEpoch();
         var built = prompt.Build(Selection());
 
+        _ = await Assert.That(built).StartsWith("Configured base prompt.");
         _ = await Assert.That(built).Contains("2026-07-24");
         _ = await Assert.That(built).Contains(_workspace);
         _ = await Assert.That(built).Contains("GLOBAL RULE: be concise.");
@@ -178,6 +180,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var agents = Path.Combine(_workspace, "AGENTS.md");
         await File.WriteAllTextAsync(agents, "first");
         var prompt = new SystemContextProvider(
+            "Configured base prompt.",
             _workspace,
             _configDirectory,
             "2026-07-24",

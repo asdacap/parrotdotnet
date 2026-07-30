@@ -125,7 +125,13 @@ internal partial class Composition
                 return new CompositeSystemPromptProvider(
                     "runtime:system-prompt",
                     [
-                        new SystemContextProvider(workingDirectory, paths.Config, date, profiles, cliUtilities),
+                        new SystemContextProvider(
+                            configuration.Prompt,
+                            workingDirectory,
+                            paths.Config,
+                            date,
+                            profiles,
+                            cliUtilities),
                         new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
                         new QueueGuidanceProvider(),
                     ]);

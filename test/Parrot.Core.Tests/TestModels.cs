@@ -52,6 +52,7 @@ internal static class TestModels
             "test:system-prompt",
             [
                 new SystemContextProvider(
+                    "Test base prompt.",
                     workingDirectory,
                     configDirectory,
                     "2026-07-24",

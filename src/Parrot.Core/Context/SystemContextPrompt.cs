@@ -7,6 +7,7 @@ namespace Parrot.Context;
 // Builds the epoch-scoped baseline from typed sources. It is sampled once per
 // epoch, so files and environment information are stable within that epoch.
 internal sealed class SystemContextPrompt(
+    string basePrompt,
     string workingDirectory,
     string configDirectory,
     string date,
@@ -14,19 +15,12 @@ internal sealed class SystemContextPrompt(
     IReadOnlyList<AgentProfile> childProfiles,
     CliUtilityAvailability cliUtilities) : ISystemPrompt
 {
-    private const string BasePrompt =
-        "You are parrot, a coding agent. You work in the user's project directory. "
-        + "Prefer read, glob, and grep for inspection; write for whole-file creation or replacement; "
-        + "edit for exact substitutions; apply_patch for structured or multi-file edits; and exec_command only "
-        + "for shell commands. Filesystem access is determined by the active "
-        + "security policy. Prefer small, verifiable steps.";
-
     private string _epochContext = string.Empty;
     private bool _renewed;
 
     public void RenewEpoch()
     {
-        var sections = new List<string> { BasePrompt };
+        var sections = new List<string> { basePrompt };
 
         foreach (var (path, content) in AgentsFiles())
         {
