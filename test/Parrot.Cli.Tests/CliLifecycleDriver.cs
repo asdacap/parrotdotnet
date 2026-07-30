@@ -10,6 +10,7 @@ internal sealed class CliLifecycleDriver : IDisposable
 {
     private readonly bool _enhanced;
     private readonly EnhancedChatRequest _enhancedRequest;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delaySubmit;
     private readonly SynchronizedStringWriter _output = new();
     private readonly SynchronizedStringWriter _error = new();
 
@@ -21,9 +22,18 @@ internal sealed class CliLifecycleDriver : IDisposable
     }
 
     public CliLifecycleDriver(bool enhanced, EnhancedChatRequest enhancedRequest)
+        : this(enhanced, enhancedRequest, static (_, token) => Task.Delay(1, token))
+    {
+    }
+
+    public CliLifecycleDriver(
+        bool enhanced,
+        EnhancedChatRequest enhancedRequest,
+        Func<TimeSpan, CancellationToken, Task> delaySubmit)
     {
         _enhanced = enhanced;
         _enhancedRequest = enhancedRequest;
+        _delaySubmit = delaySubmit;
         Interrupts = new Interrupts(Stopping);
     }
 
@@ -85,7 +95,8 @@ internal sealed class CliLifecycleDriver : IDisposable
                 new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
                 ["provider"],
                 new TestTerminal(Input, _output, _error, 80),
-                new ToolPresenterRegistry([], new GenericToolPresenter())).Run(cancellationToken)
+                new ToolPresenterRegistry([], new GenericToolPresenter()),
+                _delaySubmit).Run(cancellationToken)
             : new BasicCli(
                 client,
                 Interrupts,
