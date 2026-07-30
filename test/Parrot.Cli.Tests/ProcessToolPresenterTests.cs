@@ -3,7 +3,7 @@ using Parrot.Cli.Enhanced.Tools;
 
 namespace Parrot.Cli.Tests;
 
-internal sealed class ProcessAndPatchToolPresenterTests
+internal sealed class ProcessToolPresenterTests
 {
     private static readonly LiveBufferRenderContext LiveContext = new(32_768, new TerminalPalette(false));
     private static readonly ScrollbackRenderContext ScrollbackContext = new(32_768, new TerminalPalette(false));
@@ -49,26 +49,6 @@ internal sealed class ProcessAndPatchToolPresenterTests
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2", string.Empty),
             "interrupt build",
             "✗ main: interrupt build",
-        ];
-        yield return () =>
-        [
-            new ApplyPatchToolPresenter(),
-            new ToolCallPresentation("main", "apply_patch", "{\"patchText\":\"file.txt\\n<<<<<<< SEARCH\\na\\n=======\\nb\\n>>>>>>> REPLACE\"}"),
-            new ToolTerminalPresentation(
-                ToolTerminalStatus.Succeeded,
-                true,
-                "Chunk 1 has 3 matches.\nChunk 2 has 1 match.\n\n--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
-                string.Empty),
-            "apply patch",
-            "file.txt",
-        ];
-        yield return () =>
-        [
-            new ApplyPatchToolPresenter(),
-            new ToolCallPresentation("main", "apply_patch", "{\"patchText\":\"file.txt\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "error: rejected", string.Empty),
-            "apply patch",
-            "✗ main: apply patch",
         ];
     }
 
@@ -133,41 +113,5 @@ internal sealed class ProcessAndPatchToolPresenterTests
 
         _ = await Assert.That(string.Join('\n', live)).Contains(liveExpected);
         _ = await Assert.That(string.Join('\n', terminalLines)).Contains(terminalExpected);
-    }
-
-    [Test]
-    public async Task Apply_patch_renders_the_result_diff_not_aider_request_syntax()
-    {
-        var presenter = new ApplyPatchToolPresenter();
-        var call = new ToolCallPresentation(
-            "main",
-            "apply_patch",
-            "{\"patchText\":\"file.txt\\n<<<<<<< SEARCH\\na\\n=======\\nb\\n>>>>>>> REPLACE\"}");
-        var terminal = new ToolTerminalPresentation(
-            ToolTerminalStatus.Succeeded,
-            true,
-            "Chunk 1 has 3 matches.\nChunk 2 has 1 match.\n\n--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n",
-            string.Empty);
-
-        var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
-            .Render(new ScrollbackRenderContext(80, new TerminalPalette(false)));
-        var sideBySide = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
-            .Render(new ScrollbackRenderContext(80, new TerminalPalette(false), false));
-        var colored = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
-            .Render(new ScrollbackRenderContext(80, new TerminalPalette(true)));
-
-        _ = await Assert.That(rendered).Contains("Chunk 1 has 3 matches.");
-        _ = await Assert.That(rendered).Contains("Chunk 2 has 1 match.");
-        _ = await Assert.That(string.Join('\n', colored))
-            .Contains("\u001b[38;5;245mChunk 1 has 3 matches.\u001b[0m");
-        _ = await Assert.That(sideBySide).Contains("Chunk 2 has 1 match.");
-        _ = await Assert.That(string.Join('\n', rendered)).Contains("1 -a");
-        _ = await Assert.That(string.Join('\n', rendered)).Contains("1 +b");
-        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("│");
-        _ = await Assert.That(string.Join('\n', sideBySide)).Contains("│ 1 +b");
-        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("--- a/file.txt");
-        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("+++ b/file.txt");
-        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("<<<<<<< SEARCH");
-        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(">>>>>>> REPLACE");
     }
 }

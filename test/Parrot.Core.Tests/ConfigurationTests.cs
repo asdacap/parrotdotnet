@@ -29,8 +29,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Prompt).IsEqualTo(
             "You are parrot, a coding agent. You work in the user's project directory. "
             + "Prefer read, glob, and grep for inspection; write for whole-file creation or replacement; "
-            + "edit for exact substitutions; apply_patch for structured or multi-file edits; and exec_command only "
-            + "for shell commands. Filesystem access is determined by the active "
+            + "edit for exact substitutions; and use exec_command only for shell commands. Filesystem access is determined by the active "
             + "security policy. Prefer small, verifiable steps.");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
