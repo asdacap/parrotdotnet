@@ -156,6 +156,17 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Model_prompt_context_includes_the_selected_profile_prompt()
+    {
+        var built = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal))
+            .Materialize(AgentIdentity.Main("session", string.Empty))
+            .Build(Selection(Profile(null, new HashSet<string>(StringComparer.Ordinal))));
+
+        _ = await Assert.That(built).Contains("Test prompt");
+        _ = await Assert.That(built).DoesNotContain("Hard rules:");
+    }
+
+    [Test]
     public async Task Queue_guidance_is_omitted_when_queue_creation_is_globally_disabled()
     {
         var prompt = new QueueGuidancePrompt();
@@ -333,7 +344,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         new AgentProfile(
             "test",
             new Parrot.Config.ProfileConfig(
-                "Test prompt", "Test profile.", ["Test rule"], allowedTools, 2, 3, false, true, []),
+                "Test prompt", "Test profile.", allowedTools, 2, 3, false, true, []),
             [],
             disabledTools),
         static () => "Test prompt",

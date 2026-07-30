@@ -5,7 +5,6 @@ namespace Parrot.Agent;
 
 internal sealed class AgentProfile
 {
-    private readonly string[] _hardRules;
     private readonly string[]? _allowedTools;
     private readonly string[] _disabledTools;
 
@@ -22,7 +21,6 @@ internal sealed class AgentProfile
         Id = id;
         Prompt = configuration.Prompt;
         Usage = configuration.Usage;
-        _hardRules = [.. configuration.HardRules];
         _allowedTools = configuration.AllowedTools is null ? null : [.. configuration.AllowedTools];
         _disabledTools = [.. disabledTools];
         MaxTurns = configuration.MaxTurns;
@@ -37,8 +35,6 @@ internal sealed class AgentProfile
     public string Prompt { get; }
 
     public string Usage { get; }
-
-    public IReadOnlyList<string> HardRules => [.. _hardRules];
 
     public IReadOnlyList<string>? AllowedTools => _allowedTools is null ? null : [.. _allowedTools];
 

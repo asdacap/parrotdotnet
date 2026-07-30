@@ -37,8 +37,8 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
         _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(7);
         var build = configuration.Profiles["build"];
-        _ = await Assert.That(build.Prompt).IsEqualTo("You are Parrot's build mode. Implement and verify the requested changes.");
-        _ = await Assert.That(build.HardRules[0]).IsEqualTo("Keep tool side effects within the authorized workspace.");
+        _ = await Assert.That(build.Prompt).Contains("You are Parrot's build mode. Implement and verify the requested changes.");
+        _ = await Assert.That(build.Prompt).Contains("Keep tool side effects within the authorized workspace.");
         _ = await Assert.That(build.MaxTurns).IsEqualTo(1024);
         _ = await Assert.That(build.ReadOnly).IsFalse();
         _ = await Assert.That(build.SandboxRules).IsEmpty();
@@ -46,10 +46,10 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["query"].ReadOnly).IsTrue();
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
             .Contains("Predefined configuration reference.");
-        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
-            .Contains("disabled_tools: {}");
-        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
-            .DoesNotContain("tool_blacklist");
+        var predefinedContent = await File.ReadAllTextAsync(predefined, cancellationToken);
+        _ = await Assert.That(predefinedContent).Contains("disabled_tools: {}");
+        _ = await Assert.That(predefinedContent).DoesNotContain("hard_rules:");
+        _ = await Assert.That(predefinedContent).DoesNotContain("tool_blacklist");
     }
 
     [Test]
@@ -273,8 +273,6 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(profile.Prompt).IsEqualTo("Custom plan guidance");
         _ = await Assert.That(profile.MaxTurns).IsEqualTo(7);
-        _ = await Assert.That(profile.HardRules[0]).IsEqualTo(
-            "Read-only mode is enforced by the runtime except for the designated plan-artifact directory. Writes outside that directory are prohibited.");
         _ = await Assert.That(profile.ReadOnly).IsTrue();
         _ = await Assert.That(profile.SandboxRules).IsEmpty();
     }
@@ -305,6 +303,7 @@ internal sealed class ConfigurationTests : IDisposable
 
     [Test]
     [Arguments("profiles:\n  query:\n    read_ony: true\n")]
+    [Arguments("profiles:\n  build:\n    hard_rules: []\n")]
     [Arguments("sandbox_rules:\n  - path: /workspace\n    rules: allow_write\n")]
     public async Task Security_configuration_rejects_unknown_keys(string content)
     {
@@ -315,7 +314,6 @@ internal sealed class ConfigurationTests : IDisposable
 
     [Test]
     [Arguments("profiles:\n  build:\n    prompt: ''\n")]
-    [Arguments("profiles:\n  build:\n    hard_rules: []\n")]
     [Arguments("profiles:\n  build:\n    max_turns: 0\n")]
     [Arguments("profiles:\n  build:\n    max_turns: -1\n")]
     [Arguments("profiles:\n  build:\n    max_turns: not-a-number\n")]

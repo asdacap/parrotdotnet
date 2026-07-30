@@ -808,7 +808,7 @@ internal sealed class SubagentTests : IDisposable
         new(
             new AgentProfile(
                 id,
-                new ProfileConfig("Test prompt", "Test profile.", ["Test rule"], null, 1, 3, readOnly, true, []),
+                new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, true, []),
                 [],
                 new HashSet<string>(StringComparer.Ordinal)),
             static () => "Test prompt",

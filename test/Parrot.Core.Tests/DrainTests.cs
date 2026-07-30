@@ -485,7 +485,7 @@ internal sealed class DrainTests : IDisposable
         IReadOnlySet<string> disabledTools) => new(
         new AgentProfile(
             "test",
-            new ProfileConfig("Test prompt", "Test profile.", ["Test rule"], allowedTools, maxTurns, 3, false, true, []),
+            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, false, true, []),
             [],
             disabledTools),
         static () => "Test prompt",

@@ -15,8 +15,6 @@ internal sealed class MainAgentProfile(
 
     public string Prompt => prompt();
 
-    public IReadOnlyList<string> HardRules => profile.HardRules;
-
     public IReadOnlyList<string>? AllowedTools => profile.AllowedTools;
 
     public IReadOnlyList<string> DisabledTools => profile.DisabledTools;
