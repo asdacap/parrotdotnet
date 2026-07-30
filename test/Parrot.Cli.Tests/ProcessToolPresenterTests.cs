@@ -57,17 +57,18 @@ internal sealed class ProcessToolPresenterTests
     {
         var presenter = new ExecCommandToolPresenter();
         var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}");
+        var outputPath = Path.GetFullPath(Path.Combine("state", "sessions", "session", "blob", "output"));
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             true,
-            "Process exited with code 7\nTool output exceeded 64 KiB and was saved to /tmp/output.",
+            $"Process exited with code 7\nTool output exceeded 64 KiB and was saved to {outputPath}.",
             string.Empty);
 
         var rendered = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
 
         _ = await Assert.That(terminal.ResolveProcessStatus()).IsEqualTo(ToolTerminalStatus.ReportedFailure);
         _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: $ compile");
-        _ = await Assert.That(string.Join('\n', rendered)).Contains("saved to /tmp/output");
+        _ = await Assert.That(string.Join('\n', rendered)).Contains($"saved to {outputPath}");
     }
 
     [Test]
