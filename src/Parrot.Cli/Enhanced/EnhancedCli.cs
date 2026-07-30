@@ -263,6 +263,8 @@ internal sealed class EnhancedCli(
         var streaming = (CancellationTokenSource?)null;
         var call = (AsyncServerStreamingCall<Event>?)null;
         var planRequests = Channel.CreateUnbounded<PlanCompletionRequest>();
+        var questionRequests = Channel.CreateUnbounded<(string UserSessionId, PendingQuestion Pending)>();
+        var discoveredQuestionRequests = new HashSet<string>(StringComparer.Ordinal);
 
         IReadOnlyList<ILiveBufferItem> Snapshot() => [.. currentBody, currentModeline, .. currentInput];
 
@@ -472,6 +474,11 @@ internal sealed class EnhancedCli(
                         UpdateMainAgentActivity,
                         async (published, eventToken) =>
                         {
+                            var discoverQuestions = published.PayloadCase == Event.PayloadOneofCase.ToolStarted
+                                && string.Equals(
+                                    published.ToolStarted.ToolName,
+                                    "question",
+                                    StringComparison.Ordinal);
                             await composing.WaitAsync(eventToken).ConfigureAwait(false);
                             try
                             {
@@ -483,6 +490,15 @@ internal sealed class EnhancedCli(
                             finally
                             {
                                 _ = composing.Release();
+                            }
+
+                            if (discoverQuestions)
+                            {
+                                await DiscoverQuestions(
+                                    session.Id,
+                                    questionRequests.Writer,
+                                    discoveredQuestionRequests,
+                                    eventToken).ConfigureAwait(false);
                             }
                         },
                         async readyToken =>
@@ -630,24 +646,23 @@ internal sealed class EnhancedCli(
                     continue;
                 }
 
-                if (_busy)
+                if (questionRequests.Reader.TryRead(out var questionRequest))
                 {
-                    var pending = await client.ListPendingQuestionsAsync(
-                        new ListPendingQuestionsRequest { UserSessionId = session.Id },
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
-                    if (pending.Questions.Count > 0)
-                    {
-                        await CompleteQuestion(pending.Questions[0], dialog, session, cancellationToken).ConfigureAwait(false);
-                        await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
-                        continue;
-                    }
+                    await CompleteQuestion(
+                        questionRequest.UserSessionId,
+                        questionRequest.Pending,
+                        dialog,
+                        cancellationToken).ConfigureAwait(false);
+                    await DrawPrompt(CancellationToken.None).ConfigureAwait(false);
+                    continue;
                 }
 
                 using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var keyTask = liveInput.ReadKey(reading.Token).AsTask();
                 var planTask = planRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
+                var questionTask = questionRequests.Reader.WaitToReadAsync(cancellationToken).AsTask();
                 var completionTask = exitOnFirstCompletion ? rendering : Task.Delay(Timeout.Infinite, cancellationToken);
-                _ = await Task.WhenAny(keyTask, planTask, completionTask, updating).ConfigureAwait(false);
+                _ = await Task.WhenAny(keyTask, planTask, questionTask, completionTask, updating).ConfigureAwait(false);
                 if (!keyTask.IsCompleted)
                 {
                     await reading.CancelAsync().ConfigureAwait(false);
@@ -786,15 +801,45 @@ internal sealed class EnhancedCli(
             : CommandDispatcher.ExitSuccess;
     }
 
+    private async Task DiscoverQuestions(
+        string userSessionId,
+        ChannelWriter<(string UserSessionId, PendingQuestion Pending)> writer,
+        HashSet<string> discovered,
+        CancellationToken cancellationToken)
+    {
+        for (var attempts = 0; attempts < 20; attempts++)
+        {
+            var listed = await client.ListPendingQuestionsAsync(
+                new ListPendingQuestionsRequest { UserSessionId = userSessionId },
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            var added = false;
+            foreach (var pending in listed.Questions)
+            {
+                if (discovered.Add(pending.Id))
+                {
+                    added = true;
+                    await writer.WriteAsync((userSessionId, pending), cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            if (added)
+            {
+                return;
+            }
+
+            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task CompleteQuestion(
+        string userSessionId,
         PendingQuestion pending,
         EnhancedSlashDialog dialog,
-        SlashSession session,
         CancellationToken cancellationToken)
     {
         var reply = new ReplyQuestionRequest
         {
-            UserSessionId = session.Id,
+            UserSessionId = userSessionId,
             QuestionRequestId = pending.Id,
         };
 
@@ -815,7 +860,7 @@ internal sealed class EnhancedCli(
                 cancellationToken).ConfigureAwait(false);
             if (selected is null)
             {
-                await RejectQuestion(pending.Id, session.Id, cancellationToken).ConfigureAwait(false);
+                await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -825,7 +870,7 @@ internal sealed class EnhancedCli(
                 var custom = await dialog.ReadText(question.Prompt, cancellationToken).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(custom))
                 {
-                    await RejectQuestion(pending.Id, session.Id, cancellationToken).ConfigureAwait(false);
+                    await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
                     return;
                 }
 

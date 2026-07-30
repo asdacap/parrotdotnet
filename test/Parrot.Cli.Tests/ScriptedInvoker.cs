@@ -17,8 +17,10 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<CreateSessionRequest> _created = [];
     private readonly List<UpdateSessionRequest> _updated = [];
     private readonly List<ConfigureModelAliasRequest> _configuredAliases = [];
+    private readonly List<PendingQuestion> _pendingQuestions = [];
     private readonly List<ReplyQuestionRequest> _questionReplies = [];
     private readonly Lock _gate = new();
+    private int _pendingQuestionLists;
 
     public IReadOnlyList<string> Sent
     {
@@ -105,7 +107,27 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     public List<ModelAlias> ModelAliases { get; } = [];
 
-    public List<PendingQuestion> PendingQuestions { get; } = [];
+    public int PendingQuestionLists
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pendingQuestionLists;
+            }
+        }
+    }
+
+    public IReadOnlyList<ReplyQuestionRequest> QuestionReplies
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _questionReplies.Select(reply => reply.Clone())];
+            }
+        }
+    }
 
     public List<Model> Models { get; } =
     [
@@ -125,6 +147,14 @@ internal sealed class ScriptedInvoker : CallInvoker
         lock (_gate)
         {
             Models.Add(model);
+        }
+    }
+
+    public void AddPendingQuestion(PendingQuestion question)
+    {
+        lock (_gate)
+        {
+            _pendingQuestions.Add(question.Clone());
         }
     }
 
@@ -190,7 +220,8 @@ internal sealed class ScriptedInvoker : CallInvoker
                 var listedQuestions = new ListPendingQuestionsResponse();
                 lock (_gate)
                 {
-                    listedQuestions.Questions.Add(PendingQuestions.Select(question => question.Clone()));
+                    _pendingQuestionLists++;
+                    listedQuestions.Questions.Add(_pendingQuestions.Select(question => question.Clone()));
                 }
 
                 answered = listedQuestions;
@@ -199,7 +230,8 @@ internal sealed class ScriptedInvoker : CallInvoker
                 lock (_gate)
                 {
                     _questionReplies.Add(reply.Clone());
-                    _ = PendingQuestions.RemoveAll(question => string.Equals(question.Id, reply.QuestionRequestId, StringComparison.Ordinal));
+                    _ = _pendingQuestions.RemoveAll(question =>
+                        string.Equals(question.Id, reply.QuestionRequestId, StringComparison.Ordinal));
                 }
 
                 answered = new ReplyQuestionResponse();
@@ -212,7 +244,8 @@ internal sealed class ScriptedInvoker : CallInvoker
             case RejectQuestionRequest reject:
                 lock (_gate)
                 {
-                    _ = PendingQuestions.RemoveAll(question => string.Equals(question.Id, reject.QuestionRequestId, StringComparison.Ordinal));
+                    _ = _pendingQuestions.RemoveAll(question =>
+                        string.Equals(question.Id, reject.QuestionRequestId, StringComparison.Ordinal));
                 }
 
                 answered = new RejectQuestionResponse();

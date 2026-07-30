@@ -168,6 +168,55 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Question_arrival_wakes_input_loop_and_renders_picker(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask me");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnStarted = new TurnStarted { Model = "model" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            ToolStarted = new ToolStarted { ToolCallId = "call-question", ToolName = "question" },
+        });
+
+        while (driver.Invoker.PendingQuestionLists < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        var pending = new PendingQuestion { Id = "question-request" };
+        pending.Questions.Add(new QuestionDefinition
+        {
+            Id = "colour",
+            Header = "Question",
+            Prompt = "Pick a colour",
+            Options = { new QuestionOption { Id = "blue", Label = "Blue" } },
+        });
+        driver.Invoker.AddPendingQuestion(pending);
+
+        await driver.OutputContains("Pick a colour", cancellationToken);
+        driver.Input.Type("blue");
+        while (driver.Invoker.QuestionReplies.Count < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        var reply = driver.Invoker.QuestionReplies.Single();
+        _ = await Assert.That(reply.QuestionRequestId).IsEqualTo("question-request");
+        _ = await Assert.That(reply.Answers.Single().QuestionId).IsEqualTo("colour");
+        _ = await Assert.That(reply.Answers.Single().OptionIds.Single()).IsEqualTo("blue");
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
     public async Task Typed_turn_events_render_cumulative_text_and_sanitize_terminal_content(
         CancellationToken cancellationToken)
     {
