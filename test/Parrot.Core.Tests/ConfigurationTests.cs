@@ -253,7 +253,9 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["worker"].MaxTurns).IsEqualTo(128);
         _ = await Assert.That(configuration.Profiles["thinker"].MaxTurns).IsEqualTo(256);
         _ = await Assert.That(configuration.Profiles["worker"].AllowedTools).IsNull();
-        _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.Count).IsEqualTo(3);
+        _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.SequenceEqual(
+            ["agent_spawn", "agent_send", "wait_agent", "wait"],
+            StringComparer.Ordinal)).IsTrue();
 
         var noTools = Load(Write("profiles:\n  worker:\n    allowed_tools: []\n"));
         _ = await Assert.That(noTools.Profiles["worker"].AllowedTools).IsEmpty();

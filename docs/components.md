@@ -708,6 +708,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   durable steer queue unless a successful wait or interrupt claims it. `wait_process`
   replaces the earlier `wait_shell` name so the lifecycle tools use process
   terminology.
+- **Generic activity wait.** `wait` pauses the invoking agent for incoming
+  activity and returns early for a new message, direct-child completion,
+  unclaimed yielded-process completion, or an item from a queue enabled through
+  `queue_listen`. Queue activity is observed only for queues that agent is
+  currently listening to. This differs from the specialized waits:
+  `wait_agent` reads or awaits one retained direct-child result, while
+  `wait_process` awaits one named process.
 - **Builtin mutations.** `write` creates or replaces one file with exact UTF-8
   content. `edit` performs exact ordinal string replacement; without
   `replace_all` it requires exactly one match, while `replace_all` permits zero

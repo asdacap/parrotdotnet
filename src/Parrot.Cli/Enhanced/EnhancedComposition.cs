@@ -33,6 +33,7 @@ internal partial class EnhancedComposition
                     new QuestionToolPresenter(),
                     new TodoReadToolPresenter(),
                     new TodoWriteToolPresenter(),
+                    new WaitToolPresenter(),
                     new WaitAgentToolPresenter(),
                     new WaitProcessToolPresenter(),
                     new WebFetchToolPresenter(),

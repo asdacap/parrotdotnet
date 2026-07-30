@@ -275,6 +275,13 @@ When each child execution finishes, Parrot automatically sends its terminal
 status and result to its direct parent as normal steering input. A parent can use
 `wait_agent` when it needs to block for the retained child result instead.
 
+The generic `wait` tool pauses for incoming activity and returns early for a new
+message, direct-child completion, unclaimed yielded-process completion, or an
+item in a queue the agent enabled with `queue_listen`. Queue activity wakes it
+only for listened queues. This activity wait is distinct from the specialized
+`wait_agent`, which reads a retained direct-child result, and `wait_process`,
+which waits for one named process.
+
 Configured aliases may be used anywhere a model selector is accepted,
 including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits
 the parent turn's complete requested selector, including an alias or variant;

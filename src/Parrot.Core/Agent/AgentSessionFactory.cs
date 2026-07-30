@@ -37,6 +37,7 @@ internal sealed class AgentSessionFactory(
             new AgentSpawnToolFactory(owner.Registry, router),
             new AgentSendToolFactory(owner.Registry),
             new WaitAgentToolFactory(owner.Registry),
+            new WaitToolFactory(TimeProvider.System),
             new StatusToolFactory(owner.Status),
             new TodoReadToolFactory(),
             new TodoWriteToolFactory(),

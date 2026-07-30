@@ -212,6 +212,7 @@ profiles:
       - agent_spawn
       - agent_send
       - wait_agent
+      - wait
     max_turns: 256
     recursion_limit: 1
     read_only: true

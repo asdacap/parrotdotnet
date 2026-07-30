@@ -278,7 +278,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal async Task<bool> DeliverMonitored(AgentSession root, CancellationToken cancellationToken)
     {
-        if (root.Depth != 0 || !root.IsIdle())
+        if (!CanDeliverMonitored(root))
         {
             return false;
         }
@@ -286,7 +286,7 @@ internal sealed class UserSession : IAsyncDisposable
         await _queueDelivery.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!root.IsIdle())
+            if (!CanDeliverMonitored(root))
             {
                 return false;
             }
@@ -314,6 +314,9 @@ internal sealed class UserSession : IAsyncDisposable
         {
         }
     }
+
+    private static bool CanDeliverMonitored(AgentSession root) =>
+        root.Depth == 0 && (root.IsIdle() || root.IsWaitingForIncomingInput());
 
     // Built once, on the first prompt. Under a lock because SendMessage arrives
     // on gRPC handler threads and two concurrent first prompts would otherwise

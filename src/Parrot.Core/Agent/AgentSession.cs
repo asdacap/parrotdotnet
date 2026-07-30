@@ -86,6 +86,7 @@ internal sealed class AgentSession(
     private bool _wake;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
+    private TaskCompletionSource? _incomingInputWait;
 
     // Set while an interrupt is unwinding a drain. It says who disposes the
     // drain's cancellation: normally the drain does when it settles, but an
@@ -206,7 +207,7 @@ internal sealed class AgentSession(
 
         if (eventRepository.HasPendingInputs(SessionId))
         {
-            _ = Wake();
+            _ = Wake(incomingAvailable: true);
         }
     }
 
@@ -218,6 +219,86 @@ internal sealed class AgentSession(
         _ = await ResultSettled().ConfigureAwait(false);
 
     internal bool IsIdle() => State == DrainState.Idle;
+
+    internal bool IsWaitingForIncomingInput()
+    {
+        lock (_drainGate)
+        {
+            return _incomingInputWait is not null;
+        }
+    }
+
+    internal async Task<bool> WaitForIncomingInput(TimeSpan duration, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        cancellationToken.ThrowIfCancellationRequested();
+        var incoming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        lock (_drainGate)
+        {
+            if (_incomingInputWait is not null)
+            {
+                throw new InvalidOperationException("An incoming-input wait is already active.");
+            }
+
+            _incomingInputWait = incoming;
+        }
+
+        if (eventRepository.HasPendingInputs(SessionId))
+        {
+            _ = incoming.TrySetResult();
+        }
+
+        try
+        {
+            using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var delay = Task.Delay(duration, timeProvider, wait.Token);
+            Task<bool>? delivery = null;
+
+            if (Depth == 0 && owner is not null && !incoming.Task.IsCompleted)
+            {
+                delivery = owner.DeliverMonitored(this, wait.Token);
+                var first = await Task.WhenAny(incoming.Task, delay, delivery).ConfigureAwait(false);
+
+                if (first == delivery)
+                {
+                    _ = await delivery.ConfigureAwait(false);
+                }
+            }
+
+            if (!incoming.Task.IsCompleted && !delay.IsCompleted)
+            {
+                _ = await Task.WhenAny(incoming.Task, delay).ConfigureAwait(false);
+            }
+
+            var activity = incoming.Task.IsCompleted;
+            await wait.CancelAsync().ConfigureAwait(false);
+
+            if (delivery is not null && !delivery.IsCompleted)
+            {
+                try
+                {
+                    _ = await delivery.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return activity;
+        }
+        finally
+        {
+            lock (_drainGate)
+            {
+                if (ReferenceEquals(_incomingInputWait, incoming))
+                {
+                    _incomingInputWait = null;
+                }
+            }
+        }
+    }
 
     internal async Task<(Admission Admission, bool FollowUp)> Send(
         string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
@@ -260,7 +341,7 @@ internal sealed class AgentSession(
 
         if (admission.Created || eventRepository.HasPendingInputs(SessionId))
         {
-            _ = Wake();
+            _ = Wake(incomingAvailable: true);
         }
 
         return true;
@@ -597,22 +678,28 @@ internal sealed class AgentSession(
             await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
         }
 
-        var (followUp, selectedDrain) = WakeSelected();
+        var (followUp, selectedDrain) = WakeSelected(admission.Created || eventRepository.HasPendingInputs(SessionId));
         return (admission, followUp, selectedDrain);
     }
 
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
     // principle 2: one owner, however many prompts arrive.
-    private bool Wake() => WakeSelected().FollowUp;
+    private bool Wake(bool incomingAvailable) => WakeSelected(incomingAvailable).FollowUp;
 
-    private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected()
+    private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected(bool incomingAvailable)
     {
         lock (_drainGate)
         {
             if (_drainCancellation is not null)
             {
                 _wake = true;
+
+                if (incomingAvailable)
+                {
+                    _ = _incomingInputWait?.TrySetResult();
+                }
+
                 return (false, _drain);
             }
 
