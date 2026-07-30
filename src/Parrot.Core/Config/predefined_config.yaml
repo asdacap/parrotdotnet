@@ -18,7 +18,7 @@ model: ""
 model_aliases:
   low_llm:
     model_string: ""
-    usage: mechanical, single file task, text or code processing when no suitable cli tool available.
+    usage: mechanical, single file task, text or code processing when no suitable cli tool available. do not use for review.
     # Optional alias-specific system-prompt augmentation. An explicit empty
     # string suppresses this augmentation rather than inheriting it.
     augment_system_prompt: null
