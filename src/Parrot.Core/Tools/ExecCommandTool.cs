@@ -21,12 +21,13 @@ internal sealed class ExecCommandTool(
 
     public string ParametersJson =>
         """
-        {"type":"object","properties":{"command":{"type":"string","description":"The shell command to run"},"name":{"type":"string","description":"Unique name within this user session; generated when omitted"},"yield_after_ms":{"type":"integer","minimum":0,"description":"Return the process name if still running after this many milliseconds"}},"required":["command"]}
+        {"type":"object","properties":{"command":{"type":"string","description":"The shell command to run"},"env":{"type":"object","additionalProperties":{"type":"string"},"description":"Environment variables for the command. Values override the inherited environment."},"name":{"type":"string","description":"Unique name within this user session; generated when omitted"},"yield_after_ms":{"type":"integer","minimum":0,"description":"Return the process name if still running after this many milliseconds"}},"required":["command"],"additionalProperties":false}
         """;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         string command;
+        ProcessEnvironmentOverrides environment;
         string? name;
         TimeSpan? yieldAfter;
 
@@ -34,6 +35,7 @@ internal sealed class ExecCommandTool(
         {
             using var arguments = new ToolArguments(argumentsJson);
             command = arguments.RequiredString("command");
+            environment = arguments.OptionalEnvironment("env");
             name = arguments.OptionalStrictString("name");
             yieldAfter = arguments.OptionalDelay("yield_after_ms");
         }
@@ -59,7 +61,7 @@ internal sealed class ExecCommandTool(
 
         try
         {
-            var process = processes.Start(name, command, session, securityProfile);
+            var process = processes.Start(name, command, environment, session, securityProfile);
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 
             return outcome.Yielded

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Parrot.Process;
 
 namespace Parrot.Tools;
 
@@ -91,6 +92,34 @@ internal sealed class ToolArguments(string json) : IDisposable
         }
 
         return result;
+    }
+
+    public ProcessEnvironmentOverrides OptionalEnvironment(string name)
+    {
+        var root = _document.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var value))
+        {
+            return ProcessEnvironmentOverrides.Empty;
+        }
+
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            throw new FormatException($"Tool argument '{name}' must be an object containing string values.");
+        }
+
+        var entries = new List<KeyValuePair<string, string>>();
+        foreach (var property in value.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.String)
+            {
+                throw new FormatException($"Tool argument '{name}' must contain only string values.");
+            }
+
+            entries.Add(new KeyValuePair<string, string>(property.Name, property.Value.GetString() ?? string.Empty));
+        }
+
+        return new ProcessEnvironmentOverrides(entries);
     }
 
     public void Dispose() => _document.Dispose();
