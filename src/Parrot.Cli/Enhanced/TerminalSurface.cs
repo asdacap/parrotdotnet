@@ -56,33 +56,48 @@ internal sealed class TerminalSurface
         }
 
         var currentColumn = Math.Max(0, column);
-        foreach (var rune in value.EnumerateRunes())
+        foreach (var grapheme in TerminalText.EnumerateGraphemes(value))
         {
-            var runeWidth = TerminalText.Width(rune);
-            if (runeWidth == 0)
+            var graphemeWidth = TerminalText.Width(grapheme);
+            if (graphemeWidth == 0)
             {
                 if (currentColumn > 0)
                 {
-                    _characters[Index(row, currentColumn - 1)] += rune.ToString();
+                    _characters[Index(row, currentColumn - 1)] += grapheme;
                 }
 
                 continue;
             }
 
-            if (currentColumn + runeWidth > Width)
+            if (currentColumn + graphemeWidth > Width)
             {
                 break;
             }
 
-            _characters[Index(row, currentColumn)] = rune.ToString();
+            _characters[Index(row, currentColumn)] = grapheme;
             _styles[Index(row, currentColumn)] = style;
-            for (var occupied = 1; occupied < runeWidth; occupied++)
+            for (var occupied = 1; occupied < graphemeWidth; occupied++)
             {
                 _characters[Index(row, currentColumn + occupied)] = string.Empty;
                 _styles[Index(row, currentColumn + occupied)] = style;
             }
 
-            currentColumn += runeWidth;
+            currentColumn += graphemeWidth;
+        }
+    }
+
+    public void ApplyStyle(int row, int startCell, int length, TerminalStyle style)
+    {
+        if (row < 0 || row >= Height || length <= 0)
+        {
+            return;
+        }
+
+        var start = Math.Clamp(startCell, 0, Width);
+        var end = Math.Clamp((long)startCell + length, 0, Width);
+        for (var column = start; column < end; column++)
+        {
+            _styles[Index(row, column)] = style;
         }
     }
 

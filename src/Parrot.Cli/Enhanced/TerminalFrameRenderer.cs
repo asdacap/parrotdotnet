@@ -288,7 +288,7 @@ internal sealed class TerminalFrameRenderer(
             {
                 var line = item.Lines[index];
                 var text = TerminalText.Sanitize(line.Text).Replace("\n", string.Empty, StringComparison.Ordinal);
-                lines.Add(new TerminalLine(text, line.Style));
+                lines.Add(new TerminalLine(text, line.Style, line.StyleSpans));
             }
         }
 
@@ -309,7 +309,12 @@ internal sealed class TerminalFrameRenderer(
         _surface.Clear();
         for (var row = 0; row < frame.Lines.Count; row++)
         {
-            _surface.Write(row, 0, frame.Lines[row].Text, frame.Lines[row].Style);
+            var line = frame.Lines[row];
+            _surface.Write(row, 0, line.Text, line.Style);
+            foreach (var span in line.StyleSpans)
+            {
+                _surface.ApplyStyle(row, span.StartCell, span.Length, span.Style);
+            }
         }
 
         await output.WriteAsync($"\u001b[?25l{DisableAutowrap}".AsMemory(), cancellationToken)
@@ -393,7 +398,12 @@ internal sealed class TerminalFrameRenderer(
         _surface.Clear();
         for (var row = 0; row < frame.Lines.Count; row++)
         {
-            _surface.Write(row, 0, frame.Lines[row].Text, frame.Lines[row].Style);
+            var line = frame.Lines[row];
+            _surface.Write(row, 0, line.Text, line.Style);
+            foreach (var span in line.StyleSpans)
+            {
+                _surface.ApplyStyle(row, span.StartCell, span.Length, span.Style);
+            }
         }
 
         var currentRow = 0;

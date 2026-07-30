@@ -177,7 +177,10 @@ internal sealed class RawActivityView(
                     await FinishAgent(published, failed: true, cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.TurnStarted:
-                    await StartTurn(published.AgentSessionId, cancellationToken).ConfigureAwait(false);
+                    await StartTurn(
+                        published.AgentSessionId,
+                        LiveModelAliasIcon.Convert(published.TurnStarted.ModelAliasIcon),
+                        cancellationToken).ConfigureAwait(false);
                     await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.TurnEnded:
@@ -289,10 +292,13 @@ internal sealed class RawActivityView(
         return state;
     }
 
-    private async Task StartTurn(string agentSessionId, CancellationToken cancellationToken)
+    private async Task StartTurn(
+        string agentSessionId,
+        LiveModelAliasIcon? modelAliasIcon,
+        CancellationToken cancellationToken)
     {
         var state = GetNamedAgentSession(agentSessionId);
-        if (state.StartTurn() is { } activityId)
+        if (state.StartTurn(modelAliasIcon) is { } activityId)
         {
             _activities.Add((state, activityId));
             if (_hierarchy.IsRoot(agentSessionId))
@@ -396,12 +402,17 @@ internal sealed class RawActivityView(
     private ILiveBufferItem CreateActivityItem((AgentSessionState State, string ActivityId) activity)
     {
         var value = activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters);
+        var modelAliasIcon = _hierarchy.IsChild(activity.State.AgentSessionId)
+            && activity.State.IsAgentActivity(activity.ActivityId)
+                ? activity.State.ModelAliasIcon
+                : null;
         return new HierarchicalLiveValue(
             value,
             _hierarchy.GetDepth(activity.State.AgentSessionId),
             _hierarchy.GetLabel(activity.State.AgentSessionId),
             activity.State.Name,
-            "♟");
+            "♟",
+            modelAliasIcon);
     }
 
     private HierarchicalScrollbackValue Wrap(

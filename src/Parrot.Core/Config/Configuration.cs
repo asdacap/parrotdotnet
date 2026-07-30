@@ -267,8 +267,10 @@ internal sealed class Configuration(string path)
                 throw new InvalidDataException($"{ModelAliasesKey}.{name}.usage must not be empty");
             }
 
+            var icon = ReadModelAliasIcon(fields, name);
+
             ValidateModelSelector($"{ModelAliasesKey}.{name}.model_string", modelString, allowEmpty: true);
-            aliases[name] = new(modelString, usage, augmentation);
+            aliases[name] = new(modelString, usage, augmentation, icon);
         }
 
         return aliases;
@@ -303,12 +305,64 @@ internal sealed class Configuration(string path)
         return prompts;
     }
 
+    private static ModelAliasIconConfig? ReadModelAliasIcon(YamlMappingNode fields, string name)
+    {
+        var path = $"{ModelAliasesKey}.{name}.icon";
+        if (!Child(fields, "icon", out var node) ||
+            node is YamlScalarNode { Value: null or "" or "null" or "Null" or "NULL" or "~" })
+        {
+            return null;
+        }
+
+        if (node is not YamlMappingNode icon)
+        {
+            throw new InvalidDataException($"{path} must be a glyph and color mapping, null, or empty");
+        }
+
+        ValidateKeys(icon, path, "glyph", "color");
+        var glyph = ScalarValue(icon, "glyph", $"{path}.glyph");
+        var color = ScalarValue(icon, "color", $"{path}.color");
+        if (color is not ("black" or "red" or "green" or "yellow" or "blue" or "magenta" or "cyan" or "white"))
+        {
+            throw new InvalidDataException($"{path}.color must be a basic color");
+        }
+
+        if (glyph.Length == 0)
+        {
+            return null;
+        }
+
+        var graphemes = StringInfo.GetTextElementEnumerator(glyph);
+        var count = 0;
+        while (graphemes.MoveNext())
+        {
+            count++;
+        }
+
+        var visible = false;
+        for (var index = 0; index < glyph.Length; index += char.IsSurrogatePair(glyph, index) ? 2 : 1)
+        {
+            var category = char.GetUnicodeCategory(glyph, index);
+            visible |= category is not (
+                UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.NonSpacingMark or
+                UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark or UnicodeCategory.SpaceSeparator or
+                UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator or UnicodeCategory.Surrogate);
+        }
+
+        if (count != 1 || !visible || glyph.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)))
+        {
+            throw new InvalidDataException($"{path}.glyph must be one visible grapheme");
+        }
+
+        return new(glyph, color);
+    }
+
     private static void ValidateAliasKeys(YamlMappingNode fields, string name)
     {
         foreach (var key in fields.Children.Keys)
         {
             if (key is not YamlScalarNode { Value: { } value } ||
-                value is not ("model_string" or "usage" or "augment_system_prompt"))
+                value is not ("model_string" or "usage" or "augment_system_prompt" or "icon"))
             {
                 throw new InvalidDataException($"{ModelAliasesKey}.{name} contains an unsupported key");
             }

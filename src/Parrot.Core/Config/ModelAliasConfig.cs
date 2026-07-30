@@ -3,4 +3,5 @@ namespace Parrot.Config;
 internal sealed record ModelAliasConfig(
     string ModelString,
     string Usage,
-    string? AugmentSystemPrompt);
+    string? AugmentSystemPrompt,
+    ModelAliasIconConfig? Icon);

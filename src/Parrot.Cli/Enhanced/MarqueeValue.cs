@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 
 namespace Parrot.Cli.Enhanced;
@@ -53,7 +52,7 @@ internal readonly record struct MarqueeValue(string Prefix, string Text, int Fra
                 continue;
             }
 
-            var cellWidth = ElementWidth(cell);
+            var cellWidth = TerminalText.Width(cell);
             if (cellWidth > width - column)
             {
                 _ = result.Append(' ', width - column);
@@ -70,11 +69,9 @@ internal readonly record struct MarqueeValue(string Prefix, string Text, int Fra
     private static List<string?> Cells(string value)
     {
         var cells = new List<string?>();
-        var elements = StringInfo.GetTextElementEnumerator(value);
-        while (elements.MoveNext())
+        foreach (var element in TerminalText.EnumerateGraphemes(value))
         {
-            var element = (string)elements.Current;
-            var width = ElementWidth(element);
+            var width = TerminalText.Width(element);
             if (width == 0)
             {
                 if (cells.Count > 0 && cells[^1] is { } previous)
@@ -93,21 +90,5 @@ internal readonly record struct MarqueeValue(string Prefix, string Text, int Fra
         }
 
         return cells;
-    }
-
-    private static int ElementWidth(string element)
-    {
-        if (!element.Contains('\u200d', StringComparison.Ordinal))
-        {
-            return TerminalText.Width(element);
-        }
-
-        var width = 0;
-        foreach (var rune in element.EnumerateRunes())
-        {
-            width = Math.Max(width, TerminalText.Width(rune));
-        }
-
-        return width;
     }
 }

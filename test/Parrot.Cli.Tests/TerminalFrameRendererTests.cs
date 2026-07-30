@@ -1,5 +1,6 @@
 using System.Text;
 using Parrot.Cli.Enhanced;
+using Parrot.Llm;
 
 namespace Parrot.Cli.Tests;
 
@@ -320,6 +321,97 @@ internal sealed class TerminalFrameRendererTests
     }
 
     [Test]
+    public async Task Draw_applies_cell_span_to_a_complete_wide_glyph_with_live_background(
+        CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var palette = new TerminalPalette(true);
+        var renderer = new TerminalFrameRenderer(output, static () => 8, palette, 10, 12, true);
+
+        await renderer.Draw(
+            Items(
+                [new TestSpannedLiveValue(
+                    "a界b",
+                    [new TerminalCellStyleSpan(
+                        1,
+                        2,
+                        palette.GetLiveIconStyle(ModelAliasIconColor.Red))])],
+                new ModelineValue("chat", string.Empty, "model"),
+                new PromptValue("> ", string.Empty, 0)),
+            cancellationToken);
+
+        _ = await Assert.That(output.ToString()).Contains(
+            "\u001b[48;5;236m\u001b[38;5;252ma\u001b[0m" +
+            "\u001b[48;5;236m\u001b[31m界\u001b[0m" +
+            "\u001b[48;5;236m\u001b[38;5;252mb");
+    }
+
+    [Test]
+    public async Task Draw_with_disabled_color_emits_no_ansi_for_a_cell_span()
+    {
+        var palette = new TerminalPalette(false);
+        var surface = new TerminalSurface(4, 1);
+        surface.Write(0, 0, "a界b", palette.LiveSurface);
+        surface.ApplyStyle(0, 1, 2, palette.GetLiveIconStyle(ModelAliasIconColor.Cyan));
+
+        _ = await Assert.That(surface.RenderRow(0, palette.LiveBackground)).IsEqualTo("a界b");
+    }
+
+    [Test]
+    public async Task Surface_places_and_styles_family_grapheme_as_two_cells()
+    {
+        const string family = "👨‍👩‍👧‍👦";
+        var palette = new TerminalPalette(true);
+        var surface = new TerminalSurface(4, 1);
+        surface.Write(0, 0, family + "ab", palette.LiveSurface);
+        surface.ApplyStyle(0, 0, 2, palette.GetLiveIconStyle(ModelAliasIconColor.Red));
+
+        _ = await Assert.That(TerminalText.Width(family)).IsEqualTo(2);
+        _ = await Assert.That(surface.Text(0)).IsEqualTo(family + "ab");
+        _ = await Assert.That(surface.RenderRow(0, palette.LiveBackground)).IsEqualTo(
+            "\u001b[48;5;236m\u001b[0m\u001b[48;5;236m\u001b[31m" + family + "\u001b[0m" +
+            "\u001b[48;5;236m\u001b[38;5;252mab\u001b[0m");
+    }
+
+    [Test]
+    public async Task Draw_repaints_when_only_a_cell_span_changes(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var palette = new TerminalPalette(true);
+        var renderer = new TerminalFrameRenderer(output, static () => 24, palette, 10, 12, true);
+        var modeline = new ModelineValue("chat", string.Empty, "model");
+        var prompt = new PromptValue("> ", string.Empty, 0);
+
+        await renderer.Draw(
+            Items(
+                [new TestSpannedLiveValue(
+                    "status",
+                    [new TerminalCellStyleSpan(
+                        0,
+                        1,
+                        palette.GetLiveIconStyle(ModelAliasIconColor.Red))])],
+                modeline,
+                prompt),
+            cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Draw(
+            Items(
+                [new TestSpannedLiveValue(
+                    "status",
+                    [new TerminalCellStyleSpan(
+                        0,
+                        1,
+                        palette.GetLiveIconStyle(ModelAliasIconColor.Blue))])],
+                modeline,
+                prompt),
+            cancellationToken);
+
+        var replacement = output.ToString()[boundary..];
+        _ = await Assert.That(Count(replacement, "\u001b[2K")).IsEqualTo(1);
+        _ = await Assert.That(replacement).Contains("\u001b[48;5;236m\u001b[34ms");
+    }
+
+    [Test]
     public async Task Draw_repaints_the_complete_frame_after_a_column_change(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
@@ -553,6 +645,16 @@ internal sealed class TerminalFrameRendererTests
     {
         public MultiLine Render(LiveBufferRenderContext context) => new(
             [new TerminalLine(text, selected ? context.Palette.Selection : context.Palette.LiveSurface)],
+            null,
+            LiveBufferRetention.Tail);
+    }
+
+    private sealed class TestSpannedLiveValue(
+        string text,
+        IReadOnlyList<TerminalCellStyleSpan> spans) : ILiveBufferItem
+    {
+        public MultiLine Render(LiveBufferRenderContext context) => new(
+            [new TerminalLine(text, context.Palette.LiveSurface, spans)],
             null,
             LiveBufferRetention.Tail);
     }
