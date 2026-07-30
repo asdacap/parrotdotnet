@@ -14,19 +14,6 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
     private const int MaxFormattedOutputBytes = 64 << 10;
     private const int MaxStreamOutputCharacters = 64 << 10;
     private const int WriteAccess = 2;
-    private static readonly string[] EnvironmentAllowlist =
-    [
-        "COLORTERM",
-        "LANG",
-        "LANGUAGE",
-        "LC_ALL",
-        "LC_CTYPE",
-        "NO_COLOR",
-        "PATH",
-        "TERM",
-        "TERM_PROGRAM",
-        "TERM_PROGRAM_VERSION",
-    ];
 
     private readonly string _bubblewrapPath = ValidateBubblewrapPath(bubblewrapPath, requireTrustedPath: false);
 
@@ -44,6 +31,7 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
 
     public async Task<ProcessResult> Run(
         string command,
+        ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
         SecurityProfile securityProfile,
         CancellationToken cancellationToken)
@@ -62,7 +50,7 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
             UseShellExecute = false,
         };
 
-        foreach (var argument in SandboxArguments(command, resources, securityProfile))
+        foreach (var argument in SandboxArguments(command, environment, resources, securityProfile))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -239,6 +227,7 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
     // an orphan outliving the turn.
     private static List<string> SandboxArguments(
         string command,
+        ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
         SecurityProfile securityProfile)
     {
@@ -252,13 +241,16 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
             "--unshare-ipc",
             "--unshare-uts",
             "--cap-drop", "ALL",
-            "--clearenv",
             "--ro-bind", "/", "/",
             "--dev", "/dev",
             "--proc", "/proc",
         };
 
-        AddEnvironment(arguments, resources);
+        foreach (var entry in environment.Entries)
+        {
+            arguments.AddRange(["--setenv", entry.Key, entry.Value]);
+        }
+
         arguments.AddRange(["--bind", resources.TemporaryDirectory, "/tmp"]);
 
         if (!securityProfile.ReadOnly)
@@ -276,32 +268,6 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
             "--", "/bin/sh", "-c", command,
         ]);
         return arguments;
-    }
-
-    private static void AddEnvironment(List<string> arguments, UserSessionResources resources)
-    {
-        foreach (var name in EnvironmentAllowlist)
-        {
-            if (string.Equals(name, "PATH", StringComparison.Ordinal))
-            {
-                arguments.AddRange(["--setenv", name, TrustedPath()]);
-                continue;
-            }
-
-            if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } value)
-            {
-                arguments.AddRange(["--setenv", name, value]);
-            }
-        }
-
-        arguments.AddRange(
-        [
-            "--setenv", "HOME", resources.RuntimeHomeDirectory,
-            "--setenv", "XDG_CACHE_HOME", resources.CacheDirectory,
-            "--setenv", "TMPDIR", "/tmp",
-            "--setenv", "TMP", "/tmp",
-            "--setenv", "TEMP", "/tmp",
-        ]);
     }
 
     private static void AddProtectedRoots(List<string> arguments, UserSessionResources resources)
@@ -595,23 +561,4 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
     [LibraryImport("libc", EntryPoint = "access", StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Access(string path, int mode);
-
-    private static string TrustedPath()
-    {
-        var directories = new List<string>();
-        var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-
-        foreach (var directory in currentPath.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (Path.IsPathFullyQualified(directory)
-                && directory.StartsWith("/nix/store/", StringComparison.Ordinal)
-                && !directories.Contains(directory, StringComparer.Ordinal))
-            {
-                directories.Add(directory);
-            }
-        }
-
-        directories.AddRange(["/usr/local/bin", "/usr/bin", "/bin"]);
-        return string.Join(Path.PathSeparator, directories.Distinct(StringComparer.Ordinal));
-    }
 }

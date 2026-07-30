@@ -664,12 +664,21 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Absorbs** `tool` (the interface and the builtins).
 - **Owns** nothing shared; each tool owns its own arguments and plan.
 - **Inbound** describe, plan, execute. **Display differences are methods on the
-  tool, never a branch on its id.** `exec_command` accepts optional `name` and
-  `yield_after_ms`; `wait_process` requires `name` and accepts optional
-  `yield_after_ms`; `interrupt_process` requires `name` and cancels the named
-  process tree. A yield returns the reserved process name without stopping it,
-  and a later completion is delivered to the invoking agent through its durable
-  steer queue unless a successful wait or interrupt claims it. `wait_process`
+  tool, never a branch on its id.** `exec_command` accepts optional `name`,
+  `yield_after_ms`, and `env`, where `env` is a string-to-string map represented
+  internally by concrete `ProcessEnvironmentOverrides`, constructed from
+  `IEnumerable<KeyValuePair<string, string>>` (`Empty` when omitted). A
+  non-object `env` reports
+  `error: Tool argument 'env' must be an object containing string values.`; a
+  non-string property reports
+  `error: Tool argument 'env' must contain only string values.`; and a name
+  that is empty or contains `=` or NUL, or a value containing NUL, reports
+  `error: Tool argument 'env' contains an invalid environment value.`
+  `wait_process` requires `name` and accepts
+  optional `yield_after_ms`; `interrupt_process` requires `name` and cancels the
+  named process tree. A yield returns the reserved process name without stopping
+  it, and a later completion is delivered to the invoking agent through its
+  durable steer queue unless a successful wait or interrupt claims it. `wait_process`
   replaces the earlier `wait_shell` name so the lifecycle tools use process
   terminology.
 - **Builtin mutations.** `write` creates or replaces one file with exact UTF-8
@@ -715,8 +724,18 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Absorbs** `process`.
 - **Owns** OS child execution, output capture, output storage, and the sandbox.
   A per-`UserSession` shell-process owner owns named run state and delivery.
-- **Inbound** run a command. **Fails closed**: no sandbox, no execution. Not a
-  warning, not a fallback. The working directory and its Git repository root
+- **Inbound** `Run(string command, ProcessEnvironmentOverrides environment,
+  UserSessionResources resources, SecurityProfile securityProfile,
+  CancellationToken cancellationToken)`. The user-session shell-process owner
+  starts named runs through `Start(string? requestedName, string command,
+  ProcessEnvironmentOverrides environment, AgentSession agent,
+  SecurityProfile securityProfile)`. By default the child inherits the complete
+  launch environment. Explicit overrides replace inherited child variables and
+  become deterministically sorted bubblewrap `--setenv` entries. No runtime
+  environment variables are protected, cleared, or forced. **Fails closed**: no
+  sandbox, no execution. Not a warning, not a fallback. The sandbox provides
+  filesystem and process isolation; environment selection remains command
+  execution configuration. The working directory and its Git repository root
   are writable; the latter is detected from linked-worktree metadata when the
   worktree lives outside the repository. The user's `~/.cache` directory is also
   writable so sandboxed developer tools can persist their caches. The rest of

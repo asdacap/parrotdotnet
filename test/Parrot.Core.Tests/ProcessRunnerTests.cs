@@ -31,6 +31,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(async () =>
                 await runner.Run(
                     $"touch {marker}",
+                    ProcessEnvironmentOverrides.Empty,
                     Resources(_workspace),
                     WritableProfile(),
                     CancellationToken.None))
@@ -53,6 +54,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var result = await runner.Run(
             "awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"o\"; "
             + "for (i = 0; i < 70000; i++) printf \"e\" > \"/dev/stderr\"; exit 7 }'",
+            ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             WritableProfile(),
             cancellationToken);
@@ -88,6 +90,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var result = await runner.Run(
             "awk 'BEGIN { for (i = 0; i < 11000; i++) printf \"€\"; "
             + "for (i = 0; i < 11000; i++) printf \"€\" > \"/dev/stderr\" }'",
+            ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             WritableProfile(),
             cancellationToken);
@@ -116,6 +119,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(async () =>
                 await runner.Run(
                     "awk 'BEGIN { for (i = 0; i < 1000000; i++) printf \"x\" }'",
+                    ProcessEnvironmentOverrides.Empty,
                     resources,
                     WritableProfile(),
                     cancellationToken))
@@ -135,6 +139,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         using var cancellation = new CancellationTokenSource();
         var running = runner.Run(
             "sh -c 'while :; do sleep 1; done' & echo $! > child.pid; wait",
+            ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             WritableProfile(),
             cancellation.Token);
@@ -184,6 +189,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         _ = await runner.Run(
             "true",
+            ProcessEnvironmentOverrides.Empty,
             Resources(worktree),
             WritableProfile(),
             cancellationToken);
@@ -198,6 +204,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         _ = await runner.Run(
             "true",
+            ProcessEnvironmentOverrides.Empty,
             Resources(worktree),
             SecurityProfile.Compose(true, [], [], []),
             cancellationToken);
@@ -208,6 +215,37 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(FindMounts(
             arguments,
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache"))).IsEmpty();
+    }
+
+    [Test]
+    public async Task Command_environment_overrides_are_forwarded_to_the_sandbox(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+
+        _ = await runner.Run(
+            "true",
+            new ProcessEnvironmentOverrides(
+            [
+                new KeyValuePair<string, string>("LANG", "command-language"),
+                new KeyValuePair<string, string>("COMMAND_VALUE", "present"),
+            ]),
+            Resources(_workspace),
+            WritableProfile(),
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(arguments).DoesNotContain("--clearenv");
+        _ = await Assert.That(FindSetEnvironment(arguments, "COMMAND_VALUE")).IsEqualTo("present");
+        _ = await Assert.That(FindSetEnvironment(arguments, "LANG")).IsEqualTo("command-language");
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "COMMAND_VALUE"))
+            .IsLessThan(Array.IndexOf(arguments, "--chdir"));
     }
 
     [Test]
@@ -224,6 +262,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var resources = Resources(_workspace);
         _ = await runner.Run(
             "true",
+            ProcessEnvironmentOverrides.Empty,
             resources,
             WritableProfile(),
             cancellationToken);
@@ -260,6 +299,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         _ = await runner.Run(
             "true",
+            ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             profile,
             cancellationToken);
@@ -281,7 +321,7 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Mandatory_isolation_overrides_profile_and_clears_the_environment(
+    public async Task Mandatory_isolation_preserves_the_environment(
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
@@ -301,17 +341,16 @@ internal sealed class ProcessRunnerTests : IDisposable
             [],
             []);
 
-        _ = await runner.Run("true", resources, profile, cancellationToken);
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            profile,
+            cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        _ = await Assert.That(arguments).Contains("--clearenv");
-        _ = await Assert.That(arguments).DoesNotContain("SSH_AUTH_SOCK");
-        _ = await Assert.That(arguments).DoesNotContain("DBUS_SESSION_BUS_ADDRESS");
-        _ = await Assert.That(arguments).DoesNotContain("XDG_RUNTIME_DIR");
-        _ = await Assert.That(arguments).DoesNotContain("HTTP_PROXY");
-        _ = await Assert.That(arguments).DoesNotContain("OPENAI_API_KEY");
-        _ = await Assert.That(FindSetEnvironment(arguments, "HOME")).IsEqualTo(resources.RuntimeHomeDirectory);
-        _ = await Assert.That(FindSetEnvironment(arguments, "XDG_CACHE_HOME")).IsEqualTo(resources.CacheDirectory);
+        _ = await Assert.That(arguments).DoesNotContain("--clearenv");
+        _ = await Assert.That(arguments).DoesNotContain("--setenv");
 
         foreach (var root in resources.ProtectedRoots.Where(Directory.Exists))
         {
@@ -345,15 +384,17 @@ internal sealed class ProcessRunnerTests : IDisposable
             "result",
             cancellationToken);
 
+        var home = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
+        var cache = Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? string.Empty;
         var result = await runner.Run(
             $"cat '{resources.ProtectedRoots[3]}/parrot.token' 2>/dev/null || echo hidden; "
             + $"cat '{resources.BlobDirectory}/result.txt'; printf '\\n%s' \"$HOME|$XDG_CACHE_HOME\"",
+            ProcessEnvironmentOverrides.Empty,
             resources,
             WritableProfile(),
             cancellationToken);
 
-        _ = await Assert.That(result.Stdout).IsEqualTo(
-            $"hidden\nresult\n{resources.RuntimeHomeDirectory}|{resources.CacheDirectory}");
+        _ = await Assert.That(result.Stdout).IsEqualTo($"hidden\nresult\n{home}|{cache}");
     }
 
     [Test]
@@ -370,6 +411,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var result = await runner.Run(
             "echo hi > inside.txt && (touch /host-write 2>&1 || echo blocked)",
+            ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
             WritableProfile(),
             cancellationToken);
@@ -430,16 +472,22 @@ internal sealed class ProcessRunnerTests : IDisposable
 
     private static string FindSetEnvironment(string[] arguments, string name)
     {
-        for (var index = 0; index < arguments.Length - 2; index++)
+        var index = LastSetEnvironmentIndex(arguments, name);
+        return index < 0 ? string.Empty : arguments[index + 2];
+    }
+
+    private static int LastSetEnvironmentIndex(string[] arguments, string name)
+    {
+        for (var index = arguments.Length - 3; index >= 0; index--)
         {
             if (arguments[index] == "--setenv"
                 && string.Equals(arguments[index + 1], name, StringComparison.Ordinal))
             {
-                return arguments[index + 2];
+                return index;
             }
         }
 
-        return string.Empty;
+        return -1;
     }
 
     private static async Task AssertWritableBind(string[] arguments, string directory)

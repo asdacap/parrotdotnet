@@ -18,6 +18,7 @@ internal sealed class ShellProcessOwner(
     public ManagedShellProcess Start(
         string? requestedName,
         string command,
+        ProcessEnvironmentOverrides environment,
         AgentSession agent,
         SecurityProfile securityProfile)
     {
@@ -38,7 +39,7 @@ internal sealed class ShellProcessOwner(
             }
 
             var execution = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
-            var result = runner.Run(command, resources, securityProfile, execution.Token);
+            var result = runner.Run(command, environment, resources, securityProfile, execution.Token);
             var process = new ManagedShellProcess(name, agent, result, execution, lifetime);
             _processes.Add(name, process);
             return process;
