@@ -327,9 +327,11 @@ message TurnStarted {
 }
 
 message TurnModelAliasIcon {
+  reserved 3;
+  reserved "muted";
+
   string                  glyph = 1;
   TurnModelAliasIconColor color = 2;
-  bool                    muted = 3;
 }
 
 enum TurnModelAliasIconColor {
@@ -341,6 +343,7 @@ enum TurnModelAliasIconColor {
   TURN_MODEL_ALIAS_ICON_COLOR_MAGENTA = 5;
   TURN_MODEL_ALIAS_ICON_COLOR_CYAN    = 6;
   TURN_MODEL_ALIAS_ICON_COLOR_WHITE   = 7;
+  TURN_MODEL_ALIAS_ICON_COLOR_GRAY    = 8;
 }
 
 message TextChunk {

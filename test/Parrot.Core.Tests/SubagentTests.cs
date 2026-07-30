@@ -405,11 +405,9 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(string.Join(',', started.Select(turn => turn.Model)))
             .IsEqualTo("stepped/replacement,stepped/replacement,stepped/model");
         _ = await Assert.That(started[0].ModelAliasIcon.Glyph).IsEqualTo("F");
-        _ = await Assert.That(started[0].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Black);
-        _ = await Assert.That(started[0].ModelAliasIcon.Muted).IsTrue();
+        _ = await Assert.That(started[0].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Gray);
         _ = await Assert.That(started[1].ModelAliasIcon.Glyph).IsEqualTo("F");
-        _ = await Assert.That(started[1].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Black);
-        _ = await Assert.That(started[1].ModelAliasIcon.Muted).IsTrue();
+        _ = await Assert.That(started[1].ModelAliasIcon.Color).IsEqualTo(TurnModelAliasIconColor.Gray);
         _ = await Assert.That(started[2].ModelAliasIcon).IsNull();
     }
 
