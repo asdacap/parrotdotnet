@@ -18,7 +18,7 @@ internal sealed class TerminalPalette(bool color)
 
     public TerminalStyle Selection { get; } = new(color ? "\u001b[48;5;240m\u001b[38;5;231m" : string.Empty);
 
-    public TerminalStyle UserMessage { get; } = new(color ? "\u001b[32m" : string.Empty);
+    public TerminalStyle UserMessage { get; } = new(color ? "\u001b[32m\u001b[1m" : string.Empty);
 
     public TerminalStyle AssistantMessage { get; } = new(color ? "\u001b[38;5;195m" : string.Empty);
 

@@ -76,7 +76,7 @@ internal sealed class EnhancedTerminalFoundationTests
 
         var colorPalette = new TerminalPalette(true);
         _ = await Assert.That(colorPalette.Prompt.Start).IsEqualTo("\u001b[48;5;236m\u001b[32m\u001b[1m");
-        _ = await Assert.That(colorPalette.UserMessage.Start).IsEqualTo("\u001b[32m");
+        _ = await Assert.That(colorPalette.UserMessage.Start).IsEqualTo("\u001b[32m\u001b[1m");
     }
 
     [Test]
