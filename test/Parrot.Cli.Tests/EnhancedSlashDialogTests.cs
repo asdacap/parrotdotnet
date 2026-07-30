@@ -23,11 +23,28 @@ internal sealed class EnhancedSlashDialogTests
 
         _ = await Assert.That(selected).IsSameReferenceAs(options[1]);
         _ = await Assert.That(filtered).Count().IsEqualTo(3);
-        _ = await Assert.That(filtered[0]).IsTypeOf<PickerOptionValue>();
-        _ = await Assert.That(filtered[1]).IsTypeOf<PickerOptionValue>();
-        _ = await Assert.That(filtered[^1]).IsTypeOf<PromptValue>();
+        _ = await Assert.That(filtered[0]).IsEqualTo(new PromptValue("Filter: ", "al", 2));
+        _ = await Assert.That(filtered[1]).IsEqualTo(new PickerOptionValue("Alpha", "first", true));
+        _ = await Assert.That(filtered[2]).IsEqualTo(new PickerOptionValue("Alpine", "mountain", false));
         _ = await Assert.That(collapsed.Count).IsEqualTo(1);
         _ = await Assert.That(collapsed[0]).IsEqualTo(new PromptValue("Filter: ", "Alpine", 6));
+    }
+
+    [Test]
+    public async Task Picker_places_prompt_before_no_matches(CancellationToken cancellationToken)
+    {
+        var host = new ScriptedLiveInputHost("z\u001b", string.Empty);
+        var dialog = new EnhancedSlashDialog(host);
+
+        _ = await dialog.Select(
+            "Question: ",
+            [new SlashDialogOption("one", "One", string.Empty)],
+            cancellationToken);
+
+        var unmatched = host.Frames[1];
+        _ = await Assert.That(unmatched).Count().IsEqualTo(2);
+        _ = await Assert.That(unmatched[0]).IsEqualTo(new PromptValue("Question: ", "z", 1));
+        _ = await Assert.That(unmatched[1]).IsEqualTo(new PickerOptionValue("No matches", string.Empty, false));
     }
 
     [Test]
