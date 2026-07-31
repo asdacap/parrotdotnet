@@ -77,7 +77,93 @@ internal sealed class SecurityProfileTests
     }
 
     [Test]
-    public async Task Delegation_ignores_runtime_capabilities_allows_narrower_policies_and_rejects_escalation()
+    public async Task Restriction_intersects_static_policies_and_is_monotonic()
+    {
+        var parent = SecurityProfile.Compose(
+            readOnly: false,
+            [new("/parent-private", SandboxRuleAction.DenyRead)],
+            [],
+            []);
+        var child = SecurityProfile.Compose(
+            readOnly: true,
+            [
+                new("/child-private", SandboxRuleAction.DenyRead),
+                new("/parent-private/narrow", SandboxRuleAction.AllowWrite),
+            ],
+            [],
+            []);
+        var restricted = parent.RestrictWith(child);
+        var grandchild = restricted.RestrictWith(SecurityProfile.Compose(false, [], [], []));
+
+        _ = await Assert.That(restricted.ReadOnly).IsTrue();
+        _ = await Assert.That(restricted.AllowsRead("/parent-private/narrow/file")).IsFalse();
+        _ = await Assert.That(restricted.AllowsWrite("/parent-private/narrow/file")).IsFalse();
+        _ = await Assert.That(restricted.AllowsRead("/child-private/file")).IsFalse();
+        _ = await Assert.That(restricted.AllowsWrite("/ordinary/file")).IsFalse();
+        _ = await Assert.That(grandchild.AllowsRead("/parent-private/narrow/file")).IsFalse();
+        _ = await Assert.That(grandchild.AllowsRead("/child-private/file")).IsFalse();
+        _ = await Assert.That(grandchild.AllowsWrite("/ordinary/file")).IsFalse();
+    }
+
+    [Test]
+    public async Task Restriction_inherits_parent_runtime_capabilities_but_applies_child_holes()
+    {
+        var parent = SecurityProfile.Compose(
+            readOnly: true,
+            [],
+            [],
+            [new("/runtime", SandboxRuleAction.AllowWrite)]);
+        var child = SecurityProfile.Compose(
+            readOnly: false,
+            [
+                new("/runtime/read-only", SandboxRuleAction.DenyWrite),
+                new("/runtime/private", SandboxRuleAction.DenyRead),
+            ],
+            [],
+            [new("/child-runtime", SandboxRuleAction.AllowWrite)]);
+        var restricted = parent.RestrictWith(child);
+
+        _ = await Assert.That(restricted.AllowsWrite("/runtime/file")).IsTrue();
+        _ = await Assert.That(restricted.AllowsRead("/runtime/read-only/file")).IsTrue();
+        _ = await Assert.That(restricted.AllowsWrite("/runtime/read-only/file")).IsFalse();
+        _ = await Assert.That(restricted.AllowsRead("/runtime/private/file")).IsFalse();
+        _ = await Assert.That(restricted.AllowsWrite("/child-runtime/file")).IsFalse();
+        _ = await Assert.That(restricted.WithoutRuntimeCapabilities().AllowsWrite("/runtime/file")).IsFalse();
+        _ = await Assert.That(restricted.RuntimeCapabilities.Count).IsEqualTo(1);
+        _ = await Assert.That(restricted.RuntimeCapabilities[0])
+            .IsEqualTo(new SandboxRule("/runtime", SandboxRuleAction.AllowWrite));
+        _ = await Assert.That(restricted.Rules)
+            .Contains(new SandboxRule("/runtime/private", SandboxRuleAction.DenyRead));
+    }
+
+    [Test]
+    public async Task Restriction_narrows_runtime_capability_metadata_to_child_grant()
+    {
+        var parent = SecurityProfile.Compose(
+            readOnly: true,
+            [],
+            [],
+            [new("/runtime", SandboxRuleAction.AllowWrite)]);
+        var child = SecurityProfile.Compose(
+            readOnly: false,
+            [
+                new("/runtime", SandboxRuleAction.DenyRead),
+                new("/runtime/public", SandboxRuleAction.AllowRead),
+            ],
+            [],
+            []);
+        var restricted = parent.RestrictWith(child);
+
+        _ = await Assert.That(restricted.AllowsRead("/runtime/file")).IsFalse();
+        _ = await Assert.That(restricted.AllowsRead("/runtime/public/file")).IsTrue();
+        _ = await Assert.That(restricted.AllowsWrite("/runtime/public/file")).IsFalse();
+        _ = await Assert.That(restricted.RuntimeCapabilities.Count).IsEqualTo(1);
+        _ = await Assert.That(restricted.RuntimeCapabilities[0])
+            .IsEqualTo(new SandboxRule("/runtime/public", SandboxRuleAction.AllowRead));
+    }
+
+    [Test]
+    public async Task Delegation_allows_narrower_effective_profiles_and_rejects_runtime_escalation()
     {
         var rules = new[] { new SandboxRule("/secret", SandboxRuleAction.DenyRead) };
         var readOnlyCaller = SecurityProfile.Compose(true, rules, [], [])
@@ -93,6 +179,7 @@ internal sealed class SecurityProfileTests
         var broader = SecurityProfile.Compose(true, [], [], []);
 
         _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(matchingReadOnly)).IsTrue();
+        _ = await Assert.That(matchingReadOnly.AllowsDelegationTo(readOnlyCaller)).IsFalse();
         _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(matchingWritable)).IsFalse();
         _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(narrower)).IsTrue();
         _ = await Assert.That(readOnlyCaller.AllowsDelegationTo(broader)).IsFalse();

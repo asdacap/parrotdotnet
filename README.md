@@ -98,6 +98,13 @@ profile can recur only up to its selected profile's recursion limit. Profile
 sandbox rules replace that profile's default list; top-level `sandbox_rules`
 apply to every profile.
 
+A spawned child inherits its runtime parent's current effective security
+profile and may only narrow it with the selected child profile; a child allow
+cannot reopen access denied by an ancestor. Existing descendants recompile that
+chain for each security-sensitive tool invocation, including between tool calls
+in one model turn, while each individual invocation uses one immutable compiled
+snapshot. Child-local restrictions remain within their branch.
+
 ```yaml
 default_profile: build
 profiles:
@@ -152,9 +159,12 @@ artifact subtree, such as the plan directory, without exposing the containing
 private root. Filesystem access does not grant network access.
 
 The plan foreground profile receives its private plan-artifact location and
-runtime-only write permission from Parrot; child profiles never inherit this
-capability. Legacy `profiles.<id>.status` input is accepted and ignored for
-compatibility. It is not profile guidance and is never injected into a prompt.
+runtime-only write permission from Parrot. Trusted runtime capabilities are
+part of the effective profile inherited by descendants, but each child profile
+may narrow them: a read-only child or an explicit child denial cannot use an
+inherited write capability. Legacy `profiles.<id>.status` input is accepted and
+ignored for compatibility. It is not profile guidance and is never injected
+into a prompt.
 
 ## Write permission requests
 

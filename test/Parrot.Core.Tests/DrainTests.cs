@@ -300,7 +300,7 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task A_session_tool_receives_each_turns_captured_selection_without_recreation(
+    public async Task A_session_tool_receives_live_security_at_each_invocation_without_recreation(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
@@ -330,7 +330,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", factory.Tool.Selections.Select(SelectionSummary)))
-            .IsEqualTo("writable:False");
+            .IsEqualTo("writable:True");
         provider.Release();
         await session.Settled();
 
@@ -339,7 +339,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", factory.Tool.Selections.Select(SelectionSummary)))
-            .IsEqualTo("writable:False | read-only:True");
+            .IsEqualTo("writable:True | read-only:True");
         provider.Release();
         await session.Settled();
 

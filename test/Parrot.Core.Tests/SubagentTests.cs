@@ -764,25 +764,49 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
-    public async Task Spawn_drops_runtime_capabilities_and_send_rejects_a_more_permissive_target(
+    public async Task Spawn_inherits_runtime_capabilities_and_existing_descendants_follow_parent_security(
         CancellationToken cancellationToken)
     {
-        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        var sessions = new TestAgentSessions(Router(provider), deliversCompletions: false);
-        await using var registry = new AgentRegistry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
+        using var provider = new SteppedProvider();
+        var sessions = new TestAgentSessions(Router(provider), deliversCompletions: true);
+        await using var registry = new AgentRegistry(
+            sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
+        var capability = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var denied = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         var parent = Session(provider, 0, "parent", cancellationToken);
         parent.UpdateSelection(
             parent.Selection().RequestedModel,
             Profile(
-                ModeRegistry.Plan,
-                readOnly: true,
-                [new SandboxRule(Path.GetTempPath(), SandboxRuleAction.AllowWrite)]));
-        _ = await Assert.That(() => registry.Spawn(
+                ModeRegistry.Build,
+                readOnly: false,
+                [new SandboxRule(capability, SandboxRuleAction.AllowWrite)]));
+
+        var child = registry.Spawn(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
-            "worker")).Throws<AgentRegistryException>();
+            "worker");
+        var grandchild = registry.Spawn(
+            child,
+            Turn(child, Router(provider)),
+            "worker",
+            child.Selection().RequestedModel,
+            "grandchild");
+
+        _ = await Assert.That(child.ResolveSelection().SecurityProfile.AllowsWrite(capability)).IsTrue();
+        _ = await Assert.That(grandchild.ResolveSelection().SecurityProfile.AllowsWrite(capability)).IsTrue();
+        _ = await Assert.That(child.ResolveSelection().SecurityProfile.RuntimeCapabilities).IsNotEmpty();
+        _ = await Assert.That(child.WriteGrants).IsNotSameReferenceAs(parent.WriteGrants);
+
+        parent.UpdateSelection(
+            parent.Selection().RequestedModel,
+            Profile(ModeRegistry.Plan, readOnly: true, []));
+
+        _ = await Assert.That(child.ResolveSelection().SecurityProfile.ReadOnly).IsTrue();
+        _ = await Assert.That(grandchild.ResolveSelection().SecurityProfile.ReadOnly).IsTrue();
+        _ = await Assert.That(child.ResolveSelection().SecurityProfile.AllowsWrite(capability)).IsFalse();
+        _ = await Assert.That(grandchild.ResolveSelection().SecurityProfile.AllowsWrite(denied)).IsFalse();
     }
 
     [Test]
