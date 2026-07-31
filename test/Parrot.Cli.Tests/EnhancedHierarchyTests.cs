@@ -70,13 +70,15 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
 
         var live = drawn[^1];
-        _ = await Assert.That(live).Contains("    ● [child] child");
-        var childPosition = live.IndexOf("    ● [child] child", StringComparison.Ordinal);
-        _ = await Assert.That(live).Contains("  ● [parent] parent response");
-        var parentPosition = live.IndexOf("  ● [parent] parent response", StringComparison.Ordinal);
+        _ = await Assert.That(live).Contains("  ● [child] child");
+        var childPosition = live.IndexOf("  ● [child] child", StringComparison.Ordinal);
+        _ = await Assert.That(live).DoesNotContain("    ● [child] child");
+        _ = await Assert.That(live).Contains("● [parent] parent response");
+        var parentPosition = live.IndexOf("● [parent] parent response", StringComparison.Ordinal);
+        _ = await Assert.That(live).DoesNotContain("  ● [parent] parent response");
         _ = await Assert.That(childPosition).IsGreaterThanOrEqualTo(0);
         _ = await Assert.That(parentPosition).IsGreaterThan(childPosition);
-        _ = await Assert.That(live).DoesNotContain("      [child] response");
+        _ = await Assert.That(live).DoesNotContain("    [child] response");
 
         await view.Render(
             new Event
@@ -246,8 +248,9 @@ internal sealed class EnhancedHierarchyTests
             Enumerable.Range(1, 10).Select(static line => line == 1
                 ? "  ● [child] line 1"
                 : $"    [child] line {line}"));
-        _ = await Assert.That(drawn[^1]).Contains("  ● [child] line 1 line 2");
-        _ = await Assert.That(drawn[^1]).DoesNotContain("|    [child] line 2");
+        _ = await Assert.That(drawn[^1]).Contains("● [child] line 1 line 2");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("  ● [child] line 1 line 2");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("|  [child] line 2");
         _ = await Assert.That(drawn[^1]).DoesNotContain("line 11");
 
         await view.Render(
@@ -310,7 +313,8 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
 
-        _ = await Assert.That(drawn[^1]).Contains("  ⠋ [worker] agent worker Working: wait_agent");
+        _ = await Assert.That(drawn[^1]).Contains("⠋ [worker] agent worker Working: wait_agent");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("  ⠋ [worker] agent worker Working: wait_agent");
         _ = await Assert.That(drawn[^1]).DoesNotContain("Wait for");
 
         await view.Render(
@@ -524,7 +528,8 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
 
         var spinner = Render(drawn[^1], context);
-        _ = await Assert.That(spinner).Contains("  ⠋ [worker] ◆ agent worker");
+        _ = await Assert.That(spinner).Contains("⠋ [worker] ◆ agent worker");
+        _ = await Assert.That(spinner).DoesNotContain("  ⠋ [worker] ◆ agent worker");
         _ = await Assert.That(Count(spinner, "◆")).IsEqualTo(1);
         _ = await Assert.That(spinner).DoesNotContain("R");
         _ = await Assert.That(spinner).Contains("existing content");
@@ -544,7 +549,8 @@ internal sealed class EnhancedHierarchyTests
             new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "first response" } },
             cancellationToken);
         var response = Render(drawn[^1], context);
-        _ = await Assert.That(response).Contains("  ● [worker] ◆ first response");
+        _ = await Assert.That(response).Contains("● [worker] ◆ first response");
+        _ = await Assert.That(response).DoesNotContain("  ● [worker] ◆ first response");
         _ = await Assert.That(Count(response, "◆")).IsEqualTo(1);
 
         await view.Render(
