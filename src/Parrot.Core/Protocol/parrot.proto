@@ -341,6 +341,7 @@ message Event {
     QueueSnapshot          queue_snapshot          = 24;
     ShellProcessSnapshot   shell_process_snapshot  = 25;
     ActiveWorkReminderInjected active_work_reminder_injected = 26;
+    SessionUsageSnapshot session_usage_snapshot = 27;
   }
 }
 
@@ -424,6 +425,19 @@ message AgentStatisticsUpdatedEvent {
   int64  context_limit       = 5;
   double input_cost          = 6;
   double output_cost         = 7;
+}
+
+// Transient replacement state for all metered work in one user session.
+// Revision zero is the authoritative empty snapshot for a new session.
+message SessionUsageSnapshot {
+  uint64 revision            = 1;
+  int64  input_tokens        = 2;
+  int64  cached_input_tokens = 3;
+  int64  output_tokens       = 4;
+  int64  context_size        = 5;
+  int64  context_limit       = 6;
+  double input_cost          = 7;
+  double output_cost         = 8;
 }
 
 // The user's own prompt, accepted but not yet part of the conversation. It is

@@ -409,9 +409,11 @@ the two wire dialects and the shared HTTP/SSE machinery are in `Parrot.Llm.Wire`
 - **Model catalogue.** `IModelListDecoder` + `Standard`/`OpenRouter`/`Kimi`
   decoders (ChatGPT decodes inline); `ModelCatalogue.Merge`; `LLMModel` grew
   metadata (context window, prices, `ModelCapabilities` with reasoning variants).
-- **Usage.** `IUsageReporter` (optional capability) with `SubscriptionUsage`,
-  implemented by ChatGPT, OpenCodeGo, Kimi. Implemented but not yet surfaced in
-  the CLI (upstream shows it in status).
+- **Provider subscription usage is separate.** `IUsageReporter` (optional
+  capability) with `SubscriptionUsage`, implemented by ChatGPT, OpenCodeGo, and
+  Kimi, reports provider-account subscription information. It is not the
+  user-session metered-usage model and is out of scope for that model; it is
+  implemented but not yet surfaced in the CLI (upstream shows it in status).
 - **Retry + classification.** `ProviderErrors` (`IsUsageLimit`/
   `IsEngineOverloaded`) and `RetryingProvider`, a decorator the registry wraps
   around every provider, folding upstream's header-retry and stream-retry layers.
@@ -681,6 +683,14 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Note** one claim is held for exactly the duration of `Run`. A live owner is
   never joined or displaced. Fresh roots use `main`; resumed legacy roots retain
   their stored root-agent name.
+- **Metered usage.** Lifetime user-session metered usage is durable. Each
+  metered stats event and the latest-per-agent usage projection commit in the
+  same transaction, so the projection cannot get ahead of or fall behind its
+  source event. The projection is keyed by agent session, including child agent
+  sessions for as long as they belong to this user session. The user-session
+  aggregate is calculated by summing that projection; it is not a separately
+  persisted second total, so there is no aggregate row to reconcile after a
+  crash or child completion.
 
 ### `SessionCatalog` — rank 10, M6
 
@@ -894,7 +904,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   queue and active-process inventory feeds. The queue feed is deliberately
   root-only: child-owned queues do not appear in the external client inventory.
   Every listener receives complete initial inventories, including explicit
-  empty snapshots. The active-process
+  empty snapshots. Metered usage is likewise delivered as a complete,
+  revisioned `Listen` snapshot: it is a transient latest-state projection, not
+  a durable event-stream cursor. Its snapshot includes the root agent and all
+  currently retained child-agent usage belonging to the user session; child
+  completion does not remove lifetime usage. A reconnect receives a new
+  complete snapshot and replaces its local usage state rather than resuming
+  from a prior revision. The active-process
   snapshot is rebuilt from authoritative in-memory shell-process owners rather
   than persisted history, so reconnect replaces client state with what is still
   running. Neither inventory changes `EventBroker` into a historical replay

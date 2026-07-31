@@ -21,26 +21,38 @@ namespace Parrot.Store;
 // only thing that writes to the session database.
 internal sealed class EventRepository(SessionDatabase database)
 {
+    private const string UsageProjection = "agent-usage";
+    private const long UsageProjectionVersion = 1;
     private readonly Lock _gate = new();
 
-    public void Append(Event published, string? messageRole, string? messageContent)
+    public SessionUsage? Append(Event published, string? messageRole, string? messageContent)
     {
         ArgumentNullException.ThrowIfNull(published);
 
         lock (_gate)
         {
             using var transaction = database.Begin();
+            if (published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
+            {
+                EnsureUsageProjection(transaction);
+            }
 
-            Record(transaction, published);
+            var revision = Record(transaction, published);
 
-            // The projection, in the same transaction. Not a second write that
-            // might not happen.
             if (messageRole is not null && messageContent is not null)
             {
                 Project(transaction, published.AgentSessionId, messageRole, messageContent);
             }
 
+            SessionUsage? usage = null;
+            if (published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
+            {
+                ProjectUsage(transaction, published.AgentSessionId, revision, published.AgentStatisticsUpdated);
+                usage = CaptureUsage(transaction);
+            }
+
             transaction.Commit();
+            return usage;
         }
     }
 
@@ -94,7 +106,7 @@ internal sealed class EventRepository(SessionDatabase database)
                 _ = insert.ExecuteNonQuery();
             }
 
-            Record(transaction, published);
+            _ = Record(transaction, published);
             transaction.Commit();
 
             return new Admission(admitted, published);
@@ -155,7 +167,7 @@ internal sealed class EventRepository(SessionDatabase database)
                 _ = insert.ExecuteNonQuery();
             }
 
-            Record(transaction, published);
+            _ = Record(transaction, published);
             transaction.Commit();
             return new Admission(admitted, published);
         }
@@ -254,7 +266,7 @@ internal sealed class EventRepository(SessionDatabase database)
                 _ = insert.ExecuteNonQuery();
             }
 
-            Record(transaction, published);
+            _ = Record(transaction, published);
             transaction.Commit();
         }
     }
@@ -277,6 +289,18 @@ internal sealed class EventRepository(SessionDatabase database)
         }
 
         return events;
+    }
+
+    public SessionUsage Usage()
+    {
+        lock (_gate)
+        {
+            using var transaction = database.Begin();
+            EnsureUsageProjection(transaction);
+            var usage = CaptureUsage(transaction);
+            transaction.Commit();
+            return usage;
+        }
     }
 
     public AgentStatistics? LatestStatistics(string agentSessionId)
@@ -615,7 +639,7 @@ internal sealed class EventRepository(SessionDatabase database)
                 }
 
                 Project(transaction, agentSessionId, "user", input.Content);
-                Record(transaction, published);
+                _ = Record(transaction, published);
                 promoted.Add(new Promotion(input, published));
             }
 
@@ -670,7 +694,161 @@ internal sealed class EventRepository(SessionDatabase database)
             : null;
     }
 
-    private void Record(SqliteTransaction transaction, Event published)
+    private void EnsureUsageProjection(SqliteTransaction transaction)
+    {
+        using (var version = database.Connection.CreateCommand())
+        {
+            version.Transaction = transaction;
+            version.CommandText = "SELECT version FROM projection_version WHERE name = $name;";
+            _ = version.Parameters.AddWithValue("$name", UsageProjection);
+            var current = version.ExecuteScalar();
+            if (current is not null
+                && Convert.ToInt64(current, System.Globalization.CultureInfo.InvariantCulture) >= UsageProjectionVersion)
+            {
+                return;
+            }
+        }
+
+        var latest = new Dictionary<string, (long Revision, AgentStatisticsUpdatedEvent Statistics)>(StringComparer.Ordinal);
+        using (var read = database.Connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT sequence, agent_session, payload FROM event ORDER BY sequence;";
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                var published = Event.Parser.ParseFrom((byte[])reader["payload"]);
+                if (published.PayloadCase != Event.PayloadOneofCase.AgentStatisticsUpdated)
+                {
+                    continue;
+                }
+
+                var revision = Convert.ToInt64(reader["sequence"], System.Globalization.CultureInfo.InvariantCulture);
+                latest[(string)reader["agent_session"]] = (revision, published.AgentStatisticsUpdated);
+            }
+        }
+
+        using (var clear = database.Connection.CreateCommand())
+        {
+            clear.Transaction = transaction;
+            clear.CommandText = "DELETE FROM agent_usage;";
+            _ = clear.ExecuteNonQuery();
+        }
+
+        foreach (var (agentSessionId, entry) in latest)
+        {
+            ProjectUsage(transaction, agentSessionId, entry.Revision, entry.Statistics);
+        }
+
+        using var mark = database.Connection.CreateCommand();
+        mark.Transaction = transaction;
+        mark.CommandText =
+            "INSERT OR REPLACE INTO projection_version (name, version) VALUES ($name, $version);";
+        _ = mark.Parameters.AddWithValue("$name", UsageProjection);
+        _ = mark.Parameters.AddWithValue("$version", UsageProjectionVersion);
+        _ = mark.ExecuteNonQuery();
+    }
+
+    private void ProjectUsage(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        long revision,
+        AgentStatisticsUpdatedEvent statistics)
+    {
+        using var upsert = database.Connection.CreateCommand();
+        upsert.Transaction = transaction;
+        upsert.CommandText =
+            """
+            INSERT INTO agent_usage (
+                agent_session, revision, input_tokens, cached_input_tokens, output_tokens,
+                context_size, context_limit, input_cost, output_cost)
+            VALUES (
+                $session, $revision, $input, $cached, $output,
+                $context, $limit, $input_cost, $output_cost)
+            ON CONFLICT(agent_session) DO UPDATE SET
+                revision = excluded.revision,
+                input_tokens = excluded.input_tokens,
+                cached_input_tokens = excluded.cached_input_tokens,
+                output_tokens = excluded.output_tokens,
+                context_size = excluded.context_size,
+                context_limit = excluded.context_limit,
+                input_cost = excluded.input_cost,
+                output_cost = excluded.output_cost;
+            """;
+        _ = upsert.Parameters.AddWithValue("$session", agentSessionId);
+        _ = upsert.Parameters.AddWithValue("$revision", revision);
+        _ = upsert.Parameters.AddWithValue("$input", statistics.InputTokens);
+        _ = upsert.Parameters.AddWithValue("$cached", statistics.CachedInputTokens);
+        _ = upsert.Parameters.AddWithValue("$output", statistics.OutputTokens);
+        _ = upsert.Parameters.AddWithValue("$context", statistics.ContextSize);
+        _ = upsert.Parameters.AddWithValue("$limit", statistics.ContextLimit);
+        _ = upsert.Parameters.AddWithValue("$input_cost", statistics.InputCost);
+        _ = upsert.Parameters.AddWithValue("$output_cost", statistics.OutputCost);
+        _ = upsert.ExecuteNonQuery();
+    }
+
+    private SessionUsage CaptureUsage(SqliteTransaction transaction)
+    {
+        string? mainAgentSessionId;
+        using (var main = database.Connection.CreateCommand())
+        {
+            main.Transaction = transaction;
+            main.CommandText = "SELECT agent_session FROM session_state LIMIT 1;";
+            mainAgentSessionId = main.ExecuteScalar() as string;
+        }
+
+        long revision = 0;
+        long inputTokens = 0;
+        long cachedInputTokens = 0;
+        long outputTokens = 0;
+        long contextSize = 0;
+        long contextLimit = 0;
+        double inputCost = 0;
+        double outputCost = 0;
+        using var read = database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            """
+            SELECT agent_session, revision, input_tokens, cached_input_tokens, output_tokens,
+                   context_size, context_limit, input_cost, output_cost
+            FROM agent_usage;
+            """;
+        using var reader = read.ExecuteReader();
+        while (reader.Read())
+        {
+            revision = Math.Max(
+                revision,
+                Convert.ToInt64(reader["revision"], System.Globalization.CultureInfo.InvariantCulture));
+            inputTokens = checked(inputTokens
+                + Convert.ToInt64(reader["input_tokens"], System.Globalization.CultureInfo.InvariantCulture));
+            cachedInputTokens = checked(cachedInputTokens
+                + Convert.ToInt64(reader["cached_input_tokens"], System.Globalization.CultureInfo.InvariantCulture));
+            outputTokens = checked(outputTokens
+                + Convert.ToInt64(reader["output_tokens"], System.Globalization.CultureInfo.InvariantCulture));
+            inputCost += Convert.ToDouble(reader["input_cost"], System.Globalization.CultureInfo.InvariantCulture);
+            outputCost += Convert.ToDouble(reader["output_cost"], System.Globalization.CultureInfo.InvariantCulture);
+            if (mainAgentSessionId is not null
+                && string.Equals((string)reader["agent_session"], mainAgentSessionId, StringComparison.Ordinal))
+            {
+                contextSize = Convert.ToInt64(reader["context_size"], System.Globalization.CultureInfo.InvariantCulture);
+                contextLimit = Convert.ToInt64(reader["context_limit"], System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        return revision == 0
+            ? SessionUsage.Empty
+            : new SessionUsage(
+                checked((ulong)revision),
+                inputTokens,
+                cachedInputTokens,
+                outputTokens,
+                contextSize,
+                contextLimit,
+                inputCost,
+                outputCost);
+    }
+
+    private long Record(SqliteTransaction transaction, Event published)
     {
         using var insert = database.Connection.CreateCommand();
         insert.Transaction = transaction;
@@ -681,6 +859,11 @@ internal sealed class EventRepository(SessionDatabase database)
         _ = insert.Parameters.AddWithValue("$payload", published.ToByteArray());
         _ = insert.Parameters.AddWithValue("$at", Timestamp());
         _ = insert.ExecuteNonQuery();
+
+        using var sequence = database.Connection.CreateCommand();
+        sequence.Transaction = transaction;
+        sequence.CommandText = "SELECT last_insert_rowid();";
+        return Convert.ToInt64(sequence.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private void Project(SqliteTransaction transaction, string agentSessionId, string role, string content)
