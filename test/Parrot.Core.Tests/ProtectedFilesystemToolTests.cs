@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.State;
@@ -156,4 +157,57 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
         _ = await Assert.That(glob).Contains("protected application data");
         _ = await Assert.That(grep).Contains("protected application data");
     }
+
+    [Test]
+    [Arguments("read")]
+    [Arguments("grep")]
+    [Arguments("glob")]
+    public async Task Explicit_read_allow_cannot_reopen_a_protected_root(
+        string toolName,
+        CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(Path.Combine(_paths.State, "secret.txt"), "secret", cancellationToken);
+        var profile = SecurityProfile.Compose(
+            readOnly: false,
+            [],
+            [new SandboxRule(_paths.State, SandboxRuleAction.AllowRead)],
+            []);
+        ITool tool = toolName switch
+        {
+            "read" => new ReadTool(_toolWorkspace, profile),
+            "grep" => new GrepTool(_toolWorkspace, profile),
+            "glob" => new GlobTool(_toolWorkspace, profile),
+            _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
+        };
+        var arguments = toolName switch
+        {
+            "read" => FormatPathArguments(_paths.State),
+            "grep" => FormatSearchArguments("secret", _paths.State),
+            "glob" => FormatGlobArguments("**", _paths.State),
+            _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
+        };
+
+        var result = await tool.Execute(arguments, cancellationToken);
+
+        _ = await Assert.That(result).Contains("protected application data");
+    }
+
+    private static string FormatPathArguments(string path) =>
+        string.Concat("{\"path\":\"", JsonEncodedText.Encode(path), "\"}");
+
+    private static string FormatSearchArguments(string pattern, string path) =>
+        string.Concat(
+            "{\"pattern\":\"",
+            JsonEncodedText.Encode(pattern),
+            "\",\"path\":\"",
+            JsonEncodedText.Encode(path),
+            "\"}");
+
+    private static string FormatGlobArguments(string pattern, string path) =>
+        string.Concat(
+            "{\"pattern\":\"",
+            JsonEncodedText.Encode(pattern),
+            "\",\"path\":\"",
+            JsonEncodedText.Encode(path),
+            "\"}");
 }

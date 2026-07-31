@@ -16,19 +16,22 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
     public string Name => "glob";
 
     public string Description =>
-        "Find workspace paths with deterministic glob matching, including **.";
+        "Find paths beneath an optional root with deterministic glob matching, including **. "
+        + "Relative roots resolve within the workspace.";
 
     public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
         string pattern;
+        string path;
 
         try
         {
             var input = JsonSerializer.Deserialize(argumentsJson, FileToolJsonContext.Default.GlobToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             pattern = input.Pattern ?? throw new FormatException("Tool arguments require a string 'pattern'.");
+            path = input.Path ?? string.Empty;
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -42,7 +45,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
 
         if (Path.IsPathFullyQualified(pattern) || pattern.Contains("..", StringComparison.Ordinal))
         {
-            return "error: glob pattern must be a relative workspace path without traversal";
+            return "error: glob pattern must be a relative search-root path without traversal";
         }
 
         Regex regex;
@@ -62,11 +65,21 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
         (string Lexical, string Physical) root;
         try
         {
-            root = workspace.ResolveRead(".");
+            root = workspace.ResolveRead(path.Length == 0 ? "." : path);
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
             return $"error: {failure.Message}";
+        }
+
+        if (!securityProfile.AllowsRead(root.Lexical) || !securityProfile.AllowsRead(root.Physical))
+        {
+            return "error: access denied";
+        }
+
+        if (!Directory.Exists(root.Physical))
+        {
+            return "error: no such directory";
         }
 
         using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -78,8 +91,8 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
             var visited = 0;
             Walk(
                 workspace,
-                root.Physical,
-                root.Physical,
+                root,
+                string.Empty,
                 regex,
                 results,
                 ref visited,
@@ -110,8 +123,8 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
 
     private static void Walk(
         ToolWorkspace workspace,
-        string root,
-        string current,
+        (string Lexical, string Physical) directory,
+        string relativeDirectory,
         Regex regex,
         List<string> results,
         ref int visited,
@@ -120,16 +133,11 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!securityProfile.AllowsRead(current))
-        {
-            return;
-        }
-
         string[] entries;
 
         try
         {
-            entries = [.. Directory.EnumerateFileSystemEntries(current).Order(StringComparer.Ordinal)];
+            entries = [.. Directory.EnumerateFileSystemEntries(directory.Physical).Order(StringComparer.Ordinal)];
         }
         catch (IOException)
         {
@@ -149,12 +157,16 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
                 return;
             }
 
-            var relative = Path.GetRelativePath(root, entry).Replace(Path.DirectorySeparatorChar, '/');
+            var name = Path.GetFileName(entry);
+            var relative = relativeDirectory.Length == 0
+                ? name
+                : $"{relativeDirectory}/{name}";
+            var lexical = Path.Combine(directory.Lexical, name);
             (string Lexical, string Physical) resolved;
 
             try
             {
-                resolved = workspace.ResolveRead(relative);
+                resolved = workspace.ResolveRead(lexical);
             }
             catch (Exception failure) when (failure is InvalidOperationException or IOException)
             {
@@ -166,7 +178,21 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
                 continue;
             }
 
-            var attributes = File.GetAttributes(entry);
+            FileAttributes attributes;
+
+            try
+            {
+                attributes = File.GetAttributes(entry);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
             var isSymlink = (attributes & FileAttributes.ReparsePoint) != 0;
             var isRealDirectory = (attributes & FileAttributes.Directory) != 0 && !isSymlink;
 
@@ -177,7 +203,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
 
             if (isRealDirectory)
             {
-                Walk(workspace, root, entry, regex, results, ref visited, securityProfile, cancellationToken);
+                Walk(workspace, resolved, relative, regex, results, ref visited, securityProfile, cancellationToken);
             }
         }
     }
@@ -231,8 +257,12 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
     internal sealed partial class Input
     {
         [JsonPropertyName("pattern")]
-        [Description("Relative workspace glob pattern, including ** for recursive matching.")]
+        [Description("Root-relative glob pattern, including ** for recursive matching.")]
         [ToolRequired]
         public string? Pattern { get; init; }
+
+        [JsonPropertyName("path")]
+        [Description("Optional workspace-relative or authorized absolute directory to search.")]
+        public string? Path { get; init; }
     }
 }

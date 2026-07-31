@@ -19,7 +19,8 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
     public string Name => "grep";
 
     public string Description =>
-        "Search text files with .NET non-backtracking regular expressions. Relative paths resolve within the workspace.";
+        "Search text files with .NET non-backtracking regular expressions. "
+        + "Relative paths resolve within the workspace; absolute paths require read permission.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -86,14 +87,14 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
 
             if (File.Exists(full))
             {
-                await SearchFile(workspace.Root, full, regex, state, securityProfile, timeoutCancellation.Token)
+                var displayPath = Path.GetFileName(resolved.Lexical);
+                await SearchFile(full, displayPath, regex, state, securityProfile, timeoutCancellation.Token)
                     .ConfigureAwait(false);
             }
             else if (Directory.Exists(full))
             {
                 await SearchDirectory(
                     workspace,
-                    workspace.Root,
                     resolved,
                     regex,
                     state,
@@ -124,7 +125,6 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
 
     private static async Task SearchDirectory(
         ToolWorkspace workspace,
-        string root,
         (string Lexical, string Physical) directory,
         Regex regex,
         GrepState state,
@@ -142,7 +142,8 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
                 return;
             }
 
-            await SearchFile(root, file, regex, state, securityProfile, cancellationToken)
+            var displayPath = Path.GetRelativePath(directory.Physical, file).Replace(Path.DirectorySeparatorChar, '/');
+            await SearchFile(file, displayPath, regex, state, securityProfile, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -219,8 +220,8 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
     }
 
     private static async Task SearchFile(
-        string root,
         string file,
+        string displayPath,
         Regex regex,
         GrepState state,
         SecurityProfile securityProfile,
@@ -231,7 +232,6 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
             return;
         }
 
-        var relative = Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/');
         var lineNumber = 0;
 
         using var reader = new StreamReader(file, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
@@ -264,7 +264,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
                 ? string.Concat(line.AsSpan(0, MaxLineLength), " [truncated]")
                 : line;
 
-            _ = state.Output.Append(relative).Append(':')
+            _ = state.Output.Append(displayPath).Append(':')
                 .Append(lineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 .Append(':').Append(display).Append('\n');
         }
@@ -298,7 +298,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
         public string? Pattern { get; init; }
 
         [JsonPropertyName("path")]
-        [Description("Optional workspace-relative file or directory to search.")]
+        [Description("Optional workspace-relative or authorized absolute file or directory to search.")]
         public string? Path { get; init; }
     }
 
