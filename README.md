@@ -432,11 +432,18 @@ Linux runs shell commands in Bubblewrap and requires `bwrap` plus unprivileged
 user namespaces. Its publish output includes the private `parrot-pty-attach`
 helper used for pseudo-terminal shell commands.
 
-macOS runs pipe-mode shell commands in the native Seatbelt sandbox; no
-Bubblewrap installation is expected or reported as missing there. Seatbelt
-pipe mode does not support Parrot's pseudo-terminal shell mode, so commands
-that require an interactive terminal cannot run on macOS. Use non-interactive
-commands and ordinary stdin/stdout pipes instead.
+macOS runs pipe-mode shell commands in the native Seatbelt compatibility
+sandbox; no Bubblewrap installation is expected or reported as missing there.
+Seatbelt preserves Parrot's filesystem write policy and host network access,
+but it does not provide Bubblewrap's Linux namespaces, capability isolation, or
+exact process-tree lifecycle guarantees. Treat it as compatibility isolation,
+not as a robust boundary for hostile commands. Its policy interface is
+deprecated by Apple, so validate protected paths, process signaling, and task
+inspection on the target macOS release.
+
+Seatbelt pipe mode does not support Parrot's pseudo-terminal shell mode, so
+commands that require an interactive terminal cannot run on macOS. Use
+non-interactive commands and ordinary stdin/stdout pipes instead.
 
 ## Interactive slash commands
 

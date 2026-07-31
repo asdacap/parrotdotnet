@@ -129,7 +129,7 @@ internal sealed class ExecutableLocatorTests : IDisposable
     [Test]
     public async Task Process_runner_locates_bubblewrap_independently_of_reported_candidates()
     {
-        if (OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsLinux())
         {
             return;
         }

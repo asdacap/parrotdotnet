@@ -84,7 +84,8 @@ internal sealed partial class ExecCommandTool(
 
             return new ToolExecutionResult(outcome.Format(), outcome.YieldedProcess);
         }
-        catch (Exception failure) when (failure is SandboxUnavailableException or InvalidOperationException)
+        catch (Exception failure) when (
+            failure is SandboxUnavailableException or InvalidOperationException or IOException or PlatformNotSupportedException)
         {
             // Deliberate containment: fail closed, and tell the model why rather
             // than run the command outside the sandbox.
