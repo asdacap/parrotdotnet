@@ -46,7 +46,7 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(Roles(provider.Requests[0])).IsEqualTo("System | User");
             _ = await Assert.That(provider.Requests[0].Instructions).IsNotEmpty();
             var buildStatus = provider.Requests[0].Messages[0].Content;
-            _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Prompt}\n\nQueues: none");
+            _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Prompt}\n\nRuntime:\n- agent: main-agent (");
             _ = await Assert.That(CountOccurrences(buildStatus, session.Mode.Prompt)).IsEqualTo(1);
             await AssertStatusOrder(buildStatus, "Active profile: build");
             provider.Release();
@@ -160,7 +160,7 @@ internal sealed class StatusDrainTests : IDisposable
         await provider.Arrived(cancellationToken);
 
         var result = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.Tool).Content;
-        _ = await Assert.That(result).StartsWith($"{session.Mode.Prompt}\n\nQueues: none");
+        _ = await Assert.That(result).StartsWith($"{session.Mode.Prompt}\n\nRuntime:\n- agent: main-agent (");
         _ = await Assert.That(CountOccurrences(result, session.Mode.Prompt)).IsEqualTo(1);
         await AssertStatusOrder(result, "Active profile: build");
 
@@ -206,15 +206,11 @@ internal sealed class StatusDrainTests : IDisposable
 
     private static async Task AssertStatusOrder(string content, string selection)
     {
-        var queues = content.IndexOf("Queues:", StringComparison.Ordinal);
+        var runtime = content.IndexOf("Runtime:", StringComparison.Ordinal);
         var activeSelection = content.IndexOf(selection, StringComparison.Ordinal);
-        var processes = content.IndexOf("Active processes:", StringComparison.Ordinal);
-        var subagents = content.IndexOf("Active subagents:", StringComparison.Ordinal);
 
-        _ = await Assert.That(queues).IsGreaterThan(0);
-        _ = await Assert.That(queues).IsLessThan(activeSelection);
-        _ = await Assert.That(activeSelection).IsLessThan(processes);
-        _ = await Assert.That(processes).IsLessThan(subagents);
+        _ = await Assert.That(runtime).IsGreaterThan(0);
+        _ = await Assert.That(runtime).IsLessThan(activeSelection);
     }
 
     private static int CountOccurrences(string text, string value)

@@ -1,4 +1,9 @@
+using Parrot.Agent;
+using Parrot.Process;
+using Parrot.Queues;
+using Parrot.State;
 using Parrot.Statuses;
+using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
@@ -95,46 +100,48 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
-    public async Task Active_work_reports_processes_and_subagents_separately(CancellationToken cancellationToken)
+    public async Task Runtime_tree_nests_queues_processes_and_active_agents(CancellationToken cancellationToken)
     {
-        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
-        var registry = new StatusRegistry(
-            new ActiveWorkStatusProvider(
-                ActiveWorkKind.Agent,
-                new ActiveWorkSource(
-                    new ActiveWorkObservation("child-z", "zeta", ActiveWorkKind.Agent, ActiveWorkState.Running),
-                    new ActiveWorkObservation("child-a", "alpha", ActiveWorkKind.Agent, ActiveWorkState.Running))),
-            new ActiveWorkStatusProvider(
-                ActiveWorkKind.Shell,
-                new ActiveWorkSource(
-                    new ActiveWorkObservation("session/z", "zeta", ActiveWorkKind.Shell, ActiveWorkState.Running),
-                    new ActiveWorkObservation("session/a", "alpha", ActiveWorkKind.Shell, ActiveWorkState.Running))));
+        using var catalog = QueueCatalog("runtime-tree");
+        using var root = catalog.Register(AgentIdentity.Main("root", "main"));
+        using var child = catalog.Register(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty));
+        _ = root.Create("work", "queued work");
+        _ = child.Create("results", string.Empty);
+        var provider = new RuntimeTreeStatusProvider(
+            catalog,
+            new ProcessStatusSource(
+                new ShellProcessStatusSnapshot("child", "fetch", "fetch", ActiveWorkState.Running),
+                new ShellProcessStatusSnapshot("root", "build", "build", ActiveWorkState.Running)),
+            new AgentStatusSource(new ActiveAgentSnapshot("child", "root", "worker")));
 
-        var observed = await registry.Observe(query, null, cancellationToken);
+        var observation = await provider.Observe(
+            new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
+            cancellationToken);
 
-        _ = await Assert.That(observed).IsEqualTo(
+        _ = await Assert.That(observation.Text).IsEqualTo(
             """
-            Active processes:
-            - session/a (shell, running, name: alpha)
-            - session/z (shell, running, name: zeta)
-
-            Active subagents:
-            - child-a (agent, running, name: alpha)
-            - child-z (agent, running, name: zeta)
+            Runtime:
+            - agent: main (root)
+              - queue: work (0 items, description: "queued work")
+              - process: root/build (shell, running, name: build)
+              - agent: worker (child)
+                - queue: results (0 items)
+                - process: child/fetch (shell, running, name: fetch)
             """);
     }
 
     [Test]
-    public async Task Active_work_reports_empty_process_and_subagent_sections(CancellationToken cancellationToken)
+    public async Task Runtime_tree_reports_only_the_root_agent_when_idle(CancellationToken cancellationToken)
     {
-        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
-        var registry = new StatusRegistry(
-            new ActiveWorkStatusProvider(ActiveWorkKind.Agent, new ActiveWorkSource()),
-            new ActiveWorkStatusProvider(ActiveWorkKind.Shell, new ActiveWorkSource()));
+        using var catalog = QueueCatalog("runtime-empty");
+        using var root = catalog.Register(AgentIdentity.Main("root", "main"));
+        var provider = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource());
 
-        var observed = await registry.Observe(query, null, cancellationToken);
+        var observation = await provider.Observe(
+            new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
+            cancellationToken);
 
-        _ = await Assert.That(observed).IsEqualTo("Active processes: none\n\nActive subagents: none");
+        _ = await Assert.That(observation.Text).IsEqualTo("Runtime:\n- agent: main (root)");
     }
 
     [Test]
@@ -171,9 +178,25 @@ internal sealed class StatusRegistryTests
     private static ScriptedStatusProvider Provider(string key, string text) =>
         new(key, (_, _) => ValueTask.FromResult(StatusObservation.AvailableText(text)));
 
-    private sealed class ActiveWorkSource(params ActiveWorkObservation[] active) : IActiveWorkSource
+    private static AgentQueueCatalog QueueCatalog(string name)
     {
-        public IReadOnlyList<ActiveWorkObservation> Active() => active;
+        var root = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), "parrot-tests", name, Guid.NewGuid().ToString("n"))).FullName;
+        var resources = new UserSessionResources(
+            new StatePaths(root, root, root),
+            UserSessionId.Parse(Guid.NewGuid().ToString("n")),
+            ProjectWorkspace.FromLaunchDirectory(root));
+        return new AgentQueueCatalog(resources);
+    }
+
+    private sealed class ProcessStatusSource(params ShellProcessStatusSnapshot[] snapshots) : IProcessStatusSource
+    {
+        public IReadOnlyList<ShellProcessStatusSnapshot> Snapshot() => snapshots;
+    }
+
+    private sealed class AgentStatusSource(params ActiveAgentSnapshot[] snapshots) : IAgentStatusSource
+    {
+        public IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot() => snapshots;
     }
 
     private sealed class ScriptedStatusProvider(

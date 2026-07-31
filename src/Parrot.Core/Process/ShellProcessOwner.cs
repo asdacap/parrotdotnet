@@ -12,7 +12,7 @@ internal sealed class ShellProcessOwner(
     UserSessionResources resources,
     ProcessRunner runner,
     ShellProcessInventory inventory,
-    CancellationToken lifetime) : IActiveWorkSource
+    CancellationToken lifetime) : IActiveWorkSource, IProcessStatusSource
 {
     private readonly Dictionary<string, ManagedShellProcess> _processes = new(StringComparer.Ordinal);
     private readonly List<ManagedShellProcess> _ownedProcesses = [];
@@ -145,6 +145,22 @@ internal sealed class ShellProcessOwner(
                     ActiveWorkKind.Shell,
                     ActiveWorkState.Running))
                 .OrderBy(item => item.Id, StringComparer.Ordinal)];
+        }
+    }
+
+    public IReadOnlyList<ShellProcessStatusSnapshot> Snapshot()
+    {
+        lock (_gate)
+        {
+            return Array.AsReadOnly(_processes.Values
+                .Where(process => !process.Retired)
+                .Select(process => new ShellProcessStatusSnapshot(
+                    sessionId,
+                    process.State.ProcessId,
+                    process.Name,
+                    ActiveWorkState.Running))
+                .OrderBy(item => item.ProcessId, StringComparer.Ordinal)
+                .ToArray());
         }
     }
 

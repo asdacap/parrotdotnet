@@ -4,7 +4,7 @@ namespace Parrot.Queues;
 
 internal sealed class AgentQueues(
     AgentQueueCatalog catalog,
-    string sessionId,
+    AgentIdentity identity,
     AgentQueues? parent,
     string directory,
     bool deleteDirectory) : IDisposable
@@ -13,7 +13,9 @@ internal sealed class AgentQueues(
     private AgentSession? _session;
     private int _disposed;
 
-    public string SessionId { get; } = sessionId;
+    public string SessionId => Identity.SessionId;
+
+    internal AgentIdentity Identity { get; } = identity;
 
     internal AgentQueues? Parent { get; } = parent;
 
