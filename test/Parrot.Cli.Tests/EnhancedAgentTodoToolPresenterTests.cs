@@ -21,10 +21,10 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
         yield return () =>
         [
             new AgentSpawnToolPresenter(),
-            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect logs\",\"name\":\"scout\"}"),
+            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect logs\",\"name\":\"scout\",\"scope\":\"storage layer\"}"),
             "{\"name\":\"scout\",\"status\":\"running\"}",
             "main: Start agent scout",
-            "♟ main: Start agent scout|name: scout|prompt: inspect logs",
+            "♟ main: Start agent scout|name: scout|scope: storage layer|prompt: inspect logs",
         ];
         yield return () =>
         [

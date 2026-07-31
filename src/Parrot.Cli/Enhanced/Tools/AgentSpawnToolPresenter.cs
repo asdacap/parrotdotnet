@@ -42,6 +42,7 @@ internal sealed class AgentSpawnToolPresenter : IToolPresenter
         AddScalar(values, arguments, "name");
         AddScalar(values, arguments, "agent");
         AddScalar(values, arguments, "model");
+        AddScalar(values, arguments, "scope");
         if (arguments.GetProperty("prompt").GetString() is { Length: > 0 } prompt)
         {
             values.Add(prompt.Contains('\n', StringComparison.Ordinal)
