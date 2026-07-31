@@ -337,10 +337,12 @@ target must be a canonical selector accepted by a configured provider.
 
 The requested selector remains the session's identity. Thus a session selected
 as `high_llm` continues to display and persist `high_llm`, while the provider
-executes that alias's resolved canonical target. The route is resolved once at
-the beginning of each turn. Retargeting an alias affects the next turn only;
-an active turn, including its tool rounds, continues to use its captured
-canonical route and matching prompt configuration.
+executes that alias's resolved canonical target. Injected runtime status and the
+`status` tool show this complete requested selector without expanding an alias
+to its canonical target. The route is resolved once at the beginning of each
+turn. Retargeting an alias affects the next turn only; an active turn, including
+its tool rounds, continues to use its captured canonical route and matching
+prompt configuration.
 
 A spawned child runs independently and `agent_spawn` returns its session ID
 immediately. Friendly child names are unique only among one agent's direct
