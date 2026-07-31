@@ -7,24 +7,20 @@ internal sealed class UserSessionModes(ModeRegistry modes, string planDirectory)
     private readonly Lock _planGate = new();
     private string _planArtifact = string.Empty;
 
-    public ProfileRegistry Profiles => modes.Profiles;
-
-    public MainAgentProfile Resolve(string id)
+    public IMode Resolve(string id)
     {
         var profile = modes.Resolve(id);
 
         return string.Equals(profile.Id, ModeRegistry.Plan, StringComparison.Ordinal)
-            ? new MainAgentProfile(
+            ? new SessionMode(
                 profile,
-                () => $"{profile.Prompt} to this exact file: {PlanArtifact()}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {planDirectory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
-                PlanArtifact,
+                () => $"{profile.Prompt} to this exact file: {GetPlanArtifact()}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {planDirectory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
                 profile.SecurityProfile.WithRuntimeCapability(planDirectory),
                 PreparePlan,
                 CompletePlan)
-            : new MainAgentProfile(
+            : new SessionMode(
                 profile,
                 () => profile.Prompt,
-                static () => string.Empty,
                 profile.SecurityProfile,
                 static () => { },
                 static (_, _) => null);
@@ -47,7 +43,7 @@ internal sealed class UserSessionModes(ModeRegistry modes, string planDirectory)
         }
     }
 
-    private string PlanArtifact()
+    private string GetPlanArtifact()
     {
         lock (_planGate)
         {

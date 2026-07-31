@@ -9,5 +9,4 @@ internal sealed record ProfileConfig(
     int MaxTurns,
     int RecursionLimit,
     bool ReadOnly,
-    bool IsUserAgent,
     IReadOnlyList<SandboxRule> SandboxRules);

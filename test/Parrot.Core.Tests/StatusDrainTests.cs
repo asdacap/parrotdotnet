@@ -111,12 +111,16 @@ internal sealed class StatusDrainTests : IDisposable
             Resources(database, "user"),
             sessions,
             OwnerModes(modes, "user"),
+            TestModels.ProfileRegistry(),
             false,
             TimeSpan.FromSeconds(30));
 
         _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
-        await File.WriteAllTextAsync(session.Mode.PlanArtifact, "  # Plan\n", cancellationToken);
+        var planArtifact = Directory.GetFiles(
+            Path.Combine(_root, "sessions", "user", "plan"),
+            "plan-*.md").Single();
+        await File.WriteAllTextAsync(planArtifact, "  # Plan\n", cancellationToken);
         provider.Release();
         await Settled(session);
 
@@ -217,6 +221,7 @@ internal sealed class StatusDrainTests : IDisposable
             Resources(database, "user"),
             sessions,
             OwnerModes(modes, "user"),
+            TestModels.ProfileRegistry(),
             false,
             TimeSpan.FromSeconds(30));
     }
@@ -230,8 +235,8 @@ internal sealed class StatusDrainTests : IDisposable
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,
-                configuration.DisabledTools,
-                configuration.DefaultProfile));
+                configuration.DisabledTools),
+            configuration.DefaultProfile);
     }
 
     private SessionResourceLease Resources(SessionDatabase database, string ownerId)

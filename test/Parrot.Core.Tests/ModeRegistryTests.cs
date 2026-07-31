@@ -36,16 +36,17 @@ internal sealed class ModeRegistryTests : IDisposable
         var profiles = new ProfileRegistry(
             configuration.Profiles,
             configuration.SandboxRules,
-            configuration.DisabledTools,
-            configuration.DefaultProfile);
+            configuration.DisabledTools);
+        var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
 
-        _ = await Assert.That(string.Join(" | ", profiles.Foreground.Select(profile => profile.Id)))
-            .IsEqualTo("build | plan | query");
+        _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | plan | query");
         _ = await Assert.That(string.Join(" | ", profiles.Children.Select(profile => profile.Id)))
             .IsEqualTo("explorer | review | thinker | worker");
         _ = await Assert.That(profiles.ResolveChild("explore").Id).IsEqualTo("explorer");
+        IAgentProfile worker = profiles.ResolveChild("worker");
+        _ = await Assert.That(worker is IMode).IsFalse();
         _ = await Assert.That(() => profiles.ResolveChild("build")).Throws<AgentRegistryException>();
-        _ = await Assert.That(() => profiles.ResolveForeground("worker")).Throws<ModeRegistryException>();
+        _ = await Assert.That(() => modes.Resolve("worker")).Throws<ModeRegistryException>();
 
         var profile = profiles.ResolveChild("thinker");
         var tools = profile.AllowedTools
@@ -58,24 +59,23 @@ internal sealed class ModeRegistryTests : IDisposable
     public async Task Plan_prepare_creates_private_artifact_and_preserves_existing_content()
     {
         var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
-
-        _ = await Assert.That(profile.PlanArtifact).IsEmpty();
         profile.Prepare();
-        await File.WriteAllTextAsync(profile.PlanArtifact, "stale plan");
+        var artifact = PlanArtifact("session");
+        await File.WriteAllTextAsync(artifact, "stale plan");
 
         if (!OperatingSystem.IsWindows())
         {
-            File.SetUnixFileMode(profile.PlanArtifact, UnixFileMode.OtherRead | UnixFileMode.GroupRead);
+            File.SetUnixFileMode(artifact, UnixFileMode.OtherRead | UnixFileMode.GroupRead);
         }
 
         profile.Prepare();
 
-        _ = await Assert.That(File.Exists(profile.PlanArtifact)).IsTrue();
-        _ = await Assert.That(await File.ReadAllTextAsync(profile.PlanArtifact)).IsEqualTo("stale plan");
+        _ = await Assert.That(File.Exists(artifact)).IsTrue();
+        _ = await Assert.That(await File.ReadAllTextAsync(artifact)).IsEqualTo("stale plan");
 
         if (!OperatingSystem.IsWindows())
         {
-            _ = await Assert.That(File.GetUnixFileMode(profile.PlanArtifact))
+            _ = await Assert.That(File.GetUnixFileMode(artifact))
                 .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
     }
@@ -94,16 +94,16 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = OwnerModes("session").Resolve(id);
 
         _ = await Assert.That(profile.Id).IsEqualTo(id);
-        _ = await Assert.That(profile.ReadOnly).IsEqualTo(readOnly);
+        _ = await Assert.That(profile.SecurityProfile.ReadOnly).IsEqualTo(readOnly);
         _ = await Assert.That(profile.MaxTurns).IsEqualTo(maxToolRounds);
         _ = await Assert.That(profile.Prompt).Contains(promptFragment);
         _ = await Assert.That(profile.Prompt).Contains(policyFragment);
-        _ = await Assert.That(profile.PlanArtifact).IsEmpty();
 
         if (id == ModeRegistry.Plan)
         {
             profile.Prepare();
-            _ = await Assert.That(profile.Prompt).Contains(profile.PlanArtifact);
+            var artifact = PlanArtifact("session");
+            _ = await Assert.That(profile.Prompt).Contains(artifact);
             _ = await Assert.That(profile.Prompt).Contains(Path.Combine(_root, "sessions", "session", "plan"));
         }
     }
@@ -126,24 +126,25 @@ internal sealed class ModeRegistryTests : IDisposable
             new ProfileRegistry(
                 profiles,
                 [new SandboxRule(denied, SandboxRuleAction.DenyWrite)],
-                configuration.DisabledTools,
-                ModeRegistry.Build));
+                configuration.DisabledTools),
+            ModeRegistry.Build);
 
-        var ownerModes = new UserSessionModes(registry, Path.Combine(_root, "plans"));
+        var planDirectory = Path.Combine(_root, "plans");
+        var ownerModes = new UserSessionModes(registry, planDirectory);
         var build = ownerModes.Resolve(ModeRegistry.Build);
         var plan = ownerModes.Resolve(ModeRegistry.Plan);
 
-        _ = await Assert.That(build.ReadOnly).IsTrue();
+        _ = await Assert.That(build.SecurityProfile.ReadOnly).IsTrue();
         _ = await Assert.That(build.SecurityProfile.AllowsWrite(allowed)).IsTrue();
         _ = await Assert.That(build.SecurityProfile.AllowsWrite(denied)).IsFalse();
-        var planDirectory = Path.Combine(_root, "plans");
         plan.Prepare();
-        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(plan.PlanArtifact)).IsTrue();
+        var artifact = PlanArtifactIn(planDirectory);
+        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(artifact)).IsTrue();
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
             Path.Combine(planDirectory, "supporting.md"))).IsTrue();
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
             Path.Combine(planDirectory, "..", "outside.md"))).IsFalse();
-        _ = await Assert.That(plan.SecurityProfile.WithoutRuntimeCapabilities().AllowsWrite(plan.PlanArtifact)).IsFalse();
+        _ = await Assert.That(plan.SecurityProfile.WithoutRuntimeCapabilities().AllowsWrite(artifact)).IsFalse();
     }
 
     [Test]
@@ -151,7 +152,7 @@ internal sealed class ModeRegistryTests : IDisposable
     {
         var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
         profile.Prepare();
-        await File.WriteAllTextAsync(profile.PlanArtifact, "  # Plan\n\n- change code\n");
+        await File.WriteAllTextAsync(PlanArtifact("session"), "  # Plan\n\n- change code\n");
 
         var completed = profile.Complete("session", "message");
 
@@ -174,7 +175,7 @@ internal sealed class ModeRegistryTests : IDisposable
     {
         var profile = OwnerModes("user-session").Resolve(ModeRegistry.Plan);
         profile.Prepare();
-        await File.WriteAllTextAsync(profile.PlanArtifact, "# Plan");
+        await File.WriteAllTextAsync(PlanArtifact("user-session"), "# Plan");
 
         var completed = profile.Complete("main-agent-session", "message");
 
@@ -192,7 +193,7 @@ internal sealed class ModeRegistryTests : IDisposable
     {
         var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
         profile.Prepare();
-        await File.WriteAllTextAsync(profile.PlanArtifact, " \n\t ");
+        await File.WriteAllTextAsync(PlanArtifact("session"), " \n\t ");
 
         _ = await Assert.That(profile.Complete("session", "message")).IsNull();
     }
@@ -203,39 +204,49 @@ internal sealed class ModeRegistryTests : IDisposable
         var planDirectory = Path.Combine(_root, "sessions", "same-owner", "plan");
         var previous = new UserSessionModes(Registry(), planDirectory).Resolve(ModeRegistry.Plan);
         previous.Prepare();
-        await File.WriteAllTextAsync(previous.PlanArtifact, "stale plan");
+        var previousArtifact = PlanArtifactIn(planDirectory);
+        await File.WriteAllTextAsync(previousArtifact, "stale plan");
 
         var current = new UserSessionModes(Registry(), planDirectory).Resolve(ModeRegistry.Plan);
         current.Prepare();
+        var artifacts = Directory.GetFiles(planDirectory, "plan-*.md");
+        var currentArtifact = artifacts.Single(path => !string.Equals(path, previousArtifact, StringComparison.Ordinal));
 
-        _ = await Assert.That(current.PlanArtifact).IsNotEqualTo(previous.PlanArtifact);
-        _ = await Assert.That(await File.ReadAllTextAsync(current.PlanArtifact)).IsEmpty();
+        _ = await Assert.That(artifacts).Count().IsEqualTo(2);
+        _ = await Assert.That(await File.ReadAllTextAsync(currentArtifact)).IsEmpty();
     }
 
     [Test]
     public async Task Plan_artifacts_are_private_random_files_in_the_owner_plan_directory()
     {
         var registry = Registry();
-        var firstModes = new UserSessionModes(registry, Path.Combine(_root, "sessions", "first", "plan"));
-        var secondModes = new UserSessionModes(registry, Path.Combine(_root, "sessions", "second", "plan"));
+        var firstDirectory = Path.Combine(_root, "sessions", "first", "plan");
+        var secondDirectory = Path.Combine(_root, "sessions", "second", "plan");
+        var firstModes = new UserSessionModes(registry, firstDirectory);
+        var secondModes = new UserSessionModes(registry, secondDirectory);
         var first = firstModes.Resolve(ModeRegistry.Plan);
         var firstAgain = firstModes.Resolve(ModeRegistry.Plan);
         var second = secondModes.Resolve(ModeRegistry.Plan);
 
-        _ = await Assert.That(first.PlanArtifact).IsEmpty();
-        _ = await Assert.That(firstAgain.PlanArtifact).IsEmpty();
-        _ = await Assert.That(second.PlanArtifact).IsEmpty();
         first.Prepare();
+        var firstArtifact = PlanArtifactIn(firstDirectory);
         firstAgain.Prepare();
         second.Prepare();
-        _ = await Assert.That(first.PlanArtifact).IsEqualTo(firstAgain.PlanArtifact);
-        _ = await Assert.That(first.PlanArtifact).IsNotEqualTo(second.PlanArtifact);
-        _ = await Assert.That(Path.GetFileName(first.PlanArtifact)).StartsWith("plan-").And.EndsWith(".md");
-        _ = await Assert.That(Path.GetDirectoryName(first.PlanArtifact)).IsEqualTo(Path.Combine(_root, "sessions", "first", "plan"));
+        var secondArtifact = PlanArtifactIn(secondDirectory);
+        _ = await Assert.That(Directory.GetFiles(firstDirectory, "plan-*.md")).HasSingleItem();
+        _ = await Assert.That(firstArtifact).IsNotEqualTo(secondArtifact);
+        _ = await Assert.That(Path.GetFileName(firstArtifact)).StartsWith("plan-").And.EndsWith(".md");
+        _ = await Assert.That(Path.GetDirectoryName(firstArtifact)).IsEqualTo(firstDirectory);
     }
+
+    private static string PlanArtifactIn(string directory) =>
+        Directory.GetFiles(directory, "plan-*.md").Single();
 
     private UserSessionModes OwnerModes(string ownerId) =>
         new(Registry(), Path.Combine(_root, "sessions", ownerId, "plan"));
+
+    private string PlanArtifact(string ownerId) =>
+        PlanArtifactIn(Path.Combine(_root, "sessions", ownerId, "plan"));
 
     private ModeRegistry Registry()
     {
@@ -246,7 +257,7 @@ internal sealed class ModeRegistryTests : IDisposable
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,
-                configuration.DisabledTools,
-                configuration.DefaultProfile));
+                configuration.DisabledTools),
+            configuration.DefaultProfile);
     }
 }

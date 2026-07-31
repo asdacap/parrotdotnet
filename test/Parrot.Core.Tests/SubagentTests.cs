@@ -801,21 +801,17 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");
     }
 
-    private static MainAgentProfile Profile(
+    private static TestAgentProfile Profile(
         string id,
         bool readOnly,
         IReadOnlyList<SandboxRule> runtimeCapabilities) =>
         new(
             new AgentProfile(
                 id,
-                new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, true, []),
+                new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, []),
                 [],
                 new HashSet<string>(StringComparer.Ordinal)),
-            static () => "Test prompt",
-            static () => string.Empty,
-            SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities),
-            static () => { },
-            static (_, _) => null);
+            SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities));
 
     private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
     {
@@ -878,6 +874,21 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
     }
 
+    private sealed class TestAgentProfile(IAgentProfile profile, SecurityProfile securityProfile) : IAgentProfile
+    {
+        public string Id => profile.Id;
+
+        public string Prompt => profile.Prompt;
+
+        public IReadOnlyList<string>? AllowedTools => profile.AllowedTools;
+
+        public IReadOnlyList<string> DisabledTools => profile.DisabledTools;
+
+        public int MaxTurns => profile.MaxTurns;
+
+        public SecurityProfile SecurityProfile => securityProfile;
+    }
+
     private sealed class TestAgentSessions(ModelRouter router, bool deliversCompletions) : IAgentSessionFactory
     {
         private readonly List<AgentIdentity> _identities = [];
@@ -887,7 +898,7 @@ internal sealed class SubagentTests : IDisposable
 
         public IReadOnlyList<ModelSelector> Models => _models;
 
-        public List<MainAgentProfile?> Profiles { get; } = [];
+        public List<IAgentProfile?> Profiles { get; } = [];
 
         public List<SecurityProfile> SecurityProfiles { get; } = [];
 
@@ -896,7 +907,7 @@ internal sealed class SubagentTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            MainAgentProfile? profile,
+            IAgentProfile? profile,
             SecurityProfile securityProfile,
             RuntimeStatus? status,
             AgentRegistry registry,

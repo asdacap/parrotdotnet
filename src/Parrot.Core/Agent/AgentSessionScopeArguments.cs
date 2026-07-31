@@ -20,7 +20,7 @@ internal sealed record AgentSessionScopeArguments(
     ISystemPromptProvider SystemPromptProvider,
     string BlobDirectory,
     Compactor Compactor,
-    MainAgentProfile? Profile,
+    IAgentProfile? Profile,
     SecurityProfile SecurityProfile,
     RuntimeStatus? Status,
     AgentRegistry Registry,

@@ -476,23 +476,17 @@ internal sealed class DrainTests : IDisposable
                 _ => null,
             }).Where(value => value is not null));
 
-    private static MainAgentProfile Profile(int maxTurns) =>
+    private static AgentProfile Profile(int maxTurns) =>
         Profile(maxTurns, null, new HashSet<string>(StringComparer.Ordinal));
 
-    private static MainAgentProfile Profile(
+    private static AgentProfile Profile(
         int maxTurns,
         IReadOnlyList<string>? allowedTools,
         IReadOnlySet<string> disabledTools) => new(
-        new AgentProfile(
             "test",
-            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, false, true, []),
+            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, false, []),
             [],
-            disabledTools),
-        static () => "Test prompt",
-        static () => string.Empty,
-        SecurityProfile.Compose(readOnly: false, [], [], []),
-        static () => { },
-        static (_, _) => null);
+            disabledTools);
 
     private AgentSession Session(
         SteppedProvider provider,
@@ -505,7 +499,7 @@ internal sealed class DrainTests : IDisposable
         SteppedProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
-        MainAgentProfile profile,
+        IAgentProfile profile,
         CancellationToken lifetime) =>
         Session(provider, repository, toolFactories, profile, 0, 0, 0, lifetime);
 
@@ -523,7 +517,7 @@ internal sealed class DrainTests : IDisposable
         SteppedProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
-        MainAgentProfile? profile,
+        IAgentProfile? profile,
         int contextWindow,
         double inputPrice,
         double outputPrice,

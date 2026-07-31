@@ -36,7 +36,7 @@ internal sealed class AgentSession(
     TodoCollection todos,
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
-    MainAgentProfile? profile,
+    IAgentProfile? profile,
     SecurityProfile securityProfile,
     RuntimeStatus? status,
     AgentRegistry? registry,
@@ -130,7 +130,7 @@ internal sealed class AgentSession(
         }
     }
 
-    public void UpdateSelection(ModelSelector selectedModel, MainAgentProfile? profile)
+    public void UpdateSelection(ModelSelector selectedModel, IAgentProfile? profile)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
 
@@ -800,7 +800,7 @@ internal sealed class AgentSession(
                 if (!turnOpen)
                 {
                     var captured = Selection();
-                    captured.Profile?.Prepare();
+                    (captured.Profile as IMode)?.Prepare();
                     var resolved = router.Resolve(captured.RequestedModel.Value);
                     activeSelection = new AgentTurnSelection(
                         resolved.RequestedSelector,
@@ -906,7 +906,7 @@ internal sealed class AgentSession(
                         OutputTokens = _statistics.OutputTokens,
                     },
                 };
-                if (activeSelection.Profile?.Complete(SessionId, _messageId) is { } planCompleted)
+                if ((activeSelection.Profile as IMode)?.Complete(SessionId, _messageId) is { } planCompleted)
                 {
                     var plan = new Event
                     {
@@ -1107,7 +1107,7 @@ internal sealed class AgentSession(
             if (profile is null || !string.Equals(profile.Id, pending.Mode, StringComparison.Ordinal))
             {
                 selection = RefreshSelection(selection);
-                selection.Profile?.Prepare();
+                (selection.Profile as IMode)?.Prepare();
                 await Task.Yield();
                 continue;
             }
@@ -1122,7 +1122,7 @@ internal sealed class AgentSession(
             if (!eventRepository.AppendStatusPrompt(published, pending, content))
             {
                 selection = RefreshSelection(selection);
-                selection.Profile?.Prepare();
+                (selection.Profile as IMode)?.Prepare();
                 continue;
             }
 

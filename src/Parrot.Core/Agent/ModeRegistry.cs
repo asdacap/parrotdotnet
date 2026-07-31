@@ -1,18 +1,42 @@
 namespace Parrot.Agent;
 
-internal sealed class ModeRegistry(ProfileRegistry profiles)
+internal sealed class ModeRegistry
 {
     public const string Build = "build";
     public const string Plan = "plan";
     public const string Query = "query";
 
-    private readonly IReadOnlyList<string> _modeIds = [.. profiles.Foreground.Select(profile => profile.Id)];
+    private readonly IReadOnlyList<string> _modes = [Build, Plan, Query];
+    private readonly ProfileRegistry _profiles;
 
-    public ProfileRegistry Profiles => profiles;
+    public ModeRegistry(ProfileRegistry profiles, string defaultProfile)
+    {
+        ArgumentNullException.ThrowIfNull(profiles);
+        ArgumentException.ThrowIfNullOrWhiteSpace(defaultProfile);
+        _profiles = profiles;
+        Default = Resolve(defaultProfile).Id;
+        _ = _modes.Select(Resolve).ToArray();
+    }
 
-    public string Default => Resolve(string.Empty).Id;
+    public string Default { get; }
 
-    public IReadOnlyList<string> List() => _modeIds;
+    public IReadOnlyList<string> List() => _modes;
 
-    public AgentProfile Resolve(string id) => profiles.ResolveForeground(id);
+    public AgentProfile Resolve(string id)
+    {
+        var selected = id.Length == 0 ? Default : id;
+        if (!_modes.Contains(selected, StringComparer.Ordinal))
+        {
+            throw new ModeRegistryException($"unknown mode {selected}");
+        }
+
+        try
+        {
+            return _profiles.Resolve(selected);
+        }
+        catch (AgentRegistryException)
+        {
+            throw new ModeRegistryException($"unknown mode {selected}");
+        }
+    }
 }

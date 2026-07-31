@@ -245,9 +245,10 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   parsing. Auth is deliberately a separate file (`credentials.json`), never in
   here.
 - **M8.** The mode registry owns the three selectable foreground execution
-  policies (`build`, `plan`, and `query`), their prompts, declared rules, limits,
-  and turn hooks. Mode remains per-session state rather than a YAML key. Child
-  profiles are not selectable foreground modes.
+  policies (`build`, `plan`, and `query`) and their turn hooks. Their profile
+  configuration supplies prompts, declared rules, and limits without a mutable
+  foreground/child classification flag. Mode remains per-session state rather
+  than a YAML key. Child profiles are not selectable foreground modes.
 
 ### `SessionDatabase` — rank 2, M2
 

@@ -461,7 +461,7 @@ internal sealed class Configuration(string path)
             }
 
             _ = profile.Children.Remove(new YamlScalarNode("status"));
-            ValidateKeys(profile, $"profiles.{id}", "prompt", "usage", "allowed_tools", "max_turns", "recursion_limit", "read_only", "is_user_agent", "sandbox_rules");
+            ValidateKeys(profile, $"profiles.{id}", "prompt", "usage", "allowed_tools", "max_turns", "recursion_limit", "read_only", "sandbox_rules");
         }
 
         foreach (var id in ids)
@@ -478,7 +478,6 @@ internal sealed class Configuration(string path)
                 PositiveInteger(profile, "max_turns", $"profiles.{id}.max_turns"),
                 NonNegativeInteger(profile, "recursion_limit", $"profiles.{id}.recursion_limit"),
                 ReadBoolean(profile, "read_only", $"profiles.{id}.read_only"),
-                ReadBoolean(profile, "is_user_agent", $"profiles.{id}.is_user_agent"),
                 ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules"));
         }
 
@@ -488,16 +487,9 @@ internal sealed class Configuration(string path)
     private static string ReadDefaultProfile(YamlMappingNode root)
     {
         var selected = NonEmptyScalar(root, DefaultProfileKey, DefaultProfileKey);
-        var profiles = ReadProfiles(root);
-
-        if (!profiles.TryGetValue(selected, out var profile))
+        if (selected is not ("build" or "plan" or "query"))
         {
-            throw new InvalidDataException($"{DefaultProfileKey} {selected} is not configured in profiles");
-        }
-
-        if (!profile.IsUserAgent)
-        {
-            throw new InvalidDataException($"{DefaultProfileKey} {selected} is not a user agent profile");
+            throw new InvalidDataException($"{DefaultProfileKey} must be one of build, plan, query");
         }
 
         return selected;

@@ -144,6 +144,8 @@ internal sealed class WaitToolTests : IDisposable
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var router = TestModels.Route(model);
         var sessions = new WaitAgentSessions(router, TimeProvider.System, _root);
+        var profiles = TestModels.ProfileRegistry();
+        var modes = new ModeRegistry(profiles, ModeRegistry.Build);
         await using var owner = new AgentUserSession(
             "user",
             "main",
@@ -151,7 +153,8 @@ internal sealed class WaitToolTests : IDisposable
             "build",
             Resources("user"),
             sessions,
-            new UserSessionModes(new ModeRegistry(TestModels.ProfileRegistry()), Path.Combine(_root, "plans")),
+            new UserSessionModes(modes, Path.Combine(_root, "plans")),
+            profiles,
             interactivePermissions: false,
             TimeSpan.FromSeconds(1));
 
@@ -318,7 +321,7 @@ internal sealed class WaitToolTests : IDisposable
                 ModelSelector model,
                 EventBroker eventBroker,
                 EventRepository eventRepository,
-                MainAgentProfile? profile,
+                IAgentProfile? profile,
                 SecurityProfile securityProfile,
                 Parrot.Statuses.RuntimeStatus? status,
                 AgentRegistry registry,

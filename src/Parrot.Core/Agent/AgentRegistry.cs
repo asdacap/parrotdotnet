@@ -90,7 +90,7 @@ internal sealed class AgentRegistry(
                 model,
                 eventBroker,
                 eventRepository,
-                profile.BuildChildSessionProfile(),
+                profile,
                 profile.SecurityProfile.WithoutRuntimeCapabilities(),
                 _status,
                 this,

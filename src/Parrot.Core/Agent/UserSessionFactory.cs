@@ -6,6 +6,7 @@ namespace Parrot.Agent;
 internal sealed class UserSessionFactory(
     IAgentSessionFactorySource agentSessionFactories,
     ModeRegistry modes,
+    ProfileRegistry profiles,
     TimeSpan permissionRequestTimeout) : IUserSessionFactory
 {
     public UserSession Create(
@@ -23,6 +24,7 @@ internal sealed class UserSessionFactory(
             resources,
             agentSessionFactories,
             new UserSessionModes(modes, resources.Resources.PlanDirectory),
+            profiles,
             interactivePermissions,
             permissionRequestTimeout);
 }

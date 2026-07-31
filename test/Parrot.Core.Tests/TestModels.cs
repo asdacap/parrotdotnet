@@ -26,7 +26,6 @@ internal static class TestModels
                 32,
                 3,
                 true,
-                false,
                 []),
             ["worker"] = new ProfileConfig(
                 "You are a worker agent.",
@@ -35,12 +34,11 @@ internal static class TestModels
                 64,
                 3,
                 false,
-                false,
                 []),
         };
 
     public static ProfileRegistry ProfileRegistry() =>
-        new(Profiles, [], new HashSet<string>(StringComparer.Ordinal), ModeRegistry.Build);
+        new(Profiles, [], new HashSet<string>(StringComparer.Ordinal));
 
     public static ISystemPromptProvider PromptProvider(string workingDirectory, string configDirectory) =>
         new CompositeSystemPromptProvider(
@@ -92,6 +90,5 @@ internal static class TestModels
         64,
         3,
         readOnly,
-        true,
         []);
 }

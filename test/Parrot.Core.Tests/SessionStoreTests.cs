@@ -185,7 +185,7 @@ internal sealed class SessionStoreTests : IDisposable
             Paths(),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TimeSpan.FromSeconds(30)),
+            new UserSessionFactory(sessions, Modes(), TestModels.ProfileRegistry(), TimeSpan.FromSeconds(30)),
             router,
             Modes());
         return store.Open(router.Resolve(model.Selector));
@@ -208,8 +208,8 @@ internal sealed class SessionStoreTests : IDisposable
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,
-                configuration.DisabledTools,
-                configuration.DefaultProfile));
+                configuration.DisabledTools),
+            configuration.DefaultProfile);
     }
 
     private void StabilizeAdmission(string workingDirectory, string sessionId)

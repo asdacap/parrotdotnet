@@ -271,6 +271,31 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    [Arguments("build")]
+    [Arguments("plan")]
+    [Arguments("query")]
+    public async Task Default_profile_accepts_only_canonical_foreground_mode_ids(string id)
+    {
+        var configuration = Load(Write($"default_profile: {id}\n"));
+
+        _ = await Assert.That(configuration.DefaultProfile).IsEqualTo(id);
+    }
+
+    [Test]
+    [Arguments("explorer")]
+    [Arguments("review")]
+    [Arguments("worker")]
+    [Arguments("thinker")]
+    [Arguments("custom")]
+    public async Task Default_profile_rejects_non_foreground_profile_ids(string id) =>
+        _ = await Assert.That(() => Load(Write($"default_profile: {id}\n"))).Throws<InvalidDataException>();
+
+    [Test]
+    public async Task Profile_configuration_rejects_the_removed_user_agent_classification() =>
+        _ = await Assert.That(() => Load(Write("profiles:\n  build:\n    is_user_agent: true\n")))
+            .Throws<InvalidDataException>();
+
+    [Test]
     public async Task Profile_fields_partially_override_predefined_definitions()
     {
         var profile = Load(Write("""

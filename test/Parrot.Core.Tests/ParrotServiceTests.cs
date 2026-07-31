@@ -622,8 +622,8 @@ internal sealed class ParrotServiceTests : IDisposable
         new ProfileRegistry(
             _configuration.Profiles,
             _configuration.SandboxRules,
-            _configuration.DisabledTools,
-            _configuration.DefaultProfile));
+            _configuration.DisabledTools),
+        _configuration.DefaultProfile);
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 
@@ -634,7 +634,7 @@ internal sealed class ParrotServiceTests : IDisposable
             new StatePaths(_root, _root, _root),
             EnsureDirectory(Path.Combine(_root, "work")),
             "host",
-            new UserSessionFactory(sessions, Modes(), TimeSpan.FromSeconds(30)),
+            new UserSessionFactory(sessions, Modes(), TestModels.ProfileRegistry(), TimeSpan.FromSeconds(30)),
             _router,
             Modes());
     }

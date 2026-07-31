@@ -22,7 +22,7 @@ internal interface IAgentSessionScopeFactory
         ISystemPromptProvider systemPromptProvider,
         string blobDirectory,
         Compactor compactor,
-        MainAgentProfile? profile,
+        IAgentProfile? profile,
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         AgentRegistry registry,

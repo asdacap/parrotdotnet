@@ -3,7 +3,7 @@ using Parrot.Security;
 
 namespace Parrot.Agent;
 
-internal sealed class AgentProfile
+internal sealed class AgentProfile : IAgentProfile
 {
     private readonly string[]? _allowedTools;
     private readonly string[] _disabledTools;
@@ -25,9 +25,11 @@ internal sealed class AgentProfile
         _disabledTools = [.. disabledTools];
         MaxTurns = configuration.MaxTurns;
         RecursionLimit = configuration.RecursionLimit;
-        ReadOnly = configuration.ReadOnly;
-        IsUserAgent = configuration.IsUserAgent;
-        SecurityProfile = SecurityProfile.Compose(ReadOnly, configuration.SandboxRules, globalRules, []);
+        SecurityProfile = SecurityProfile.Compose(
+            configuration.ReadOnly,
+            configuration.SandboxRules,
+            globalRules,
+            []);
     }
 
     public string Id { get; }
@@ -44,17 +46,5 @@ internal sealed class AgentProfile
 
     public int RecursionLimit { get; }
 
-    public bool ReadOnly { get; }
-
-    public bool IsUserAgent { get; }
-
     public SecurityProfile SecurityProfile { get; }
-
-    public MainAgentProfile BuildChildSessionProfile() => new(
-        this,
-        () => Prompt,
-        static () => string.Empty,
-        SecurityProfile,
-        static () => { },
-        static (_, _) => null);
 }

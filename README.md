@@ -84,16 +84,16 @@ foreground profile and is used when no mode is selected explicitly. The
 foreground-mode RPC and slash-command surfaces list only foreground profiles.
 
 Every profile has a nonempty `prompt` and `usage`; a positive `max_turns`; a
-nonnegative `recursion_limit`; boolean `read_only` and `is_user_agent`; and
-optional ordered `sandbox_rules`. The prompt is the profile's only model-facing
-guidance. Because configuration scalars replace rather than merge, overriding a
-profile prompt replaces the complete predefined prompt, including its default
-behavioral instructions; there is no separate `hard_rules` field to inherit or
-override. Runtime restrictions such as `read_only`, tool filtering, and sandbox
-rules remain independently enforced and are not weakened by prompt text. A
-child profile can recur only up to its selected profile's recursion limit.
-Profile sandbox rules replace that profile's default list; top-level
-`sandbox_rules` apply to every profile.
+nonnegative `recursion_limit`; boolean `read_only`; and optional ordered
+`sandbox_rules`. The prompt is the profile's only model-facing guidance. Because
+configuration scalars replace rather than merge, overriding a profile prompt
+replaces the complete predefined prompt, including its default behavioral
+instructions; there is no separate `hard_rules` field to inherit or override.
+Runtime restrictions such as `read_only`, tool filtering, and sandbox rules
+remain independently enforced and are not weakened by prompt text. A child
+profile can recur only up to its selected profile's recursion limit. Profile
+sandbox rules replace that profile's default list; top-level `sandbox_rules`
+apply to every profile.
 
 ```yaml
 default_profile: build

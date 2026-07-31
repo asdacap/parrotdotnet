@@ -119,8 +119,7 @@ internal partial class Composition
                 return new ProfileRegistry(
                     configuration.Profiles,
                     configuration.SandboxRules,
-                    configuration.DisabledTools,
-                    configuration.DefaultProfile);
+                    configuration.DisabledTools);
             })
             .Bind().As(Lifetime.Singleton).To<ISystemPromptProvider>(ctx =>
             {
@@ -149,7 +148,8 @@ internal partial class Composition
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<ProfileRegistry>(out var profiles);
-                return new ModeRegistry(profiles);
+                ctx.Inject<Configuration>(out var configuration);
+                return new ModeRegistry(profiles, configuration.DefaultProfile);
             })
 
             // The static half of an agent session is bound into the source
@@ -184,8 +184,13 @@ internal partial class Composition
             {
                 ctx.Inject<IAgentSessionFactorySource>(out var agentSessionFactories);
                 ctx.Inject<ModeRegistry>(out var modes);
+                ctx.Inject<ProfileRegistry>(out var profiles);
                 ctx.Inject<Configuration>(out var configuration);
-                return new UserSessionFactory(agentSessionFactories, modes, configuration.PermissionRequestTimeout);
+                return new UserSessionFactory(
+                    agentSessionFactories,
+                    modes,
+                    profiles,
+                    configuration.PermissionRequestTimeout);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

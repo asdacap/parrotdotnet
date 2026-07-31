@@ -48,7 +48,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            MainAgentProfile? profile,
+            IAgentProfile? profile,
             SecurityProfile securityProfile,
             RuntimeStatus? status,
             AgentRegistry registry,

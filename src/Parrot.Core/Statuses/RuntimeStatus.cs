@@ -12,7 +12,7 @@ internal sealed class RuntimeStatus(UserSession owner)
     public Task<string> Observe(
         AgentSession session,
         AgentTurnSelection selection,
-        MainAgentProfile profile,
+        IAgentProfile profile,
         CancellationToken cancellationToken) =>
         _registry.Observe(
             new StatusQuery(

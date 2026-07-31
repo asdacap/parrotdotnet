@@ -159,7 +159,7 @@ internal sealed class ParrotService(
 
         var found = Find(request.UserSessionId);
 
-        MainAgentProfile? selectedMode = null;
+        IMode? selectedMode = null;
         ResolvedModelSelection? selectedModel = null;
 
         try
