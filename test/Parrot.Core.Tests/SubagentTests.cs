@@ -649,6 +649,18 @@ internal sealed class SubagentTests : IDisposable
 
         _ = await Assert.That(string.Join(',', sessions.Models.Select(model => model.Value)))
             .IsEqualTo("fast,fast,stepped/model");
+        _ = await Assert.That(string.Join(',', provider.Requests.Select(request => request.Model)))
+            .IsEqualTo("replacement,replacement,model");
+        var statuses = provider.Requests
+            .Select(request => request.Messages.Single(message =>
+                message.Role == LLMRole.System
+                && message.Content.Contains("Active profile:", StringComparison.Ordinal)).Content)
+            .ToArray();
+        _ = await Assert.That(statuses[0]).Contains("Model: fast");
+        _ = await Assert.That(statuses[1]).Contains("Model: fast");
+        _ = await Assert.That(statuses[0]).DoesNotContain("Model: stepped/replacement");
+        _ = await Assert.That(statuses[1]).DoesNotContain("Model: stepped/replacement");
+        _ = await Assert.That(statuses[2]).Contains("Model: stepped/model");
         var started = _repository.Replay()
             .Where(published => published.PayloadCase == Event.PayloadOneofCase.TurnStarted)
             .Select(published => published.TurnStarted)

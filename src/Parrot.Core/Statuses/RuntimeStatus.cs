@@ -45,7 +45,5 @@ internal sealed class RuntimeStatus
             session.ParentSessionId,
             session.ParentSessionName,
             profile,
-            selection.ResolvedModel.CanonicalModel.Provider.Id,
-            selection.ResolvedModel.CanonicalModel.ModelId,
-            selection.ResolvedModel.CanonicalModel.Variant?.Name ?? string.Empty);
+            selection.RequestedModel.Value);
 }

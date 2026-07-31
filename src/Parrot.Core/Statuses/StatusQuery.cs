@@ -5,6 +5,4 @@ internal sealed record StatusQuery(
     string ParentSessionId,
     string ParentSessionName,
     string Profile,
-    string Provider,
-    string Model,
-    string Variant);
+    string RequestedModel);
