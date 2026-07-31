@@ -500,13 +500,14 @@ internal sealed class RawActivityView(
     private ILiveBufferItem CreateActivityItem((AgentSessionState State, string ActivityId) activity)
     {
         var value = activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters);
-        var modelAliasIcon = _hierarchy.IsChild(activity.State.AgentSessionId)
-            && activity.State.IsAgentActivity(activity.ActivityId)
-                ? activity.State.ModelAliasIcon
-                : null;
+        var isAgentActivity = activity.State.IsAgentActivity(activity.ActivityId);
+        var depth = _hierarchy.GetDepth(activity.State.AgentSessionId);
+        var modelAliasIcon = _hierarchy.IsChild(activity.State.AgentSessionId) && isAgentActivity
+            ? activity.State.ModelAliasIcon
+            : null;
         return new HierarchicalLiveValue(
             value,
-            _hierarchy.GetDepth(activity.State.AgentSessionId),
+            isAgentActivity ? Math.Max(0, depth - 1) : depth,
             _hierarchy.GetLabel(activity.State.AgentSessionId),
             activity.State.Name,
             "♟",

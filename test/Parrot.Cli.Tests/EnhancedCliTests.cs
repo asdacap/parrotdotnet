@@ -608,9 +608,11 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(live).Contains("answer");
         _ = await Assert.That(live).DoesNotContain("agent main");
         _ = await Assert.That(mainActivities).Contains("agent main");
-        _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] agent explorer[31m (1.2m in / 800 cached / 300 out, 1.5k/? ctx)");
+        _ = await Assert.That(live).Contains("⠋ [explorer[31m] agent explorer[31m (1.2m in / 800 cached / 300 out, 1.5k/? ctx)");
+        _ = await Assert.That(live).DoesNotContain("  ⠋ [explorer[31m] agent explorer[31m");
         _ = await Assert.That(live).Contains("⠋ exec_command");
         _ = await Assert.That(live).Contains("  ⠋ [explorer[31m] read[2J");
+        _ = await Assert.That(live).DoesNotContain("|⠋ [explorer[31m] read[2J");
 
         await ticks.Writer.WriteAsync(true, cancellationToken);
         while (draws.Count < 2)
