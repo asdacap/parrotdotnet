@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace Parrot.Cli.Enhanced;
 
 internal readonly record struct StreamedResponseValue(string Prefix, string Text) : ILiveBufferItem
@@ -24,33 +22,24 @@ internal readonly record struct StreamedResponseValue(string Prefix, string Text
 
     private static string Viewport(string text, int width)
     {
-        if (TerminalText.Width(text) <= width)
+        var excess = TerminalText.Width(text) - width;
+        if (excess <= 0)
         {
             return text;
         }
 
-        var tokenStart = 0;
+        var removed = 0;
         var offset = 0;
-        var insideToken = false;
-        var hasToken = false;
         foreach (var grapheme in TerminalText.EnumerateGraphemes(text))
         {
-            if (IsWhitespace(grapheme))
-            {
-                insideToken = false;
-            }
-            else if (!insideToken)
-            {
-                tokenStart = offset;
-                insideToken = true;
-                hasToken = true;
-            }
-
+            removed += TerminalText.Width(grapheme);
             offset += grapheme.Length;
+            if (removed >= excess)
+            {
+                return text[offset..];
+            }
         }
 
-        return TerminalText.Clip(hasToken ? text[tokenStart..] : text, width);
+        return string.Empty;
     }
-
-    private static bool IsWhitespace(string grapheme) => Rune.IsWhiteSpace(Rune.GetRuneAt(grapheme, 0));
 }

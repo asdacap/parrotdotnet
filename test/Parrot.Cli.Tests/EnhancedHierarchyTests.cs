@@ -324,7 +324,7 @@ internal sealed class EnhancedHierarchyTests
 
         var beforeUpdate = drawn.Last().Split('|');
         var firstResponse = beforeUpdate.Single(static line => line.Contains("[writer]", StringComparison.Ordinal));
-        _ = await Assert.That(firstResponse).IsEqualTo("  ● [writer] newes");
+        _ = await Assert.That(firstResponse).IsEqualTo("● [writer]  newest");
 
         await view.Render(
             new Event { AgentSessionId = "writer", TextChunk = new TextChunk { Fragment = " word" } },
@@ -332,7 +332,7 @@ internal sealed class EnhancedHierarchyTests
         var beforeTick = drawn.Last().Split('|');
         var updatedResponse = beforeTick.Single(static line => line.Contains("[writer]", StringComparison.Ordinal));
         var spinnerBeforeTick = beforeTick.Single(static line => line.Contains("[idle]", StringComparison.Ordinal));
-        _ = await Assert.That(updatedResponse).IsEqualTo("  ● [writer] word");
+        _ = await Assert.That(updatedResponse).IsEqualTo("● [writer] st word");
 
         var drawCount = drawn.Count;
         await ticks.Writer.WriteAsync(true, cancellationToken);
