@@ -453,88 +453,100 @@ internal sealed class EnhancedCli(
                 Message(session.Id, entered), cancellationToken: cancellationToken);
         }
 
+        async Task ObserveRenderingEvent(Event published, CancellationToken eventToken)
+        {
+            var discoverQuestions = published.PayloadCase == Event.PayloadOneofCase.ToolStarted
+                && string.Equals(published.ToolStarted.ToolName, "question", StringComparison.Ordinal);
+            foregroundForModeline.Observe(published);
+            if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
+                && foregroundForModeline.IsMain(published.AgentSessionId))
+            {
+                _busy = true;
+            }
+
+            await composing.WaitAsync(eventToken).ConfigureAwait(false);
+            try
+            {
+                usage.Observe(published);
+                ObserveModelineActivity(published);
+                currentModeline = CreateModeline();
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+
+            if (discoverQuestions)
+            {
+                await DiscoverQuestions(
+                    activeSession.Id,
+                    questionRequests.Writer,
+                    discoveredQuestionRequests,
+                    eventToken).ConfigureAwait(false);
+            }
+
+            if (published.PayloadCase == Event.PayloadOneofCase.PermissionPending
+                && permissionSession is { } attached)
+            {
+                permissions.Observe(attached, published.PermissionPending);
+            }
+        }
+
+        Task FinishRenderingTurn(CancellationToken eventToken)
+        {
+            eventToken.ThrowIfCancellationRequested();
+            _busy = false;
+            _interruptRequested = false;
+            return Task.CompletedTask;
+        }
+
+        async Task BecomeReady(CancellationToken readyToken)
+        {
+            if (_busy)
+            {
+                return;
+            }
+
+            await composing.WaitAsync(readyToken).ConfigureAwait(false);
+            try
+            {
+                mainAgentActivity = string.Empty;
+                modelineActivity = string.Empty;
+                currentModeline = CreateModeline();
+            }
+            finally
+            {
+                _ = composing.Release();
+            }
+
+            _ = updates.Invalidate();
+        }
+
+        async Task CompleteRenderingPlan(PlanCompleted completed, CancellationToken eventToken)
+        {
+            var pending = new PlanCompletionRequest(completed);
+            await planRequests.Writer.WriteAsync(pending, eventToken).ConfigureAwait(false);
+            await pending.Answered.Task.WaitAsync(eventToken).ConfigureAwait(false);
+        }
+
+        var renderingSession = new EnhancedRenderingSession(
+            turnRenderer,
+            toolPresenters,
+            ReplaceBody,
+            CommitBody,
+            UpdateMainAgentActivity,
+            ObserveRenderingEvent,
+            FinishRenderingTurn,
+            BecomeReady,
+            StopSpinner,
+            updates.Invalidate,
+            CompleteRenderingPlan,
+            exitOnFirstCompletion);
+
         async Task StartRendering(AsyncServerStreamingCall<Event> activeCall, CancellationToken streamToken)
         {
-            firstTurnCompleted = await turnRenderer.RenderRaw(
+            firstTurnCompleted = await renderingSession.Run(
                 new QueueSnapshotStreamReader(activeCall.ResponseStream, ReplaceQueueRows),
-                ReplaceBody,
-                CommitBody,
-                UpdateMainAgentActivity,
-                async (published, eventToken) =>
-            {
-                var discoverQuestions = published.PayloadCase == Event.PayloadOneofCase.ToolStarted
-                    && string.Equals(published.ToolStarted.ToolName, "question", StringComparison.Ordinal);
-                foregroundForModeline.Observe(published);
-                if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
-                    && foregroundForModeline.IsMain(published.AgentSessionId))
-                {
-                    _busy = true;
-                }
-
-                await composing.WaitAsync(eventToken).ConfigureAwait(false);
-                try
-                {
-                    usage.Observe(published);
-                    ObserveModelineActivity(published);
-                    currentModeline = CreateModeline();
-                }
-                finally
-                {
-                    _ = composing.Release();
-                }
-
-                if (discoverQuestions)
-                {
-                    await DiscoverQuestions(
-                        activeSession.Id,
-                        questionRequests.Writer,
-                        discoveredQuestionRequests,
-                        eventToken).ConfigureAwait(false);
-                }
-
-                if (published.PayloadCase == Event.PayloadOneofCase.PermissionPending
-                    && permissionSession is { } attached)
-                {
-                    permissions.Observe(attached, published.PermissionPending);
-                }
-            },
-                eventToken =>
-            {
-                eventToken.ThrowIfCancellationRequested();
-                _busy = false;
-                _interruptRequested = false;
-                return Task.CompletedTask;
-            },
-                async readyToken =>
-            {
-                if (_busy)
-                {
-                    return;
-                }
-
-                await composing.WaitAsync(readyToken).ConfigureAwait(false);
-                try
-                {
-                    mainAgentActivity = string.Empty;
-                    modelineActivity = string.Empty;
-                    currentModeline = CreateModeline();
-                }
-                finally
-                {
-                    _ = composing.Release();
-                }
-
-                _ = updates.Invalidate();
-            },
-                StopSpinner,
-                updates.Invalidate,
-                async (completed, eventToken) =>
-            {
-                var pending = new PlanCompletionRequest(completed);
-                await planRequests.Writer.WriteAsync(pending, eventToken).ConfigureAwait(false);
-                await pending.Answered.Task.WaitAsync(eventToken).ConfigureAwait(false);
-            },
-                exitOnFirstCompletion,
                 streamToken).ConfigureAwait(false);
         }
 

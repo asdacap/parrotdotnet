@@ -1,5 +1,4 @@
 using Grpc.Core;
-using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
 
@@ -7,8 +6,7 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedTurnRenderer(
     ITerminal terminal,
-    Configuration configuration,
-    ToolPresenterRegistry toolPresenters)
+    Configuration configuration)
 {
     internal Task<bool> RenderTurn(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken) =>
         RenderTurn(stream, null, true, null, null, null, new ForegroundTurn(), cancellationToken);
@@ -19,115 +17,23 @@ internal sealed class EnhancedTurnRenderer(
         CancellationToken cancellationToken) =>
         RenderTurn(stream, beforeRender, true, null, null, null, new ForegroundTurn(), cancellationToken);
 
-    internal async Task<bool> RenderRaw(
+    internal Task<bool> RenderSessionTurn(
         IAsyncStreamReader<Event> stream,
+        Func<Event, CancellationToken, Task> beforeRender,
+        Func<Event, CancellationToken, Task> afterRender,
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> draw,
         Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
-        Func<string, CancellationToken, Task> updateMainAgentActivity,
-        Func<Event, CancellationToken, Task> observe,
-        Func<CancellationToken, Task> finishTurn,
-        Func<CancellationToken, Task> ready,
-        Func<Task> stopSpinner,
-        Func<bool> invalidate,
-        Func<PlanCompleted, CancellationToken, Task> completePlan,
-        bool exitOnFirstCompletion,
-        CancellationToken cancellationToken)
-    {
-        var foreground = new ForegroundTurn();
-        using var activity = new RawActivityView(
+        ForegroundTurn foreground,
+        CancellationToken cancellationToken) =>
+        RenderTurn(
+            stream,
+            beforeRender,
+            false,
+            afterRender,
             draw,
             commit,
-            toolPresenters,
-            updateMainAgentActivity,
-            invalidate);
-        using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var animation = activity.Run(animating.Token);
-
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var failed = false;
-                PlanCompleted? plan = null;
-
-                async Task BeforeRender(Event published, CancellationToken token)
-                {
-                    foreground.Observe(published);
-                    if (published.PayloadCase == Event.PayloadOneofCase.TurnFailed
-                        && foreground.IsTerminal(published))
-                    {
-                        failed = true;
-                    }
-                    else if (published.PayloadCase == Event.PayloadOneofCase.PlanCompleted
-                             && foreground.IsMain(published.AgentSessionId))
-                    {
-                        plan = published.PlanCompleted;
-                    }
-
-                    await observe(published, token).ConfigureAwait(false);
-                    await stopSpinner().ConfigureAwait(false);
-                    await activity.Prepare(published, token).ConfigureAwait(false);
-                }
-
-                var completed = await RenderTurn(
-                    stream,
-                    BeforeRender,
-                    false,
-                    async (published, eventToken) =>
-                    {
-                        await activity.Render(published, eventToken).ConfigureAwait(false);
-
-                        // Events update cached state or commit scrollback. This delayed invalidation
-                        // coalesces event bursts; user interaction can still redraw immediately.
-                        _ = invalidate();
-                    },
-                    activity.ReplaceContent,
-                    activity.CommitContent,
-                    foreground,
-                    cancellationToken).ConfigureAwait(false);
-
-                if (!completed && !failed)
-                {
-                    return false;
-                }
-
-                await finishTurn(cancellationToken).ConfigureAwait(false);
-                if (plan is not null)
-                {
-                    if (plan.Markdown.Length > 0)
-                    {
-                        await activity.CommitContent(
-                            new MarkdownScrollbackValue(plan.Markdown),
-                            [],
-                            cancellationToken).ConfigureAwait(false);
-                    }
-
-                    await completePlan(plan, cancellationToken).ConfigureAwait(false);
-                }
-
-                if (exitOnFirstCompletion)
-                {
-                    return completed;
-                }
-
-                if (!cancellationToken.IsCancellationRequested)
-                {
-                    await ready(cancellationToken).ConfigureAwait(false);
-                }
-            }
-
-            return false;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return false;
-        }
-        finally
-        {
-            await animating.CancelAsync().ConfigureAwait(false);
-            await animation.ConfigureAwait(false);
-        }
-    }
+            foreground,
+            cancellationToken);
 
     private static Task NoLiveDraw(IReadOnlyList<ILiveBufferItem> items, CancellationToken cancellationToken) =>
         Task.CompletedTask;
