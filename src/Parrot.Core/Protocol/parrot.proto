@@ -21,6 +21,7 @@ service Parrot {
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
+  rpc UploadAttachment (stream AttachmentUploadFrame) returns (AttachmentUploadResponse);
   rpc Interrupt (InterruptRequest) returns (InterruptResponse);
   rpc ListPendingQuestions (ListPendingQuestionsRequest) returns (ListPendingQuestionsResponse);
   rpc ReplyQuestion (ReplyQuestionRequest) returns (ReplyQuestionResponse);
@@ -168,6 +169,55 @@ message SendMessageRequest {
   string   text            = 2;
   string   message_id      = 3;
   Delivery delivery        = 4;
+  repeated MessageContentPart parts = 5;
+}
+
+// A prompt part preserves its position while distinguishing inline text from a
+// session-owned image artifact. The artifact id is opaque to clients.
+message MessageContentPart {
+  oneof content {
+    string text        = 1;
+    string artifact_id = 2;
+  }
+}
+
+// One header binds the upload to its session and retry id. One or more chunks
+// follow, then one terminal description followed by end-of-stream.
+message AttachmentUploadFrame {
+  oneof payload {
+    AttachmentUploadHeader      header      = 1;
+    bytes                       chunk       = 2;
+    AttachmentUploadDescription description = 3;
+  }
+}
+
+message AttachmentUploadHeader {
+  string user_session_id = 1;
+  string upload_id       = 2;
+}
+
+message AttachmentUploadDescription {
+  string display_name = 1;
+  string media_type   = 2;
+  int64  byte_length  = 3;
+}
+
+message AttachmentUploadResponse {
+  ArtifactReference artifact = 1;
+}
+
+// Immutable inspected metadata for an image stored in a user session.
+message ArtifactReference {
+  string artifact_id      = 1;
+  string sha256           = 2;
+  string media_type       = 3;
+  int64  byte_length      = 4;
+  int32  width            = 5;
+  int32  height           = 6;
+  int32  frame_count      = 7;
+  int64  aggregate_pixels = 8;
+  string display_name     = 9;
+  string origin           = 10;
 }
 
 // Created distinguishes an admission from a replay of one. Both are success:
@@ -448,6 +498,7 @@ message InputAdmitted {
   string   message_id = 2;
   string   content    = 3;
   Delivery delivery   = 4;
+  repeated MessageContentPart parts = 5;
 }
 
 // The same prompt, now in the conversation. The content is not repeated: the
@@ -514,6 +565,7 @@ message ToolFinished {
   string tool_name                = 2;
   optional string result          = 3;
   YieldedShellProcess yielded_process = 4;
+  repeated ArtifactReference artifacts = 5;
 }
 
 message YieldedShellProcess {

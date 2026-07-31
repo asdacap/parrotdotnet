@@ -8,4 +8,6 @@ namespace Parrot.Llm.Wire;
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ChatCompletionsAdapter.Body), TypeInfoPropertyName = "ChatCompletionsBody")]
 [JsonSerializable(typeof(ResponsesAdapter.Body), TypeInfoPropertyName = "ResponsesBody")]
+[JsonSerializable(typeof(string), TypeInfoPropertyName = "String")]
+[JsonSerializable(typeof(List<ChatCompletionsAdapter.ChatContentPart>), TypeInfoPropertyName = "ChatContentParts")]
 internal sealed partial class WireJsonContext : JsonSerializerContext;

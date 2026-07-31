@@ -17,6 +17,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly Dictionary<string, List<PendingQuestion>> _pendingQuestions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingPermission>> _pendingPermissions = new(StringComparer.Ordinal);
     private readonly List<string> _sent = [];
+    private readonly List<SendMessageRequest> _sentRequests = [];
     private readonly List<string> _sentTo = [];
     private readonly List<string> _listenedTo = [];
     private readonly List<CreateSessionRequest> _created = [];
@@ -26,6 +27,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<ReplyQuestionRequest> _questionReplies = [];
     private readonly List<RejectQuestionRequest> _questionRejections = [];
     private readonly List<ReplyPermissionRequest> _permissionReplies = [];
+    private readonly List<AttachmentUploadFrame> _uploadedAttachments = [];
     private readonly Lock _gate = new();
     private int _pendingQuestionLists;
     private int _pendingPermissionLists;
@@ -37,6 +39,17 @@ internal sealed class ScriptedInvoker : CallInvoker
             lock (_gate)
             {
                 return [.. _sent];
+            }
+        }
+    }
+
+    public IReadOnlyList<SendMessageRequest> SentRequests
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _sentRequests.Select(request => request.Clone())];
             }
         }
     }
@@ -110,6 +123,17 @@ internal sealed class ScriptedInvoker : CallInvoker
     }
 
     public int Interrupts { get; private set; }
+
+    public IReadOnlyList<AttachmentUploadFrame> UploadedAttachments
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _uploadedAttachments.Select(frame => frame.Clone())];
+            }
+        }
+    }
 
     public bool ReplyQuestionNotFound { get; set; }
 
@@ -433,7 +457,12 @@ internal sealed class ScriptedInvoker : CallInvoker
             case SendMessageRequest send:
                 lock (_gate)
                 {
-                    _sent.Add(send.Text);
+                    _sent.Add(send.Parts.Count == 0
+                        ? send.Text
+                        : string.Concat(send.Parts
+                            .Where(part => part.ContentCase == MessageContentPart.ContentOneofCase.Text)
+                            .Select(part => part.Text)));
+                    _sentRequests.Add(send.Clone());
                     _sentTo.Add(send.UserSessionId);
                 }
 
@@ -520,8 +549,23 @@ internal sealed class ScriptedInvoker : CallInvoker
         throw new NotSupportedException("the contract has no blocking unary call");
 
     public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-        Method<TRequest, TResponse> method, string? host, CallOptions options) =>
-        throw new NotSupportedException("the contract has no client-streaming call");
+        Method<TRequest, TResponse> method, string? host, CallOptions options)
+    {
+        if (typeof(TRequest) != typeof(AttachmentUploadFrame)
+            || typeof(TResponse) != typeof(AttachmentUploadResponse))
+        {
+            throw new NotSupportedException($"no scripted stream for {typeof(TRequest).Name}");
+        }
+
+        var writer = new AttachmentWriter(this);
+        return new AsyncClientStreamingCall<TRequest, TResponse>(
+            (IClientStreamWriter<TRequest>)(object)writer,
+            (Task<TResponse>)(object)writer.Response,
+            Task.FromResult(new Metadata()),
+            static () => Status.DefaultSuccess,
+            static () => [],
+            writer.Complete);
+    }
 
     public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
         Method<TRequest, TResponse> method, string? host, CallOptions options) =>
@@ -596,5 +640,44 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
 
         return permissions;
+    }
+
+    private sealed class AttachmentWriter(ScriptedInvoker invoker) : IClientStreamWriter<AttachmentUploadFrame>
+    {
+        private readonly TaskCompletionSource<AttachmentUploadResponse> _response = new();
+
+        public Task<AttachmentUploadResponse> Response => _response.Task;
+
+        public WriteOptions? WriteOptions { get; set; }
+
+        public Task WriteAsync(AttachmentUploadFrame message)
+        {
+            lock (invoker._gate)
+            {
+                invoker._uploadedAttachments.Add(message.Clone());
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task WriteAsync(AttachmentUploadFrame message, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return WriteAsync(message);
+        }
+
+        public Task CompleteAsync()
+        {
+            Complete();
+            return Task.CompletedTask;
+        }
+
+        public void Complete()
+        {
+            _ = _response.TrySetResult(new AttachmentUploadResponse
+            {
+                Artifact = new ArtifactReference { ArtifactId = "artifact-1" },
+            });
+        }
     }
 }

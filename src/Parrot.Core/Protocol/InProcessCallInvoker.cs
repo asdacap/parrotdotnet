@@ -52,8 +52,28 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
         throw new NotImplementedException("the contract has no blocking unary call");
 
     public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
-        Method<TRequest, TResponse> method, string? host, CallOptions options) =>
-        throw new NotImplementedException("the contract has no client-streaming call");
+        Method<TRequest, TResponse> method,
+        string? host,
+        CallOptions options)
+    {
+        if (typeof(TRequest) != typeof(AttachmentUploadFrame)
+            || typeof(TResponse) != typeof(AttachmentUploadResponse))
+        {
+            throw new NotImplementedException($"no in-process route for {typeof(TRequest).Name}");
+        }
+
+        var stream = new BoundedClientStream<AttachmentUploadFrame>();
+        var context = new InProcessServerCallContext(options.CancellationToken);
+        var response = Upload<TResponse>(stream, context);
+
+        return new AsyncClientStreamingCall<TRequest, TResponse>(
+            (IClientStreamWriter<TRequest>)(object)stream,
+            response,
+            Task.FromResult(new Metadata()),
+            static () => Status.DefaultSuccess,
+            static () => [],
+            stream.Stop);
+    }
 
     public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
         Method<TRequest, TResponse> method, string? host, CallOptions options) =>
@@ -92,6 +112,23 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
 
         return answered as TResponse
             ?? throw new InvalidOperationException($"a {answered.GetType().Name} cannot answer a {typeof(TResponse).Name}");
+    }
+
+    private async Task<TResponse> Upload<TResponse>(
+        BoundedClientStream<AttachmentUploadFrame> stream,
+        InProcessServerCallContext context)
+        where TResponse : class
+    {
+        try
+        {
+            var response = await service.UploadAttachment(stream, context).ConfigureAwait(false);
+            return response as TResponse
+                ?? throw new InvalidOperationException($"an attachment upload cannot answer a {typeof(TResponse).Name}");
+        }
+        finally
+        {
+            await stream.CompleteAsync().ConfigureAwait(false);
+        }
     }
 
     // Task, not void: an async void that throws takes the process down. It

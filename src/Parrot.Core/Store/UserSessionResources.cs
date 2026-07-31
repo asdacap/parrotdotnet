@@ -20,6 +20,7 @@ internal sealed class UserSessionResources
         MetadataPath = RequireContained(Root, Path.Combine(Root, "meta.json"));
         DatabasePath = RequireContained(Root, Path.Combine(Root, "session.db"));
         BlobDirectory = RequireContained(Root, Path.Combine(Root, "blob"));
+        ArtifactDirectory = RequireContained(Root, Path.Combine(Root, "artifacts"));
         QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
         AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
         PlanDirectory = RequireContained(Root, Path.Combine(Root, "plan"));
@@ -52,6 +53,8 @@ internal sealed class UserSessionResources
     public string DatabasePath { get; }
 
     public string BlobDirectory { get; }
+
+    public string ArtifactDirectory { get; }
 
     public string QueueDirectory { get; }
 

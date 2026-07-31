@@ -83,6 +83,82 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Images_are_uploaded_with_canonical_metadata_and_admitted_as_structured_parts(
+        CancellationToken cancellationToken)
+    {
+        var bytes = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==");
+        await using var service = Service(Store(new DirectAgentSessions()));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var owner = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+        var foreign = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+        using var upload = client.UploadAttachment(cancellationToken: cancellationToken);
+        await upload.RequestStream.WriteAsync(
+            new AttachmentUploadFrame
+            {
+                Header = new AttachmentUploadHeader { UserSessionId = owner.Id, UploadId = "upload-1" },
+            },
+            cancellationToken);
+        await upload.RequestStream.WriteAsync(
+            new AttachmentUploadFrame
+            {
+                Chunk = Google.Protobuf.ByteString.CopyFrom(bytes),
+            },
+            cancellationToken);
+        await upload.RequestStream.WriteAsync(
+            new AttachmentUploadFrame
+            {
+                Description = new AttachmentUploadDescription
+                {
+                    DisplayName = "pixel.png",
+                    MediaType = "image/png",
+                    ByteLength = bytes.Length,
+                },
+            },
+            cancellationToken);
+        await upload.RequestStream.CompleteAsync();
+        var uploaded = await upload.ResponseAsync;
+        var request = new SendMessageRequest
+        {
+            UserSessionId = owner.Id,
+            MessageId = "structured-1",
+            Delivery = Delivery.Steer,
+        };
+        request.Parts.Add(new MessageContentPart { Text = "inspect " });
+        request.Parts.Add(new MessageContentPart { ArtifactId = uploaded.Artifact.ArtifactId });
+        var admitted = await client.SendMessageAsync(request, cancellationToken: cancellationToken);
+        var foreignRequest = request.Clone();
+        foreignRequest.UserSessionId = foreign.Id;
+        foreignRequest.MessageId = "structured-foreign";
+        var refused = await Assert.That(async () => await client.SendMessageAsync(
+            foreignRequest,
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+
+        _ = await Assert.That(uploaded.Artifact.MediaType).IsEqualTo("image/png");
+        _ = await Assert.That(uploaded.Artifact.ByteLength).IsEqualTo(bytes.Length);
+        _ = await Assert.That(uploaded.Artifact.DisplayName).IsEqualTo("pixel.png");
+        _ = await Assert.That(admitted.Created).IsTrue();
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+    }
+
+    [Test]
+    public async Task Send_message_refuses_legacy_text_together_with_structured_parts(
+        CancellationToken cancellationToken)
+    {
+        await using var service = Service(Store());
+        var context = new InProcessServerCallContext(cancellationToken);
+        var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
+        var request = Send(session.Id, "legacy", "mixed");
+        request.Parts.Add(new MessageContentPart { Text = "structured" });
+
+        var refused = await Assert.That(async () => await service.SendMessage(request, context)).Throws<RpcException>();
+
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+    }
+
+    [Test]
     public async Task Modes_are_listed_created_updated_and_validated(CancellationToken cancellationToken)
     {
         var store = Store();

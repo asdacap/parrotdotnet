@@ -234,6 +234,81 @@ internal sealed class ParrotService(
         return Task.FromResult(UserSession.From(found, false));
     }
 
+    public override async Task<AttachmentUploadResponse> UploadAttachment(
+        IAsyncStreamReader<AttachmentUploadFrame> requestStream,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(requestStream);
+        ArgumentNullException.ThrowIfNull(context);
+
+        try
+        {
+            var header = await ReadUploadHeader(requestStream, context.CancellationToken).ConfigureAwait(false);
+            var session = Find(header.UserSessionId);
+            await using var content = new MemoryStream();
+            AttachmentUploadDescription? description = null;
+            var chunks = 0;
+
+            while (await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
+            {
+                var frame = requestStream.Current;
+                if (description is not null)
+                {
+                    throw new InvalidDataException("the upload description must be the terminal frame");
+                }
+
+                switch (frame.PayloadCase)
+                {
+                    case AttachmentUploadFrame.PayloadOneofCase.Chunk:
+                        if (frame.Chunk.Length is 0 or > 1024 * 1024)
+                        {
+                            throw new InvalidDataException("an upload chunk must contain at most 1 MiB");
+                        }
+
+                        if (content.Length > ImageArtifactLimits.MaximumImageBytes - frame.Chunk.Length)
+                        {
+                            throw new InvalidDataException("an image cannot exceed 5 MiB");
+                        }
+
+                        await content.WriteAsync(frame.Chunk.Memory, context.CancellationToken).ConfigureAwait(false);
+                        chunks++;
+                        break;
+                    case AttachmentUploadFrame.PayloadOneofCase.Description:
+                        if (chunks == 0)
+                        {
+                            throw new InvalidDataException("an upload needs at least one chunk");
+                        }
+
+                        description = frame.Description;
+                        break;
+                    default:
+                        throw new InvalidDataException("upload frames must contain chunks followed by one description");
+                }
+            }
+
+            if (description is null)
+            {
+                throw new InvalidDataException("an upload needs a terminal description");
+            }
+
+            ValidateUploadDescription(description);
+            content.Position = 0;
+            var artifact = await session.Images.Persist(
+                content,
+                header.UploadId,
+                description.DisplayName,
+                "upload",
+                description.MediaType,
+                description.ByteLength,
+                context.CancellationToken).ConfigureAwait(false);
+            return new AttachmentUploadResponse { Artifact = ToProtocol(artifact) };
+        }
+        catch (Exception failure) when (failure is InvalidDataException or ArgumentException or InputConflictException)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+    }
+
     public override async Task<SendMessageResponse> SendMessage(
         SendMessageRequest request, ServerCallContext context)
     {
@@ -248,6 +323,24 @@ internal sealed class ParrotService(
         }
 
         var found = Find(request.UserSessionId);
+        if (request.Text.Length > 0 && request.Parts.Count > 0)
+        {
+            throw new RpcException(new Status(
+                StatusCode.InvalidArgument,
+                "legacy text and structured prompt parts are mutually exclusive"));
+        }
+
+        IReadOnlyList<ConversationPart> parts;
+        try
+        {
+            parts = request.Parts.Count == 0
+                ? [ConversationPart.TextPart(request.Text)]
+                : ResolveParts(found, request.Parts);
+        }
+        catch (InvalidDataException failure)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
 
         // The sender's id when they supplied one, so a re-send after a dropped
         // connection is recognisable as the same prompt rather than a second.
@@ -257,7 +350,7 @@ internal sealed class ParrotService(
 
         try
         {
-            admitted = await found.Send(request.Text, messageId, request.Delivery, context.CancellationToken)
+            admitted = await found.Send(parts, messageId, request.Delivery, context.CancellationToken)
                 .ConfigureAwait(false);
         }
         catch (InputConflictException conflict)
@@ -418,6 +511,94 @@ internal sealed class ParrotService(
     // first thing, so starting them together makes shutdown as long as the
     // slowest session rather than as long as all of them added up.
     public ValueTask DisposeAsync() => _userSessions.DisposeAsync();
+
+    private static async Task<AttachmentUploadHeader> ReadUploadHeader(
+        IAsyncStreamReader<AttachmentUploadFrame> requestStream,
+        CancellationToken cancellationToken)
+    {
+        if (!await requestStream.MoveNext(cancellationToken).ConfigureAwait(false)
+            || requestStream.Current.PayloadCase != AttachmentUploadFrame.PayloadOneofCase.Header)
+        {
+            throw new InvalidDataException("the first upload frame must be a header");
+        }
+
+        var header = requestStream.Current.Header;
+        if (string.IsNullOrWhiteSpace(header.UserSessionId) || string.IsNullOrWhiteSpace(header.UploadId))
+        {
+            throw new InvalidDataException("an upload header needs a user session id and upload id");
+        }
+
+        return header;
+    }
+
+    private static void ValidateUploadDescription(AttachmentUploadDescription description)
+    {
+        if (string.IsNullOrWhiteSpace(description.DisplayName)
+            || !string.Equals(description.DisplayName, Path.GetFileName(description.DisplayName), StringComparison.Ordinal)
+            || description.DisplayName.Any(char.IsControl))
+        {
+            throw new InvalidDataException("an upload display name must be a basename");
+        }
+
+        if (string.IsNullOrWhiteSpace(description.MediaType) || description.ByteLength <= 0)
+        {
+            throw new InvalidDataException("an upload description needs a media type and positive byte length");
+        }
+    }
+
+    private static List<ConversationPart> ResolveParts(
+        Agent.UserSession session,
+        IEnumerable<MessageContentPart> requested)
+    {
+        var parts = new List<ConversationPart>();
+        var imageCount = 0;
+        long imageBytes = 0;
+        foreach (var part in requested)
+        {
+            switch (part.ContentCase)
+            {
+                case MessageContentPart.ContentOneofCase.Text:
+                    parts.Add(ConversationPart.TextPart(part.Text));
+                    break;
+                case MessageContentPart.ContentOneofCase.ArtifactId:
+                    var artifact = session.Images.Resolve(part.ArtifactId)
+                        ?? throw new InvalidDataException($"image artifact {part.ArtifactId} does not belong to this session");
+                    imageCount++;
+                    imageBytes += artifact.ByteLength;
+                    if (imageCount > ImageArtifactLimits.MaximumImages
+                        || imageBytes > ImageArtifactLimits.MaximumBatchBytes)
+                    {
+                        throw new InvalidDataException("the prompt image batch exceeds the supported limits");
+                    }
+
+                    parts.Add(ConversationPart.ImageArtifact(artifact));
+                    break;
+                default:
+                    throw new InvalidDataException("every prompt part needs text or an artifact id");
+            }
+        }
+
+        if (parts.Count == 0)
+        {
+            throw new InvalidDataException("a structured prompt needs at least one part");
+        }
+
+        return parts;
+    }
+
+    private static ArtifactReference ToProtocol(ImageArtifactMetadata artifact) => new()
+    {
+        ArtifactId = artifact.ArtifactId,
+        Sha256 = artifact.Sha256,
+        MediaType = artifact.MediaType,
+        ByteLength = artifact.ByteLength,
+        Width = artifact.Width,
+        Height = artifact.Height,
+        FrameCount = artifact.FrameCount,
+        AggregatePixels = artifact.AggregatePixels,
+        DisplayName = artifact.DisplayName,
+        Origin = artifact.Origin,
+    };
 
     private static PendingQuestion ToProtocol(PendingQuestionRequest request)
     {

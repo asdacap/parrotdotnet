@@ -19,19 +19,40 @@ namespace Parrot.Store;
 // and the drain writes on its own, so every method here takes _gate. That gate
 // is the whole of this component's synchronisation, and this component is the
 // only thing that writes to the session database.
-internal sealed class EventRepository(SessionDatabase database)
+internal sealed class EventRepository
 {
     private const string UsageProjection = "agent-usage";
     private const long UsageProjectionVersion = 1;
+    private const string ConversationProjection = "conversation";
+    private const long ConversationProjectionVersion = 1;
+    private const string ImageArtifactSelect =
+        "SELECT artifact.artifact_id, content.sha256, content.media_type, content.byte_length, content.width, content.height, content.frame_count, content.aggregate_pixels, artifact.display_name, artifact.origin FROM image_artifact AS artifact JOIN image_content AS content ON content.sha256 = artifact.sha256";
+
+    private readonly SessionDatabase _database;
+    private readonly ImageArtifactStore? _imageStore;
     private readonly Lock _gate = new();
 
-    public SessionUsage? Append(Event published, string? messageRole, string? messageContent)
+    public EventRepository(SessionDatabase database) => _database = database;
+
+    public EventRepository(SessionDatabase database, ImageArtifactStore imageStore)
+    {
+        _database = database;
+        _imageStore = imageStore;
+    }
+
+    public SessionUsage? Append(Event published, string? messageRole, string? messageContent) =>
+        Append(
+            published,
+            messageRole is null || messageContent is null ? null : Message(messageRole, messageContent),
+            messageRole is null ? ConversationOrigin.Model : Origin(messageRole));
+
+    public SessionUsage? Append(Event published, LLMMessage? message, ConversationOrigin origin)
     {
         ArgumentNullException.ThrowIfNull(published);
 
         lock (_gate)
         {
-            using var transaction = database.Begin();
+            using var transaction = _database.Begin();
             if (published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
             {
                 EnsureUsageProjection(transaction);
@@ -39,9 +60,9 @@ internal sealed class EventRepository(SessionDatabase database)
 
             var revision = Record(transaction, published);
 
-            if (messageRole is not null && messageContent is not null)
+            if (message is not null)
             {
-                Project(transaction, published.AgentSessionId, messageRole, messageContent);
+                Project(transaction, published.AgentSessionId, message, origin);
             }
 
             SessionUsage? usage = null;
@@ -53,6 +74,104 @@ internal sealed class EventRepository(SessionDatabase database)
 
             transaction.Commit();
             return usage;
+        }
+    }
+
+    public void AppendConversation(
+        Event published,
+        ConversationOrigin origin,
+        LLMRole role,
+        IReadOnlyList<ConversationPart> parts,
+        IReadOnlyList<LLMToolCall> toolCalls,
+        string toolCallId)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        ArgumentNullException.ThrowIfNull(parts);
+        ArgumentNullException.ThrowIfNull(toolCalls);
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            _ = Record(transaction, published);
+            _ = Project(transaction, published.AgentSessionId, origin, role, parts, toolCalls, toolCallId);
+            transaction.Commit();
+        }
+    }
+
+    public bool AppendToolResult(
+        Event published,
+        long assistantSequence,
+        ToolExecutionTerminal terminal)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        ArgumentNullException.ThrowIfNull(terminal);
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            if (HasToolResult(transaction, published.AgentSessionId, assistantSequence, terminal.ToolCallId))
+            {
+                transaction.Commit();
+                return false;
+            }
+
+            _ = Record(transaction, published);
+            InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
+            transaction.Commit();
+            return true;
+        }
+    }
+
+    public bool HasToolSynthetic(long assistantSequence, string agentSessionId)
+    {
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            var exists = HasToolSynthetic(transaction, agentSessionId, assistantSequence);
+            transaction.Commit();
+            return exists;
+        }
+    }
+
+    public bool AppendToolSynthetic(
+        Event published,
+        long assistantSequence,
+        IReadOnlyList<ConversationPart> imageParts)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        ArgumentNullException.ThrowIfNull(imageParts);
+        if (imageParts.Count == 0 || imageParts.Any(part => part.Kind != ConversationPartKind.ImageArtifact))
+        {
+            throw new ArgumentException("A tool synthetic message requires image artifact parts.", nameof(imageParts));
+        }
+
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            if (HasToolSynthetic(transaction, published.AgentSessionId, assistantSequence))
+            {
+                transaction.Commit();
+                return false;
+            }
+
+            _ = Record(transaction, published);
+            var sequence = Project(
+                transaction,
+                published.AgentSessionId,
+                ConversationOrigin.Tool,
+                LLMRole.User,
+                imageParts,
+                [],
+                string.Empty);
+            using var insert = _database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText =
+                "INSERT INTO tool_batch_synthetic (agent_session, assistant_sequence, item_sequence) "
+                + "VALUES ($session, $assistant, $item);";
+            _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
+            _ = insert.Parameters.AddWithValue("$assistant", assistantSequence);
+            _ = insert.Parameters.AddWithValue("$item", sequence);
+            _ = insert.ExecuteNonQuery();
+            transaction.Commit();
+            return true;
         }
     }
 
@@ -70,26 +189,35 @@ internal sealed class EventRepository(SessionDatabase database)
         string messageId,
         string content,
         Delivery delivery,
+        Func<AdmittedInput, Event> compose) =>
+        Admit(agentSessionId, messageId, [ConversationPart.TextPart(content)], delivery, compose);
+
+    public Admission Admit(
+        string agentSessionId,
+        string messageId,
+        IReadOnlyList<ConversationPart> parts,
+        Delivery delivery,
         Func<AdmittedInput, Event> compose)
     {
+        ArgumentNullException.ThrowIfNull(parts);
         ArgumentNullException.ThrowIfNull(compose);
 
         lock (_gate)
         {
-            using var transaction = database.Begin();
+            using var transaction = _database.Begin();
 
             if (Existing(transaction, agentSessionId, messageId) is { } already)
             {
-                return already.Content == content && already.Delivery == delivery
+                return already.Parts.SequenceEqual(parts) && already.Delivery == delivery
                     ? new Admission(already, null)
                     : throw new InputConflictException(
                         $"message {messageId} was already admitted with different content");
             }
 
-            var admitted = new AdmittedInput(Identifier.InputId(), messageId, content, delivery);
+            var admitted = new AdmittedInput(Identifier.InputId(), messageId, parts, delivery);
             var published = compose(admitted);
 
-            using (var insert = database.Connection.CreateCommand())
+            using (var insert = _database.Connection.CreateCommand())
             {
                 insert.Transaction = transaction;
                 insert.CommandText =
@@ -100,12 +228,13 @@ internal sealed class EventRepository(SessionDatabase database)
                 _ = insert.Parameters.AddWithValue("$id", admitted.Id);
                 _ = insert.Parameters.AddWithValue("$session", agentSessionId);
                 _ = insert.Parameters.AddWithValue("$message", messageId);
-                _ = insert.Parameters.AddWithValue("$content", content);
+                _ = insert.Parameters.AddWithValue("$content", admitted.Content);
                 _ = insert.Parameters.AddWithValue("$delivery", Text(delivery));
                 _ = insert.Parameters.AddWithValue("$at", Timestamp());
                 _ = insert.ExecuteNonQuery();
             }
 
+            InsertInputParts(transaction, admitted.Id, admitted.Parts);
             _ = Record(transaction, published);
             transaction.Commit();
 
@@ -123,7 +252,7 @@ internal sealed class EventRepository(SessionDatabase database)
 
         lock (_gate)
         {
-            using var transaction = database.Begin();
+            using var transaction = _database.Begin();
 
             if (Existing(transaction, agentSessionId, messageId) is { } already)
             {
@@ -133,7 +262,7 @@ internal sealed class EventRepository(SessionDatabase database)
                         $"message {messageId} was already admitted with different content");
             }
 
-            using (var pending = database.Connection.CreateCommand())
+            using (var pending = _database.Connection.CreateCommand())
             {
                 pending.Transaction = transaction;
                 pending.CommandText =
@@ -151,7 +280,7 @@ internal sealed class EventRepository(SessionDatabase database)
             var admitted = new AdmittedInput(Identifier.InputId(), messageId, content, Delivery.Steer);
             var published = compose(admitted);
 
-            using (var insert = database.Connection.CreateCommand())
+            using (var insert = _database.Connection.CreateCommand())
             {
                 insert.Transaction = transaction;
                 insert.CommandText =
@@ -190,7 +319,7 @@ internal sealed class EventRepository(SessionDatabase database)
     {
         lock (_gate)
         {
-            using var read = database.Connection.CreateCommand();
+            using var read = _database.Connection.CreateCommand();
             read.CommandText =
                 "SELECT EXISTS (SELECT 1 FROM input WHERE agent_session = $session AND status = 'pending');";
             _ = read.Parameters.AddWithValue("$session", agentSessionId);
@@ -206,7 +335,7 @@ internal sealed class EventRepository(SessionDatabase database)
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var read = database.Connection.CreateCommand();
+            using var read = _database.Connection.CreateCommand();
             read.CommandText =
                 "SELECT id, content, status, priority, position FROM todo "
                 + "WHERE agent_session = $session ORDER BY position;";
@@ -238,8 +367,8 @@ internal sealed class EventRepository(SessionDatabase database)
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var transaction = database.Begin();
-            using (var delete = database.Connection.CreateCommand())
+            using var transaction = _database.Begin();
+            using (var delete = _database.Connection.CreateCommand())
             {
                 delete.Transaction = transaction;
                 delete.CommandText = "DELETE FROM todo WHERE agent_session = $session;";
@@ -250,7 +379,7 @@ internal sealed class EventRepository(SessionDatabase database)
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                using var insert = database.Connection.CreateCommand();
+                using var insert = _database.Connection.CreateCommand();
                 insert.Transaction = transaction;
                 insert.CommandText =
                     """
@@ -277,7 +406,7 @@ internal sealed class EventRepository(SessionDatabase database)
 
         lock (_gate)
         {
-            using var read = database.Connection.CreateCommand();
+            using var read = _database.Connection.CreateCommand();
             read.CommandText = "SELECT payload FROM event ORDER BY sequence;";
 
             using var reader = read.ExecuteReader();
@@ -295,7 +424,7 @@ internal sealed class EventRepository(SessionDatabase database)
     {
         lock (_gate)
         {
-            using var transaction = database.Begin();
+            using var transaction = _database.Begin();
             EnsureUsageProjection(transaction);
             var usage = CaptureUsage(transaction);
             transaction.Commit();
@@ -307,7 +436,7 @@ internal sealed class EventRepository(SessionDatabase database)
     {
         lock (_gate)
         {
-            using var read = database.Connection.CreateCommand();
+            using var read = _database.Connection.CreateCommand();
             read.CommandText =
                 "SELECT payload FROM event WHERE agent_session = $session ORDER BY sequence DESC;";
             _ = read.Parameters.AddWithValue("$session", agentSessionId);
@@ -331,32 +460,184 @@ internal sealed class EventRepository(SessionDatabase database)
 
     public IReadOnlyList<LLMMessage> ModelHistory(string agentSessionId)
     {
-        var messages = new List<LLMMessage>();
-
         lock (_gate)
         {
-            using var read = database.Connection.CreateCommand();
-            read.CommandText =
-                "SELECT role, content FROM message WHERE agent_session = $session ORDER BY sequence;";
-            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+            using var transaction = _database.Begin();
+            EnsureConversationProjection(transaction);
+            var items = ReadConversation(transaction, agentSessionId, 0);
+            transaction.Commit();
+            return [.. items.Select(ToMessage)];
+        }
+    }
 
-            using var reader = read.ExecuteReader();
-
-            while (reader.Read())
+    public IReadOnlyList<LLMContent> Materialize(IReadOnlyList<ConversationPart> parts)
+    {
+        ArgumentNullException.ThrowIfNull(parts);
+        var contents = new List<LLMContent>(parts.Count);
+        foreach (var part in parts)
+        {
+            if (part.Kind == ConversationPartKind.Text)
             {
-                messages.Add(Message((string)reader["role"], (string)reader["content"]));
+                contents.Add(LLMContent.TextPart(part.Text));
+                continue;
             }
+
+            var store = _imageStore
+                ?? throw new InvalidOperationException("image artifacts cannot be materialized without session resources");
+            _ = ResolveImageArtifact(part.ArtifactId)
+                ?? throw new FileNotFoundException("The image artifact does not exist.", part.ArtifactId);
+            using var source = store.Open(part.ArtifactId);
+            using var bytes = new MemoryStream();
+            source.CopyTo(bytes);
+            contents.Add(LLMContent.ImagePart(bytes.ToArray(), part.MediaType));
         }
 
-        return messages;
+        return contents;
+    }
+
+    public IReadOnlyList<ConversationItem> Conversation(string agentSessionId) =>
+        ConversationAfter(agentSessionId, 0);
+
+    public IReadOnlyList<ConversationItem> ConversationAfter(string agentSessionId, long watermark)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(watermark);
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            EnsureConversationProjection(transaction);
+            var items = ReadConversation(transaction, agentSessionId, watermark);
+            transaction.Commit();
+            return items;
+        }
+    }
+
+    public bool AppendToolTerminal(Event published, ToolExecutionTerminal terminal)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        ArgumentNullException.ThrowIfNull(terminal);
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            var existing = ReadToolTerminal(transaction, published.AgentSessionId, terminal.ToolCallId);
+            if (existing is not null)
+            {
+                if (!ToolTerminalsEqual(existing, terminal))
+                {
+                    throw new InputConflictException($"tool call {terminal.ToolCallId} was already settled differently");
+                }
+
+                transaction.Commit();
+                return false;
+            }
+
+            _ = Record(transaction, published);
+            InsertToolTerminal(transaction, published.AgentSessionId, terminal);
+            transaction.Commit();
+            return true;
+        }
+    }
+
+    public void AppendToolSettlement(
+        Event published,
+        long assistantSequence,
+        ToolExecutionTerminal terminal)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        ArgumentNullException.ThrowIfNull(terminal);
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            var existing = ReadToolTerminal(transaction, published.AgentSessionId, terminal.ToolCallId);
+            if (existing is not null && !ToolTerminalsEqual(existing, terminal))
+            {
+                throw new InputConflictException($"tool call {terminal.ToolCallId} was already settled differently");
+            }
+
+            if (existing is null)
+            {
+                _ = Record(transaction, published);
+                InsertToolTerminal(transaction, published.AgentSessionId, terminal);
+            }
+
+            if (!HasToolResult(transaction, published.AgentSessionId, assistantSequence, terminal.ToolCallId))
+            {
+                InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
+            }
+
+            transaction.Commit();
+        }
+    }
+
+    public IReadOnlyList<ToolExecutionTerminal> ToolTerminals(string agentSessionId)
+    {
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            var terminals = new List<ToolExecutionTerminal>();
+            using var read = _database.Connection.CreateCommand();
+            read.Transaction = transaction;
+            read.CommandText =
+                "SELECT sequence, tool_call_id, tool_name, status, message FROM tool_execution_terminal "
+                + "WHERE agent_session = $session ORDER BY sequence;";
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                var sequence = Convert.ToInt64(reader["sequence"], System.Globalization.CultureInfo.InvariantCulture);
+                terminals.Add(new ToolExecutionTerminal(
+                    (string)reader["tool_call_id"],
+                    (string)reader["tool_name"],
+                    ParseToolExecutionStatus((string)reader["status"]),
+                    ReadToolResultParts(transaction, sequence),
+                    (string)reader["message"]));
+            }
+
+            transaction.Commit();
+            return terminals;
+        }
+    }
+
+    public void SaveCompaction(string agentSessionId, CompactionSnapshot snapshot)
+    {
+        lock (_gate)
+        {
+            using var command = _database.Connection.CreateCommand();
+            command.CommandText =
+                "INSERT INTO compaction_snapshot (agent_session, summary, watermark, created_at) "
+                + "VALUES ($session, $summary, $watermark, $at) "
+                + "ON CONFLICT (agent_session) DO UPDATE SET summary = excluded.summary, "
+                + "watermark = excluded.watermark, created_at = excluded.created_at;";
+            _ = command.Parameters.AddWithValue("$session", agentSessionId);
+            _ = command.Parameters.AddWithValue("$summary", snapshot.Summary);
+            _ = command.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+            _ = command.Parameters.AddWithValue("$at", Timestamp());
+            _ = command.ExecuteNonQuery();
+        }
+    }
+
+    public CompactionSnapshot? Compaction(string agentSessionId)
+    {
+        lock (_gate)
+        {
+            using var command = _database.Connection.CreateCommand();
+            command.CommandText =
+                "SELECT summary, watermark FROM compaction_snapshot WHERE agent_session = $session;";
+            _ = command.Parameters.AddWithValue("$session", agentSessionId);
+            using var reader = command.ExecuteReader();
+            return reader.Read()
+                ? new CompactionSnapshot(
+                    (string)reader["summary"],
+                    Convert.ToInt64(reader["watermark"], System.Globalization.CultureInfo.InvariantCulture))
+                : null;
+        }
     }
 
     public (string AgentSessionId, string Mode) SessionState(string userSessionId, string requestedMode)
     {
         lock (_gate)
         {
-            using var transaction = database.Begin();
-            using var insert = database.Connection.CreateCommand();
+            using var transaction = _database.Begin();
+            using var insert = _database.Connection.CreateCommand();
             insert.Transaction = transaction;
             insert.CommandText =
                 "INSERT OR IGNORE INTO session_state (user_session, agent_session, mode) VALUES ($user, $agent, $mode);";
@@ -365,7 +646,7 @@ internal sealed class EventRepository(SessionDatabase database)
             _ = insert.Parameters.AddWithValue("$mode", requestedMode);
             _ = insert.ExecuteNonQuery();
 
-            using var read = database.Connection.CreateCommand();
+            using var read = _database.Connection.CreateCommand();
             read.Transaction = transaction;
             read.CommandText = "SELECT agent_session, mode FROM session_state WHERE user_session = $user;";
             _ = read.Parameters.AddWithValue("$user", userSessionId);
@@ -381,15 +662,15 @@ internal sealed class EventRepository(SessionDatabase database)
     {
         lock (_gate)
         {
-            using var transaction = database.Begin();
-            using var update = database.Connection.CreateCommand();
+            using var transaction = _database.Begin();
+            using var update = _database.Connection.CreateCommand();
             update.Transaction = transaction;
             update.CommandText = "UPDATE session_state SET mode = $mode WHERE user_session = $user;";
             _ = update.Parameters.AddWithValue("$mode", mode);
             _ = update.Parameters.AddWithValue("$user", userSessionId);
             _ = update.ExecuteNonQuery();
 
-            using var insert = database.Connection.CreateCommand();
+            using var insert = _database.Connection.CreateCommand();
             insert.Transaction = transaction;
             insert.CommandText =
                 "INSERT INTO mode_change (agent_session, mode, created_at) VALUES ($session, $mode, $at);";
@@ -407,7 +688,7 @@ internal sealed class EventRepository(SessionDatabase database)
     {
         lock (_gate)
         {
-            using var read = database.Connection.CreateCommand();
+            using var read = _database.Connection.CreateCommand();
             read.CommandText =
                 """
                 SELECT state.mode,
@@ -438,8 +719,8 @@ internal sealed class EventRepository(SessionDatabase database)
 
         lock (_gate)
         {
-            using var transaction = database.Begin();
-            using var pending = database.Connection.CreateCommand();
+            using var transaction = _database.Begin();
+            using var pending = _database.Connection.CreateCommand();
             pending.Transaction = transaction;
             pending.CommandText =
                 """
@@ -466,7 +747,7 @@ internal sealed class EventRepository(SessionDatabase database)
 
             Project(transaction, published.AgentSessionId, "system", content);
 
-            using var insert = database.Connection.CreateCommand();
+            using var insert = _database.Connection.CreateCommand();
             insert.Transaction = transaction;
             insert.CommandText =
                 """
@@ -494,7 +775,7 @@ internal sealed class EventRepository(SessionDatabase database)
 
         lock (_gate)
         {
-            using var transaction = database.Begin();
+            using var transaction = _database.Begin();
             Project(transaction, published.AgentSessionId, "system", content);
             transaction.Commit();
         }
@@ -508,10 +789,210 @@ internal sealed class EventRepository(SessionDatabase database)
 
         lock (_gate)
         {
-            using var transaction = database.Begin();
+            using var transaction = _database.Begin();
             Project(transaction, published.AgentSessionId, "system", content);
             transaction.Commit();
         }
+    }
+
+    public ImageArtifactMetadata RecordImageArtifact(ImageArtifactMetadata artifact, string uploadId)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        ArgumentException.ThrowIfNullOrWhiteSpace(uploadId);
+
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            var existing = ImageUpload(transaction, uploadId);
+            if (existing is not null)
+            {
+                if (existing == artifact)
+                {
+                    transaction.Commit();
+                    return existing;
+                }
+
+                throw new InputConflictException($"image upload {uploadId} was already recorded with different content");
+            }
+
+            using (var content = _database.Connection.CreateCommand())
+            {
+                content.Transaction = transaction;
+                content.CommandText =
+                    """
+                    INSERT INTO image_content (
+                        sha256, media_type, byte_length, width, height, frame_count, aggregate_pixels)
+                    VALUES ($sha256, $media_type, $byte_length, $width, $height, $frame_count, $aggregate_pixels)
+                    ON CONFLICT(sha256) DO UPDATE SET
+                        media_type = excluded.media_type,
+                        byte_length = excluded.byte_length,
+                        width = excluded.width,
+                        height = excluded.height,
+                        frame_count = excluded.frame_count,
+                        aggregate_pixels = excluded.aggregate_pixels;
+                    """;
+                AddImageContent(content, artifact);
+                _ = content.ExecuteNonQuery();
+            }
+
+            using (var insert = _database.Connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText =
+                    """
+                    INSERT INTO image_artifact (artifact_id, sha256, display_name, origin, created_at)
+                    VALUES ($artifact_id, $sha256, $display_name, $origin, $at)
+                    ON CONFLICT(artifact_id) DO NOTHING;
+                    """;
+                _ = insert.Parameters.AddWithValue("$artifact_id", artifact.ArtifactId);
+                _ = insert.Parameters.AddWithValue("$sha256", artifact.Sha256);
+                _ = insert.Parameters.AddWithValue("$display_name", artifact.DisplayName);
+                _ = insert.Parameters.AddWithValue("$origin", artifact.Origin);
+                _ = insert.Parameters.AddWithValue("$at", Timestamp());
+                _ = insert.ExecuteNonQuery();
+            }
+
+            var recorded = ResolveImageArtifact(transaction, artifact.ArtifactId)
+                ?? throw new InvalidOperationException("The image artifact was not recorded.");
+            if (recorded != artifact)
+            {
+                throw new InputConflictException($"image artifact {artifact.ArtifactId} was already recorded with different metadata");
+            }
+
+            using (var upload = _database.Connection.CreateCommand())
+            {
+                upload.Transaction = transaction;
+                upload.CommandText =
+                    "INSERT INTO image_upload (upload_id, artifact_id, created_at) VALUES ($upload_id, $artifact_id, $at);";
+                _ = upload.Parameters.AddWithValue("$upload_id", uploadId);
+                _ = upload.Parameters.AddWithValue("$artifact_id", artifact.ArtifactId);
+                _ = upload.Parameters.AddWithValue("$at", Timestamp());
+                _ = upload.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+            return recorded;
+        }
+    }
+
+    public ImageArtifactMetadata? ResolveImageArtifact(string artifactId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactId);
+        lock (_gate)
+        {
+            using var read = _database.Connection.CreateCommand();
+            read.CommandText = ImageArtifactSelect + " WHERE artifact.artifact_id = $artifact_id;";
+            _ = read.Parameters.AddWithValue("$artifact_id", artifactId);
+            using var reader = read.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            return new ImageArtifactMetadata(
+            (string)reader["artifact_id"],
+            (string)reader["sha256"],
+            (string)reader["media_type"],
+            Convert.ToInt64(reader["byte_length"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["width"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["height"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["frame_count"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt64(reader["aggregate_pixels"], System.Globalization.CultureInfo.InvariantCulture),
+            (string)reader["display_name"],
+            (string)reader["origin"]);
+        }
+    }
+
+    public void ClaimImageArtifact(string artifactId, string referenceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(referenceId);
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            using var claim = _database.Connection.CreateCommand();
+            claim.Transaction = transaction;
+            claim.CommandText =
+                "INSERT INTO image_artifact_reference (artifact_id, reference_id) SELECT artifact_id, $reference_id FROM image_artifact WHERE artifact_id = $artifact_id ON CONFLICT DO NOTHING;";
+            _ = claim.Parameters.AddWithValue("$artifact_id", artifactId);
+            _ = claim.Parameters.AddWithValue("$reference_id", referenceId);
+            if (claim.ExecuteNonQuery() == 0 && ResolveImageArtifact(transaction, artifactId) is null)
+            {
+                throw new FileNotFoundException("The image artifact does not exist.", artifactId);
+            }
+
+            transaction.Commit();
+        }
+    }
+
+    public void ReleaseImageArtifact(string artifactId, string referenceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifactId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(referenceId);
+        lock (_gate)
+        {
+            using var remove = _database.Connection.CreateCommand();
+            remove.CommandText = "DELETE FROM image_artifact_reference WHERE artifact_id = $artifact_id AND reference_id = $reference_id;";
+            _ = remove.Parameters.AddWithValue("$artifact_id", artifactId);
+            _ = remove.Parameters.AddWithValue("$reference_id", referenceId);
+            _ = remove.ExecuteNonQuery();
+        }
+    }
+
+    public IReadOnlyList<ImageArtifactMetadata> RemoveStaleUnreferencedImageArtifacts(DateTimeOffset before)
+    {
+        var artifacts = new List<ImageArtifactMetadata>();
+        lock (_gate)
+        {
+            using var transaction = _database.Begin();
+            using (var read = _database.Connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText = ImageArtifactSelect
+                    + " WHERE artifact.created_at < $before "
+                    + "AND NOT EXISTS (SELECT 1 FROM image_artifact_reference AS reference WHERE reference.artifact_id = artifact.artifact_id) "
+                    + "AND NOT EXISTS (SELECT 1 FROM input_part WHERE input_part.artifact_id = artifact.artifact_id) "
+                    + "AND NOT EXISTS (SELECT 1 FROM conversation_part WHERE conversation_part.artifact_id = artifact.artifact_id) "
+                    + "AND NOT EXISTS (SELECT 1 FROM tool_execution_result_part WHERE tool_execution_result_part.artifact_id = artifact.artifact_id);";
+                _ = read.Parameters.AddWithValue("$before", before.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+                using var reader = read.ExecuteReader();
+                while (reader.Read())
+                {
+                    artifacts.Add(ReadImageArtifact(reader));
+                }
+            }
+
+            foreach (var artifact in artifacts)
+            {
+                using (var uploads = _database.Connection.CreateCommand())
+                {
+                    uploads.Transaction = transaction;
+                    uploads.CommandText = "DELETE FROM image_upload WHERE artifact_id = $artifact_id;";
+                    _ = uploads.Parameters.AddWithValue("$artifact_id", artifact.ArtifactId);
+                    _ = uploads.ExecuteNonQuery();
+                }
+
+                using (var remove = _database.Connection.CreateCommand())
+                {
+                    remove.Transaction = transaction;
+                    remove.CommandText = "DELETE FROM image_artifact WHERE artifact_id = $artifact_id;";
+                    _ = remove.Parameters.AddWithValue("$artifact_id", artifact.ArtifactId);
+                    _ = remove.ExecuteNonQuery();
+                }
+
+                using var content = _database.Connection.CreateCommand();
+                content.Transaction = transaction;
+                content.CommandText =
+                    "DELETE FROM image_content WHERE sha256 = $sha256 "
+                    + "AND NOT EXISTS (SELECT 1 FROM image_artifact WHERE sha256 = $sha256);";
+                _ = content.Parameters.AddWithValue("$sha256", artifact.Sha256);
+                _ = content.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+
+        return artifacts;
     }
 
     // Spelt out rather than derived from the enum name: the column outlives any
@@ -534,6 +1015,54 @@ internal sealed class EventRepository(SessionDatabase database)
         "queue" => Delivery.Queue,
         _ => throw new InvalidOperationException($"the input table holds an unknown delivery {delivery}"),
     };
+
+    private static void AddImageContent(SqliteCommand command, ImageArtifactMetadata artifact)
+    {
+        _ = command.Parameters.AddWithValue("$sha256", artifact.Sha256);
+        _ = command.Parameters.AddWithValue("$media_type", artifact.MediaType);
+        _ = command.Parameters.AddWithValue("$byte_length", artifact.ByteLength);
+        _ = command.Parameters.AddWithValue("$width", artifact.Width);
+        _ = command.Parameters.AddWithValue("$height", artifact.Height);
+        _ = command.Parameters.AddWithValue("$frame_count", artifact.FrameCount);
+        _ = command.Parameters.AddWithValue("$aggregate_pixels", artifact.AggregatePixels);
+    }
+
+    private static void AddPart(SqliteCommand command, object owner, int position, ConversationPart part)
+    {
+        _ = command.Parameters.AddWithValue("$owner", owner);
+        _ = command.Parameters.AddWithValue("$position", position);
+        _ = command.Parameters.AddWithValue("$kind", PartText(part.Kind));
+        _ = command.Parameters.AddWithValue("$text", part.Text);
+        _ = command.Parameters.AddWithValue("$artifact", part.ArtifactId);
+        _ = command.Parameters.AddWithValue("$media", part.MediaType);
+        _ = command.Parameters.AddWithValue("$display", part.DisplayName);
+    }
+
+    private static string PartText(ConversationPartKind kind) => kind switch
+    {
+        ConversationPartKind.Text => "text",
+        ConversationPartKind.ImageArtifact => "image_artifact",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    private static ConversationPart ToPart(LLMContent content) => content.Kind switch
+    {
+        LLMContentKind.Text => ConversationPart.TextPart(content.Text),
+        LLMContentKind.Image => throw new InvalidOperationException("image bytes must be persisted as an artifact reference"),
+        _ => throw new ArgumentOutOfRangeException(nameof(content)),
+    };
+
+    private static ImageArtifactMetadata ReadImageArtifact(SqliteDataReader reader) => new(
+        (string)reader["artifact_id"],
+        (string)reader["sha256"],
+        (string)reader["media_type"],
+        Convert.ToInt64(reader["byte_length"], System.Globalization.CultureInfo.InvariantCulture),
+        Convert.ToInt32(reader["width"], System.Globalization.CultureInfo.InvariantCulture),
+        Convert.ToInt32(reader["height"], System.Globalization.CultureInfo.InvariantCulture),
+        Convert.ToInt32(reader["frame_count"], System.Globalization.CultureInfo.InvariantCulture),
+        Convert.ToInt64(reader["aggregate_pixels"], System.Globalization.CultureInfo.InvariantCulture),
+        (string)reader["display_name"],
+        (string)reader["origin"]);
 
     private static string Timestamp() =>
         DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
@@ -572,6 +1101,66 @@ internal sealed class EventRepository(SessionDatabase database)
         _ => throw new InvalidOperationException($"the todo table holds an unknown priority {priority}"),
     };
 
+    private static ConversationOrigin Origin(string role) => role switch
+    {
+        "system" => ConversationOrigin.System,
+        "user" => ConversationOrigin.UserInput,
+        "assistant" => ConversationOrigin.Model,
+        "tool" => ConversationOrigin.Tool,
+        _ => throw new InvalidOperationException($"unknown conversation role {role}"),
+    };
+
+    private static string OriginText(ConversationOrigin origin) => origin switch
+    {
+        ConversationOrigin.System => "system",
+        ConversationOrigin.UserInput => "user_input",
+        ConversationOrigin.Model => "model",
+        ConversationOrigin.Tool => "tool",
+        _ => throw new ArgumentOutOfRangeException(nameof(origin)),
+    };
+
+    private static ConversationOrigin ParseOrigin(string origin) => origin switch
+    {
+        "system" => ConversationOrigin.System,
+        "user_input" => ConversationOrigin.UserInput,
+        "model" => ConversationOrigin.Model,
+        "tool" => ConversationOrigin.Tool,
+        _ => throw new InvalidOperationException($"unknown conversation origin {origin}"),
+    };
+
+    private static LLMRole ParseRole(string role) => role switch
+    {
+        "system" => LLMRole.System,
+        "user" => LLMRole.User,
+        "assistant" => LLMRole.Assistant,
+        "tool" => LLMRole.Tool,
+        _ => throw new InvalidOperationException($"unknown conversation role {role}"),
+    };
+
+    private static ConversationPart ReadPart(SqliteDataReader reader) => (string)reader["kind"] switch
+    {
+        "text" => ConversationPart.TextPart((string)reader["text"]),
+        "image_artifact" => ConversationPart.ImageArtifact(
+            (string)reader["artifact_id"], (string)reader["media_type"], (string)reader["display_name"]),
+        var kind => throw new InvalidOperationException($"unknown conversation part kind {kind}"),
+    };
+
+    private static LLMMessage ToMessage(ConversationItem item)
+    {
+        if (item.Parts.Any(part => part.Kind == ConversationPartKind.ImageArtifact))
+        {
+            throw new InvalidOperationException("artifact references must be materialized before model history is read");
+        }
+
+        return new LLMMessage
+        {
+            Role = item.Role,
+            Contents = [.. item.Parts.Select(part => LLMContent.TextPart(part.Text))],
+            ToolCalls = item.ToolCalls,
+            ToolCallId = item.ToolCallId,
+        };
+    }
+
     private static LLMMessage Message(string role, string content) => role switch
     {
         "system" => LLMMessage.System(content),
@@ -589,9 +1178,82 @@ internal sealed class EventRepository(SessionDatabase database)
         _ => throw new ArgumentOutOfRangeException(nameof(role)),
     };
 
+    private static bool ToolTerminalsEqual(ToolExecutionTerminal left, ToolExecutionTerminal right) =>
+        left.ToolCallId == right.ToolCallId
+        && left.ToolName == right.ToolName
+        && left.Status == right.Status
+        && left.Message == right.Message
+        && left.ResultParts.SequenceEqual(right.ResultParts);
+
+    private static string ToolExecutionStatusText(ToolExecutionStatus status) => status switch
+    {
+        ToolExecutionStatus.Finished => "finished",
+        ToolExecutionStatus.Cancelled => "cancelled",
+        ToolExecutionStatus.Error => "error",
+        _ => throw new ArgumentOutOfRangeException(nameof(status)),
+    };
+
+    private static ToolExecutionStatus ParseToolExecutionStatus(string status) => status switch
+    {
+        "finished" => ToolExecutionStatus.Finished,
+        "cancelled" => ToolExecutionStatus.Cancelled,
+        "error" => ToolExecutionStatus.Error,
+        _ => throw new InvalidOperationException($"unknown tool execution status {status}"),
+    };
+
     // The three writes a promotion is -- the input settles, the conversation
     // gains the message, the event becomes durable -- in one transaction, so no
     // reader can see a promoted input whose message is missing (principle 9).
+    private ImageArtifactMetadata? ImageUpload(SqliteTransaction transaction, string uploadId)
+    {
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText = ImageArtifactSelect + " JOIN image_upload AS upload ON upload.artifact_id = artifact.artifact_id WHERE upload.upload_id = $upload_id;";
+        _ = read.Parameters.AddWithValue("$upload_id", uploadId);
+        using var reader = read.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        return new ImageArtifactMetadata(
+            (string)reader["artifact_id"],
+            (string)reader["sha256"],
+            (string)reader["media_type"],
+            Convert.ToInt64(reader["byte_length"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["width"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["height"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["frame_count"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt64(reader["aggregate_pixels"], System.Globalization.CultureInfo.InvariantCulture),
+            (string)reader["display_name"],
+            (string)reader["origin"]);
+    }
+
+    private ImageArtifactMetadata? ResolveImageArtifact(SqliteTransaction transaction, string artifactId)
+    {
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText = ImageArtifactSelect + " WHERE artifact.artifact_id = $artifact_id;";
+        _ = read.Parameters.AddWithValue("$artifact_id", artifactId);
+        using var reader = read.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        return new ImageArtifactMetadata(
+            (string)reader["artifact_id"],
+            (string)reader["sha256"],
+            (string)reader["media_type"],
+            Convert.ToInt64(reader["byte_length"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["width"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["height"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt32(reader["frame_count"], System.Globalization.CultureInfo.InvariantCulture),
+            Convert.ToInt64(reader["aggregate_pixels"], System.Globalization.CultureInfo.InvariantCulture),
+            (string)reader["display_name"],
+            (string)reader["origin"]);
+    }
+
     private List<Promotion> Promote(
         string agentSessionId, Delivery delivery, int limit, Func<AdmittedInput, Event> compose)
     {
@@ -610,7 +1272,7 @@ internal sealed class EventRepository(SessionDatabase database)
                 return [];
             }
 
-            using var transaction = database.Begin();
+            using var transaction = _database.Begin();
 
             // One instant for the whole commit. Three statements landing
             // atomically should not record three different times.
@@ -621,7 +1283,7 @@ internal sealed class EventRepository(SessionDatabase database)
             {
                 var published = compose(input);
 
-                using (var settle = database.Connection.CreateCommand())
+                using (var settle = _database.Connection.CreateCommand())
                 {
                     settle.Transaction = transaction;
                     settle.CommandText =
@@ -653,7 +1315,7 @@ internal sealed class EventRepository(SessionDatabase database)
     // serve both promotions rather than two literals that can drift apart.
     private List<AdmittedInput> Pending(string agentSessionId, Delivery delivery, int limit)
     {
-        using var read = database.Connection.CreateCommand();
+        using var read = _database.Connection.CreateCommand();
         read.CommandText =
             """
             SELECT id, message_id, content FROM input
@@ -664,22 +1326,22 @@ internal sealed class EventRepository(SessionDatabase database)
         _ = read.Parameters.AddWithValue("$delivery", Text(delivery));
         _ = read.Parameters.AddWithValue("$limit", limit);
 
-        var pending = new List<AdmittedInput>();
-
-        using var reader = read.ExecuteReader();
-
-        while (reader.Read())
+        var rows = new List<(string Id, string MessageId, string Content)>();
+        using (var reader = read.ExecuteReader())
         {
-            pending.Add(new AdmittedInput(
-                (string)reader["id"], (string)reader["message_id"], (string)reader["content"], delivery));
+            while (reader.Read())
+            {
+                rows.Add(((string)reader["id"], (string)reader["message_id"], (string)reader["content"]));
+            }
         }
 
-        return pending;
+        return [.. rows.Select(row => new AdmittedInput(
+            row.Id, row.MessageId, ReadInputParts(null, row.Id, row.Content), delivery))];
     }
 
     private AdmittedInput? Existing(SqliteTransaction transaction, string agentSessionId, string messageId)
     {
-        using var read = database.Connection.CreateCommand();
+        using var read = _database.Connection.CreateCommand();
         read.Transaction = transaction;
         read.CommandText =
             "SELECT id, content, delivery FROM input WHERE agent_session = $session AND message_id = $message;";
@@ -688,15 +1350,226 @@ internal sealed class EventRepository(SessionDatabase database)
 
         using var reader = read.ExecuteReader();
 
-        return reader.Read()
-            ? new AdmittedInput(
-                (string)reader["id"], messageId, (string)reader["content"], Parse((string)reader["delivery"]))
-            : null;
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        var inputId = (string)reader["id"];
+        var content = (string)reader["content"];
+        var delivery = Parse((string)reader["delivery"]);
+        reader.Close();
+        return new AdmittedInput(inputId, messageId, ReadInputParts(transaction, inputId, content), delivery);
+    }
+
+    private List<ConversationPart> ReadInputParts(SqliteTransaction? transaction, string inputId, string legacyContent)
+    {
+        var parts = new List<ConversationPart>();
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText = "SELECT kind, text, artifact_id, media_type, display_name FROM input_part WHERE input_id = $id ORDER BY position;";
+        _ = read.Parameters.AddWithValue("$id", inputId);
+        using var reader = read.ExecuteReader();
+        while (reader.Read())
+        {
+            parts.Add(ReadPart(reader));
+        }
+
+        return parts.Count == 0 ? [ConversationPart.TextPart(legacyContent)] : parts;
+    }
+
+    private void EnsureConversationProjection(SqliteTransaction transaction)
+    {
+        using var version = _database.Connection.CreateCommand();
+        version.Transaction = transaction;
+        version.CommandText = "SELECT version FROM projection_version WHERE name = $name;";
+        _ = version.Parameters.AddWithValue("$name", ConversationProjection);
+        var current = version.ExecuteScalar();
+        if (current is not null
+            && Convert.ToInt64(current, System.Globalization.CultureInfo.InvariantCulture)
+                >= ConversationProjectionVersion)
+        {
+            return;
+        }
+
+        using (var count = _database.Connection.CreateCommand())
+        {
+            count.Transaction = transaction;
+            count.CommandText = "SELECT COUNT(*) FROM conversation_item;";
+            if (Convert.ToInt64(count.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 0)
+            {
+                using var backfill = _database.Connection.CreateCommand();
+                backfill.Transaction = transaction;
+                backfill.CommandText =
+                    "INSERT INTO conversation_item (sequence, agent_session, origin, role, tool_call_id, created_at) "
+                    + "SELECT sequence, agent_session, CASE role WHEN 'system' THEN 'system' "
+                    + "WHEN 'user' THEN 'user_input' WHEN 'tool' THEN 'tool' ELSE 'model' END, "
+                    + "role, '', created_at FROM message ORDER BY sequence;";
+                _ = backfill.ExecuteNonQuery();
+
+                using var parts = _database.Connection.CreateCommand();
+                parts.Transaction = transaction;
+                parts.CommandText =
+                    "INSERT INTO conversation_part "
+                    + "(item_sequence, position, kind, text, artifact_id, media_type, display_name) "
+                    + "SELECT sequence, 0, 'text', content, '', '', '' FROM message ORDER BY sequence;";
+                _ = parts.ExecuteNonQuery();
+            }
+        }
+
+        using var mark = _database.Connection.CreateCommand();
+        mark.Transaction = transaction;
+        mark.CommandText = "INSERT OR REPLACE INTO projection_version (name, version) VALUES ($name, $version);";
+        _ = mark.Parameters.AddWithValue("$name", ConversationProjection);
+        _ = mark.Parameters.AddWithValue("$version", ConversationProjectionVersion);
+        _ = mark.ExecuteNonQuery();
+    }
+
+    private bool HasToolResult(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        long assistantSequence,
+        string toolCallId)
+    {
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT EXISTS (SELECT 1 FROM tool_batch_result "
+            + "WHERE agent_session = $session AND assistant_sequence = $assistant AND tool_call_id = $call);";
+        _ = read.Parameters.AddWithValue("$session", agentSessionId);
+        _ = read.Parameters.AddWithValue("$assistant", assistantSequence);
+        _ = read.Parameters.AddWithValue("$call", toolCallId);
+        return Convert.ToInt64(read.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
+    }
+
+    private bool HasToolSynthetic(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        long assistantSequence)
+    {
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT EXISTS (SELECT 1 FROM tool_batch_synthetic "
+            + "WHERE agent_session = $session AND assistant_sequence = $assistant);";
+        _ = read.Parameters.AddWithValue("$session", agentSessionId);
+        _ = read.Parameters.AddWithValue("$assistant", assistantSequence);
+        return Convert.ToInt64(read.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
+    }
+
+    private ToolExecutionTerminal? ReadToolTerminal(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        string toolCallId)
+    {
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT sequence, tool_name, status, message FROM tool_execution_terminal "
+            + "WHERE agent_session = $session AND tool_call_id = $call;";
+        _ = read.Parameters.AddWithValue("$session", agentSessionId);
+        _ = read.Parameters.AddWithValue("$call", toolCallId);
+        using var reader = read.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        var sequence = Convert.ToInt64(reader["sequence"], System.Globalization.CultureInfo.InvariantCulture);
+        return new ToolExecutionTerminal(
+            toolCallId,
+            (string)reader["tool_name"],
+            ParseToolExecutionStatus((string)reader["status"]),
+            ReadToolResultParts(transaction, sequence),
+            (string)reader["message"]);
+    }
+
+    private List<ConversationPart> ReadToolResultParts(SqliteTransaction transaction, long terminalSequence)
+    {
+        var parts = new List<ConversationPart>();
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT kind, text, artifact_id, media_type, display_name FROM tool_execution_result_part "
+            + "WHERE terminal_sequence = $sequence ORDER BY position;";
+        _ = read.Parameters.AddWithValue("$sequence", terminalSequence);
+        using var reader = read.ExecuteReader();
+        while (reader.Read())
+        {
+            parts.Add(ReadPart(reader));
+        }
+
+        return parts;
+    }
+
+    private List<ConversationItem> ReadConversation(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        long watermark)
+    {
+        var items = new List<ConversationItem>();
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT sequence, origin, role, tool_call_id FROM conversation_item "
+            + "WHERE agent_session = $session AND sequence > $watermark ORDER BY sequence;";
+        _ = read.Parameters.AddWithValue("$session", agentSessionId);
+        _ = read.Parameters.AddWithValue("$watermark", watermark);
+        using var reader = read.ExecuteReader();
+        while (reader.Read())
+        {
+            var sequence = Convert.ToInt64(reader["sequence"], System.Globalization.CultureInfo.InvariantCulture);
+            items.Add(new ConversationItem(
+                sequence,
+                ParseOrigin((string)reader["origin"]),
+                ParseRole((string)reader["role"]),
+                ReadParts(transaction, sequence),
+                ReadToolCalls(transaction, sequence),
+                (string)reader["tool_call_id"]));
+        }
+
+        return items;
+    }
+
+    private List<ConversationPart> ReadParts(SqliteTransaction transaction, long sequence)
+    {
+        var parts = new List<ConversationPart>();
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT kind, text, artifact_id, media_type, display_name FROM conversation_part "
+            + "WHERE item_sequence = $sequence ORDER BY position;";
+        _ = read.Parameters.AddWithValue("$sequence", sequence);
+        using var reader = read.ExecuteReader();
+        while (reader.Read())
+        {
+            parts.Add(ReadPart(reader));
+        }
+
+        return parts;
+    }
+
+    private List<LLMToolCall> ReadToolCalls(SqliteTransaction transaction, long sequence)
+    {
+        var calls = new List<LLMToolCall>();
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT id, name, arguments FROM conversation_tool_call "
+            + "WHERE item_sequence = $sequence ORDER BY position;";
+        _ = read.Parameters.AddWithValue("$sequence", sequence);
+        using var reader = read.ExecuteReader();
+        while (reader.Read())
+        {
+            calls.Add(new LLMToolCall((string)reader["id"], (string)reader["name"], (string)reader["arguments"]));
+        }
+
+        return calls;
     }
 
     private void EnsureUsageProjection(SqliteTransaction transaction)
     {
-        using (var version = database.Connection.CreateCommand())
+        using (var version = _database.Connection.CreateCommand())
         {
             version.Transaction = transaction;
             version.CommandText = "SELECT version FROM projection_version WHERE name = $name;";
@@ -710,7 +1583,7 @@ internal sealed class EventRepository(SessionDatabase database)
         }
 
         var latest = new Dictionary<string, (long Revision, AgentStatisticsUpdatedEvent Statistics)>(StringComparer.Ordinal);
-        using (var read = database.Connection.CreateCommand())
+        using (var read = _database.Connection.CreateCommand())
         {
             read.Transaction = transaction;
             read.CommandText = "SELECT sequence, agent_session, payload FROM event ORDER BY sequence;";
@@ -728,7 +1601,7 @@ internal sealed class EventRepository(SessionDatabase database)
             }
         }
 
-        using (var clear = database.Connection.CreateCommand())
+        using (var clear = _database.Connection.CreateCommand())
         {
             clear.Transaction = transaction;
             clear.CommandText = "DELETE FROM agent_usage;";
@@ -740,7 +1613,7 @@ internal sealed class EventRepository(SessionDatabase database)
             ProjectUsage(transaction, agentSessionId, entry.Revision, entry.Statistics);
         }
 
-        using var mark = database.Connection.CreateCommand();
+        using var mark = _database.Connection.CreateCommand();
         mark.Transaction = transaction;
         mark.CommandText =
             "INSERT OR REPLACE INTO projection_version (name, version) VALUES ($name, $version);";
@@ -755,7 +1628,7 @@ internal sealed class EventRepository(SessionDatabase database)
         long revision,
         AgentStatisticsUpdatedEvent statistics)
     {
-        using var upsert = database.Connection.CreateCommand();
+        using var upsert = _database.Connection.CreateCommand();
         upsert.Transaction = transaction;
         upsert.CommandText =
             """
@@ -790,7 +1663,7 @@ internal sealed class EventRepository(SessionDatabase database)
     private SessionUsage CaptureUsage(SqliteTransaction transaction)
     {
         string? mainAgentSessionId;
-        using (var main = database.Connection.CreateCommand())
+        using (var main = _database.Connection.CreateCommand())
         {
             main.Transaction = transaction;
             main.CommandText = "SELECT agent_session FROM session_state LIMIT 1;";
@@ -805,7 +1678,7 @@ internal sealed class EventRepository(SessionDatabase database)
         long contextLimit = 0;
         double inputCost = 0;
         double outputCost = 0;
-        using var read = database.Connection.CreateCommand();
+        using var read = _database.Connection.CreateCommand();
         read.Transaction = transaction;
         read.CommandText =
             """
@@ -850,7 +1723,7 @@ internal sealed class EventRepository(SessionDatabase database)
 
     private long Record(SqliteTransaction transaction, Event published)
     {
-        using var insert = database.Connection.CreateCommand();
+        using var insert = _database.Connection.CreateCommand();
         insert.Transaction = transaction;
         insert.CommandText =
             "INSERT INTO event (id, agent_session, payload, created_at) VALUES ($id, $session, $payload, $at);";
@@ -860,22 +1733,227 @@ internal sealed class EventRepository(SessionDatabase database)
         _ = insert.Parameters.AddWithValue("$at", Timestamp());
         _ = insert.ExecuteNonQuery();
 
-        using var sequence = database.Connection.CreateCommand();
+        using var sequence = _database.Connection.CreateCommand();
         sequence.Transaction = transaction;
         sequence.CommandText = "SELECT last_insert_rowid();";
         return Convert.ToInt64(sequence.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private void Project(SqliteTransaction transaction, string agentSessionId, string role, string content)
+    private void Project(SqliteTransaction transaction, string agentSessionId, string role, string content) =>
+        Project(transaction, agentSessionId, Message(role, content), Origin(role));
+
+    private long Project(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        ConversationOrigin origin,
+        LLMRole role,
+        IReadOnlyList<ConversationPart> parts,
+        IReadOnlyList<LLMToolCall> toolCalls,
+        string toolCallId)
     {
-        using var project = database.Connection.CreateCommand();
-        project.Transaction = transaction;
-        project.CommandText =
-            "INSERT INTO message (agent_session, role, content, created_at) VALUES ($session, $role, $content, $at);";
-        _ = project.Parameters.AddWithValue("$session", agentSessionId);
-        _ = project.Parameters.AddWithValue("$role", role);
-        _ = project.Parameters.AddWithValue("$content", content);
-        _ = project.Parameters.AddWithValue("$at", Timestamp());
-        _ = project.ExecuteNonQuery();
+        EnsureConversationProjection(transaction);
+        var createdAt = Timestamp();
+        using (var legacy = _database.Connection.CreateCommand())
+        {
+            legacy.Transaction = transaction;
+            legacy.CommandText =
+                "INSERT INTO message (agent_session, role, content, created_at) VALUES ($session, $role, $content, $at);";
+            _ = legacy.Parameters.AddWithValue("$session", agentSessionId);
+            _ = legacy.Parameters.AddWithValue("$role", Text(role));
+            _ = legacy.Parameters.AddWithValue("$content", string.Concat(
+                parts.Where(part => part.Kind == ConversationPartKind.Text).Select(part => part.Text)));
+            _ = legacy.Parameters.AddWithValue("$at", createdAt);
+            _ = legacy.ExecuteNonQuery();
+        }
+
+        var sequence = InsertConversationItem(transaction, agentSessionId, origin, role, toolCallId, createdAt);
+        InsertConversationParts(transaction, sequence, parts);
+        InsertToolCalls(transaction, sequence, toolCalls);
+        return sequence;
+    }
+
+    private void Project(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        LLMMessage message,
+        ConversationOrigin origin)
+    {
+        EnsureConversationProjection(transaction);
+        var createdAt = Timestamp();
+        using (var legacy = _database.Connection.CreateCommand())
+        {
+            legacy.Transaction = transaction;
+            legacy.CommandText =
+                "INSERT INTO message (agent_session, role, content, created_at) VALUES ($session, $role, $content, $at);";
+            _ = legacy.Parameters.AddWithValue("$session", agentSessionId);
+            _ = legacy.Parameters.AddWithValue("$role", Text(message.Role));
+            _ = legacy.Parameters.AddWithValue("$content", message.Content);
+            _ = legacy.Parameters.AddWithValue("$at", createdAt);
+            _ = legacy.ExecuteNonQuery();
+        }
+
+        var itemSequence = InsertConversationItem(
+            transaction, agentSessionId, origin, message.Role, message.ToolCallId, createdAt);
+        InsertConversationParts(transaction, itemSequence, [.. message.Contents.Select(ToPart)]);
+        InsertToolCalls(transaction, itemSequence, message.ToolCalls);
+    }
+
+    private long InsertConversationItem(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        ConversationOrigin origin,
+        LLMRole role,
+        string toolCallId,
+        string createdAt)
+    {
+        using var item = _database.Connection.CreateCommand();
+        item.Transaction = transaction;
+        item.CommandText =
+            "INSERT INTO conversation_item (agent_session, origin, role, tool_call_id, created_at) "
+            + "VALUES ($session, $origin, $role, $tool, $at);";
+        _ = item.Parameters.AddWithValue("$session", agentSessionId);
+        _ = item.Parameters.AddWithValue("$origin", OriginText(origin));
+        _ = item.Parameters.AddWithValue("$role", Text(role));
+        _ = item.Parameters.AddWithValue("$tool", toolCallId);
+        _ = item.Parameters.AddWithValue("$at", createdAt);
+        _ = item.ExecuteNonQuery();
+        using var sequence = _database.Connection.CreateCommand();
+        sequence.Transaction = transaction;
+        sequence.CommandText = "SELECT last_insert_rowid();";
+        return Convert.ToInt64(sequence.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private void InsertInputParts(
+        SqliteTransaction transaction,
+        string inputId,
+        IReadOnlyList<ConversationPart> parts)
+    {
+        for (var position = 0; position < parts.Count; position++)
+        {
+            using var insert = _database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText =
+                "INSERT INTO input_part "
+                + "(input_id, position, kind, text, artifact_id, media_type, display_name) "
+                + "VALUES ($owner, $position, $kind, $text, $artifact, $media, $display);";
+            AddPart(insert, inputId, position, parts[position]);
+            _ = insert.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertToolResult(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        long assistantSequence,
+        ToolExecutionTerminal terminal)
+    {
+        var resultParts = terminal.ResultParts
+            .Where(part => part.Kind == ConversationPartKind.Text)
+            .ToArray();
+        if (resultParts.Length == 0)
+        {
+            resultParts = [ConversationPart.TextPart(terminal.Message)];
+        }
+
+        var sequence = Project(
+            transaction,
+            agentSessionId,
+            ConversationOrigin.Tool,
+            LLMRole.Tool,
+            resultParts,
+            [],
+            terminal.ToolCallId);
+        using var insert = _database.Connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText =
+            "INSERT INTO tool_batch_result (agent_session, assistant_sequence, tool_call_id, item_sequence) "
+            + "VALUES ($session, $assistant, $call, $item);";
+        _ = insert.Parameters.AddWithValue("$session", agentSessionId);
+        _ = insert.Parameters.AddWithValue("$assistant", assistantSequence);
+        _ = insert.Parameters.AddWithValue("$call", terminal.ToolCallId);
+        _ = insert.Parameters.AddWithValue("$item", sequence);
+        _ = insert.ExecuteNonQuery();
+    }
+
+    private void InsertToolTerminal(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        ToolExecutionTerminal terminal)
+    {
+        using var insert = _database.Connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText =
+            "INSERT INTO tool_execution_terminal (agent_session, tool_call_id, tool_name, status, message, created_at) "
+            + "VALUES ($session, $call, $tool, $status, $message, $at);";
+        _ = insert.Parameters.AddWithValue("$session", agentSessionId);
+        _ = insert.Parameters.AddWithValue("$call", terminal.ToolCallId);
+        _ = insert.Parameters.AddWithValue("$tool", terminal.ToolName);
+        _ = insert.Parameters.AddWithValue("$status", ToolExecutionStatusText(terminal.Status));
+        _ = insert.Parameters.AddWithValue("$message", terminal.Message);
+        _ = insert.Parameters.AddWithValue("$at", Timestamp());
+        _ = insert.ExecuteNonQuery();
+        using var sequence = _database.Connection.CreateCommand();
+        sequence.Transaction = transaction;
+        sequence.CommandText = "SELECT last_insert_rowid();";
+        var terminalSequence = Convert.ToInt64(
+            sequence.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+        InsertToolResultParts(transaction, terminalSequence, terminal.ResultParts);
+    }
+
+    private void InsertToolResultParts(
+        SqliteTransaction transaction,
+        long terminalSequence,
+        IReadOnlyList<ConversationPart> parts)
+    {
+        for (var position = 0; position < parts.Count; position++)
+        {
+            using var insert = _database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText =
+                "INSERT INTO tool_execution_result_part "
+                + "(terminal_sequence, position, kind, text, artifact_id, media_type, display_name) "
+                + "VALUES ($owner, $position, $kind, $text, $artifact, $media, $display);";
+            AddPart(insert, terminalSequence, position, parts[position]);
+            _ = insert.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertConversationParts(
+        SqliteTransaction transaction,
+        long sequence,
+        IReadOnlyList<ConversationPart> parts)
+    {
+        for (var position = 0; position < parts.Count; position++)
+        {
+            using var insert = _database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText =
+                "INSERT INTO conversation_part "
+                + "(item_sequence, position, kind, text, artifact_id, media_type, display_name) "
+                + "VALUES ($owner, $position, $kind, $text, $artifact, $media, $display);";
+            AddPart(insert, sequence, position, parts[position]);
+            _ = insert.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertToolCalls(
+        SqliteTransaction transaction,
+        long sequence,
+        IReadOnlyList<LLMToolCall> calls)
+    {
+        for (var position = 0; position < calls.Count; position++)
+        {
+            using var insert = _database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText =
+                "INSERT INTO conversation_tool_call (item_sequence, position, id, name, arguments) "
+                + "VALUES ($sequence, $position, $id, $name, $arguments);";
+            _ = insert.Parameters.AddWithValue("$sequence", sequence);
+            _ = insert.Parameters.AddWithValue("$position", position);
+            _ = insert.Parameters.AddWithValue("$id", calls[position].Id);
+            _ = insert.Parameters.AddWithValue("$name", calls[position].Name);
+            _ = insert.Parameters.AddWithValue("$arguments", calls[position].ArgumentsJson);
+            _ = insert.ExecuteNonQuery();
+        }
     }
 }

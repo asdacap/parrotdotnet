@@ -4,6 +4,7 @@ namespace Parrot.Tools;
 
 [JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(ReadTool.Input), TypeInfoPropertyName = "ReadToolInput")]
+[JsonSerializable(typeof(ReadImageTool.Input), TypeInfoPropertyName = "ReadImageToolInput")]
 [JsonSerializable(typeof(GlobTool.Input), TypeInfoPropertyName = "GlobToolInput")]
 [JsonSerializable(typeof(GrepTool.Input), TypeInfoPropertyName = "GrepToolInput")]
 [JsonSerializable(typeof(WebFetchTool.Input), TypeInfoPropertyName = "WebFetchToolInput")]

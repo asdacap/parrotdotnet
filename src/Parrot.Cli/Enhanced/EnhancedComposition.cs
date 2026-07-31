@@ -19,6 +19,7 @@ internal partial class EnhancedComposition
             .Arg<IReadOnlyList<string>>("providerIds")
             .Arg<EnhancedChatRequest>("request")
             .Arg<ITerminal>("terminal")
+            .Arg<PromptAttachmentUploader>("attachments")
             .Bind<Func<TimeSpan, CancellationToken, Task>>()
             .To<Func<TimeSpan, CancellationToken, Task>>(
                 static _ => static (delay, cancellationToken) => Task.Delay(delay, cancellationToken))

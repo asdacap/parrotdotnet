@@ -48,6 +48,7 @@
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Grpc.Core.Api" />
     <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+    <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 
   <ItemGroup>

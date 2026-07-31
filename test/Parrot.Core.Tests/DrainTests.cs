@@ -137,7 +137,7 @@ internal sealed class DrainTests : IDisposable
         // already running rather than starting one of its own.
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
         _ = await Assert.That(Conversation(repository))
-            .IsEqualTo("user: first prompt | user: steer | assistant: done");
+            .IsEqualTo("user: first prompt | assistant:  | tool: settled | user: steer | assistant: done");
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | steer");
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
             "started:call-1:settled | finished:call-1:settled");
@@ -157,7 +157,7 @@ internal sealed class DrainTests : IDisposable
         foreach (var result in new[] { string.Empty, inline, new string('x', ToolOutputBlobStore.MaximumInlineBytes + 1), oversized })
         {
             using var provider = new SteppedProvider(
-                Answer(string.Empty, new LLMToolCall("call", "settled", "{}")), Answer("done"));
+                Answer(string.Empty, new LLMToolCall($"call-{result.Length}", "settled", "{}")), Answer("done"));
             var repository = new EventRepository(_database);
             var session = Session(provider, repository, [new FixedToolFactory(new SettledTool(result))], cancellationToken);
 
@@ -182,7 +182,7 @@ internal sealed class DrainTests : IDisposable
             _ = await Assert.That(finished.Result).DoesNotContain("界界界");
             var path = BlobPath(finished.Result);
             _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo(result);
-            var toolResult = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.Tool);
+            var toolResult = provider.Requests[1].Messages.Last(message => message.Role == LLMRole.Tool);
             _ = await Assert.That(toolResult.Content).IsEqualTo(finished.Result);
         }
     }
@@ -409,7 +409,8 @@ internal sealed class DrainTests : IDisposable
 
         _ = await Assert.That(Endings(repository)).IsEqualTo("stop | stop");
         _ = await Assert.That(Conversation(repository)).IsEqualTo(
-            "user: first prompt | assistant: first answer | user: queued prompt | assistant: queued answer");
+            "user: first prompt | assistant:  | tool: settled | assistant: first answer | "
+            + "user: queued prompt | assistant: queued answer");
     }
 
     [Test]

@@ -31,10 +31,21 @@ internal static class ResponsesAdapter
             var role = message.Role == LLMRole.System ? "developer" : RoleName(message.Role);
             var content = new List<ContentPart>();
 
-            if (message.Content.Length > 0)
+            foreach (var part in message.Contents)
             {
-                var partType = message.Role == LLMRole.Assistant ? "output_text" : "input_text";
-                content.Add(new ContentPart { Type = partType, Text = message.Content });
+                if (part.Kind == LLMContentKind.Image)
+                {
+                    content.Add(new ContentPart
+                    {
+                        Type = "input_image",
+                        ImageUrl = DataUrl(part),
+                    });
+                }
+                else if (part.Text.Length > 0)
+                {
+                    var partType = message.Role == LLMRole.Assistant ? "output_text" : "input_text";
+                    content.Add(new ContentPart { Type = partType, Text = part.Text });
+                }
             }
 
             if (content.Count > 0 || message.ToolCalls.Count == 0)
@@ -301,6 +312,9 @@ internal static class ResponsesAdapter
         return "incomplete";
     }
 
+    private static string DataUrl(LLMContent content) =>
+        $"data:{content.MediaType};base64,{Convert.ToBase64String(content.Image)}";
+
     private static JsonElement ParseSchema(string schema)
     {
         using var document = JsonDocument.Parse(schema.Length > 0 ? schema : "{}");
@@ -410,7 +424,10 @@ internal static class ResponsesAdapter
         public required string Type { get; init; }
 
         [JsonPropertyName("text")]
-        public required string Text { get; init; }
+        public string? Text { get; init; }
+
+        [JsonPropertyName("image_url")]
+        public string? ImageUrl { get; init; }
     }
 
     internal sealed class FunctionTool

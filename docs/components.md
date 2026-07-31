@@ -124,6 +124,39 @@ task lifecycle events. Upstream tests asserting task parentage are rewritten
 against session parentage rather than deleted — the behaviour still exists, it
 is attributed differently.
 
+### Image attachments are session-owned structured content
+
+**Input and transcript.** A prompt is an ordered `MessageContentPart` sequence, not a
+string with image paths embedded in it. Text and image parts retain their original
+order. Image bytes are stored once in the owning user session's private attachment
+root; the durable transcript stores the artifact reference and immutable inspected
+metadata, never base64 image data or a workspace path. A live provider request may
+materialize those referenced parts, bounded to 40 MiB of image context and 64 MiB of
+outbound JSON.
+
+**Ownership and security.** An attachment belongs to the user session that accepted
+its upload. Only that session's agents and provider execution may dereference it;
+agent sessions never receive a capability to another user session's attachment root.
+The root is subject to the same mandatory protected-root policy as the database and
+blobs, so filesystem tools cannot read or write it by path. Upload authorization is
+admission to the target user session, not a filesystem permission. Artifacts are
+removed only with their owning user session.
+
+**Supported input.** PNG, JPEG, GIF, and WebP are accepted. Animation is bounded and
+preserved as frames for provider adaptation. Each image is at most 5 MiB encoded,
+8,192 pixels in either dimension, 40 megapixels per frame, 100 frames, and 100
+megapixels decoded across its frames. A prompt or tool-produced image batch has at
+most 16 images and 20 MiB of encoded data in aggregate. Validation inspects the
+claimed format and decoded frame metadata before the artifact becomes usable; an
+extension or MIME declaration never decides safety.
+
+**Synthetic user images.** A tool that produces an image does not inject opaque
+provider-specific text or a private artifact path into an assistant result. The
+runtime records a synthetic user message whose ordered content contains the image
+artifact reference, so subsequent turns see the same structured convention as an
+uploaded user image. The synthetic message is session-scoped, durable, and rendered
+as user content; it cannot be used to attach a foreign-session artifact.
+
 ### Tool execution has typed lifecycle events
 
 **Upstream.** Tool execution state is rendered from task lifecycle events.
@@ -265,6 +298,22 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Note** WAL is forbidden, not discouraged: `-shm` is memory-mapped and two
   hosts mapping it get incoherent private views. A test asserts no `-shm` or
   `-wal` ever appears under the state directory.
+
+### `ImageArtifactStore` — rank 2, image support
+
+- **Owns** session-private encoded image artifacts, their content-addressed identity,
+  inspected format/frame metadata, and references held by durable transcript parts.
+- **Inbound** accept a validated streamed upload; stage and atomically promote its
+  artifact; resolve a referenced image only for the owning user session's transcript
+  or provider adapter; release it with the owning session. It accepts PNG, JPEG, GIF,
+  and WebP subject to the attachment limits stated above.
+- **Outbound** the owning `UserSession` private root and `SessionDatabase` for
+  metadata/reference transactions.
+- **Boundary** no. The upload RPC and provider adapters are its transport adapters;
+  callers never receive a general attachment-root path.
+- **Note** deduplication may occur only within the owning user session. A digest is
+  not an authorization capability and must never make another session's artifact
+  discoverable.
 
 ### `EventRepository` — rank 2, M2
 
@@ -879,6 +928,22 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 
 ## Transport
 
+### `AttachmentUploadProtocol` — rank 11, image support
+
+- **Owns** no image state. It translates client-streamed `AttachmentUploadFrame`
+  messages into one `ImageArtifactStore` admission and returns an
+  `AttachmentUploadResponse` reference for later `MessageContentPart` use.
+- **Inbound** `UploadAttachment` is client-streaming. Frames carry at most 1 MiB;
+  the protocol rejects malformed ordering, a missing final description, a foreign
+  session, or any aggregate that cannot satisfy the image limits before accepting an
+  artifact. Retrying after an interrupted stream is a new upload unless its admitted
+  artifact reference was received.
+- **Outbound** `UserSession` admission and `ImageArtifactStore`. It does not expose
+  an artifact filesystem path, bytes from another session, or a cross-session lookup.
+- **Boundary** yes — the wire upload surface. `SendMessage` accepts structured,
+  ordered `MessageContentPart` values referencing successful uploads, not base64
+  images embedded in text.
+
 ### `ParrotService` — rank 11, M1
 
 - **Absorbs** `api/v1`, `httpapi` (backend half), re-specified as a `.proto`.
@@ -995,6 +1060,21 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   descendant; the process exits when it returns.
 - **Outbound** `ParrotApplication`, `BasicCli`, `EnhancedCli`, `GrpcServer`.
 - **Boundary** no.
+
+### `ImageInputSyntax` — rank 13, image support
+
+- **Owns** parsing the interactive CLI's local image references before prompt
+  admission. `@path` attaches one path without spaces; `@{path with spaces}`
+  attaches the enclosed path; and `@@` emits one literal `@`. These forms are local
+  input syntax, not text sent to the model.
+- **Inbound** interactive and one-shot prompt text. Paths are read under the active
+  filesystem security profile, uploaded through `UploadAttachment`, and replaced by
+  the returned image `MessageContentPart` at the same position in the ordered input.
+  An unreadable, invalid, or over-limit image rejects the submission rather than
+  silently sending its spelling as ordinary text.
+- **Outbound** `AttachmentUploadProtocol` and `SendMessage` structured content.
+- **Boundary** no. Basic and Enhanced each adapt the same syntax to their own input
+  mechanics; neither stores image bytes or interprets private artifact paths.
 
 ### `BasicCli` — rank 13, M1
 

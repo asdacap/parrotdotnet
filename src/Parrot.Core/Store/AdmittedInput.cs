@@ -8,4 +8,17 @@ namespace Parrot.Store;
 // promotes it: the id names it in the events, the message id is the sender's
 // and is what makes admission idempotent, and the delivery decides which
 // boundary promotes it.
-internal sealed record AdmittedInput(string Id, string MessageId, string Content, Delivery Delivery);
+internal sealed record AdmittedInput(
+    string Id,
+    string MessageId,
+    IReadOnlyList<ConversationPart> Parts,
+    Delivery Delivery)
+{
+    public AdmittedInput(string id, string messageId, string content, Delivery delivery)
+        : this(id, messageId, [ConversationPart.TextPart(content)], delivery)
+    {
+    }
+
+    public string Content => string.Concat(
+        Parts.Where(part => part.Kind == ConversationPartKind.Text).Select(part => part.Text));
+}

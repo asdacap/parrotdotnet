@@ -166,6 +166,32 @@ inherited write capability. Legacy `profiles.<id>.status` input is accepted and
 ignored for compatibility. It is not profile guidance and is never injected
 into a prompt.
 
+## Image attachments
+
+Parrot accepts PNG, JPEG, GIF, and WebP image attachments, including bounded
+animation. An image may be up to 5 MiB encoded, 8,192 pixels on either axis, 40
+megapixels per frame, 100 frames, and 100 megapixels decoded across all frames. A
+prompt or tool image batch may contain at most 16 images and 20 MiB encoded in total.
+Provider adaptation is additionally bounded to 40 MiB of live image context and 64
+MiB of outbound JSON.
+
+The client uploads an image through the client-streaming `UploadAttachment` RPC.
+Each `AttachmentUploadFrame` is at most 1 MiB; `AttachmentUploadResponse` returns a
+session-scoped artifact reference. A sent prompt is an ordered sequence of structured
+`MessageContentPart` text and image values, so transcript order is preserved without
+embedding base64 image data in prompt text. The image bytes and inspected metadata
+live in the owning user session's private attachment store. They are subject to the
+same protected-root and user-session isolation rules as other private artifacts; an
+artifact reference or digest does not authorize another session to access it.
+
+In either CLI, `@path` attaches an image at a path without spaces, and
+`@{path with spaces}` attaches an enclosed path. Use `@@` for one literal `@`.
+These are local input forms: the CLI reads the permitted path, uploads it, and sends
+an image content part in its place. Invalid, unreadable, unsupported, or over-limit
+images reject the submission rather than being silently sent as text. Tool-produced
+images enter later context as synthetic user image parts, never as a private path or
+provider-specific text.
+
 ## Write permission requests
 
 `request_write_permission` is the only way an agent can ask the user to extend

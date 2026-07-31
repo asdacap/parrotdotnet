@@ -1,11 +1,20 @@
 using Parrot.Process;
+using Parrot.Store;
 
 namespace Parrot.Tools;
 
-internal sealed record ToolExecutionResult(string Text, YieldedShellProcess? YieldedProcess)
+internal sealed record ToolExecutionResult(
+    string Text,
+    YieldedShellProcess? YieldedProcess,
+    IReadOnlyList<ImageArtifactMetadata> ImageArtifacts)
 {
     public ToolExecutionResult(string text)
-        : this(text, null)
+        : this(text, null, [])
+    {
+    }
+
+    public ToolExecutionResult(string text, YieldedShellProcess? yieldedProcess)
+        : this(text, yieldedProcess, [])
     {
     }
 

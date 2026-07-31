@@ -1,7 +1,9 @@
+using Parrot.Agent;
 using Parrot.Auth;
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
+using Parrot.Tools;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Tests;
@@ -101,15 +103,17 @@ internal sealed class CliLifecycleDriver : IDisposable
                 terminal,
                 presenters,
                 renderer,
-                _delaySubmit).Run(cancellationToken);
+                _delaySubmit,
+                Attachments(configuration)).Run(cancellationToken);
         }
 
+        var basicConfiguration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         return new BasicCli(
                 client,
                 Interrupts,
                 new UnusedCredentials(),
                 new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-                new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+                basicConfiguration,
                 ["provider"],
                 "provider/model",
                 "build",
@@ -117,7 +121,8 @@ internal sealed class CliLifecycleDriver : IDisposable
                 false,
                 Input,
                 _output,
-                _error).Run(cancellationToken);
+                _error,
+                Attachments(basicConfiguration)).Run(cancellationToken);
     }
 
     public void Dispose()
@@ -128,6 +133,22 @@ internal sealed class CliLifecycleDriver : IDisposable
         Http.Dispose();
         Stopping.Dispose();
     }
+
+    private static PromptAttachmentUploader Attachments(Configuration configuration)
+    {
+        var profiles = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
+        {
+            [ModeRegistry.Build] = Profile(),
+            [ModeRegistry.Plan] = Profile(),
+            [ModeRegistry.Query] = Profile(),
+        };
+        var registry = new ProfileRegistry(profiles, [], [], configuration.DisabledTools);
+        return new PromptAttachmentUploader(
+            new ToolWorkspace(Directory.GetCurrentDirectory()),
+            new ModeRegistry(registry, ModeRegistry.Build));
+    }
+
+    private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, []);
 
     private sealed class SynchronizedStringWriter : StringWriter
     {

@@ -62,7 +62,7 @@ internal sealed class AgentSession(
 
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
-    private readonly List<LLMMessage> _history = [.. eventRepository.ModelHistory(identity.SessionId)];
+    private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
 
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
@@ -154,6 +154,8 @@ internal sealed class AgentSession(
     public async Task<Admission> Admit(
         string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
         (await AdmitAndWake(text, messageId, delivery, cancellationToken).ConfigureAwait(false)).Admission;
+
+    public void Recover() => _ = Wake(incomingAvailable: false);
 
     // Stops the turn in flight and returns once the drain has unwound, so a
     // caller that sends again cannot race the turn it just stopped.
@@ -315,9 +317,16 @@ internal sealed class AgentSession(
     }
 
     internal async Task<(Admission Admission, bool FollowUp)> Send(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
+        await Send([ConversationPart.TextPart(text)], messageId, delivery, cancellationToken).ConfigureAwait(false);
+
+    internal async Task<(Admission Admission, bool FollowUp)> Send(
+        IReadOnlyList<ConversationPart> parts,
+        string messageId,
+        Delivery delivery,
+        CancellationToken cancellationToken)
     {
-        var admitted = await AdmitAndWake(text, messageId, delivery, cancellationToken).ConfigureAwait(false);
+        var admitted = await AdmitAndWake(parts, messageId, delivery, cancellationToken).ConfigureAwait(false);
         return (admitted.Admission, admitted.FollowUp);
     }
 
@@ -558,6 +567,37 @@ internal sealed class AgentSession(
         return value[..characters];
     }
 
+    private static List<LLMMessage> RestoreHistory(EventRepository repository, string agentSessionId)
+    {
+        var snapshot = repository.Compaction(agentSessionId);
+        var history = new List<LLMMessage>();
+        if (snapshot is not null)
+        {
+            history.Add(LLMMessage.System(snapshot.Summary));
+        }
+
+        var items = snapshot is null
+            ? repository.Conversation(agentSessionId)
+            : repository.ConversationAfter(agentSessionId, snapshot.Watermark);
+        history.AddRange(items.Select(item => RestoreMessage(repository, item)));
+        return history;
+    }
+
+    private static LLMMessage RestoreMessage(EventRepository repository, ConversationItem item) => new()
+    {
+        Role = item.Role,
+        Contents = repository.Materialize(item.Parts),
+        ToolCalls = item.ToolCalls,
+        ToolCallId = item.ToolCallId,
+    };
+
+    private static MessageContentPart ToProtocol(ConversationPart part) => part.Kind switch
+    {
+        ConversationPartKind.Text => new MessageContentPart { Text = part.Text },
+        ConversationPartKind.ImageArtifact => new MessageContentPart { ArtifactId = part.ArtifactId },
+        _ => throw new InvalidOperationException($"unsupported conversation part {part.Kind}"),
+    };
+
     private WaitAgentResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
         completed.Status switch
         {
@@ -661,24 +701,37 @@ internal sealed class AgentSession(
     }
 
     private async Task<(Admission Admission, bool FollowUp, Task<AgentExecution> SelectedDrain)> AdmitAndWake(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken)
+        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
+        await AdmitAndWake([ConversationPart.TextPart(text)], messageId, delivery, cancellationToken)
+            .ConfigureAwait(false);
+
+    private async Task<(Admission Admission, bool FollowUp, Task<AgentExecution> SelectedDrain)> AdmitAndWake(
+        IReadOnlyList<ConversationPart> parts,
+        string messageId,
+        Delivery delivery,
+        CancellationToken cancellationToken)
     {
         var admission = eventRepository.Admit(
             SessionId,
             messageId,
-            text,
+            parts,
             delivery,
-            input => new Event
+            input =>
             {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                InputAdmitted = new InputAdmitted
+                var admitted = new InputAdmitted
                 {
                     InputId = input.Id,
                     MessageId = input.MessageId,
                     Content = input.Content,
                     Delivery = input.Delivery,
-                },
+                };
+                admitted.Parts.AddRange(input.Parts.Select(ToProtocol));
+                return new Event
+                {
+                    Id = Identifier.EventId(),
+                    AgentSessionId = SessionId,
+                    InputAdmitted = admitted,
+                };
             });
 
         // Only a real admission has an event; a re-send of one already taken
@@ -796,6 +849,7 @@ internal sealed class AgentSession(
         {
             while (true)
             {
+                await ReconcileToolBatches(cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // Looking is not consuming. A pending status remains pending
@@ -884,11 +938,23 @@ internal sealed class AgentSession(
 
                 if (completed.ToolCalls.Count > 0)
                 {
+                    var published = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                    };
+                    eventRepository.AppendConversation(
+                        published,
+                        ConversationOrigin.Model,
+                        LLMRole.Assistant,
+                        [ConversationPart.TextPart(completed.AssistantText)],
+                        completed.ToolCalls,
+                        string.Empty);
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
-                    await SettleToolCalls(
+                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    await ReconcileToolBatches(
                         activeSelection,
                         snapshot,
-                        completed.ToolCalls,
                         cancellationToken).ConfigureAwait(false);
 
                     if (providerRequests == maxTurns)
@@ -1014,7 +1080,7 @@ internal sealed class AgentSession(
 
         foreach (var promotion in promoted)
         {
-            _history.Add(LLMMessage.User(promotion.Input.Content));
+            _history.Add(LLMMessage.User(eventRepository.Materialize(promotion.Input.Parts)));
             await eventBroker.Publish(promotion.Published, cancellationToken).ConfigureAwait(false);
         }
 
@@ -1036,36 +1102,84 @@ internal sealed class AgentSession(
                 .Where(factory => factory.Supports(this))
                 .Select(factory => factory.Create(this))]);
 
-    private async Task SettleToolCalls(
+    private async Task ReconcileToolBatches(CancellationToken cancellationToken)
+    {
+        var captured = ResolveSelection();
+        var resolved = router.Resolve(captured.RequestedModel.Value);
+        var selection = new AgentTurnSelection(
+            resolved.RequestedSelector,
+            resolved,
+            captured.Profile,
+            captured.SecurityProfile);
+        var tools = MaterializeTools()
+            .Without(captured.Profile.DisabledTools)
+            .Only(captured.Profile.AllowedTools);
+        await ReconcileToolBatches(selection, tools, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ReconcileToolBatches(
         AgentTurnSelection selection,
         ToolSnapshot snapshot,
-        IReadOnlyList<LLMToolCall> calls,
         CancellationToken cancellationToken)
     {
-        var stopped = false;
+        var conversation = eventRepository.Conversation(SessionId);
+        var terminals = eventRepository.ToolTerminals(SessionId)
+            .ToDictionary(terminal => terminal.ToolCallId, StringComparer.Ordinal);
+        var changed = false;
 
-        foreach (var call in calls)
+        foreach (var batch in conversation.Where(item => item.Role == LLMRole.Assistant && item.ToolCalls.Count > 0))
         {
-            var result = InterruptedResult;
-
-            if (!stopped && !cancellationToken.IsCancellationRequested)
+            var stopped = false;
+            foreach (var call in batch.ToolCalls)
             {
-                try
+                if (!terminals.TryGetValue(call.Id, out var terminal))
                 {
-                    result = await Invoke(selection, snapshot, call, cancellationToken).ConfigureAwait(false);
+                    (Event Published, ToolExecutionTerminal Terminal) settlement;
+                    if (stopped || cancellationToken.IsCancellationRequested)
+                    {
+                        settlement = CancelTool(call);
+                    }
+                    else
+                    {
+                        settlement = await Invoke(selection, snapshot, call, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    terminal = settlement.Terminal;
+                    eventRepository.AppendToolSettlement(settlement.Published, batch.Sequence, terminal);
+                    await eventBroker.Publish(settlement.Published, CancellationToken.None).ConfigureAwait(false);
+                    terminals.Add(call.Id, terminal);
+                    changed = true;
                 }
-                catch (OperationCanceledException)
+                else
                 {
-                    stopped = true;
+                    eventRepository.AppendToolSettlement(
+                        new Event { Id = Identifier.EventId(), AgentSessionId = SessionId },
+                        batch.Sequence,
+                        terminal);
                 }
-            }
-            else
-            {
-                stopped = true;
-                await EmitToolCancelled(call).ConfigureAwait(false);
+
+                stopped |= terminal.Status == ToolExecutionStatus.Cancelled;
             }
 
-            _history.Add(LLMMessage.ToolResult(call.Id, result));
+            var images = batch.ToolCalls
+                .Select(call => terminals[call.Id])
+                .Where(terminal => terminal.Status == ToolExecutionStatus.Finished)
+                .SelectMany(terminal => terminal.ResultParts)
+                .Where(part => part.Kind == ConversationPartKind.ImageArtifact)
+                .ToArray();
+            if (images.Length > 0 && !eventRepository.HasToolSynthetic(batch.Sequence, SessionId))
+            {
+                var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
+                _ = eventRepository.AppendToolSynthetic(published, batch.Sequence, images);
+                await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            _history.Clear();
+            _history.AddRange(RestoreHistory(eventRepository, SessionId));
         }
     }
 
@@ -1217,7 +1331,7 @@ internal sealed class AgentSession(
         return completed;
     }
 
-    private async Task<string> Invoke(
+    private async Task<(Event Published, ToolExecutionTerminal Terminal)> Invoke(
         AgentTurnSelection selection,
         ToolSnapshot snapshot,
         LLMToolCall call,
@@ -1234,9 +1348,7 @@ internal sealed class AgentSession(
         var tool = snapshot.Find(call.Name);
         if (tool is null)
         {
-            var message = $"unknown tool {call.Name}";
-            await EmitToolError(call, message).ConfigureAwait(false);
-            return $"error: {message}";
+            return FailTool(call, $"unknown tool {call.Name}");
         }
 
         try
@@ -1271,22 +1383,26 @@ internal sealed class AgentSession(
                 AgentSessionId = SessionId,
                 ToolFinished = terminal,
             };
-            await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
-            return text;
+            var parts = new List<ConversationPart> { ConversationPart.TextPart(text) };
+            parts.AddRange(result.ImageArtifacts.Select(ConversationPart.ImageArtifact));
+            return (finished, new ToolExecutionTerminal(
+                call.Id,
+                call.Name,
+                ToolExecutionStatus.Finished,
+                parts,
+                text));
         }
         catch (OperationCanceledException)
         {
-            await EmitToolCancelled(call).ConfigureAwait(false);
-            throw;
+            return CancelTool(call);
         }
         catch (Exception failure)
         {
-            await EmitToolError(call, failure.Message).ConfigureAwait(false);
-            throw;
+            return FailTool(call, failure.Message);
         }
     }
 
-    private async Task EmitToolCancelled(LLMToolCall call)
+    private (Event Published, ToolExecutionTerminal Terminal) CancelTool(LLMToolCall call)
     {
         var cancelled = new Event
         {
@@ -1294,10 +1410,15 @@ internal sealed class AgentSession(
             AgentSessionId = SessionId,
             ToolCancelled = new ToolCancelled { ToolCallId = call.Id, ToolName = call.Name },
         };
-        await EmitEvent(cancelled, null, null, CancellationToken.None).ConfigureAwait(false);
+        return (cancelled, new ToolExecutionTerminal(
+            call.Id,
+            call.Name,
+            ToolExecutionStatus.Cancelled,
+            [ConversationPart.TextPart(InterruptedResult)],
+            InterruptedResult));
     }
 
-    private async Task EmitToolError(LLMToolCall call, string message)
+    private (Event Published, ToolExecutionTerminal Terminal) FailTool(LLMToolCall call, string message)
     {
         var failed = new Event
         {
@@ -1305,7 +1426,13 @@ internal sealed class AgentSession(
             AgentSessionId = SessionId,
             ToolError = new ToolError { ToolCallId = call.Id, ToolName = call.Name, Message = message },
         };
-        await EmitEvent(failed, null, null, CancellationToken.None).ConfigureAwait(false);
+        var result = $"error: {message}";
+        return (failed, new ToolExecutionTerminal(
+            call.Id,
+            call.Name,
+            ToolExecutionStatus.Error,
+            [ConversationPart.TextPart(result)],
+            result));
     }
 
     private async Task Fail(string message, CancellationToken cancellationToken)
