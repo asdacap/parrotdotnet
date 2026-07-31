@@ -8,8 +8,7 @@ namespace Parrot.Tools;
 
 internal sealed partial class AgentSendTool(
     AgentRegistry agents,
-    AgentSession session,
-    AgentTurnSelection caller) : ITool
+    AgentSession session) : ITool
 {
     public string Name => "agent_send";
 
@@ -19,7 +18,10 @@ internal sealed partial class AgentSendTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         string sessionId;
         string message;
@@ -41,7 +43,7 @@ internal sealed partial class AgentSendTool(
             var target = agents.GetRecipient(session, sessionId);
 
             if (!string.Equals(target.SessionId, session.ParentSessionId, StringComparison.Ordinal)
-                && !caller.SecurityProfile.AllowsDelegationTo(target.Selection().SecurityProfile))
+                && !selection.SecurityProfile.AllowsDelegationTo(target.Selection().SecurityProfile))
             {
                 return "error: cannot delegate to a more permissive agent";
             }

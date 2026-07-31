@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Parrot.Agent;
 using Parrot.Questions;
 using Parrot.Tools.Schema;
 
@@ -14,7 +15,7 @@ internal sealed partial class QuestionTool(QuestionBroker broker) : ITool
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
         try
         {

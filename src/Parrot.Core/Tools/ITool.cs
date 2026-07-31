@@ -1,3 +1,5 @@
+using Parrot.Agent;
+
 namespace Parrot.Tools;
 
 // A tool the model may call. Display or behavioural differences live on the
@@ -5,9 +7,8 @@ namespace Parrot.Tools;
 // generated from the tool's input model; the snapshot forwards it, the provider
 // sends it.
 //
-// An instance belongs to one AgentSession and is built by its IToolFactory, so
-// what a call needs arrives through the constructor rather than through a
-// context parameter.
+// An instance belongs to one AgentSession and is built by its IToolFactory.
+// Turn-varying policy arrives as the immutable selection captured for the call.
 internal interface ITool
 {
     string Name { get; }
@@ -16,5 +17,8 @@ internal interface ITool
 
     string ParametersJson { get; }
 
-    Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken);
+    Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken);
 }

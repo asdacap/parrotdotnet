@@ -2,6 +2,9 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using Parrot.Agent;
+using Parrot.Llm;
+using Parrot.Security;
 using Parrot.Tools;
 using Parrot.Web;
 
@@ -48,6 +51,7 @@ internal sealed class WebFetcherTests
                 new ToolInvocation(
                     "test-call",
                     $$"""{"url":"{{new Uri(baseAddress, "/tool")}}","method":"get"}"""),
+                Selection(),
                 cancellationToken)).Text;
             var requests = await serving;
 
@@ -152,11 +156,12 @@ internal sealed class WebFetcherTests
         _ = await Assert.That(address).IsEqualTo(new Uri("https://example.com/path"));
         _ = await Assert.That(defaultMethod).IsEqualTo(HttpMethod.Get);
         _ = await Assert.That(headMethod).IsEqualTo(HttpMethod.Head);
-        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "[]"), CancellationToken.None)).Text).Contains("URL is required");
+        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "[]"), Selection(), CancellationToken.None)).Text).Contains("URL is required");
         _ = await Assert.That((await tool.Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"url\":\"https://example.com\",\"method\":\"POST\"}"),
+            Selection(),
             CancellationToken.None)).Text)
             .Contains("only GET and HEAD");
     }
@@ -167,6 +172,17 @@ internal sealed class WebFetcherTests
                 "<h1>Title</h1><!-- comment > still comment --><p>A&nbsp; B</p>"
                 + "<script>bad</script><div title=\">\">C</div>"))
             .IsEqualTo("Title\n\nA B\n\nC");
+
+    private static AgentTurnSelection Selection()
+    {
+        var provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        return new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            null,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
+    }
 
     private static byte[] Gzip(string text)
     {

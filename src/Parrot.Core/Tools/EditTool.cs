@@ -2,15 +2,14 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Parrot.Agent;
 using Parrot.Permissions;
-using Parrot.Security;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
 internal sealed partial class EditTool(
     ToolWorkspace workspace,
-    SecurityProfile securityProfile,
     SandboxWriteGrants writeGrants) : ITool
 {
     private static readonly byte[] Utf8Preamble = [0xef, 0xbb, 0xbf];
@@ -26,7 +25,10 @@ internal sealed partial class EditTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         var writeGrantSnapshot = writeGrants.Capture();
 
@@ -60,7 +62,7 @@ internal sealed partial class EditTool(
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var resolved = workspace.ResolveMutation(path, create: false, securityProfile, writeGrantSnapshot);
+            var resolved = workspace.ResolveMutation(path, create: false, selection.SecurityProfile, writeGrantSnapshot);
             FileMutation.RequireRegularFile(resolved.Physical);
             var before = await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false);
             var hasPreamble = before.AsSpan().StartsWith(Utf8Preamble);
@@ -92,7 +94,7 @@ internal sealed partial class EditTool(
                 return FileMutation.NoChanges;
             }
 
-            resolved = workspace.ResolveMutation(path, create: false, securityProfile, writeGrantSnapshot);
+            resolved = workspace.ResolveMutation(path, create: false, selection.SecurityProfile, writeGrantSnapshot);
             FileMutation.RequireRegularFile(resolved.Physical);
             await FileMutation.Write(
                 resolved.Physical,

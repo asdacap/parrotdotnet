@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Parrot.Agent;
+using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.State;
@@ -57,10 +59,11 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
         var path = Path.Combine(_workspace, directory, "secret.txt");
         await File.WriteAllTextAsync(path, "secret", cancellationToken);
 
-        var result = (await new ReadTool(_toolWorkspace, _permissive).Execute(
+        var result = (await new ReadTool(_toolWorkspace).Execute(
             new ToolInvocation(
                 "test-call",
                 string.Concat("{\"path\":\"", directory, "/secret.txt\"}")),
+            Turn(_permissive),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("error: access denied");
@@ -75,20 +78,23 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
         var alias = Path.Combine(_workspace, "private-alias");
         _ = Directory.CreateSymbolicLink(alias, _paths.State);
 
-        var listing = (await new ReadTool(_toolWorkspace, _permissive).Execute(
+        var listing = (await new ReadTool(_toolWorkspace).Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"path\":\".\"}"),
+            Turn(_permissive),
             cancellationToken)).Text;
-        var glob = (await new GlobTool(_toolWorkspace, _permissive).Execute(
+        var glob = (await new GlobTool(_toolWorkspace).Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"pattern\":\"**\"}"),
+            Turn(_permissive),
             cancellationToken)).Text;
-        var grep = (await new GrepTool(_toolWorkspace, _permissive).Execute(
+        var grep = (await new GrepTool(_toolWorkspace).Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"pattern\":\"secret\"}"),
+            Turn(_permissive),
             cancellationToken)).Text;
 
         _ = await Assert.That(listing).Contains("visible.txt");
@@ -107,10 +113,11 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_paths.State, "secret.txt"), "secret", cancellationToken);
         _ = Directory.CreateSymbolicLink(Path.Combine(_workspace, "alias"), _paths.State);
 
-        var result = (await new ReadTool(_toolWorkspace, _permissive).Execute(
+        var result = (await new ReadTool(_toolWorkspace).Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"path\":\"alias/secret.txt\"}"),
+            Turn(_permissive),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("error: access denied");
@@ -132,20 +139,25 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             new ApplicationDataSecurityRules(paths).Rules,
             []);
 
-        var configured = (await new ReadTool(_toolWorkspace, profile).Execute(
+        var configured = (await new ReadTool(_toolWorkspace).Execute(
             new ToolInvocation("test-call", FormatPathArguments(Path.Combine(stateAlias, "secret.txt"))),
+            Turn(profile),
             cancellationToken)).Text;
-        var physical = (await new ReadTool(_toolWorkspace, profile).Execute(
+        var physical = (await new ReadTool(_toolWorkspace).Execute(
             new ToolInvocation("test-call", FormatPathArguments(Path.Combine(physicalState, "secret.txt"))),
+            Turn(profile),
             cancellationToken)).Text;
-        var listing = (await new ReadTool(_toolWorkspace, profile).Execute(
+        var listing = (await new ReadTool(_toolWorkspace).Execute(
             new ToolInvocation("test-call", "{\"path\":\".\"}"),
+            Turn(profile),
             cancellationToken)).Text;
-        var glob = (await new GlobTool(_toolWorkspace, profile).Execute(
+        var glob = (await new GlobTool(_toolWorkspace).Execute(
             new ToolInvocation("test-call", "{\"pattern\":\"**\"}"),
+            Turn(profile),
             cancellationToken)).Text;
-        var grep = (await new GrepTool(_toolWorkspace, profile).Execute(
+        var grep = (await new GrepTool(_toolWorkspace).Execute(
             new ToolInvocation("test-call", "{\"pattern\":\"secret\"}"),
+            Turn(profile),
             cancellationToken)).Text;
 
         _ = await Assert.That(configured).IsEqualTo("error: access denied");
@@ -178,10 +190,11 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             [],
             _mandatoryRules,
             []);
-        var tool = MutationTool(toolName, profile, new SandboxWriteGrants());
+        var tool = MutationTool(toolName, new SandboxWriteGrants());
 
         var result = (await tool.Execute(
             new ToolInvocation("test-call", MutationArguments(toolName, Path.Combine(directory, "configured.txt"))),
+            Turn(profile),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).Contains("Write access denied");
@@ -204,10 +217,11 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
         await File.WriteAllTextAsync(path, "old", cancellationToken);
         var grants = new SandboxWriteGrants();
         grants.Grant(SandboxWriteTarget.Resolve(path));
-        var tool = MutationTool(toolName, _permissive, grants);
+        var tool = MutationTool(toolName, grants);
 
         var result = (await tool.Execute(
             new ToolInvocation("test-call", MutationArguments(toolName, Path.Combine(directory, "granted.txt"))),
+            Turn(_permissive),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).Contains("Write access denied");
@@ -222,20 +236,23 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
         var workspace = new ToolWorkspace(nested);
         await File.WriteAllTextAsync(Path.Combine(nested, "secret.txt"), "secret", cancellationToken);
 
-        var read = (await new ReadTool(workspace, _permissive).Execute(
+        var read = (await new ReadTool(workspace).Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"path\":\"secret.txt\"}"),
+            Turn(_permissive),
             cancellationToken)).Text;
-        var glob = (await new GlobTool(workspace, _permissive).Execute(
+        var glob = (await new GlobTool(workspace).Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"pattern\":\"**\"}"),
+            Turn(_permissive),
             cancellationToken)).Text;
-        var grep = (await new GrepTool(workspace, _permissive).Execute(
+        var grep = (await new GrepTool(workspace).Execute(
             new ToolInvocation(
                 "test-call",
                 "{\"pattern\":\"secret\"}"),
+            Turn(_permissive),
             cancellationToken)).Text;
 
         _ = await Assert.That(read).IsEqualTo("error: access denied");
@@ -268,9 +285,9 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             []);
         ITool tool = toolName switch
         {
-            "read" => new ReadTool(_toolWorkspace, profile),
-            "grep" => new GrepTool(_toolWorkspace, profile),
-            "glob" => new GlobTool(_toolWorkspace, profile),
+            "read" => new ReadTool(_toolWorkspace),
+            "grep" => new GrepTool(_toolWorkspace),
+            "glob" => new GlobTool(_toolWorkspace),
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
         var arguments = toolName switch
@@ -281,7 +298,10 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 
-        var result = (await tool.Execute(new ToolInvocation("test-call", arguments), cancellationToken)).Text;
+        var result = (await tool.Execute(
+            new ToolInvocation("test-call", arguments),
+            Turn(profile),
+            cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("error: access denied");
     }
@@ -315,11 +335,21 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             JsonEncodedText.Encode(path),
             "\"}");
 
-    private ITool MutationTool(string toolName, SecurityProfile profile, SandboxWriteGrants grants) =>
+    private static AgentTurnSelection Turn(SecurityProfile securityProfile)
+    {
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        return new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            null,
+            securityProfile);
+    }
+
+    private ITool MutationTool(string toolName, SandboxWriteGrants grants) =>
         toolName switch
         {
-            "write" => new WriteTool(_toolWorkspace, profile, grants),
-            "edit" => new EditTool(_toolWorkspace, profile, grants),
+            "write" => new WriteTool(_toolWorkspace, grants),
+            "edit" => new EditTool(_toolWorkspace, grants),
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 }

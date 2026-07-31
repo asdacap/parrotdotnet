@@ -5,6 +5,6 @@ namespace Parrot.Tools;
 
 internal sealed class ExecCommandToolFactory(ShellProcessOwner processes) : IToolFactory
 {
-    public ITool Create(AgentSession session, AgentTurnSelection selection) =>
-        new ExecCommandTool(processes, session, selection.SecurityProfile, session.WriteGrants);
+    public ITool Create(AgentSession session) =>
+        new ExecCommandTool(processes, session, session.WriteGrants);
 }

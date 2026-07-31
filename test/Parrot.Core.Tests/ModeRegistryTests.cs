@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.State;
@@ -171,24 +172,27 @@ internal sealed class ModeRegistryTests : IDisposable
         var outside = Path.Combine(paths.State, "sessions", "session", "outside.md");
         var grants = new SandboxWriteGrants();
         grants.Grant(SandboxWriteTarget.Resolve(paths.State));
-        var write = new WriteTool(new ToolWorkspace(workspace), plan.SecurityProfile, grants);
+        var write = new WriteTool(new ToolWorkspace(workspace), grants);
 
         var supporting = Path.Combine(planDirectory, "supporting.md");
         var written = await write.Execute(
             new ToolInvocation("write-plan", WriteArguments(artifact, "# Plan")),
+            Turn(plan.SecurityProfile),
             cancellationToken);
         var supported = await write.Execute(
             new ToolInvocation("write-supporting", WriteArguments(supporting, "details")),
+            Turn(plan.SecurityProfile),
             cancellationToken);
         var denied = await write.Execute(
             new ToolInvocation("write-outside", WriteArguments(outside, "outside")),
+            Turn(plan.SecurityProfile),
             cancellationToken);
         var withoutCapability = new WriteTool(
             new ToolWorkspace(workspace),
-            plan.SecurityProfile.WithoutRuntimeCapabilities(),
             new SandboxWriteGrants());
         var capabilityRemoved = await withoutCapability.Execute(
             new ToolInvocation("write-without-capability", WriteArguments(artifact, "changed")),
+            Turn(plan.SecurityProfile.WithoutRuntimeCapabilities()),
             cancellationToken);
 
         _ = await Assert.That(written.Text).DoesNotStartWith("error: ");
@@ -302,6 +306,16 @@ internal sealed class ModeRegistryTests : IDisposable
             "\",\"content\":\"",
             JsonEncodedText.Encode(content),
             "\"}");
+
+    private static AgentTurnSelection Turn(SecurityProfile securityProfile)
+    {
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        return new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            null,
+            securityProfile);
+    }
 
     private UserSessionModes OwnerModes(string ownerId) =>
         new(Registry(), Path.Combine(_root, "sessions", ownerId, "plan"));

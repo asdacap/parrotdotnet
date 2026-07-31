@@ -7,7 +7,6 @@ namespace Parrot.Tools;
 internal sealed class WaitTool(
     RuntimeStatus status,
     AgentSession session,
-    AgentTurnSelection selection,
     TimeProvider timeProvider) : ITool
 {
     internal const long DefaultDurationMilliseconds = 10_000;
@@ -25,7 +24,10 @@ internal sealed class WaitTool(
         {"type":"object","properties":{"duration_ms":{"type":"integer","minimum":10000,"maximum":4294967294,"default":10000,"description":"Maximum time to wait in milliseconds."}},"additionalProperties":false}
         """;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         long durationMilliseconds;
 

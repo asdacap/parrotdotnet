@@ -70,14 +70,14 @@ internal sealed class ExecCommandToolTests : IDisposable
             inventory,
             CancellationToken.None);
         var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
-        var tool = new ExecCommandTool(processes, session, securityProfile, session.WriteGrants);
+        var tool = new ExecCommandTool(processes, session, session.WriteGrants);
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
             null,
             securityProfile);
-        var factoryTool = new ExecCommandToolFactory(processes).Create(session, selection);
-        var writeStdinFactoryTool = new WriteStdinToolFactory(processes).Create(session, selection);
+        var factoryTool = new ExecCommandToolFactory(processes).Create(session);
+        var writeStdinFactoryTool = new WriteStdinToolFactory(processes).Create(session);
         _ = await Assert.That(factoryTool.Name).IsEqualTo("exec_command");
         _ = await Assert.That(factoryTool.ParametersJson).IsEqualTo(ExecCommandTool.Input.Descriptor);
         _ = await Assert.That(writeStdinFactoryTool.Name).IsEqualTo("write_stdin");
@@ -94,17 +94,17 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(environmentSchema.GetProperty("additionalProperties").GetProperty("type").GetString())
             .IsEqualTo("string");
 
-        var result = await Execute(tool, """{"command":"printf out; printf err >&2; exit 7"}""", cancellationToken);
-        var missing = await Execute(tool, "{}", cancellationToken);
-        var malformed = await Execute(tool, "[]", cancellationToken);
-        var invalidEnvironment = await Execute(tool, """{"command":"true","env":{"VALUE":1}}""", cancellationToken);
-        var malformedEnvironment = await Execute(tool, """{"command":"true","env":[]}""", cancellationToken);
-        var environment = await Execute(tool, """{"command":"printf '%s' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":"available"}}""", cancellationToken);
-        var emptyEnvironment = await Execute(tool, """{"command":"printf '<%s>' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":""}}""", cancellationToken);
-        var inheritedPath = await Execute(tool, """{"command":"printf '%s' \"$PATH\""}""", cancellationToken);
-        var emptyEnvironmentName = await Execute(tool, """{"command":"true","env":{"":"value"}}""", cancellationToken);
-        var invalidEnvironmentName = await Execute(tool, """{"command":"true","env":{"INVALID=NAME":"value"}}""", cancellationToken);
-        var invalidEnvironmentValue = await Execute(tool, """{"command":"true","env":{"VALUE":"\u0000"}}""", cancellationToken);
+        var result = await Execute(tool, """{"command":"printf out; printf err >&2; exit 7"}""", selection, cancellationToken);
+        var missing = await Execute(tool, "{}", selection, cancellationToken);
+        var malformed = await Execute(tool, "[]", selection, cancellationToken);
+        var invalidEnvironment = await Execute(tool, """{"command":"true","env":{"VALUE":1}}""", selection, cancellationToken);
+        var malformedEnvironment = await Execute(tool, """{"command":"true","env":[]}""", selection, cancellationToken);
+        var environment = await Execute(tool, """{"command":"printf '%s' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":"available"}}""", selection, cancellationToken);
+        var emptyEnvironment = await Execute(tool, """{"command":"printf '<%s>' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":""}}""", selection, cancellationToken);
+        var inheritedPath = await Execute(tool, """{"command":"printf '%s' \"$PATH\""}""", selection, cancellationToken);
+        var emptyEnvironmentName = await Execute(tool, """{"command":"true","env":{"":"value"}}""", selection, cancellationToken);
+        var invalidEnvironmentName = await Execute(tool, """{"command":"true","env":{"INVALID=NAME":"value"}}""", selection, cancellationToken);
+        var invalidEnvironmentValue = await Execute(tool, """{"command":"true","env":{"VALUE":"\u0000"}}""", selection, cancellationToken);
 
         _ = await Assert.That(result.Text).IsEqualTo("Process exited with code 7\n[stdout]\nout\n[stderr]\nerr");
         _ = await Assert.That(missing.Text).IsEqualTo("error: Tool arguments require a string 'command'.");
@@ -124,7 +124,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(invalidEnvironmentValue.Text)
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
 
-        var spilled = await Execute(tool, """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""", cancellationToken);
+        var spilled = await Execute(tool, """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""", selection, cancellationToken);
         const string spilledPrefix =
             "Process exited with code 0\nTool output exceeded 64 KiB and was saved to ";
         const string spilledSuffix = ".";
@@ -133,42 +133,49 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();
         _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(resources.BlobDirectory);
 
-        var yielded = await Execute(tool, """{"command":"sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""", cancellationToken);
-        var waited = await Execute(new WaitProcessTool(processes), """{"name":"later"}""", cancellationToken);
-        var reusedAfterCompletion = await Execute(tool, """{"command":"printf reused","name":"later"}""", cancellationToken);
-        var unknown = await Execute(new WaitProcessTool(processes), """{"name":"missing"}""", cancellationToken);
+        var yielded = await Execute(tool, """{"command":"sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""", selection, cancellationToken);
+        var waited = await Execute(new WaitProcessTool(processes), """{"name":"later"}""", selection, cancellationToken);
+        var reusedAfterCompletion = await Execute(tool, """{"command":"printf reused","name":"later"}""", selection, cancellationToken);
+        var unknown = await Execute(new WaitProcessTool(processes), """{"name":"missing"}""", selection, cancellationToken);
         var defaultSignalProcess = await Execute(
             tool,
             """{"command":"sleep 30","name":"default-signal","yield_after_ms":0}""",
+            selection,
             cancellationToken);
         var defaultSignaled = await Execute(
             new InterruptProcessTool(processes),
             """{"name":"default-signal"}""",
+            selection,
             cancellationToken);
         var defaultCompletion = await Execute(
             new WaitProcessTool(processes),
             """{"name":"default-signal"}""",
+            selection,
             cancellationToken);
-        var running = await Execute(tool, """{"command":"sleep 30","name":"running","yield_after_ms":0}""", cancellationToken);
-        var runningDuplicate = await Execute(tool, """{"command":"true","name":"running"}""", cancellationToken);
+        var running = await Execute(tool, """{"command":"sleep 30","name":"running","yield_after_ms":0}""", selection, cancellationToken);
+        var runningDuplicate = await Execute(tool, """{"command":"true","name":"running"}""", selection, cancellationToken);
         var signaled = await Execute(
             new InterruptProcessTool(processes),
             """{"name":"running","signal":17}""",
+            selection,
             cancellationToken);
-        var killed = await Execute(new InterruptProcessTool(processes), """{"name":"running","signal":9}""", cancellationToken);
-        var waitedAfterKill = await Execute(new WaitProcessTool(processes), """{"name":"running"}""", cancellationToken);
-        var reusedAfterKill = await Execute(tool, """{"command":"printf restarted","name":"running"}""", cancellationToken);
+        var killed = await Execute(new InterruptProcessTool(processes), """{"name":"running","signal":9}""", selection, cancellationToken);
+        var waitedAfterKill = await Execute(new WaitProcessTool(processes), """{"name":"running"}""", selection, cancellationToken);
+        var reusedAfterKill = await Execute(tool, """{"command":"printf restarted","name":"running"}""", selection, cancellationToken);
         var invalidLowSignal = await Execute(
             new InterruptProcessTool(processes),
             """{"name":"running","signal":0}""",
+            selection,
             cancellationToken);
         var invalidHighSignal = await Execute(
             new InterruptProcessTool(processes),
             """{"name":"running","signal":65}""",
+            selection,
             cancellationToken);
         var malformedSignal = await Execute(
             new InterruptProcessTool(processes),
             """{"name":"running","signal":"SIGINT"}""",
+            selection,
             cancellationToken);
 
         _ = await Assert.That(yielded.Text).IsEqualTo("later");
@@ -195,20 +202,23 @@ internal sealed class ExecCommandToolTests : IDisposable
     private static Task<ToolExecutionResult> Execute(
         ExecCommandTool tool,
         string argumentsJson,
+        AgentTurnSelection selection,
         CancellationToken cancellationToken) =>
-        tool.Execute(new ToolInvocation("call-id", argumentsJson), cancellationToken);
+        tool.Execute(new ToolInvocation("call-id", argumentsJson), selection, cancellationToken);
 
     private static Task<ToolExecutionResult> Execute(
         WaitProcessTool tool,
         string argumentsJson,
+        AgentTurnSelection selection,
         CancellationToken cancellationToken) =>
-        tool.Execute(new ToolInvocation("call-id", argumentsJson), cancellationToken);
+        tool.Execute(new ToolInvocation("call-id", argumentsJson), selection, cancellationToken);
 
     private static Task<ToolExecutionResult> Execute(
         InterruptProcessTool tool,
         string argumentsJson,
+        AgentTurnSelection selection,
         CancellationToken cancellationToken) =>
-        tool.Execute(new ToolInvocation("call-id", argumentsJson), cancellationToken);
+        tool.Execute(new ToolInvocation("call-id", argumentsJson), selection, cancellationToken);
 
     private static string CreateSandboxPassThrough(string workspace)
     {

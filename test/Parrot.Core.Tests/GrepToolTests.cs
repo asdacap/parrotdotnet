@@ -1,3 +1,5 @@
+using Parrot.Agent;
+using Parrot.Llm;
 using Parrot.Security;
 using Parrot.Tools;
 
@@ -31,13 +33,12 @@ internal sealed class GrepToolTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_workspace, "included.cs"), "find me", cancellationToken);
         await File.WriteAllTextAsync(Path.Combine(source, "nested.cs"), "find me", cancellationToken);
         await File.WriteAllTextAsync(Path.Combine(source, "excluded.txt"), "find me", cancellationToken);
-        var tool = new GrepTool(
-            new ToolWorkspace(_workspace),
-            SecurityProfile.Compose(readOnly: false, [], [], []));
+        var tool = new GrepTool(new ToolWorkspace(_workspace));
         var arguments = $$"""{"pattern":"find me","include":"{{include}}"}""";
 
         var result = (await tool.Execute(
             new ToolInvocation("test-call", arguments),
+            Turn(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo(expected);
@@ -48,14 +49,25 @@ internal sealed class GrepToolTests : IDisposable
     {
         var file = Path.Combine(_workspace, "included.cs");
         await File.WriteAllTextAsync(file, "find me", cancellationToken);
-        var tool = new GrepTool(
-            new ToolWorkspace(_workspace),
-            SecurityProfile.Compose(readOnly: false, [], [], []));
+        var tool = new GrepTool(new ToolWorkspace(_workspace));
 
         var result = (await tool.Execute(
-            new ToolInvocation("test-call", "{\"pattern\":\"find me\",\"path\":\"included.cs\",\"include\":\"*.txt\"}"),
+            new ToolInvocation(
+                "test-call",
+                "{\"pattern\":\"find me\",\"path\":\"included.cs\",\"include\":\"*.txt\"}"),
+            Turn(SecurityProfile.Compose(readOnly: false, [], [], [])),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("included.cs:1:find me\n");
+    }
+
+    private static AgentTurnSelection Turn(SecurityProfile securityProfile)
+    {
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        return new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            null,
+            securityProfile);
     }
 }

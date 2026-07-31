@@ -771,16 +771,18 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Absorbs** the registry half of `tool`.
 - **Owns** how one tool is built: a factory per tool, living for one
   `UserSession` and so able to take it by constructor, yielding one `ITool`
-  instance per `AgentSession`.
+  instance per `AgentSession`. The process-tool factories are assembled inside
+  the agent-session scope because they close over that agent's process owner.
 - **Inbound** create.
 - **Outbound** `Configuration`, and the sessions a tool is constructed with —
   the one place rank 7 names rank 9 and 10, granted deliberately in
   `architecture.md`.
 - **Boundary** no — `ITool` is the boundary, and a new tool brings a factory
   with it.
-- **Note** a session's tool set is fixed once built, so there is no mutable side
-  and no registry. `ToolSnapshot` still materialises it once per turn, which is
-  what principle 4 asks for.
+- **Note** a session's tool instances are fixed once built, so there is no
+  mutable side and no registry. Each turn filters an immutable `ToolSnapshot`
+  view over those instances, and each invocation receives that turn's captured
+  selection, which is what principle 4 asks for.
 
 ### `ProcessRunner` — rank 6, M3
 

@@ -79,6 +79,7 @@ internal sealed class AgentSession(
     private string _messageId = string.Empty;
 
     private AgentSelection _selection = new(model, profile, securityProfile);
+    private ToolSnapshot? _tools;
 
     private bool _epochInitialized;
     private bool _initialStatusPending = identity.Depth > 0;
@@ -849,10 +850,7 @@ internal sealed class AgentSession(
                     };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
-                    activeTools = new ToolSnapshot(
-                        [.. toolFactories
-                            .Where(factory => factory.Supports(this))
-                            .Select(factory => factory.Create(this, activeSelection))])
+                    activeTools = MaterializeTools()
                         .Without(activeSelection.Profile?.DisabledTools ?? [])
                         .Only(activeSelection.Profile?.AllowedTools);
                 }
@@ -889,7 +887,11 @@ internal sealed class AgentSession(
                 if (completed.ToolCalls.Count > 0)
                 {
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
-                    await SettleToolCalls(snapshot, completed.ToolCalls, cancellationToken).ConfigureAwait(false);
+                    await SettleToolCalls(
+                        activeSelection,
+                        snapshot,
+                        completed.ToolCalls,
+                        cancellationToken).ConfigureAwait(false);
 
                     if (providerRequests == maxTurns)
                     {
@@ -1030,8 +1032,17 @@ internal sealed class AgentSession(
     // part-way through: a provider rejects a history holding a call with no
     // answer, so an interrupt that left one behind would break every later
     // prompt rather than only this turn (principle 6).
+    private ToolSnapshot MaterializeTools() =>
+        _tools ??= new ToolSnapshot(
+            [.. toolFactories
+                .Where(factory => factory.Supports(this))
+                .Select(factory => factory.Create(this))]);
+
     private async Task SettleToolCalls(
-        ToolSnapshot snapshot, IReadOnlyList<LLMToolCall> calls, CancellationToken cancellationToken)
+        AgentTurnSelection selection,
+        ToolSnapshot snapshot,
+        IReadOnlyList<LLMToolCall> calls,
+        CancellationToken cancellationToken)
     {
         var stopped = false;
 
@@ -1043,7 +1054,7 @@ internal sealed class AgentSession(
             {
                 try
                 {
-                    result = await Invoke(snapshot, call, cancellationToken).ConfigureAwait(false);
+                    result = await Invoke(selection, snapshot, call, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1214,7 +1225,10 @@ internal sealed class AgentSession(
     }
 
     private async Task<string> Invoke(
-        ToolSnapshot snapshot, LLMToolCall call, CancellationToken cancellationToken)
+        AgentTurnSelection selection,
+        ToolSnapshot snapshot,
+        LLMToolCall call,
+        CancellationToken cancellationToken)
     {
         var started = new Event
         {
@@ -1236,6 +1250,7 @@ internal sealed class AgentSession(
         {
             var result = await tool.Execute(
                 new ToolInvocation(call.Id, call.ArgumentsJson),
+                selection,
                 cancellationToken).ConfigureAwait(false);
             var text = result.Text;
             if (ToolOutputBlobStore.IsOversized(text))

@@ -2,14 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Permissions;
-using Parrot.Security;
 
 namespace Parrot.Tools;
 
 internal sealed class RequestWritePermissionTool(
     PermissionBroker broker,
-    AgentSession agentSession,
-    SecurityProfile securityProfile) : ITool
+    AgentSession agentSession) : ITool
 {
     public string Name => "request_write_permission";
 
@@ -21,7 +19,10 @@ internal sealed class RequestWritePermissionTool(
         {"type":"object","properties":{"paths":{"type":"array","minItems":1,"items":{"type":"string","minLength":1},"description":"Exact absolute paths of existing files or directories to make writable for write, edit, and sandboxed shell operations"},"reason":{"type":"string","minLength":1,"description":"Why write access to these paths is needed"}},"required":["paths","reason"],"additionalProperties":false}
         """;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -41,7 +42,7 @@ internal sealed class RequestWritePermissionTool(
                 throw new FormatException("Permission reason must not be empty.");
             }
 
-            if (securityProfile.ReadOnly)
+            if (selection.SecurityProfile.ReadOnly)
             {
                 throw new PermissionException("request_write_permission is not permitted by the current security profile");
             }

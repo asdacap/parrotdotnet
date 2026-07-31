@@ -1,3 +1,4 @@
+using Parrot.Agent;
 using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
@@ -13,6 +14,9 @@ internal sealed class SettledTool(string result) : ITool
 
     public string ParametersJson => """{"type":"object","properties":{}}""";
 
-    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken) =>
+    public Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken) =>
         Task.FromResult<ToolExecutionResult>(result);
 }

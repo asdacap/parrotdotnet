@@ -7,8 +7,7 @@ namespace Parrot.Tools;
 
 internal sealed partial class StatusTool(
     RuntimeStatus status,
-    AgentSession session,
-    AgentTurnSelection selection) : ITool
+    AgentSession session) : ITool
 {
     public string Name => "status";
 
@@ -16,7 +15,10 @@ internal sealed partial class StatusTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         try
         {

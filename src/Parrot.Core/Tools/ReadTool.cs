@@ -3,12 +3,13 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Parrot.Agent;
 using Parrot.Security;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class ReadTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
+internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
 {
     private const int MaxLines = 2000;
     private const int MaxOutputBytes = 1 << 20;
@@ -22,7 +23,10 @@ internal sealed partial class ReadTool(ToolWorkspace workspace, SecurityProfile 
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         string path;
         int offset;
@@ -62,14 +66,14 @@ internal sealed partial class ReadTool(ToolWorkspace workspace, SecurityProfile 
             return $"error: {failure.Message}";
         }
 
-        if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
+        if (!selection.SecurityProfile.AllowsRead(resolved.Lexical) || !selection.SecurityProfile.AllowsRead(resolved.Physical))
         {
             return "error: access denied";
         }
 
         if (Directory.Exists(resolved.Physical))
         {
-            return ListDirectory(workspace, resolved, securityProfile);
+            return ListDirectory(workspace, resolved, selection.SecurityProfile);
         }
 
         return !File.Exists(resolved.Physical)

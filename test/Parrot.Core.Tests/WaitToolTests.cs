@@ -57,7 +57,6 @@ internal sealed class WaitToolTests : IDisposable
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, processes, subagents),
             session,
-            Selection(provider),
             time);
         using var schema = JsonDocument.Parse(tool.ParametersJson);
         var duration = schema.RootElement.GetProperty("properties").GetProperty("duration_ms");
@@ -80,10 +79,10 @@ internal sealed class WaitToolTests : IDisposable
 
         foreach (var arguments in invalid)
         {
-            _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", arguments), cancellationToken)).Text).StartsWith("error:");
+            _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", arguments), Selection(provider), cancellationToken)).Text).StartsWith("error:");
         }
 
-        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), cancellationToken);
+        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken);
         await time.WaitForTimer(cancellationToken);
         time.Advance(TimeSpan.FromSeconds(10));
         _ = await Assert.That((await waiting).Text).IsEqualTo(
@@ -113,7 +112,6 @@ internal sealed class WaitToolTests : IDisposable
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, unobserved, unobserved),
             session,
-            Selection(provider),
             TimeProvider.System);
         _ = repository.Admit(
             session.SessionId,
@@ -127,7 +125,7 @@ internal sealed class WaitToolTests : IDisposable
                 InputAdmitted = new InputAdmitted { InputId = input.Id, MessageId = input.MessageId },
             });
 
-        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "{}"), cancellationToken)).Text).IsEqualTo("Incoming activity is available.");
+        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken)).Text).IsEqualTo("Incoming activity is available.");
     }
 
     [Test]
@@ -141,10 +139,9 @@ internal sealed class WaitToolTests : IDisposable
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, unobserved, unobserved),
             session,
-            Selection(provider),
             TimeProvider.System);
         using var canceled = new CancellationTokenSource();
-        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), canceled.Token);
+        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), canceled.Token);
         await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
 
         await canceled.CancelAsync();

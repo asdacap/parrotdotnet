@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Process;
-using Parrot.Security;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
@@ -14,7 +13,6 @@ namespace Parrot.Tools;
 internal sealed partial class ExecCommandTool(
     ShellProcessOwner processes,
     AgentSession session,
-    SecurityProfile securityProfile,
     Permissions.SandboxWriteGrants writeGrants) : ITool
 {
     public string Name => "exec_command";
@@ -28,6 +26,7 @@ internal sealed partial class ExecCommandTool(
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
+        AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
         var argumentsJson = invocation.ArgumentsJson;
@@ -78,7 +77,7 @@ internal sealed partial class ExecCommandTool(
                 invocation.CallId,
                 environment,
                 session,
-                securityProfile,
+                selection.SecurityProfile,
                 writeGrants.Capture(),
                 terminalMode);
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);

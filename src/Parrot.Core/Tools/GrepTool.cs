@@ -3,12 +3,13 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Parrot.Agent;
 using Parrot.Security;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
+internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
 {
     private const int MaxMatches = 1000;
     private const int MaxLineLength = 512;
@@ -24,7 +25,10 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         string pattern;
         string path;
@@ -98,7 +102,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
             return $"error: {failure.Message}";
         }
 
-        if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
+        if (!selection.SecurityProfile.AllowsRead(resolved.Lexical) || !selection.SecurityProfile.AllowsRead(resolved.Physical))
         {
             return "error: access denied";
         }
@@ -115,7 +119,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
             if (File.Exists(full))
             {
                 var displayPath = Path.GetFileName(resolved.Lexical);
-                await SearchFile(full, displayPath, regex, state, securityProfile, timeoutCancellation.Token)
+                await SearchFile(full, displayPath, regex, state, selection.SecurityProfile, timeoutCancellation.Token)
                     .ConfigureAwait(false);
             }
             else if (Directory.Exists(full))
@@ -126,7 +130,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
                     regex,
                     includeRegex,
                     state,
-                    securityProfile,
+                    selection.SecurityProfile,
                     timeoutCancellation.Token)
                     .ConfigureAwait(false);
             }

@@ -2,8 +2,8 @@ using Parrot.Llm;
 
 namespace Parrot.Tools;
 
-// An immutable set of tools materialised once per turn (principle 4). No
-// mutators, so "do not change the tools mid-turn" is a compiler guarantee
+// An immutable per-turn view over agent-session tool instances (principle 4).
+// No mutators, so "do not change the tools mid-turn" is a compiler guarantee
 // rather than a comment.
 internal sealed class ToolSnapshot(IReadOnlyList<ITool> tools)
 {
