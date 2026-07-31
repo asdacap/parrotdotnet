@@ -102,7 +102,7 @@ internal sealed class EnhancedCliTests
         var invoker = new ScriptedInvoker();
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var presenters = Presenters();
-        var renderer = new EnhancedTurnRenderer(terminal, configuration);
+        var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
             new Interrupts(stopping),
@@ -656,7 +656,7 @@ internal sealed class EnhancedCliTests
         var invoker = new ScriptedInvoker();
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var presenters = Presenters();
-        var renderer = new EnhancedTurnRenderer(terminal, configuration);
+        var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
             new Interrupts(stopping),

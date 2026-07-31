@@ -1,4 +1,5 @@
 using Grpc.Core;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
 
@@ -6,7 +7,8 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class EnhancedTurnRenderer(
     ITerminal terminal,
-    Configuration configuration)
+    Configuration configuration,
+    ToolPresenterRegistry toolPresenters)
 {
     internal Task<bool> RenderTurn(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken) =>
         RenderTurn(stream, null, true, null, null, null, new ForegroundTurn(), cancellationToken);
@@ -76,7 +78,8 @@ internal sealed class EnhancedTurnRenderer(
             terminal.GetColumns,
             renderActivityEvents,
             terminal.Color,
-            foreground);
+            foreground,
+            toolPresenters);
 
         try
         {

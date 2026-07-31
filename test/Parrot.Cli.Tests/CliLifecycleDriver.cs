@@ -89,7 +89,7 @@ internal sealed class CliLifecycleDriver : IDisposable
             var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
             var terminal = new TestTerminal(Input, _output, _error, 80);
             var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
-            var renderer = new EnhancedTurnRenderer(terminal, configuration);
+            var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
             return new EnhancedCli(
                 client,
                 Interrupts,

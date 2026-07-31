@@ -18,9 +18,10 @@ internal sealed class EnhancedRenderingSessionTests
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var input = new List<ILiveBufferItem> { new PromptValue("first> ", "draft", 0) };
         var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true);
+        var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration),
-            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            presenters,
             renderer,
             new TestSlashSession("provider/model"),
             input,
@@ -89,9 +90,10 @@ internal sealed class EnhancedRenderingSessionTests
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         var mainTurns = 0;
         var renderer = new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true);
+        var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         using var session = new EnhancedRenderingSession(
-            new EnhancedTurnRenderer(terminal, configuration),
-            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            presenters,
             renderer,
             new TestSlashSession("provider/model"),
             [new PromptValue("> ", string.Empty, 0)],
@@ -110,8 +112,8 @@ internal sealed class EnhancedRenderingSessionTests
         await session.Refresh(cancellationToken);
 
         var frame = output.ToString();
-        var alpha = frame.LastIndexOf("queue: first queue · 3 items", StringComparison.Ordinal);
-        var zeta = frame.LastIndexOf("queue: last queue · 1 item", StringComparison.Ordinal);
+        var alpha = frame.LastIndexOf("queue: alpha — first queue · 3 items", StringComparison.Ordinal);
+        var zeta = frame.LastIndexOf("queue: zeta — last queue · 1 item", StringComparison.Ordinal);
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(mainTurns).IsEqualTo(1);
         _ = await Assert.That(alpha).IsGreaterThanOrEqualTo(0);

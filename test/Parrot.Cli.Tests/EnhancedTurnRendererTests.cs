@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Parrot.Cli.Enhanced;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
 
@@ -171,7 +172,7 @@ internal sealed class EnhancedTurnRendererTests
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 80);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration).RenderTurn(stream.Reader, cancellationToken);
+        var completed = await new EnhancedTurnRenderer(terminal, configuration, Presenters()).RenderTurn(stream.Reader, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
@@ -216,7 +217,7 @@ internal sealed class EnhancedTurnRendererTests
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 80);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
+        var completed = await new EnhancedTurnRenderer(terminal, configuration, Presenters()).RenderTurn(stream.Reader, BeforeRender, cancellationToken);
 
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(string.Join(',', callbackIds))
@@ -360,9 +361,11 @@ internal sealed class EnhancedTurnRendererTests
         using var driver = new CliLifecycleDriver(enhanced: true);
         var terminal = new TestTerminal(driver.Input, output, error, 8);
         var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
-        var completed = await new EnhancedTurnRenderer(terminal, configuration).RenderTurn(stream.Reader, cancellationToken);
+        var completed = await new EnhancedTurnRenderer(terminal, configuration, Presenters()).RenderTurn(stream.Reader, cancellationToken);
         return (completed, output.ToString(), error.ToString());
     }
+
+    private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
 
     private static bool UntrustedEscape(string output)
     {
