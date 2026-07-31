@@ -877,7 +877,7 @@ internal sealed class EnhancedCliTests
 
         var driving = driver.Drive(cancellationToken);
 
-        await driver.OutputContains("queue: release — release tasks · 3 items", cancellationToken);
+        await driver.OutputContains("queue: release · 3 items — release tasks", cancellationToken);
         driver.Input.End();
         _ = await driving;
     }
@@ -897,7 +897,7 @@ internal sealed class EnhancedCliTests
 
         var driving = driver.Drive(cancellationToken);
 
-        await driver.OutputContains("queue: queue-12 — work list 12 · 12 items", cancellationToken);
+        await driver.OutputContains("queue: queue-12 · 12 items — work list 12", cancellationToken);
         driver.Input.End();
         _ = await driving;
     }
@@ -933,7 +933,7 @@ internal sealed class EnhancedCliTests
         });
 
         await driver.OutputContains("partial answer", cancellationToken);
-        await driver.OutputContains("queue: work — pending work · 2 items", cancellationToken);
+        await driver.OutputContains("queue: work · 2 items — pending work", cancellationToken);
         await driver.Invoker.Publish(new Event
         {
             QueueSnapshot = new QueueSnapshot { Revision = 2, FinalChunk = true },

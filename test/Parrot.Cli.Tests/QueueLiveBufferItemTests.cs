@@ -11,7 +11,7 @@ internal sealed class QueueLiveBufferItemTests
             .Render(new LiveBufferRenderContext(80, new TerminalPalette(false)));
 
         _ = await Assert.That(rendered.Lines).Count().IsEqualTo(1);
-        _ = await Assert.That(rendered.Lines[0].Text).IsEqualTo("  queue: deploy — release tasks · 3 items");
+        _ = await Assert.That(rendered.Lines[0].Text).IsEqualTo("  queue: deploy · 3 items — release tasks");
         _ = await Assert.That(rendered.Lines[0].Style).IsEqualTo(new TerminalPalette(false).LiveMuted);
         _ = await Assert.That(rendered.Retention).IsEqualTo(LiveBufferRetention.Fixed);
     }
@@ -26,13 +26,13 @@ internal sealed class QueueLiveBufferItemTests
     }
 
     [Test]
-    public async Task Render_sanitizes_and_clips_label_without_losing_suffix()
+    public async Task Render_sanitizes_and_clips_description_without_losing_count()
     {
         var rendered = new QueueLiveBufferItem("name", "a\u001b[2J\n界bc", 12)
             .Render(new LiveBufferRenderContext(31, new TerminalPalette(false)));
 
         _ = await Assert.That(rendered.Lines).Count().IsEqualTo(1);
-        _ = await Assert.That(rendered.Lines[0].Text).IsEqualTo("  queue: name — a[2J · 12 items");
+        _ = await Assert.That(rendered.Lines[0].Text).IsEqualTo("  queue: name · 12 items — a[2J");
         _ = await Assert.That(TerminalText.Width(rendered.Lines[0].Text)).IsLessThanOrEqualTo(31);
     }
 }

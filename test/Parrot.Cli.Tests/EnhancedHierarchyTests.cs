@@ -794,7 +794,7 @@ internal sealed class EnhancedHierarchyTests
             [Queue("opaque-root", "main", string.Empty, string.Empty, "work", "root queue")],
             cancellationToken);
 
-        _ = await Assert.That(draws[^1]).IsEqualTo("  queue: work — root queue · 1 item");
+        _ = await Assert.That(draws[^1]).IsEqualTo("  queue: work · 1 item — root queue");
     }
 
     [Test]

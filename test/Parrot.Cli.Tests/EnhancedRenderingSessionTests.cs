@@ -112,8 +112,8 @@ internal sealed class EnhancedRenderingSessionTests
         await session.Refresh(cancellationToken);
 
         var frame = output.ToString();
-        var alpha = frame.LastIndexOf("queue: alpha — first queue · 3 items", StringComparison.Ordinal);
-        var zeta = frame.LastIndexOf("queue: zeta — last queue · 1 item", StringComparison.Ordinal);
+        var alpha = frame.LastIndexOf("queue: alpha · 3 items — first queue", StringComparison.Ordinal);
+        var zeta = frame.LastIndexOf("queue: zeta · 1 item — last queue", StringComparison.Ordinal);
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(mainTurns).IsEqualTo(1);
         _ = await Assert.That(alpha).IsGreaterThanOrEqualTo(0);

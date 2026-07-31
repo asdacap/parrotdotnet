@@ -8,13 +8,17 @@ internal readonly record struct QueueLiveBufferItem(string Name, string Descript
     {
         var name = Normalize(Name);
         var description = Normalize(Description);
-        var label = description.Length == 0 ? name : $"{name} — {description}";
-        var suffix = ItemCount == 1 ? " · 1 item" : $" · {ItemCount} items";
+        var count = ItemCount == 1 ? " · 1 item" : $" · {ItemCount} items";
         const string prefix = "  queue: ";
-        var reserved = TerminalText.Width(prefix) + TerminalText.Width(suffix);
-        var text = context.Columns >= reserved
-            ? prefix + TerminalText.Clip(label, context.Columns - reserved) + suffix
-            : TerminalText.Clip(prefix + label + suffix, context.Columns);
+        var required = prefix + name + count;
+        var detail = description.Length == 0 ? string.Empty : $" — {description}";
+        var requiredWidth = TerminalText.Width(required);
+        var reservedWidth = TerminalText.Width(prefix) + TerminalText.Width(count);
+        var text = context.Columns >= requiredWidth
+            ? required + TerminalText.Clip(detail, context.Columns - requiredWidth)
+            : context.Columns >= reservedWidth
+                ? prefix + TerminalText.Clip(name, context.Columns - reservedWidth) + count
+                : TerminalText.Clip(required + detail, context.Columns);
         return new MultiLine(
             [new TerminalLine(text, context.Palette.LiveMuted)],
             null,
