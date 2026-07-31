@@ -56,6 +56,27 @@ internal sealed class SecurityProfileTests
     }
 
     [Test]
+    public async Task Mandatory_rules_override_configuration_and_are_preserved_around_runtime_capabilities()
+    {
+        var mandatory = new[] { new SandboxRule("/private", SandboxRuleAction.DenyRead) };
+        var profile = SecurityProfile.Compose(
+            readOnly: false,
+            [new SandboxRule("/private/configured", SandboxRuleAction.AllowWrite)],
+            [],
+            mandatory,
+            []);
+        var capable = profile.WithRuntimeCapability("/private/plan");
+
+        _ = await Assert.That(profile.AllowsRead("/private/configured/file")).IsFalse();
+        _ = await Assert.That(profile.AllowsWrite("/private/configured/file")).IsFalse();
+        _ = await Assert.That(capable.AllowsWrite("/private/plan/file")).IsTrue();
+        _ = await Assert.That(capable.AllowsRead("/private/sibling/file")).IsFalse();
+        _ = await Assert.That(string.Join(',', capable.Rules.Select(rule => rule.Path)))
+            .IsEqualTo("/private/configured,/private,/private/plan");
+        _ = await Assert.That(capable.WithoutRuntimeCapabilities().AllowsWrite("/private/plan/file")).IsFalse();
+    }
+
+    [Test]
     public async Task Delegation_ignores_runtime_capabilities_allows_narrower_policies_and_rejects_escalation()
     {
         var rules = new[] { new SandboxRule("/secret", SandboxRuleAction.DenyRead) };

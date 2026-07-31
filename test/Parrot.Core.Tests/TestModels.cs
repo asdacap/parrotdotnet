@@ -38,7 +38,7 @@ internal static class TestModels
         };
 
     public static ProfileRegistry ProfileRegistry() =>
-        new(Profiles, [], new HashSet<string>(StringComparer.Ordinal));
+        new(Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
 
     public static ISystemPromptProvider PromptProvider(string workingDirectory, string configDirectory) =>
         new CompositeSystemPromptProvider(

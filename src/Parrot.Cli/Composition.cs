@@ -4,9 +4,9 @@ using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
-using Parrot.Tools;
 using Parrot.Web;
 using Pure.DI;
 
@@ -116,9 +116,11 @@ internal partial class Composition
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<Configuration>(out var configuration);
+                ctx.Inject<StatePaths>(out var paths);
                 return new ProfileRegistry(
                     configuration.Profiles,
                     configuration.SandboxRules,
+                    new ApplicationDataSecurityRules(paths).Rules,
                     configuration.DisabledTools);
             })
             .Bind().As(Lifetime.Singleton).To<ISystemPromptProvider>(ctx =>
@@ -166,10 +168,8 @@ internal partial class Composition
                 ctx.Inject<ModelRouter>(out var router);
                 ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
                 ctx.Inject<IAgentSessionScopeFactory>(out var scopes);
-                ctx.Inject<StatePaths>(out var paths);
 
                 return new AgentSessionFactorySource(
-                    new ToolFileSystemPolicy(paths),
                     processes,
                     compactor,
                     webFetcher,

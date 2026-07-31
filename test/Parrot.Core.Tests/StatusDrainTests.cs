@@ -235,6 +235,7 @@ internal sealed class StatusDrainTests : IDisposable
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,
+                [],
                 configuration.DisabledTools),
             configuration.DefaultProfile);
     }

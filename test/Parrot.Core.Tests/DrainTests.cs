@@ -486,6 +486,7 @@ internal sealed class DrainTests : IDisposable
             "test",
             new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, false, []),
             [],
+            [],
             disabledTools);
 
     private AgentSession Session(

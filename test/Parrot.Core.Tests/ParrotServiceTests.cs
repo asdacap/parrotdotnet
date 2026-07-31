@@ -622,6 +622,7 @@ internal sealed class ParrotServiceTests : IDisposable
         new ProfileRegistry(
             _configuration.Profiles,
             _configuration.SandboxRules,
+            [],
             _configuration.DisabledTools),
         _configuration.DefaultProfile);
 

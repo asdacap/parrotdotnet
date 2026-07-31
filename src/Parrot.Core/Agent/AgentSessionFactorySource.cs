@@ -1,13 +1,11 @@
 using Parrot.Context;
 using Parrot.Process;
 using Parrot.Queues;
-using Parrot.Tools;
 using Parrot.Web;
 
 namespace Parrot.Agent;
 
 internal sealed class AgentSessionFactorySource(
-    ToolFileSystemPolicy fileSystemPolicy,
     ProcessRunner processes,
     Compactor compactor,
     WebFetcher webFetcher,
@@ -19,7 +17,6 @@ internal sealed class AgentSessionFactorySource(
         new AgentSessionFactory(
             owner,
             owner.Resources.Workspace.LaunchDirectory,
-            fileSystemPolicy,
             owner.Resources.BlobDirectory,
             compactor,
             webFetcher,
