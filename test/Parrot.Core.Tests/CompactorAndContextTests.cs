@@ -258,7 +258,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             broker,
             repository,
             [],
-            TestModels.PromptProvider(_workspace, _workspace),
+            TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("agent", new EventRepository(database), broker),
             new ToolOutputBlobStore(_workspace),
             new Compactor(tokenBudget: 0),

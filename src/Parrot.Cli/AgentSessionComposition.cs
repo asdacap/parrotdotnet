@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Context;
 using Parrot.Process;
 using Parrot.Tools;
 using Pure.DI;
@@ -11,6 +12,12 @@ internal partial class AgentSessionComposition
         DI.Setup(nameof(AgentSessionComposition))
             .Hint(Hint.Resolve, "Off")
             .Arg<AgentSessionScopeArguments>("arguments")
+            .Bind().As(Lifetime.Scoped).To<ISystemPrompt>(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.SystemPromptProvider.Materialize(arguments.Identity)
+                    ?? throw new InvalidOperationException("The system prompt provider returned no prompt.");
+            })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -57,6 +64,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<ShellProcessOwner>(out var processes);
                 ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
                 ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
+                ctx.Inject<ISystemPrompt>(out var systemPrompt);
                 var session = new AgentSession(
                     arguments.Identity,
                     arguments.Model,
@@ -64,7 +72,7 @@ internal partial class AgentSessionComposition
                     arguments.EventBroker,
                     arguments.EventRepository,
                     toolFactories,
-                    arguments.SystemPromptProvider,
+                    systemPrompt,
                     todos,
                     toolOutputBlobs,
                     arguments.Compactor,

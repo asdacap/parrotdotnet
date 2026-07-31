@@ -147,6 +147,12 @@ internal static class TestModels
             queues);
     }
 
+    public static ISystemPrompt MaterializePrompt(
+        AgentIdentity identity,
+        string workingDirectory,
+        string configDirectory) =>
+        PromptProvider(workingDirectory, configDirectory).Materialize(identity);
+
     public static ISystemPromptProvider PromptProvider(string workingDirectory, string configDirectory) =>
         new CompositeSystemPromptProvider(
             "test:system-prompt",
