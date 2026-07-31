@@ -4,7 +4,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Parrot.Process;
 
-internal sealed partial class LinuxProcessSignalTarget : IDisposable
+internal sealed partial class LinuxProcessSignalTarget : IProcessSignalTarget
 {
     private const long PidFileDescriptorOpenSystemCall = 434;
     private const long PidFileDescriptorSendSignalSystemCall = 424;
@@ -37,7 +37,7 @@ internal sealed partial class LinuxProcessSignalTarget : IDisposable
         return new LinuxProcessSignalTarget(new SafeFileHandle((nint)descriptor, ownsHandle: true));
     }
 
-    public void Send(LinuxSignal signal)
+    public void Send(ProcessSignal signal)
     {
         if (_descriptor is null)
         {
@@ -68,7 +68,7 @@ internal sealed partial class LinuxProcessSignalTarget : IDisposable
     {
         NoSuchProcess => new InvalidOperationException("The shell process has completed."),
         InvalidArgument when signal != 0 =>
-            new InvalidOperationException($"Linux signal {signal} is invalid on this host."),
+            new InvalidOperationException($"Process signal {signal} is invalid on this host."),
         PermissionDenied => new InvalidOperationException("Permission was denied while signaling the shell process."),
         NotImplemented => new PlatformNotSupportedException("This Linux kernel does not support pidfd process signals."),
         _ => new IOException($"Failed to {operation}: {new Win32Exception(error).Message}"),

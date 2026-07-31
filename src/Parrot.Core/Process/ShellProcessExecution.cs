@@ -10,7 +10,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
     private readonly CancellationTokenSource _cancellation;
     private readonly string _blobDirectory;
     private readonly System.Diagnostics.Process _process;
-    private readonly LinuxProcessSignalTarget _signalTarget;
+    private readonly IProcessSignalTarget _signalTarget;
     private readonly PtyTranscript? _transcript;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly int _masterDescriptor;
@@ -23,7 +23,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     internal ShellProcessExecution(
         System.Diagnostics.Process process,
-        LinuxProcessSignalTarget signalTarget,
+        IProcessSignalTarget signalTarget,
         string blobDirectory,
         CancellationToken cancellationToken)
     {
@@ -39,7 +39,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     internal ShellProcessExecution(
         System.Diagnostics.Process process,
-        LinuxProcessSignalTarget signalTarget,
+        IProcessSignalTarget signalTarget,
         int masterDescriptor,
         int slaveDescriptor,
         string blobDirectory,
@@ -114,7 +114,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     public Task Cancel() => _cancellation.CancelAsync();
 
-    public void SendSignal(LinuxSignal signal, CancellationToken cancellationToken)
+    public void SendSignal(ProcessSignal signal, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         _signalTarget.Send(signal);

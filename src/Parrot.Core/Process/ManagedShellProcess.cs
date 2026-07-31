@@ -97,7 +97,7 @@ internal sealed class ManagedShellProcess
         }
     }
 
-    public Task SendSignal(LinuxSignal signal, CancellationToken cancellationToken)
+    public Task SendSignal(ProcessSignal signal, CancellationToken cancellationToken)
     {
         try
         {
