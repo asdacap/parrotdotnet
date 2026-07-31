@@ -44,7 +44,7 @@ internal sealed class OpenAICompatibleProviderTests
         {
             Model = "vendor/model",
             Messages = [LLMMessage.User("hello")],
-            Tools = [new LLMToolDefinition("write", "Creates or replaces a file.", Parrot.Tools.WriteToolInput.Descriptor)],
+            Tools = [new LLMToolDefinition("write", "Creates or replaces a file.", Parrot.Tools.WriteTool.Input.Descriptor)],
         };
         using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
         var function = document.RootElement.GetProperty("tools")[0].GetProperty("function");

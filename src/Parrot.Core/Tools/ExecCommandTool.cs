@@ -1,14 +1,17 @@
+using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Process;
 using Parrot.Security;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
 // The one tool that reaches outside the process. It runs under the sandbox, so
 // a failure to sandbox is reported to the model rather than run unconfined --
 // the fail-closed property, surfaced as a tool error the model can react to.
-internal sealed class ExecCommandTool(
+internal sealed partial class ExecCommandTool(
     ShellProcessOwner processes,
     AgentSession session,
     SecurityProfile securityProfile,
@@ -21,7 +24,7 @@ internal sealed class ExecCommandTool(
         + "without stopping it; completed process names can be reused and omitted names are generated. Completion after a yield "
         + "is steered back to this agent unless wait_process claims it.";
 
-    public string ParametersJson => ExecCommandToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -83,5 +86,28 @@ internal sealed class ExecCommandTool(
             // than run the command outside the sandbox.
             return $"error: {failure.Message}";
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input
+    {
+        [Description("The shell command to run")]
+        [JsonPropertyName("command")]
+        [ToolRequired]
+        public string? Command { get; init; }
+
+        [Description("Environment variables for the command. Values override the inherited environment.")]
+        [JsonPropertyName("env")]
+        [JsonConverter(typeof(ProcessEnvironmentJsonConverter))]
+        public Dictionary<string, string>? Environment { get; init; }
+
+        [Description("Name unique among running processes; completed names can be reused and omitted names are generated")]
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        [Description("Return the process name if still running after this many milliseconds")]
+        [JsonPropertyName("yield_after_ms")]
+        [ToolMinimum(0)]
+        public long? YieldAfterMilliseconds { get; init; }
     }
 }

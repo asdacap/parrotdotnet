@@ -1,16 +1,19 @@
+using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Queues;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class QueuePushTool(QueueStore queues, UserSession owner) : ITool
+internal sealed partial class QueuePushTool(QueueStore queues, UserSession owner) : ITool
 {
     public string Name => "queue_push";
 
     public string Description => "Push strings onto an existing shared user-session queue. Direction defaults to back.";
 
-    public string ParametersJson => QueuePushToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -26,5 +29,26 @@ internal sealed class QueuePushTool(QueueStore queues, UserSession owner) : IToo
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input
+    {
+        [Description("Name of the queue to receive the items.")]
+        [JsonPropertyName("name")]
+        [ToolPattern("^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+        [ToolRequired]
+        public string? Name { get; init; }
+
+        [Description("Strings to push onto the queue.")]
+        [JsonPropertyName("items")]
+        [ToolRequired]
+        public string[]? Items { get; init; }
+
+        [Description("End of the queue onto which the items are pushed.")]
+        [JsonPropertyName("direction")]
+        [ToolDefaultString("back")]
+        [ToolStringEnum("front", "back")]
+        public string? Direction { get; init; }
     }
 }

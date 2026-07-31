@@ -1,15 +1,18 @@
+using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Queues;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class QueueTakeTool(QueueStore queues) : ITool
+internal sealed partial class QueueTakeTool(QueueStore queues) : ITool
 {
     public string Name => "queue_take";
 
     public string Description => "Remove and return strings from an existing shared user-session queue. If the queue is empty, wait until an item is available or yield_after_ms elapses. Count defaults to one, direction defaults to front, and yield_after_ms defaults to 30000. The queue does not need to fill count before returning.";
 
-    public string ParametersJson => QueueTakeToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -66,5 +69,33 @@ internal sealed class QueueTakeTool(QueueStore queues) : ITool
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input
+    {
+        [Description("Name of the queue from which to remove items.")]
+        [JsonPropertyName("name")]
+        [ToolPattern("^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+        [ToolRequired]
+        public string? Name { get; init; }
+
+        [Description("Maximum number of items to remove.")]
+        [JsonPropertyName("count")]
+        [ToolDefaultLong(1)]
+        [ToolMinimum(1)]
+        public int? Count { get; init; }
+
+        [Description("End of the queue from which items are removed.")]
+        [JsonPropertyName("direction")]
+        [ToolDefaultString("front")]
+        [ToolStringEnum("front", "back")]
+        public string? Direction { get; init; }
+
+        [Description("Milliseconds to wait for an item when the queue is empty.")]
+        [JsonPropertyName("yield_after_ms")]
+        [ToolDefaultLong(30_000)]
+        [ToolMinimum(0)]
+        public long? YieldAfterMilliseconds { get; init; }
     }
 }

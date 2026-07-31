@@ -9,23 +9,23 @@ internal sealed class QueueToolTests
     public async Task Generated_descriptors_preserve_queue_contracts_and_describe_every_field()
     {
         await AssertDescriptor(
-            QueueCreateToolInput.Descriptor,
+            QueueCreateTool.Input.Descriptor,
             ["name", "description"],
             ["name"]);
-        await AssertDescriptor(QueueInfoToolInput.Descriptor, ["name"], ["name"]);
-        await AssertDescriptor(QueueListenToolInput.Descriptor, ["name", "enabled"], ["name"]);
+        await AssertDescriptor(QueueInfoTool.Input.Descriptor, ["name"], ["name"]);
+        await AssertDescriptor(QueueListenTool.Input.Descriptor, ["name", "enabled"], ["name"]);
         await AssertDescriptor(
-            QueuePushToolInput.Descriptor,
+            QueuePushTool.Input.Descriptor,
             ["name", "items", "direction"],
             ["name", "items"]);
         await AssertDescriptor(
-            QueueTakeToolInput.Descriptor,
+            QueueTakeTool.Input.Descriptor,
             ["name", "count", "direction", "yield_after_ms"],
             ["name"]);
 
-        using var listen = JsonDocument.Parse(QueueListenToolInput.Descriptor);
-        using var push = JsonDocument.Parse(QueuePushToolInput.Descriptor);
-        using var take = JsonDocument.Parse(QueueTakeToolInput.Descriptor);
+        using var listen = JsonDocument.Parse(QueueListenTool.Input.Descriptor);
+        using var push = JsonDocument.Parse(QueuePushTool.Input.Descriptor);
+        using var take = JsonDocument.Parse(QueueTakeTool.Input.Descriptor);
         _ = await Assert.That(listen.RootElement.GetProperty("properties").GetProperty("enabled").GetProperty("default").GetBoolean()).IsTrue();
         _ = await Assert.That(push.RootElement.GetProperty("properties").GetProperty("direction").GetProperty("default").GetString()).IsEqualTo("back");
         _ = await Assert.That(take.RootElement.GetProperty("properties").GetProperty("count").GetProperty("minimum").GetInt64()).IsEqualTo(1);

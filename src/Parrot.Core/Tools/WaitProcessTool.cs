@@ -1,16 +1,19 @@
+using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Process;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class WaitProcessTool(ShellProcessOwner processes) : ITool
+internal sealed partial class WaitProcessTool(ShellProcessOwner processes) : ITool
 {
     public string Name => "wait_process";
 
     public string Description =>
         "Wait for a shell process owned by this agent session. A timeout returns its name without stopping it, allowing a later wait.";
 
-    public string ParametersJson => WaitProcessToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -39,5 +42,19 @@ internal sealed class WaitProcessTool(ShellProcessOwner processes) : ITool
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Omitted)]
+    internal sealed partial class Input
+    {
+        [Description("Reserved shell process name")]
+        [JsonPropertyName("name")]
+        [ToolRequired]
+        public string? Name { get; init; }
+
+        [Description("Return the process name if still running after this many milliseconds")]
+        [JsonPropertyName("yield_after_ms")]
+        [ToolMinimum(0)]
+        public long? YieldAfterMilliseconds { get; init; }
     }
 }

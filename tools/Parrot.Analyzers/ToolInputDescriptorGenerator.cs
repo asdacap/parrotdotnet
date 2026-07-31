@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
@@ -34,10 +35,10 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    private static readonly DiagnosticDescriptor TopLevelModelRule = new(
+    private static readonly DiagnosticDescriptor SupportedNestingRule = new(
         "PARROT1002",
-        "Tool input model must be top-level and non-generic",
-        "Tool input model '{0}' must be a top-level, non-generic class",
+        "Tool input model nesting is unsupported",
+        "Tool input model '{0}' must be non-generic and nested only in non-generic partial types",
         "Parrot.Generation",
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -119,15 +120,7 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
 
     private static void Generate(SourceProductionContext context, INamedTypeSymbol model)
     {
-        var declaration = model.DeclaringSyntaxReferences
-            .Select(reference => reference.GetSyntax(context.CancellationToken))
-            .OfType<TypeDeclarationSyntax>()
-            .FirstOrDefault(type => type.AttributeLists.Count > 0);
-
-        if (declaration is null || !model.DeclaringSyntaxReferences
-                .Select(reference => reference.GetSyntax(context.CancellationToken))
-                .OfType<TypeDeclarationSyntax>()
-                .Any(type => type.Modifiers.Any(modifier => modifier.ValueText == "partial")))
+        if (!IsPartial(model, context.CancellationToken))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 PartialModelRule,
@@ -136,10 +129,10 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
             return;
         }
 
-        if (model.ContainingType is not null || model.TypeParameters.Length != 0)
+        if (!HasSupportedNesting(model, context.CancellationToken))
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                TopLevelModelRule,
+                SupportedNestingRule,
                 model.Locations.FirstOrDefault(),
                 model.ToDisplayString()));
             return;
@@ -161,6 +154,26 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
         var source = BuildSource(model, json);
         context.AddSource(GetHintName(model), SourceText.From(source, Encoding.UTF8));
     }
+
+    private static bool HasSupportedNesting(INamedTypeSymbol model, CancellationToken cancellationToken)
+    {
+        for (var type = model; type is not null; type = type.ContainingType)
+        {
+            if (type.TypeParameters.Length != 0 ||
+                (type.ContainingType is not null && !IsPartial(type.ContainingType, cancellationToken)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsPartial(INamedTypeSymbol type, CancellationToken cancellationToken) =>
+        type.DeclaringSyntaxReferences
+            .Select(reference => reference.GetSyntax(cancellationToken))
+            .OfType<TypeDeclarationSyntax>()
+            .Any(declaration => declaration.Modifiers.Any(SyntaxKind.PartialKeyword));
 
     private static string? BuildModel(
         INamedTypeSymbol model,
@@ -651,26 +664,100 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
                 .AppendLine();
         }
 
+        var types = new List<INamedTypeSymbol>();
+        for (var type = model; type is not null; type = type.ContainingType)
+        {
+            types.Add(type);
+        }
+
+        types.Reverse();
+        for (var index = 0; index < types.Count; index++)
+        {
+            AppendIndent(builder, index);
+            AppendTypeDeclaration(builder, types[index]);
+            _ = builder.AppendLine();
+            AppendIndent(builder, index);
+            _ = builder.AppendLine("{");
+        }
+
+        AppendIndent(builder, types.Count);
         _ = builder.Append(GetAccessibility(model.DeclaredAccessibility))
-            .Append(" partial ")
-            .Append(model.IsRecord ? "record " : "class ")
-            .Append(model.Name)
-            .AppendLine()
-            .AppendLine("{")
-            .Append("    ")
-            .Append(GetAccessibility(model.DeclaredAccessibility))
             .Append(" static string Descriptor => ")
             .Append(ToCSharpString(json))
-            .AppendLine(";")
-            .AppendLine("}");
+            .AppendLine(";");
+
+        for (var index = types.Count - 1; index >= 0; index--)
+        {
+            AppendIndent(builder, index);
+            _ = builder.AppendLine("}");
+        }
+
         return builder.ToString();
     }
+
+    private static void AppendTypeDeclaration(StringBuilder builder, INamedTypeSymbol type)
+    {
+        _ = builder.Append(GetAccessibility(type.DeclaredAccessibility)).Append(' ');
+        if (type.IsStatic)
+        {
+            _ = builder.Append("static ");
+        }
+        else if (type.TypeKind == TypeKind.Class)
+        {
+            if (type.IsAbstract)
+            {
+                _ = builder.Append("abstract ");
+            }
+
+            if (type.IsSealed)
+            {
+                _ = builder.Append("sealed ");
+            }
+        }
+        else if (type.TypeKind == TypeKind.Struct)
+        {
+            if (type.IsReadOnly)
+            {
+                _ = builder.Append("readonly ");
+            }
+
+            if (type.IsRefLikeType)
+            {
+                _ = builder.Append("ref ");
+            }
+        }
+
+        _ = builder.Append("partial ").Append(GetTypeKind(type)).Append(' ').Append(type.Name);
+    }
+
+    private static string GetTypeKind(INamedTypeSymbol type)
+    {
+        if (type.IsRecord)
+        {
+            return type.TypeKind == TypeKind.Struct ? "record struct" : "record class";
+        }
+
+        return type.TypeKind switch
+        {
+            TypeKind.Class => "class",
+            TypeKind.Struct => "struct",
+            TypeKind.Interface => "interface",
+            _ => throw new InvalidOperationException($"Unsupported containing type kind '{type.TypeKind}'."),
+        };
+    }
+
+    private static void AppendIndent(StringBuilder builder, int depth) =>
+        _ = builder.Append(' ', depth * 4);
 
     private static string GetAccessibility(Accessibility accessibility) => accessibility switch
     {
         Accessibility.Public => "public",
         Accessibility.Internal => "internal",
-        _ => "internal",
+        Accessibility.Private => "private",
+        Accessibility.Protected => "protected",
+        Accessibility.ProtectedOrInternal => "protected internal",
+        Accessibility.ProtectedAndInternal => "private protected",
+        _ => throw new InvalidOperationException($"Unsupported accessibility '{accessibility}'."),
     };
 
     private static string GetHintName(INamedTypeSymbol model)

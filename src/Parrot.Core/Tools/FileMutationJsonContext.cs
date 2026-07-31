@@ -3,6 +3,6 @@ using System.Text.Json.Serialization;
 namespace Parrot.Tools;
 
 [JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
-[JsonSerializable(typeof(WriteToolInput))]
-[JsonSerializable(typeof(EditToolInput))]
+[JsonSerializable(typeof(WriteTool.Input), TypeInfoPropertyName = "WriteToolInput")]
+[JsonSerializable(typeof(EditTool.Input), TypeInfoPropertyName = "EditToolInput")]
 internal sealed partial class FileMutationJsonContext : JsonSerializerContext;

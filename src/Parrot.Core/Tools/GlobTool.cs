@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Parrot.Security;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
@@ -15,7 +18,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
     public string Description =>
         "Find workspace paths with deterministic glob matching, including **.";
 
-    public string ParametersJson => GlobToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -222,5 +225,14 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
 
         _ = regex.Append('$');
         return regex.ToString();
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input
+    {
+        [JsonPropertyName("pattern")]
+        [Description("Relative workspace glob pattern, including ** for recursive matching.")]
+        [ToolRequired]
+        public string? Pattern { get; init; }
     }
 }

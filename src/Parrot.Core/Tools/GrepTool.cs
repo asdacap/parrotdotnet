@@ -1,11 +1,14 @@
+using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Parrot.Security;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class GrepTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
+internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
 {
     private const int MaxMatches = 1000;
     private const int MaxLineLength = 512;
@@ -18,7 +21,7 @@ internal sealed class GrepTool(ToolWorkspace workspace, SecurityProfile security
     public string Description =>
         "Search text files with .NET non-backtracking regular expressions. Relative paths resolve within the workspace.";
 
-    public string ParametersJson => GrepToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -284,6 +287,19 @@ internal sealed class GrepTool(ToolWorkspace workspace, SecurityProfile security
         {
             return true;
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input
+    {
+        [JsonPropertyName("pattern")]
+        [Description(".NET non-backtracking regular expression to search for.")]
+        [ToolRequired]
+        public string? Pattern { get; init; }
+
+        [JsonPropertyName("path")]
+        [Description("Optional workspace-relative file or directory to search.")]
+        public string? Path { get; init; }
     }
 
     private sealed class GrepState
