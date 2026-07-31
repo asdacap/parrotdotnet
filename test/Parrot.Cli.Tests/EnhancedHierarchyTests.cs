@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Llm;
@@ -260,6 +262,93 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(committed[0]).IsEqualTo(expectedResponse);
         _ = await Assert.That(string.Join('|', committed)).DoesNotContain("line 11");
         _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished");
+    }
+
+    [Test]
+    public async Task Child_response_moves_on_text_events_but_not_animation_ticks(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new ConcurrentQueue<string>();
+        var ticks = Channel.CreateUnbounded<bool>();
+        var context = new LiveBufferRenderContext(18, new TerminalPalette(false));
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Enqueue(Render(items, context));
+            return Task.CompletedTask;
+        }
+
+        async Task Delay(CancellationToken token) =>
+            _ = await ticks.Reader.ReadAsync(token);
+
+        using var view = new RawActivityView(
+            Draw,
+            static (_, _, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            },
+            Delay,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var animation = view.Run(animating.Token);
+
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "writer",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "writer" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "writer", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "idle",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "idle" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "idle", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "writer", TextChunk = new TextChunk { Fragment = "old newest" } },
+            cancellationToken);
+
+        var beforeUpdate = drawn.Last().Split('|');
+        var firstResponse = beforeUpdate.Single(static line => line.Contains("[writer]", StringComparison.Ordinal));
+        _ = await Assert.That(firstResponse).IsEqualTo("  ● [writer] newes");
+
+        await view.Render(
+            new Event { AgentSessionId = "writer", TextChunk = new TextChunk { Fragment = " word" } },
+            cancellationToken);
+        var beforeTick = drawn.Last().Split('|');
+        var updatedResponse = beforeTick.Single(static line => line.Contains("[writer]", StringComparison.Ordinal));
+        var spinnerBeforeTick = beforeTick.Single(static line => line.Contains("[idle]", StringComparison.Ordinal));
+        _ = await Assert.That(updatedResponse).IsEqualTo("  ● [writer] word");
+
+        var drawCount = drawn.Count;
+        await ticks.Writer.WriteAsync(true, cancellationToken);
+        while (drawn.Count == drawCount)
+        {
+            await Task.Delay(1, cancellationToken);
+        }
+
+        var afterTick = drawn.Last().Split('|');
+        var responseAfterTick = afterTick.Single(static line => line.Contains("[writer]", StringComparison.Ordinal));
+        var spinnerAfterTick = afterTick.Single(static line => line.Contains("[idle]", StringComparison.Ordinal));
+        _ = await Assert.That(responseAfterTick).IsEqualTo(updatedResponse);
+        _ = await Assert.That(spinnerAfterTick).IsNotEqualTo(spinnerBeforeTick);
+
+        await animating.CancelAsync();
+        await animation;
     }
 
     [Test]
