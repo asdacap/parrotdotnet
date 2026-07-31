@@ -258,7 +258,7 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Private_cache_directory_is_writable(CancellationToken cancellationToken)
+    public async Task Private_runtime_directories_are_writable(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -279,6 +279,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         await AssertWritableBind(arguments, resources.CacheDirectory);
+        await AssertWritableBind(arguments, resources.TemporaryDirectory);
     }
 
     [Test]
@@ -644,15 +645,18 @@ internal sealed class ProcessRunnerTests : IDisposable
             return;
         }
 
+        var resources = Resources(_workspace);
+        var scratchFile = Path.Combine(resources.TemporaryDirectory, "scratch.txt");
         var result = await runner.Run(
-            "echo hi > inside.txt && (touch /host-write 2>&1 || echo blocked)",
+            $"echo hi > inside.txt && echo scratch > '{scratchFile}' && (touch /host-write 2>&1 || echo blocked)",
             ProcessEnvironmentOverrides.Empty,
-            Resources(_workspace),
+            resources,
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         _ = await Assert.That(File.Exists(Path.Combine(_workspace, "inside.txt"))).IsTrue();
+        _ = await Assert.That(await File.ReadAllTextAsync(scratchFile, cancellationToken)).IsEqualTo("scratch\n");
         _ = await Assert.That(result.Stdout).Contains("blocked");
         _ = await Assert.That(File.Exists("/host-write")).IsFalse();
     }

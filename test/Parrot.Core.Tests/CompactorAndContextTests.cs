@@ -33,6 +33,19 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Temporary_directory_context_names_the_writable_directory()
+    {
+        var directory = Path.Combine(_temporaryDirectory, "session", "runtime", "tmp");
+        var prompt = new TemporaryDirectoryProvider(directory)
+            .Materialize(AgentIdentity.Main("session", string.Empty));
+
+        prompt.RenewEpoch();
+        var built = prompt.Build(Selection());
+
+        _ = await Assert.That(built).IsEqualTo($"Writable temporary directory for shell commands: {directory}");
+    }
+
+    [Test]
     public async Task System_context_includes_platform_cwd_and_agents_files()
     {
         await File.WriteAllTextAsync(Path.Combine(_configDirectory, "AGENTS.md"), "GLOBAL RULE: be concise.");

@@ -154,6 +154,7 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         [
             "--bind", resources.RuntimeHomeDirectory, resources.RuntimeHomeDirectory,
             "--bind", resources.CacheDirectory, resources.CacheDirectory,
+            "--bind", resources.TemporaryDirectory, resources.TemporaryDirectory,
         ]);
     }
 

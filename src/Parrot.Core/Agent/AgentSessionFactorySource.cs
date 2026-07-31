@@ -21,7 +21,12 @@ internal sealed class AgentSessionFactorySource(
             compactor,
             webFetcher,
             router,
-            systemPromptProvider,
+            new CompositeSystemPromptProvider(
+                "runtime:user-session-system-prompt",
+                [
+                    systemPromptProvider,
+                    new TemporaryDirectoryProvider(owner.Resources.TemporaryDirectory),
+                ]),
             scopes);
 
     public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
