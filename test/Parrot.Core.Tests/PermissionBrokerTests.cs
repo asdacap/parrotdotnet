@@ -294,7 +294,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             null,
-            null,
+            TestModels.Queues(AgentIdentity.Main(id, string.Empty)),
             CancellationToken.None);
     }
 

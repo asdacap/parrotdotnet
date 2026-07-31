@@ -2,6 +2,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -26,6 +27,7 @@ internal interface IAgentSessionScopeFactory
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         AgentRegistry registry,
+        AgentQueues queues,
         UserSession owner,
         CancellationToken lifetime);
 }

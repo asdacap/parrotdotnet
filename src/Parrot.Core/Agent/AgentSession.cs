@@ -41,7 +41,7 @@ internal sealed class AgentSession(
     SecurityProfile securityProfile,
     RuntimeStatus? status,
     AgentRegistry? registry,
-    UserSession? owner,
+    AgentQueues? queues,
     CancellationToken lifetime)
 {
     private const string RunawayMessage = "the turn exceeded its provider-request limit";
@@ -105,6 +105,9 @@ internal sealed class AgentSession(
     public string ParentSessionName => identity.ParentSessionName;
 
     public TodoCollection Todos { get; } = todos;
+
+    public AgentQueues Queues { get; } = queues
+        ?? throw new ArgumentNullException(nameof(queues));
 
     public SandboxWriteGrants WriteGrants { get; } = new();
 
@@ -264,9 +267,9 @@ internal sealed class AgentSession(
             var delay = Task.Delay(duration, timeProvider, wait.Token);
             Task<bool>? delivery = null;
 
-            if (Depth == 0 && owner is not null && !incoming.Task.IsCompleted)
+            if (!incoming.Task.IsCompleted)
             {
-                delivery = owner.DeliverMonitored(this, wait.Token);
+                delivery = Queues.Deliver(wait.Token);
                 var first = await Task.WhenAny(incoming.Task, delay, delivery).ConfigureAwait(false);
 
                 if (first == delivery)
@@ -700,15 +703,14 @@ internal sealed class AgentSession(
     {
         lock (_drainGate)
         {
+            if (incomingAvailable)
+            {
+                _ = _incomingInputWait?.TrySetResult();
+            }
+
             if (_drainCancellation is not null)
             {
                 _wake = true;
-
-                if (incomingAvailable)
-                {
-                    _ = _incomingInputWait?.TrySetResult();
-                }
-
                 return (false, _drain);
             }
 
@@ -763,13 +765,11 @@ internal sealed class AgentSession(
             }
 
             if (completed.Status == AgentExecutionStatus.Succeeded
-                && owner is not null
-                && Depth == 0
                 && !cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    _ = await owner.DeliverMonitored(this, cancellationToken).ConfigureAwait(false);
+                    _ = await Queues.Deliver(cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {

@@ -919,7 +919,7 @@ internal sealed class SubagentTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             registry: null,
-            owner: null,
+            queues: TestModels.Queues(identity),
             cancellationToken);
     }
 
@@ -985,7 +985,7 @@ internal sealed class SubagentTests : IDisposable
                 securityProfile,
                 status,
                 deliversCompletions ? registry : null,
-                null,
+                TestModels.Queues(identity),
                 lifetime));
         }
     }

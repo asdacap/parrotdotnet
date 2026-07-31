@@ -2,6 +2,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -24,5 +25,6 @@ internal sealed record AgentSessionScopeArguments(
     SecurityProfile SecurityProfile,
     RuntimeStatus? Status,
     AgentRegistry Registry,
+    AgentQueues Queues,
     UserSession Owner,
     CancellationToken Lifetime);

@@ -1,17 +1,16 @@
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Parrot.Agent;
 using Parrot.Queues;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueuePushTool(QueueStore queues, UserSession owner) : ITool
+internal sealed partial class QueuePushTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_push";
 
-    public string Description => "Push strings onto an existing shared user-session queue. Direction defaults to back.";
+    public string Description => "Push strings onto an accessible queue owned by the invoking agent or its direct parent. Direction defaults to back.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -21,8 +20,11 @@ internal sealed partial class QueuePushTool(QueueStore queues, UserSession owner
         {
             var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueuePushToolInput);
             var items = input.Items ?? throw new FormatException("Tool arguments require an array 'items'.");
-            var info = queues.Push(QueueToolExecution.RequireName(input.Name), items, QueueToolExecution.ParseDirection(input.Direction));
-            await owner.NotifyQueuePush(cancellationToken).ConfigureAwait(false);
+            var info = await queues.Push(
+                QueueToolExecution.RequireName(input.Name),
+                items,
+                QueueToolExecution.ParseDirection(input.Direction),
+                cancellationToken).ConfigureAwait(false);
             return QueueToolExecution.Serialize(info);
         }
         catch (Exception failure) when (failure is JsonException or FormatException or QueueException)

@@ -546,7 +546,7 @@ internal sealed class DrainTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             registry: null,
-            owner: null,
+            queues: TestModels.Queues(AgentIdentity.Main("agent", string.Empty)),
             lifetime);
     }
 }

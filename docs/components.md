@@ -66,10 +66,11 @@ workspace identity; it must not silently replace the launch path exposed to the
 agent or used as its working directory.
 
 **Private state.** Each user session has one private root under Parrot state.
-Its database, queues, process-output blobs, plan artifacts, and other internal
-artifacts live there and never in the workspace. Exactly one active runtime may
-own that root and write its database. Child agent sessions share the owning user
-session's root and cannot acquire or escape into another user session's root.
+Its database, root-agent queues, process-output blobs, plan artifacts, and other
+internal artifacts live there and never in the workspace. Exactly one active
+runtime may own that root and write its database. Child agent sessions share the
+owning user session's isolation boundary but own only lifetime-scoped queues;
+they cannot acquire or escape into another user session's root.
 
 **Opening.** Fresh creation always creates a new user session and a root agent
 named `main`. Exact resume opens only the requested existing session and fails
@@ -279,25 +280,32 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 
 - **Absorbs** `internal/queue` and the queue portions of upstream `tool`,
   `status`, `agent`, and `session`.
-- **Owns** one user session's named JSONL queues, their metadata, lock
-  discipline, durable monitored-delivery ids, and canonical monitored-item
-  selection.
-- **Inbound** explicitly create, inspect, list, push, take, monitor, and offer
-  one monitored item. Queue names are canonical lowercase ASCII words joined by
-  hyphens; empty queues remain durable.
-- **Outbound** the user session's private queue directory and `UserSession` for
-  trusted root-idle notification admission.
-- **Boundary** no. Concrete and user-session owned; the five queue tools are
-  its adapters.
+- **Owns** the root agent's durable named JSONL queues and the lifetime-scoped
+  stores of child agents, including metadata, lock discipline, and monitored
+  delivery state. Listening registrations are per invoking agent, not queue
+  metadata shared among consumers.
+- **Inbound** explicitly create, inspect, list, push, take, listen, and offer one
+  item to an idle listener. A tool invocation resolves its own queue first and
+  then its direct parent's queue. It cannot resolve a child's, sibling's, or
+  grandparent's queue. Queue names are canonical lowercase ASCII words joined
+  by hyphens; empty root queues remain durable.
+- **Outbound** the user session's private root queue directory and the owning
+  `AgentSession` for idle notification admission.
+- **Boundary** no. Concrete and scoped to an agent owner; the five queue tools
+  are its adapters.
+- **Note** a queue name must be unique across a direct parent-child edge in both
+  creation orders, so own-first lookup cannot make a collision ambiguous.
+  Siblings may reuse a name because neither can access the other's queues.
+  Root-owned queues persist with the user session; a child's store and all its
+  queues end with that child session.
 - **Note** queue files use bounded, strict JSON Lines and lock directories so
   independent store instances/processes share one read-modify-write discipline.
-  The queue item is removed only after a root transaction durably admits its
-  stable notification id, allowing retry after either durability domain fails.
-  The store also owns a typed replay-latest visible-inventory feed containing
-  only queue name, description, and item count. It emits complete snapshots of
-  non-empty queues after durable count changes; queue contents and internal
-  delivery metadata never cross that boundary. Its in-memory revision orders
-  one hosted feed incarnation and is not durable history or a reconnect cursor.
+  The external replay-latest inventory contains only non-empty
+  root-owned queue names, descriptions, and item counts; child-owned queues are
+  never published to clients. It emits complete snapshots after durable root
+  count changes. Queue contents and internal delivery metadata never cross that
+  boundary, and the in-memory revision is not durable history or a reconnect
+  cursor.
 
 ### `EventBroker` — rank 3, M1
 
@@ -529,8 +537,9 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 
 - **Absorbs** `session` (conversation half), `agent` (runner and coordinator).
 - **Owns** identity, selection, drain state, interactive owner binding,
-  admitted input, messages, context epoch, todos, goals, and its tasks. Todos
-  and goals are **owned sub-objects**, not services.
+  admitted input, messages, context epoch, todos, goals, tasks, and its queue
+  scope. Todos, goals, and queue listening registrations are **owned
+  sub-objects**, not user-session-global services.
 - **Inbound** admit a prompt, run the drain, interrupt. Upholds principles 2
   (one drain), 3 (a turn is a cancellable boundary), 4 (immutable epoch), and 6
   (all tools settle before the next turn).
@@ -647,9 +656,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Absorbs** `session` (`InteractiveOwner`, `InteractiveClaim`), `store`
   (owners, claims).
 - **Owns** its private root, the exclusive runtime claim on it, the exact launch
-  working-directory binding, its shared durable queue store, and the
-  `AgentSession`s inside it. Root-idle monitored queue delivery is admitted here
-  rather than by child sessions.
+  working-directory binding, the root agent's durable queue store, and the
+  `AgentSession`s inside it. Child queue stores belong to child session
+  lifetimes rather than the user-session root.
 - **Inbound** create a fresh session, resume an exact id, or use default-open
   cardinality semantics for a workspace. The exact launch path is retained for
   execution while canonical identity is used only for matching and claims.
@@ -729,11 +738,12 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   name so the lifecycle tools use process terminology.
 - **Generic activity wait.** `wait` pauses the invoking agent for incoming
   activity and returns early for a new message, direct-child completion,
-  unclaimed yielded-process completion, or an item from a queue enabled through
-  `queue_listen`. Queue activity is observed only for queues that agent is
-  currently listening to. This differs from the specialized waits:
-  `wait_agent` reads or awaits one retained direct-child result, while
-  `wait_process` awaits one named process.
+  unclaimed yielded-process completion, or an item from an accessible queue the
+  invoker enabled through `queue_listen`. Listening registrations are per
+  invoking agent: enabling a queue for one consumer neither enables nor disables
+  it for another. This differs from the specialized waits: `wait_agent` reads or
+  awaits one retained direct-child result, while `wait_process` awaits one named
+  process.
 - **Builtin mutations.** `write` creates or replaces one file with exact UTF-8
   content. `edit` performs exact ordinal string replacement; without
   `replace_all` it requires exactly one match, while `replace_all` permits zero
@@ -865,8 +875,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   a turn finishes, because a subagent keeps publishing long afterwards. The
   client decides when it has heard enough; `BasicCli` cancels on `TurnEnded`.
   `UserSession` merges the live-only agent broker with independent replay-latest
-  queue and active-process inventory feeds. Every listener receives complete
-  initial inventories, including explicit empty snapshots. The active-process
+  queue and active-process inventory feeds. The queue feed is deliberately
+  root-only: child-owned queues do not appear in the external client inventory.
+  Every listener receives complete initial inventories, including explicit
+  empty snapshots. The active-process
   snapshot is rebuilt from authoritative in-memory shell-process owners rather
   than persisted history, so reconnect replaces client state with what is still
   running. Neither inventory changes `EventBroker` into a historical replay

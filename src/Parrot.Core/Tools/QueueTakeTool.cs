@@ -6,11 +6,11 @@ using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueueTakeTool(QueueStore queues) : ITool
+internal sealed partial class QueueTakeTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_take";
 
-    public string Description => "Remove and return strings from an existing shared user-session queue. If the queue is empty, wait until an item is available or yield_after_ms elapses. Count defaults to one, direction defaults to front, and yield_after_ms defaults to 30000. The queue does not need to fill count before returning.";
+    public string Description => "Remove and return strings from an accessible queue owned by the invoking agent or its direct parent. If the queue is empty, wait until an item is available or yield_after_ms elapses. Count defaults to one, direction defaults to front, and yield_after_ms defaults to 30000. The queue does not need to fill count before returning.";
 
     public string ParametersJson => Input.Descriptor;
 

@@ -3,7 +3,7 @@ using Parrot.Queues;
 
 namespace Parrot.Statuses;
 
-internal sealed class QueueStatusProvider(QueueStore queues) : IStatusProvider
+internal sealed class QueueStatusProvider(AgentQueueCatalog queues) : IStatusProvider
 {
     public string Key => "runtime:queues";
 
@@ -11,7 +11,7 @@ internal sealed class QueueStatusProvider(QueueStore queues) : IStatusProvider
     {
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
-        var listed = queues.List();
+        var listed = queues.List(query.SessionId);
 
         if (listed.Count == 0)
         {

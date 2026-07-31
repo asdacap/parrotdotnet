@@ -5,11 +5,11 @@ using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueueInfoTool(QueueStore queues) : ITool
+internal sealed partial class QueueInfoTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_info";
 
-    public string Description => "Get metadata and the current size of an existing shared user-session queue.";
+    public string Description => "Get metadata and the current size of an accessible queue owned by the invoking agent or its direct parent.";
 
     public string ParametersJson => Input.Descriptor;
 

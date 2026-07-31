@@ -5,19 +5,30 @@ using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueueListenTool(QueueStore queues) : ITool
+internal sealed partial class QueueListenTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_listen";
 
-    public string Description => "Enable or disable idle notification delivery from an existing shared user-session queue. Listening remains enabled after each FIFO delivery.";
+    public string Description => "Enable or disable idle notification delivery for the invoking agent from an accessible queue. Listening remains enabled after each FIFO delivery.";
 
     public string ParametersJson => Input.Descriptor;
 
-    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken) => QueueToolExecution.Execute(() =>
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
-        var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueListenToolInput);
-        return QueueToolExecution.Serialize(queues.Monitor(QueueToolExecution.RequireName(input.Name), input.Enabled ?? true));
-    });
+        try
+        {
+            var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueListenToolInput);
+            var info = await queues.Listen(
+                QueueToolExecution.RequireName(input.Name),
+                input.Enabled ?? true,
+                cancellationToken).ConfigureAwait(false);
+            return QueueToolExecution.Serialize(info);
+        }
+        catch (Exception failure) when (failure is System.Text.Json.JsonException or FormatException or QueueException)
+        {
+            return $"error: {failure.Message}";
+        }
+    }
 
     [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
     internal sealed partial class Input

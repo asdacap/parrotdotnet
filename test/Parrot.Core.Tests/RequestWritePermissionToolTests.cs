@@ -158,7 +158,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             securityProfile,
             null,
             null,
-            null,
+            TestModels.Queues(AgentIdentity.Main("requesting", string.Empty)),
             CancellationToken.None);
     }
 }

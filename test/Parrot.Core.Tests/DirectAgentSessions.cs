@@ -42,8 +42,8 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
     public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
         new(owner.Resources, new ProcessRunner(string.Empty), owner.Lifetime);
 
-    public QueueStore CreateQueues(UserSession owner) =>
-        new(owner.Resources.QueueDirectory);
+    public AgentQueueCatalog CreateQueueCatalog(UserSession owner) =>
+        new(owner.Resources);
 
     private sealed class OwnerAgentSessions(DirectAgentSessions source, UserSession owner) : IAgentSessionFactory
     {
@@ -62,6 +62,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             var processes = owner.ShellProcesses.Prepare(identity.SessionId);
             owner.ShellProcesses.Register(processes);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
+            var queues = owner.QueueCatalog.Register(identity);
             var session = new AgentSession(
                 identity,
                 model,
@@ -78,8 +79,9 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 securityProfile,
                 status,
                 registry,
-                owner,
+                queues,
                 lifetime);
+            queues.Attach(session);
             source._sessions.Add(session);
             return new AgentSessionLease(session);
         }

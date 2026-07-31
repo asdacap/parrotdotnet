@@ -53,7 +53,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             null,
-            null,
+            TestModels.Queues(AgentIdentity.Main("session", string.Empty)),
             CancellationToken.None);
         var resources = new UserSessionResources(
             new StatePaths(

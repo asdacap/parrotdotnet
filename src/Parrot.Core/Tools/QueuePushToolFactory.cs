@@ -2,7 +2,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class QueuePushToolFactory(UserSession owner) : IToolFactory
+internal sealed class QueuePushToolFactory : IToolFactory
 {
-    public ITool Create(AgentSession session, AgentTurnSelection selection) => new QueuePushTool(owner.Queues, owner);
+    public ITool Create(AgentSession session, AgentTurnSelection selection) => new QueuePushTool(session.Queues);
 }

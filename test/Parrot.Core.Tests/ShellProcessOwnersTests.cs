@@ -241,7 +241,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             null,
-            null,
+            TestModels.Queues(AgentIdentity.Main(sessionId, sessionId)),
             lifetime);
 
     private string CreateSandboxPassThrough()

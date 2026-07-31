@@ -72,6 +72,45 @@ internal sealed class IdentityStorageTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_queue_directories_are_contained_beneath_the_agents_queue_root()
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var resources = new UserSessionResources(
+            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+
+        var agentQueueDirectory = resources.AgentQueueDirectory("agent-session-child");
+
+        _ = await Assert.That(resources.AgentQueueRootDirectory)
+            .IsEqualTo(Path.Combine(resources.QueueDirectory, "agents"));
+        _ = await Assert.That(Path.GetDirectoryName(agentQueueDirectory))
+            .IsEqualTo(resources.AgentQueueRootDirectory);
+        _ = await Assert.That(Path.GetRelativePath(resources.QueueDirectory, agentQueueDirectory))
+            .IsEqualTo(Path.Combine("agents", "agent-session-child"));
+        _ = await Assert.That(resources.Owns(resources.AgentQueueRootDirectory)).IsTrue();
+        _ = await Assert.That(resources.Owns(agentQueueDirectory)).IsTrue();
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments(" ")]
+    [Arguments(".")]
+    [Arguments("..")]
+    [Arguments("../other")]
+    [Arguments("..\\other")]
+    [Arguments("other/session")]
+    [Arguments("other\\session")]
+    [Arguments("/rooted")]
+    [Arguments("\\rooted")]
+    public async Task Agent_queue_directories_reject_unsafe_path_segments(string value)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var resources = new UserSessionResources(
+            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+
+        _ = await Assert.That(() => resources.AgentQueueDirectory(value)).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Owner_bound_index_refuses_metadata_for_another_session()
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;

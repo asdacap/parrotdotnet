@@ -210,6 +210,16 @@ listing is a server-authoritative management operation when connected to a
 server; management callers read metadata through `SessionCatalog` and never
 obtain a live session, database, queue, or repository.
 
+Queues are agent-owned within this boundary rather than globally shared by all
+agents in the user session. An agent resolves its own queues first and may also
+access only its direct parent's queues; a parent cannot access a child's queue,
+a sibling cannot access another sibling's queue, and a grandchild cannot reach
+the root's queues directly. Queue names must be unique across each direct
+parent-child edge regardless of which endpoint creates the queue first. Siblings
+may reuse a name because their ownership scopes do not overlap. Root-agent
+queues persist with the user session, while a child-owned queue is removed when
+that child session ends.
+
 ## Service Transport
 
 Local mode uses the in-process gRPC contract and binds no socket. When Parrot is
@@ -285,13 +295,15 @@ status and result to its direct parent as normal steering input. A parent can us
 
 The generic `wait` tool pauses for incoming activity and returns early for a new
 message, direct-child completion, unclaimed yielded-process completion, or an
-item in a queue the agent enabled with `queue_listen`. A successful wake result
-remains short. Timeout output inventories all queues, active processes, and
-active subagents. The queue inventory includes every queue regardless of
-`queue_listen`; listening controls only whether queue activity is eligible to
-wake the wait. This activity wait is distinct from the specialized `wait_agent`,
-which reads a retained direct-child result, and `wait_process`, which waits for
-one named process.
+item in an accessible queue the invoking agent enabled with `queue_listen`.
+Listening state belongs to that invoker, not to the queue, so another consumer
+must enable listening independently. A successful wake result remains short.
+Timeout output inventories only that agent's accessible queues, alongside its
+active processes and direct subagents; `queue_listen` controls wake eligibility,
+not inclusion in this agent-facing status. The external client inventory is
+root-only and never exposes child-owned queues. This activity wait is distinct
+from the specialized `wait_agent`, which reads a retained direct-child result,
+and `wait_process`, which waits for one named process.
 
 When `exec_command` yields, its result carries a typed yielded-process handoff
 rather than requiring clients to recognize text. The service also publishes

@@ -134,7 +134,7 @@ internal sealed class TodoToolTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             null,
-            null,
+            TestModels.Queues(AgentIdentity.Main(sessionId, string.Empty)),
             CancellationToken.None);
     }
 }

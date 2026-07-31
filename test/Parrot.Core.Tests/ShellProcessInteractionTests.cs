@@ -328,7 +328,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             null,
-            null,
+            TestModels.Queues(AgentIdentity.Main("agent", "agent")),
             lifetime);
     }
 

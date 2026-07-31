@@ -384,7 +384,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             profile.SecurityProfile,
             status: null,
             registry: null,
-            owner: null,
+            queues: TestModels.Queues(AgentIdentity.Main(sessionId, sessionId)),
             lifetime);
     }
 
@@ -410,7 +410,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             registry: null,
-            owner: null,
+            queues: TestModels.Queues(AgentIdentity.Main(sessionId, sessionId)),
             lifetime);
 
     private ShellProcessOwners Processes(string sandbox, CancellationToken lifetime) =>
@@ -510,7 +510,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 securityProfile,
                 status,
                 registry: null,
-                owner: null,
+                queues: TestModels.Queues(identity),
                 lifetime));
         }
     }

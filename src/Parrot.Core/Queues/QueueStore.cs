@@ -58,7 +58,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
             if (direction == QueueDirection.Front && items.Count > 0)
             {
-                metadata = metadata with { DeliveryId = null };
+                metadata = metadata with { DeliveryId = null, DeliveryListenerSessionId = null };
                 var front = new List<string>(items.Count + stored.Count);
 
                 for (var index = items.Count - 1; index >= 0; index--)
@@ -144,15 +144,16 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
     }
 
-    public QueueInfo Get(string name)
+    public QueueInfo Get(string name, string listenerSessionId)
     {
+        ArgumentException.ThrowIfNullOrEmpty(listenerSessionId);
         var path = ResolvePath(name);
         _gate.Wait();
 
         try
         {
             var (metadata, items) = Read(path, name);
-            return ToInfo(path, metadata, items.Count);
+            return ToInfo(path, metadata, items.Count, listenerSessionId);
         }
         finally
         {
@@ -160,8 +161,9 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
     }
 
-    public IReadOnlyList<QueueInfo> List()
+    public IReadOnlyList<QueueInfo> List(string listenerSessionId)
     {
+        ArgumentException.ThrowIfNullOrEmpty(listenerSessionId);
         _gate.Wait();
 
         try
@@ -183,7 +185,7 @@ internal sealed class QueueStore(string directory) : IDisposable
                 try
                 {
                     var (metadata, items) = Read(path, name);
-                    result.Add(ToInfo(path, metadata, items.Count));
+                    result.Add(ToInfo(path, metadata, items.Count, listenerSessionId));
                 }
                 catch (QueueException failure)
                 {
@@ -199,8 +201,9 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
     }
 
-    public QueueInfo Monitor(string name, bool enabled)
+    public QueueInfo Monitor(string name, string listenerSessionId, bool enabled)
     {
+        ArgumentException.ThrowIfNullOrEmpty(listenerSessionId);
         var path = ResolvePath(name);
         _gate.Wait();
 
@@ -209,9 +212,21 @@ internal sealed class QueueStore(string directory) : IDisposable
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
             using var held = AcquireFileLockSynchronously(path, timeout.Token);
             var (current, items) = Read(path, name);
-            var metadata = current with { Monitored = enabled };
+            var listeners = current.ListenerSessionIds?.ToHashSet(StringComparer.Ordinal)
+                ?? new HashSet<string>(StringComparer.Ordinal);
+            _ = enabled ? listeners.Add(listenerSessionId) : listeners.Remove(listenerSessionId);
+            var clearsDelivery = !enabled
+                && string.Equals(current.DeliveryListenerSessionId, listenerSessionId, StringComparison.Ordinal);
+            var metadata = current with
+            {
+                ListenerSessionIds = listeners.Count == 0
+                    ? null
+                    : listeners.Order(StringComparer.Ordinal).ToArray(),
+                DeliveryId = clearsDelivery ? null : current.DeliveryId,
+                DeliveryListenerSessionId = clearsDelivery ? null : current.DeliveryListenerSessionId,
+            };
             Write(path, metadata, items);
-            return ToInfo(path, metadata, items.Count);
+            return ToInfo(path, metadata, items.Count, listenerSessionId);
         }
         catch (OperationCanceledException failure)
         {
@@ -223,10 +238,165 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
     }
 
+    public void AdoptRootListener(string listenerSessionId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(listenerSessionId);
+        _gate.Wait();
+
+        try
+        {
+            if (!System.IO.Directory.Exists(Directory))
+            {
+                return;
+            }
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
+            foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*.jsonl")
+                         .Order(StringComparer.Ordinal))
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                ValidateName(name);
+                using var held = AcquireFileLockSynchronously(path, timeout.Token);
+                var (current, items) = Read(path, name);
+                var monitored = current.LegacyMonitored
+                    || current.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) == true;
+                var retainsDelivery = monitored
+                    && (current.LegacyMonitored
+                        || string.Equals(
+                            current.DeliveryListenerSessionId,
+                            listenerSessionId,
+                            StringComparison.Ordinal));
+                var metadata = current with
+                {
+                    ListenerSessionIds = monitored ? [listenerSessionId] : null,
+                    LegacyMonitored = false,
+                    DeliveryId = retainsDelivery ? current.DeliveryId : null,
+                    DeliveryListenerSessionId = retainsDelivery && !string.IsNullOrEmpty(current.DeliveryId)
+                        ? listenerSessionId
+                        : null,
+                };
+
+                if (metadata != current)
+                {
+                    Write(path, metadata, items);
+                }
+            }
+        }
+        catch (OperationCanceledException failure)
+        {
+            throw new QueueException("queue: timed out acquiring lock", failure);
+        }
+        finally
+        {
+            _ = _gate.Release();
+        }
+    }
+
+    public void RemoveListener(string listenerSessionId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(listenerSessionId);
+        _gate.Wait();
+
+        try
+        {
+            if (!System.IO.Directory.Exists(Directory))
+            {
+                return;
+            }
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
+            foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*.jsonl")
+                         .Order(StringComparer.Ordinal))
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                ValidateName(name);
+                using var held = AcquireFileLockSynchronously(path, timeout.Token);
+                var (current, items) = Read(path, name);
+                var listeners = current.ListenerSessionIds?.ToHashSet(StringComparer.Ordinal)
+                    ?? new HashSet<string>(StringComparer.Ordinal);
+                var removed = listeners.Remove(listenerSessionId);
+                var clearsDelivery = string.Equals(
+                    current.DeliveryListenerSessionId,
+                    listenerSessionId,
+                    StringComparison.Ordinal);
+
+                if (!removed && !clearsDelivery)
+                {
+                    continue;
+                }
+
+                var metadata = current with
+                {
+                    ListenerSessionIds = listeners.Count == 0
+                        ? null
+                        : listeners.Order(StringComparer.Ordinal).ToArray(),
+                    DeliveryId = clearsDelivery ? null : current.DeliveryId,
+                    DeliveryListenerSessionId = clearsDelivery ? null : current.DeliveryListenerSessionId,
+                };
+                Write(path, metadata, items);
+            }
+        }
+        catch (OperationCanceledException failure)
+        {
+            throw new QueueException("queue: timed out acquiring lock", failure);
+        }
+        finally
+        {
+            _ = _gate.Release();
+        }
+    }
+
+    public IReadOnlyList<string> ListenerSessionIds(string name)
+    {
+        var path = ResolvePath(name);
+        _gate.Wait();
+
+        try
+        {
+            var (metadata, _) = Read(path, name);
+            return metadata.ListenerSessionIds ?? [];
+        }
+        finally
+        {
+            _ = _gate.Release();
+        }
+    }
+
+    public IReadOnlyList<string> ListenerSessionIds()
+    {
+        _gate.Wait();
+
+        try
+        {
+            if (!System.IO.Directory.Exists(Directory))
+            {
+                return [];
+            }
+
+            var listeners = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*.jsonl")
+                         .Order(StringComparer.Ordinal))
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                ValidateName(name);
+                var (metadata, _) = Read(path, name);
+                listeners.UnionWith(metadata.ListenerSessionIds ?? []);
+            }
+
+            return [.. listeners.Order(StringComparer.Ordinal)];
+        }
+        finally
+        {
+            _ = _gate.Release();
+        }
+    }
+
     public async Task<bool> DeliverMonitored(
+        string listenerSessionId,
         Func<QueueNotification, CancellationToken, Task<bool>> deliver,
         CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrEmpty(listenerSessionId);
         ArgumentNullException.ThrowIfNull(deliver);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -248,16 +418,29 @@ internal sealed class QueueStore(string directory) : IDisposable
                 using var held = await AcquireFileLockAsync(path, cancellationToken).ConfigureAwait(false);
                 var (current, items) = Read(path, name);
 
-                if (!current.Monitored || items.Count == 0)
+                if (items.Count == 0
+                    || current.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) != true
+                    || (!string.IsNullOrEmpty(current.DeliveryListenerSessionId)
+                        && !string.Equals(
+                            current.DeliveryListenerSessionId,
+                            listenerSessionId,
+                            StringComparison.Ordinal)))
                 {
                     continue;
                 }
 
                 var metadata = current;
 
-                if (string.IsNullOrEmpty(metadata.DeliveryId))
+                if (string.IsNullOrEmpty(metadata.DeliveryId)
+                    || string.IsNullOrEmpty(metadata.DeliveryListenerSessionId))
                 {
-                    metadata = metadata with { DeliveryId = $"qnt-{Guid.CreateVersion7():n}" };
+                    metadata = metadata with
+                    {
+                        DeliveryId = string.IsNullOrEmpty(metadata.DeliveryId)
+                            ? $"qnt-{Guid.CreateVersion7():n}"
+                            : metadata.DeliveryId,
+                        DeliveryListenerSessionId = listenerSessionId,
+                    };
                     Write(path, metadata, items);
                 }
 
@@ -269,7 +452,7 @@ internal sealed class QueueStore(string directory) : IDisposable
                 }
 
                 items.RemoveAt(0);
-                metadata = metadata with { DeliveryId = null };
+                metadata = metadata with { DeliveryId = null, DeliveryListenerSessionId = null };
                 Write(path, metadata, items);
                 PublishInventoryLocked(metadata, items.Count);
                 return true;
@@ -405,7 +588,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         {
             taken.AddRange(items.GetRange(0, count));
             items.RemoveRange(0, count);
-            metadata = metadata with { DeliveryId = null };
+            metadata = metadata with { DeliveryId = null, DeliveryListenerSessionId = null };
         }
         else
         {
@@ -418,7 +601,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
             if (items.Count == 0)
             {
-                metadata = metadata with { DeliveryId = null };
+                metadata = metadata with { DeliveryId = null, DeliveryListenerSessionId = null };
             }
         }
 
@@ -627,7 +810,19 @@ internal sealed class QueueStore(string directory) : IDisposable
         Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, $".{Path.GetFileName(path)}-{Guid.NewGuid():n}");
 
     private static QueueInfo ToInfo(string path, QueueMetadata metadata, int size) =>
-        new(path, metadata.Name, metadata.Description ?? string.Empty, size, metadata.Monitored);
+        new(path, metadata.Name, metadata.Description ?? string.Empty, size, false);
+
+    private static QueueInfo ToInfo(
+        string path,
+        QueueMetadata metadata,
+        int size,
+        string listenerSessionId) =>
+        new(
+            path,
+            metadata.Name,
+            metadata.Description ?? string.Empty,
+            size,
+            metadata.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) == true);
 
     private static QueueFileLock AcquireFileLockSynchronously(
         string path,
