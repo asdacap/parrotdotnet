@@ -23,7 +23,9 @@ internal sealed partial class QuestionTool(QuestionBroker broker) : ITool
             var wireQuestions = input.Questions ?? throw new FormatException("Tool arguments require an array 'questions'.");
             QuestionDefinition[] questions = [.. wireQuestions.Select(ToDomain)];
             var reply = await broker.Ask(questions, cancellationToken).ConfigureAwait(false);
-            return FormatReply(questions, reply);
+            return reply.Kind == QuestionReplyKind.UserAway
+                ? "The user is away."
+                : FormatReply(questions, reply);
         }
         catch (Exception failure) when (failure is JsonException or FormatException or QuestionException or QuestionRejectedException)
         {

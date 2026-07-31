@@ -52,7 +52,8 @@ internal sealed class UserSession : IAsyncDisposable
         UserSessionModes modes,
         ProfileRegistry profiles,
         bool interactivePermissions,
-        TimeSpan permissionRequestTimeout)
+        TimeSpan userInputTimeout,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
@@ -68,7 +69,8 @@ internal sealed class UserSession : IAsyncDisposable
         var state = _eventRepository.SessionState(id, modes.Resolve(mode).Id);
         _mainSessionId = state.AgentSessionId;
         Mode = modes.Resolve(state.Mode);
-        Permissions = new PermissionBroker(_eventBroker, _eventRepository, interactivePermissions, permissionRequestTimeout);
+        Questions = new QuestionBroker(userInputTimeout, timeProvider);
+        Permissions = new PermissionBroker(_eventBroker, _eventRepository, interactivePermissions, userInputTimeout, timeProvider);
         Queues = agentSessionFactories.CreateQueues(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
@@ -107,7 +109,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal RuntimeStatus Status { get; }
 
-    internal QuestionBroker Questions { get; } = new();
+    internal QuestionBroker Questions { get; }
 
     internal PermissionBroker Permissions { get; }
 

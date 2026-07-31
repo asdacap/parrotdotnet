@@ -22,12 +22,14 @@ internal sealed class EnhancedSlashDialogTests
         var collapsed = host.Frames[^1];
 
         _ = await Assert.That(selected).IsSameReferenceAs(options[1]);
-        _ = await Assert.That(filtered).Count().IsEqualTo(3);
-        _ = await Assert.That(filtered[0]).IsEqualTo(new PromptValue("Filter: ", "al", 2));
-        _ = await Assert.That(filtered[1]).IsEqualTo(new PickerOptionValue("Alpha", "first", true));
-        _ = await Assert.That(filtered[2]).IsEqualTo(new PickerOptionValue("Alpine", "mountain", false));
-        _ = await Assert.That(collapsed.Count).IsEqualTo(1);
-        _ = await Assert.That(collapsed[0]).IsEqualTo(new PromptValue("Filter: ", "Alpine", 6));
+        _ = await Assert.That(filtered).Count().IsEqualTo(4);
+        _ = await Assert.That(filtered[0]).IsEqualTo(new LiveTextValue("Filter: "));
+        _ = await Assert.That(filtered[1]).IsEqualTo(new PromptValue("> ", "al", 2));
+        _ = await Assert.That(filtered[2]).IsEqualTo(new PickerOptionValue("Alpha", "first", true));
+        _ = await Assert.That(filtered[3]).IsEqualTo(new PickerOptionValue("Alpine", "mountain", false));
+        _ = await Assert.That(collapsed.Count).IsEqualTo(2);
+        _ = await Assert.That(collapsed[0]).IsEqualTo(new LiveTextValue("Filter: "));
+        _ = await Assert.That(collapsed[1]).IsEqualTo(new PromptValue("> ", "Alpine", 6));
     }
 
     [Test]
@@ -42,9 +44,10 @@ internal sealed class EnhancedSlashDialogTests
             cancellationToken);
 
         var unmatched = host.Frames[1];
-        _ = await Assert.That(unmatched).Count().IsEqualTo(2);
-        _ = await Assert.That(unmatched[0]).IsEqualTo(new PromptValue("Question: ", "z", 1));
-        _ = await Assert.That(unmatched[1]).IsEqualTo(new PickerOptionValue("No matches", string.Empty, false));
+        _ = await Assert.That(unmatched).Count().IsEqualTo(3);
+        _ = await Assert.That(unmatched[0]).IsEqualTo(new LiveTextValue("Question: "));
+        _ = await Assert.That(unmatched[1]).IsEqualTo(new PromptValue("> ", "z", 1));
+        _ = await Assert.That(unmatched[2]).IsEqualTo(new PickerOptionValue("No matches", string.Empty, false));
     }
 
     [Test]
@@ -92,11 +95,14 @@ internal sealed class EnhancedSlashDialogTests
         await secretDialog.ShowError("failed", cancellationToken);
 
         _ = await Assert.That(text).IsEqualTo("hello");
-        _ = await Assert.That(textHost.Frames[^1].Count).IsEqualTo(1);
-        _ = await Assert.That(textHost.Frames[^1][0]).IsEqualTo(new PromptValue("Name: ", "hello", 5));
+        _ = await Assert.That(textHost.Frames[^1].Count).IsEqualTo(2);
+        _ = await Assert.That(textHost.Frames[^1][0]).IsEqualTo(new LiveTextValue("Name: "));
+        _ = await Assert.That(textHost.Frames[^1][1]).IsEqualTo(new PromptValue("> ", "hello", 5));
         _ = await Assert.That(secret).IsEqualTo("sëcret");
         _ = await Assert.That(secretHost.Frames.SelectMany(frame => frame).OfType<PromptValue>())
             .DoesNotContain(value => value.Text.Contains("sëcret", StringComparison.Ordinal));
+        _ = await Assert.That(secretHost.Frames[0][0]).IsEqualTo(new LiveTextValue("Key: "));
+        _ = await Assert.That(secretHost.Frames[0][1]).IsEqualTo(new PromptValue("> ", string.Empty, 0));
         _ = await Assert.That(secretHost.Frames[^2][0]).IsEqualTo(new DialogMessageValue("first\nsecond", false));
         _ = await Assert.That(secretHost.Frames[^1][0]).IsEqualTo(new DialogMessageValue("failed", true));
     }

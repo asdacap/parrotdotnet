@@ -44,7 +44,8 @@ internal sealed class BasicSlashDialog(TextReader input, TextWriter output, Text
     public async Task<string?> ReadText(string prompt, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(prompt);
-        await output.WriteAsync($"{prompt}: ".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteLineAsync(prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteAsync("> ".AsMemory(), cancellationToken).ConfigureAwait(false);
         return await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -54,7 +55,8 @@ internal sealed class BasicSlashDialog(TextReader input, TextWriter output, Text
         cancellationToken.ThrowIfCancellationRequested();
         if (!ReferenceEquals(input, Console.In))
         {
-            await output.WriteAsync($"{prompt}: ".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteLineAsync(prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteAsync("> ".AsMemory(), cancellationToken).ConfigureAwait(false);
             return await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -74,7 +76,8 @@ internal sealed class BasicSlashDialog(TextReader input, TextWriter output, Text
     public async Task<bool> Confirm(IReadOnlyList<string> lines, CancellationToken cancellationToken)
     {
         await Show(lines, cancellationToken).ConfigureAwait(false);
-        await output.WriteAsync("Continue? [y/N] ".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteLineAsync("Continue? [y/N]".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteAsync("> ".AsMemory(), cancellationToken).ConfigureAwait(false);
         var answer = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
         return string.Equals(answer?.Trim(), "y", StringComparison.OrdinalIgnoreCase)
             || string.Equals(answer?.Trim(), "yes", StringComparison.OrdinalIgnoreCase);
@@ -99,7 +102,8 @@ internal sealed class BasicSlashDialog(TextReader input, TextWriter output, Text
 
     private async Task<string?> ReadSecretFromConsole(string prompt, CancellationToken cancellationToken)
     {
-        await output.WriteAsync($"{prompt}: ".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteLineAsync(prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteAsync("> ".AsMemory(), cancellationToken).ConfigureAwait(false);
         var typed = new StringBuilder();
 
         while (true)

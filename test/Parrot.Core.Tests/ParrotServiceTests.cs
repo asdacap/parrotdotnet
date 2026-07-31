@@ -635,7 +635,7 @@ internal sealed class ParrotServiceTests : IDisposable
             new StatePaths(_root, _root, _root),
             EnsureDirectory(Path.Combine(_root, "work")),
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.ProfileRegistry(), TimeSpan.FromSeconds(30)),
+            new UserSessionFactory(sessions, Modes(), TestModels.ProfileRegistry(), TimeSpan.FromSeconds(30), TimeProvider.System),
             _router,
             Modes());
     }

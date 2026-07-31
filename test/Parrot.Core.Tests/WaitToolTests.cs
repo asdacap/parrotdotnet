@@ -207,7 +207,8 @@ internal sealed class WaitToolTests : IDisposable
             new UserSessionModes(modes, Path.Combine(_root, "plans")),
             profiles,
             interactivePermissions: false,
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1),
+            TimeProvider.System);
 
         _ = await owner.Send("first", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);

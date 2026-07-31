@@ -7,7 +7,8 @@ internal sealed class UserSessionFactory(
     IAgentSessionFactorySource agentSessionFactories,
     ModeRegistry modes,
     ProfileRegistry profiles,
-    TimeSpan permissionRequestTimeout) : IUserSessionFactory
+    TimeSpan userInputTimeout,
+    TimeProvider timeProvider) : IUserSessionFactory
 {
     public UserSession Create(
         SessionResourceLease resources,
@@ -26,5 +27,6 @@ internal sealed class UserSessionFactory(
             new UserSessionModes(modes, resources.Resources.PlanDirectory),
             profiles,
             interactivePermissions,
-            permissionRequestTimeout);
+            userInputTimeout,
+            timeProvider);
 }

@@ -54,7 +54,8 @@ internal sealed class BasicSlashDialogTests
         var confirmed = await dialog.Confirm(["Continue"], cancellationToken);
 
         _ = await Assert.That(confirmed).IsEqualTo(expected);
-        _ = await Assert.That(output.ToString()).IsEqualTo($"Continue{Environment.NewLine}Continue? [y/N] ");
+        _ = await Assert.That(output.ToString()).IsEqualTo(
+            $"Continue{Environment.NewLine}Continue? [y/N]{Environment.NewLine}> ");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 
@@ -74,7 +75,7 @@ internal sealed class BasicSlashDialogTests
         _ = await Assert.That(text).IsEqualTo("answer");
         _ = await Assert.That(secret).IsEqualTo("secret");
         _ = await Assert.That(output.ToString()).IsEqualTo(
-            $"Question: Key: first{Environment.NewLine}second{Environment.NewLine}");
+            $"Question{Environment.NewLine}> Key{Environment.NewLine}> first{Environment.NewLine}second{Environment.NewLine}");
         _ = await Assert.That(output.ToString()).DoesNotContain("secret");
         _ = await Assert.That(error.ToString()).IsEqualTo($"failure{Environment.NewLine}");
     }

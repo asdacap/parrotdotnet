@@ -8,7 +8,7 @@ internal sealed class QuestionToolTests
     [Test]
     public async Task Schema_shaped_input_is_mapped_and_answer_uses_labels(CancellationToken cancellationToken)
     {
-        using var broker = new QuestionBroker();
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
         var tool = new QuestionTool(broker);
         const string argumentsJson =
             """
@@ -36,7 +36,7 @@ internal sealed class QuestionToolTests
     [Test]
     public async Task Answers_follow_question_and_selection_order_with_custom_last(CancellationToken cancellationToken)
     {
-        using var broker = new QuestionBroker();
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
         const string argumentsJson =
             """
             {"questions":[{"id":"colour","prompt":"Pick colours","options":[{"id":"red","label":"Red"},{"id":"blue","label":"Blue"}],"multiple":true,"custom":true},{"id":"size","prompt":"Pick a size","options":[{"id":"large","label":"Large"}]}]}
@@ -62,7 +62,7 @@ internal sealed class QuestionToolTests
     [Arguments("{\"questions\":[{\"id\":\"colour\",\"prompt\":\"Pick\",\"options\":[{\"id\":\"blue\",\"label\":\"Blue\",\"unexpected\":true}]}]}")]
     public async Task Unknown_wire_properties_are_rejected(string argumentsJson, CancellationToken cancellationToken)
     {
-        using var broker = new QuestionBroker();
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
         var result = (await new QuestionTool(broker).Execute(new ToolInvocation("test-call", argumentsJson), cancellationToken)).Text;
 
         _ = await Assert.That(result).StartsWith("error:");
@@ -70,9 +70,27 @@ internal sealed class QuestionToolTests
     }
 
     [Test]
+    public async Task Timeout_returns_user_away_as_a_normal_result(CancellationToken cancellationToken)
+    {
+        var time = new ControlledTimeProvider();
+        using var broker = new QuestionBroker(TimeSpan.FromMinutes(20), time);
+        var executing = new QuestionTool(broker).Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"questions":[{"id":"colour","prompt":"Pick","options":[{"id":"blue","label":"Blue"}]}]}"""),
+            cancellationToken);
+        _ = await WaitForPending(broker, cancellationToken);
+        await time.WaitForTimer(cancellationToken);
+
+        time.Advance(TimeSpan.FromMinutes(20));
+
+        _ = await Assert.That((await executing).Text).IsEqualTo("The user is away.");
+    }
+
+    [Test]
     public async Task Rejected_question_returns_error(CancellationToken cancellationToken)
     {
-        using var broker = new QuestionBroker();
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
         var executing = new QuestionTool(broker).Execute(
             new ToolInvocation(
                 "test-call",

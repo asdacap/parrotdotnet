@@ -16,6 +16,7 @@ internal sealed class Configuration(string path)
     private const string DefaultProfileKey = "default_profile";
     private const string DisabledToolsKey = "disabled_tools";
     private const string CliUtilitiesKey = "cli_utilities";
+    private const string UserInputTimeoutKey = "user_input_timeout_ms";
     private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
 
     private readonly Lock _writeLock = new();
@@ -53,12 +54,13 @@ internal sealed class Configuration(string path)
 
     public CliUtilityCandidates CliUtilities { get; private set; } = new([], []);
 
-    public TimeSpan PermissionRequestTimeout { get; private set; }
+    public TimeSpan UserInputTimeout { get; private set; }
 
     public static Configuration Load(string path, string predefinedPath)
     {
         CopyPredefined(predefinedPath);
-        var root = Merge(LoadRoot(predefinedPath), LoadRoot(path));
+        var userRoot = LoadRoot(path);
+        var root = Merge(LoadRoot(predefinedPath), userRoot);
 
         return new(path)
         {
@@ -74,8 +76,7 @@ internal sealed class Configuration(string path)
             Profiles = ReadProfiles(root),
             DefaultProfile = ReadDefaultProfile(root),
             CliUtilities = ReadCliUtilities(root),
-            PermissionRequestTimeout = TimeSpan.FromMilliseconds(
-                PositiveInteger(root, PermissionRequestTimeoutKey, PermissionRequestTimeoutKey)),
+            UserInputTimeout = ReadUserInputTimeout(root, userRoot),
         };
     }
 
@@ -678,6 +679,41 @@ internal sealed class Configuration(string path)
         }
 
         return value;
+    }
+
+    private static TimeSpan ReadUserInputTimeout(YamlMappingNode root, YamlMappingNode userRoot)
+    {
+        if (Child(userRoot, UserInputTimeoutKey, out _))
+        {
+            return ReadTimeout(userRoot, UserInputTimeoutKey);
+        }
+
+        if (Child(userRoot, PermissionRequestTimeoutKey, out _))
+        {
+            return ReadTimeout(userRoot, PermissionRequestTimeoutKey);
+        }
+
+        return ReadTimeout(root, UserInputTimeoutKey);
+    }
+
+    private static TimeSpan ReadTimeout(YamlMappingNode parent, string key)
+    {
+        if (!Child(parent, key, out var node) || node is not YamlScalarNode { Value: { } value })
+        {
+            throw new InvalidDataException($"{key} must be a positive integer or -1");
+        }
+
+        if (value == "-1")
+        {
+            return Timeout.InfiniteTimeSpan;
+        }
+
+        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var milliseconds) || milliseconds <= 0)
+        {
+            throw new InvalidDataException($"{key} must be a positive integer or -1");
+        }
+
+        return TimeSpan.FromMilliseconds(milliseconds);
     }
 
     private static int NonNegativeInteger(YamlMappingNode parent, string key, string path)

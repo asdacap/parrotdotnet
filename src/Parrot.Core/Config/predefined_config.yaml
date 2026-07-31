@@ -155,8 +155,8 @@ cli_utilities:
 # Render changed lines inline. Set to false for a side-by-side diff viewer.
 inline_diff: true
 
-# Positive number of milliseconds to wait for a permission request response.
-permission_request_timeout_ms: 30000
+# Milliseconds to wait for interactive user input. Set to -1 to wait indefinitely.
+user_input_timeout_ms: 1200000
 
 # Default foreground profile when no mode is selected explicitly.
 default_profile: build

@@ -30,7 +30,8 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             events,
             new EventRepository(database),
             interactive: false,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System);
         var profile = SecurityProfile.Compose(readOnly: false, [], [], []);
         var tool = new RequestWritePermissionTool(broker, Session(database, events, profile), profile);
         var path = Path.Combine(_root, "dependency");
@@ -62,6 +63,35 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
     }
 
     [Test]
+    public async Task Timeout_returns_user_away_as_a_normal_result(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var events = new EventBroker();
+        var time = new ControlledTimeProvider();
+        using var broker = new PermissionBroker(
+            events,
+            new EventRepository(database),
+            interactive: true,
+            TimeSpan.FromMinutes(20),
+            time);
+        var profile = SecurityProfile.Compose(readOnly: false, [], [], []);
+        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile), profile);
+        var path = Path.Combine(_root, "dependency");
+        await File.WriteAllTextAsync(path, "content", cancellationToken);
+        var executing = tool.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}"""),
+            cancellationToken);
+        _ = await WaitForPending(broker, cancellationToken);
+        await time.WaitForTimer(cancellationToken);
+
+        time.Advance(TimeSpan.FromMinutes(20));
+
+        _ = await Assert.That((await executing).Text).IsEqualTo("The user is away.");
+    }
+
+    [Test]
     public async Task Read_only_profile_rejects_before_a_pending_request_is_created(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -70,7 +100,8 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             events,
             new EventRepository(database),
             interactive: true,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System);
         var profile = SecurityProfile.Compose(readOnly: true, [], [], []);
         var tool = new RequestWritePermissionTool(broker, Session(database, events, profile), profile);
         var path = Path.Combine(_root, "dependency");
@@ -87,6 +118,22 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
     }
 
     private static string Encode(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal);
+
+    private static async Task<PermissionPending> WaitForPending(
+        PermissionBroker broker,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var pending = broker.Pending();
+            if (pending.Count == 1)
+            {
+                return pending[0];
+            }
+
+            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     private static AgentSession Session(
         SessionDatabase database,
