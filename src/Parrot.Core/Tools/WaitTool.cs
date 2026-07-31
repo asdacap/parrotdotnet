@@ -1,9 +1,14 @@
 using System.Text.Json;
 using Parrot.Agent;
+using Parrot.Statuses;
 
 namespace Parrot.Tools;
 
-internal sealed class WaitTool(AgentSession session, TimeProvider timeProvider) : ITool
+internal sealed class WaitTool(
+    RuntimeStatus status,
+    AgentSession session,
+    AgentTurnSelection selection,
+    TimeProvider timeProvider) : ITool
 {
     internal const long DefaultDurationMilliseconds = 10_000;
     internal const long MaximumDurationMilliseconds = uint.MaxValue - 1L;
@@ -12,7 +17,8 @@ internal sealed class WaitTool(AgentSession session, TimeProvider timeProvider) 
 
     public string Description =>
         "Wait for incoming activity. Returns early for a new message, direct child-agent completion, "
-        + "unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen.";
+        + "unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen. "
+        + "A timeout reports queues, active processes, and active subagents.";
 
     public string ParametersJson =>
         """
@@ -58,8 +64,12 @@ internal sealed class WaitTool(AgentSession session, TimeProvider timeProvider) 
             TimeSpan.FromMilliseconds(durationMilliseconds),
             timeProvider,
             cancellationToken).ConfigureAwait(false);
-        return activity
-            ? "Incoming activity is available."
-            : $"Wait timed out after {durationMilliseconds} ms.";
+        if (activity)
+        {
+            return "Incoming activity is available.";
+        }
+
+        var activityStatus = await status.ObserveActivity(session, selection, cancellationToken).ConfigureAwait(false);
+        return $"Wait timed out after {durationMilliseconds} ms.\n\n{activityStatus}";
     }
 }

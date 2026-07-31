@@ -46,6 +46,9 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(Roles(provider.Requests[0])).IsEqualTo("System | User");
             _ = await Assert.That(provider.Requests[0].Instructions).IsNotEmpty();
             _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Active profile: build");
+            _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Queues: none");
+            _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Active processes: none");
+            _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Active subagents: none");
             provider.Release();
             await Settled(session);
 

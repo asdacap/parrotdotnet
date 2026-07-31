@@ -4,8 +4,10 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
+using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
 using AgentUserSession = Parrot.Agent.UserSession;
@@ -34,7 +36,28 @@ internal sealed class WaitToolTests : IDisposable
     public async Task Schema_and_arguments_enforce_the_duration_contract(CancellationToken cancellationToken)
     {
         var time = new ManualTimeProvider();
-        var tool = new WaitTool(Session(new UnusedProvider(), owner: null, [], selectedRepository: null), time);
+        var provider = new UnusedProvider();
+        var session = Session(provider, owner: null, [], selectedRepository: null);
+        using var queues = new QueueStore(Path.Combine(_root, "schema-queues"));
+        _ = queues.Create("work", "queued work");
+        _ = queues.Push("work", ["item"], QueueDirection.Back);
+        var processes = new ActiveWorkSource(
+            new ActiveWorkObservation(
+                "agent/process",
+                "process",
+                ActiveWorkKind.Shell,
+                ActiveWorkState.Running));
+        var subagents = new ActiveWorkSource(
+            new ActiveWorkObservation(
+                "child",
+                "worker",
+                ActiveWorkKind.Agent,
+                ActiveWorkState.Running));
+        var tool = new WaitTool(
+            new RuntimeStatus(queues, processes, subagents),
+            session,
+            Selection(provider),
+            time);
         using var schema = JsonDocument.Parse(tool.ParametersJson);
         var duration = schema.RootElement.GetProperty("properties").GetProperty("duration_ms");
 
@@ -62,15 +85,34 @@ internal sealed class WaitToolTests : IDisposable
         var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), cancellationToken);
         await time.WaitForTimer(cancellationToken);
         time.Advance(TimeSpan.FromSeconds(10));
-        _ = await Assert.That((await waiting).Text).IsEqualTo("Wait timed out after 10000 ms.");
+        _ = await Assert.That((await waiting).Text).IsEqualTo(
+            """
+            Wait timed out after 10000 ms.
+
+            Queues:
+            - work (1 items, description: "queued work")
+
+            Active processes:
+            - agent/process (shell, running, name: process)
+
+            Active subagents:
+            - child (agent, running, name: worker)
+            """);
     }
 
     [Test]
     public async Task Pending_input_wakes_a_new_wait(CancellationToken cancellationToken)
     {
         var repository = new EventRepository(_database);
-        var session = Session(new UnusedProvider(), owner: null, [], repository);
-        var tool = new WaitTool(session, TimeProvider.System);
+        var provider = new UnusedProvider();
+        var session = Session(provider, owner: null, [], repository);
+        using var queues = new QueueStore(Path.Combine(_root, "pending-queues"));
+        var unobserved = new UnobservedActiveWorkSource();
+        var tool = new WaitTool(
+            new RuntimeStatus(queues, unobserved, unobserved),
+            session,
+            Selection(provider),
+            TimeProvider.System);
         _ = repository.Admit(
             session.SessionId,
             "pending",
@@ -89,8 +131,15 @@ internal sealed class WaitToolTests : IDisposable
     [Test]
     public async Task Cancellation_clears_the_wait_registration(CancellationToken cancellationToken)
     {
-        var session = Session(new UnusedProvider(), owner: null, [], selectedRepository: null);
-        var tool = new WaitTool(session, TimeProvider.System);
+        var provider = new UnusedProvider();
+        var session = Session(provider, owner: null, [], selectedRepository: null);
+        using var queues = new QueueStore(Path.Combine(_root, "cancellation-queues"));
+        var unobserved = new UnobservedActiveWorkSource();
+        var tool = new WaitTool(
+            new RuntimeStatus(queues, unobserved, unobserved),
+            session,
+            Selection(provider),
+            TimeProvider.System);
         using var canceled = new CancellationTokenSource();
         var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), canceled.Token);
         await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
@@ -108,7 +157,9 @@ internal sealed class WaitToolTests : IDisposable
             LLMEvent.Completed("tool_calls", 1, 0, 1, string.Empty, [new LLMToolCall("wait-call", "wait", "{}")]),
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
-        var factory = new WaitToolFactory(TimeProvider.System);
+        using var queues = new QueueStore(Path.Combine(_root, "round-queues"));
+        var active = new ActiveWorkSource();
+        var factory = new WaitToolFactory(new RuntimeStatus(queues, active, active), TimeProvider.System);
         var session = Session(provider, owner: null, [factory], repository);
 
         _ = await session.Admit("first", "message-1", Delivery.Steer, cancellationToken);
@@ -187,6 +238,16 @@ internal sealed class WaitToolTests : IDisposable
         }
     }
 
+    private static AgentTurnSelection Selection(UnusedProvider provider)
+    {
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        return new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            null,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
+    }
+
     private SessionResourceLease Resources(string ownerId) => SessionResourceLease.Own(
         new UserSessionResources(
             new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
@@ -219,6 +280,17 @@ internal sealed class WaitToolTests : IDisposable
             null,
             owner,
             CancellationToken.None);
+    }
+
+    private sealed class ActiveWorkSource(params ActiveWorkObservation[] active) : IActiveWorkSource
+    {
+        public IReadOnlyList<ActiveWorkObservation> Active() => active;
+    }
+
+    private sealed class UnobservedActiveWorkSource : IActiveWorkSource
+    {
+        public IReadOnlyList<ActiveWorkObservation> Active() =>
+            throw new InvalidOperationException("Active work was observed before timeout.");
     }
 
     private sealed class ManualTimeProvider : TimeProvider
@@ -335,7 +407,9 @@ internal sealed class WaitToolTests : IDisposable
                     router,
                     eventBroker,
                     eventRepository,
-                    [new WaitToolFactory(timeProvider)],
+                    [new WaitToolFactory(
+                        status ?? throw new InvalidOperationException("runtime status is unavailable"),
+                        timeProvider)],
                     TestModels.PromptProvider(root, root),
                     new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                     new ToolOutputBlobStore(Path.Combine(root, "blobs")),
