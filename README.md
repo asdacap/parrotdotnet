@@ -416,9 +416,41 @@ nix run . -- version
 nix run . -- chat "hello"
 ```
 
-That builds the portable, framework-dependent binary. Development and the
-Native AOT publish both happen inside the dev shell; there is no supported way
-to build this repository against an ambient SDK.
+That builds the portable, framework-dependent binary. On Linux, development
+and the Native AOT publish happen inside the dev shell; there is no supported
+way to build this repository against an ambient SDK.
+
+### macOS source build
+
+macOS does not require Nix. Install the .NET 10 SDK and the Xcode Command Line
+Tools, then publish for the architecture of the machine:
+
+```sh
+dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r osx-arm64
+./artifacts/publish/Parrot.Cli/release_osx-arm64/parrot version
+```
+
+Use `osx-x64` on an Intel Mac. The macOS publish is Native AOT and uses the
+host toolchain supplied by the Xcode Command Line Tools.
+
+### Sandbox and terminal differences
+
+Linux runs shell commands in Bubblewrap and requires `bwrap` plus unprivileged
+user namespaces. Its publish output includes the private `parrot-pty-attach`
+helper used for pseudo-terminal shell commands.
+
+macOS runs pipe-mode shell commands in the native Seatbelt compatibility
+sandbox; no Bubblewrap installation is expected or reported as missing there.
+Seatbelt preserves Parrot's filesystem write policy and host network access,
+but it does not provide Bubblewrap's Linux namespaces, capability isolation, or
+exact process-tree lifecycle guarantees. Treat it as compatibility isolation,
+not as a robust boundary for hostile commands. Its policy interface is
+deprecated by Apple, so validate protected paths, process signaling, and task
+inspection on the target macOS release.
+
+Seatbelt pipe mode does not support Parrot's pseudo-terminal shell mode, so
+commands that require an interactive terminal cannot run on macOS. Use
+non-interactive commands and ordinary stdin/stdout pipes instead.
 
 ## Interactive slash commands
 

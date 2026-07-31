@@ -12,7 +12,7 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
     public string Name => "interrupt_process";
 
     public string Description =>
-        "Send a Linux signal to a running shell process's tracked top-level wrapper. "
+        "Send a process signal to a running shell process's tracked top-level wrapper. "
         + "The signal defaults to 2 and does not target the command or its process tree.";
 
     public string ParametersJson => Input.Descriptor;
@@ -43,7 +43,7 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
                 return "error: Tool argument 'signal' must be between 1 and 64.";
             }
 
-            var signal = new LinuxSignal(signalValue);
+            var signal = new ProcessSignal(signalValue);
 
             if (name.Length == 0)
             {
@@ -69,7 +69,7 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
         [ToolRequired]
         public string? Name { get; init; }
 
-        [Description("Linux signal number from 1 through 64 to send to the tracked top-level process")]
+        [Description("Process signal number from 1 through 64 to send to the tracked top-level process")]
         [JsonPropertyName("signal")]
         [ToolDefaultLong(2)]
         [ToolMinimum(1)]

@@ -163,7 +163,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         _ = await Assert.That(poll.Output).DoesNotContain("first");
 
         var claimed = owner.Claim("poll");
-        await claimed.SendSignal(new LinuxSignal(9), cancellationToken);
+        await claimed.SendSignal(new ProcessSignal(9), cancellationToken);
         await lifetime.CancelAsync();
     }
 
@@ -264,7 +264,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             .Throws<OperationCanceledException>();
 
         var reclaimed = owner.Claim("claimed");
-        await reclaimed.SendSignal(new LinuxSignal(9), cancellationToken);
+        await reclaimed.SendSignal(new ProcessSignal(9), cancellationToken);
         await owner.Settle();
     }
 

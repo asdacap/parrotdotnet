@@ -31,6 +31,11 @@ internal sealed class CliUtilityAvailability
 
         foreach (var command in candidates.Expected)
         {
+            if (OperatingSystem.IsMacOS() && command == "bwrap")
+            {
+                continue;
+            }
+
             (locator.Locate(command).Length > 0 ? availableExpected : missingExpected).Add(command);
         }
 
