@@ -930,18 +930,19 @@ internal sealed class Configuration(string path)
                 HeaderTimeoutMs = Integer(item, "header_timeout_ms"),
                 Headers = StringMap(item, "headers"),
                 ProviderPreferences = RawJson(item, "provider_preferences"),
-                Models = ReadModels(item),
+                ModelDefaults = ReadModels(item, "model_defaults"),
+                Models = ReadModels(item, "models"),
             };
         }
 
         return result;
     }
 
-    private static Dictionary<string, ModelConfig> ReadModels(YamlMappingNode provider)
+    private static Dictionary<string, ModelConfig> ReadModels(YamlMappingNode provider, string key)
     {
         var result = new Dictionary<string, ModelConfig>(StringComparer.Ordinal);
 
-        if (!Child(provider, "models", out var node) || node is not YamlMappingNode models)
+        if (!Child(provider, key, out var node) || node is not YamlMappingNode models)
         {
             return result;
         }

@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Llm;
 
 namespace Parrot.Core.Tests;
@@ -47,5 +48,26 @@ internal sealed class ModelCatalogueTests
 
         _ = await Assert.That(ids).IsEqualTo("declared,fresh,served");
         _ = await Assert.That(served.ContextWindow).IsEqualTo(500);
+    }
+
+    [Test]
+    public async Task Configured_defaults_preserve_variant_insertion_order()
+    {
+        var model = new ModelConfig
+        {
+            Variants = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["high"] = "high",
+                ["low"] = "low",
+                ["medium"] = "medium",
+            },
+        };
+
+        var defaults = ProviderModels.ReadDefaults(
+            "p",
+            new Dictionary<string, ModelConfig>(StringComparer.Ordinal) { ["m"] = model });
+        var variants = string.Join(",", defaults.Single().Capabilities.Variants.Select(variant => variant.Name));
+
+        _ = await Assert.That(variants).IsEqualTo("high,low,medium");
     }
 }

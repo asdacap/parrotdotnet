@@ -63,6 +63,67 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Built_in_provider_transports_and_model_defaults_are_loaded_from_predefined_configuration()
+    {
+        var configuration = Load(Path.Combine(_directory, "config.yaml"));
+
+        _ = await Assert.That(configuration.Providers.Keys.OrderBy(id => id, StringComparer.Ordinal).SequenceEqual(
+            ["chatgpt", "kimi-api", "kimi-code", "openai", "opencode-go", "openrouter"],
+            StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(configuration.Providers["openai"].HeaderTimeoutMs).IsEqualTo(10000);
+        _ = await Assert.That(configuration.Providers["openai"].BaseUrl).IsEmpty();
+        _ = await Assert.That(configuration.Providers["openrouter"].Protocol).IsEqualTo("chat-completions");
+        _ = await Assert.That(configuration.Providers["openrouter"].BaseUrl).IsEqualTo("https://openrouter.ai/api/v1");
+        _ = await Assert.That(configuration.Providers["openrouter"].ApiKeyEnv).IsEqualTo("OPENROUTER_API_KEY");
+        _ = await Assert.That(configuration.Providers["opencode-go"].ModelDefaults).Count().IsEqualTo(22);
+        _ = await Assert.That(configuration.Providers["kimi-code"].ModelDefaults["kimi-for-coding"].Context).IsEqualTo(262144);
+        _ = await Assert.That(configuration.Providers["kimi-api"].ModelDefaults.Keys.SequenceEqual(
+            ["kimi-k2-thinking", "kimi-k2-turbo-preview", "kimi-k2-0905-preview"],
+            StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(configuration.Providers["chatgpt"].Models).IsEmpty();
+        _ = await Assert.That(configuration.Providers["chatgpt"].ModelDefaults.Keys.SequenceEqual(
+            ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-sol"],
+            StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(configuration.Providers["chatgpt"].ModelDefaults["gpt-5.6-sol"].Variants.Keys.SequenceEqual(
+            ["low", "medium", "high", "xhigh"],
+            StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(configuration.Providers["opencode-go"].ModelDefaults["kimi-k3"].Variants.Keys.SequenceEqual(
+            ["max", "high", "low"],
+            StringComparer.Ordinal)).IsTrue();
+    }
+
+    [Test]
+    public async Task Provider_model_defaults_are_separate_from_declared_models()
+    {
+        var configuration = Load(Write("""
+            providers:
+              custom:
+                model_defaults:
+                  seeded:
+                    name: Seeded
+                    context: 128
+                    max_tokens: 32
+                    tools: true
+                    reasoning: false
+                    output: [text]
+                models:
+                  declared:
+                    name: Declared
+                    context: 256
+                    max_tokens: 64
+                    tools: false
+                    reasoning: true
+                    output: [text]
+            """));
+
+        var provider = configuration.Providers["custom"];
+        _ = await Assert.That(provider.ModelDefaults.Keys).Contains("seeded");
+        _ = await Assert.That(provider.ModelDefaults.Keys).DoesNotContain("declared");
+        _ = await Assert.That(provider.Models.Keys).Contains("declared");
+        _ = await Assert.That(provider.Models.Keys).DoesNotContain("seeded");
+    }
+
+    [Test]
     public async Task The_model_is_read_from_the_file()
     {
         var path = Write("# parrot config\nmodel: deepseek-v4-pro\n");
@@ -420,17 +481,29 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Provider_model_alias_defaults_have_the_exact_chatgpt_mapping()
+    public async Task Provider_model_alias_defaults_have_the_exact_predefined_mappings()
     {
         var defaults = Load(Path.Combine(_directory, "config.yaml")).ProviderModelAliasDefaults;
 
-        _ = await Assert.That(defaults).Count().IsEqualTo(1);
+        _ = await Assert.That(defaults).Count().IsEqualTo(3);
         _ = await Assert.That(defaults["chatgpt"]).IsEqualTo(new ProviderModelAliasDefaults(
             "chatgpt",
+            "chatgpt/gpt-5.6-luna/medium",
             "chatgpt/gpt-5.6-terra/medium",
             "chatgpt/gpt-5.6-sol/medium",
-            "chatgpt/gpt-5.6-sol/high",
             "chatgpt/gpt-5.6-sol/xhigh"));
+        _ = await Assert.That(defaults["opencode-go"]).IsEqualTo(new ProviderModelAliasDefaults(
+            "opencode-go",
+            "opencode-go/deepseek-v4-flash/high",
+            "opencode-go/deepseek-v4-pro/high",
+            "opencode-go/glm-5.2/high",
+            "opencode-go/kimi-k3/high"));
+        _ = await Assert.That(defaults["openrouter"]).IsEqualTo(new ProviderModelAliasDefaults(
+            "openrouter",
+            "openrouter/deepseek/deepseek-v4-flash-0731/high",
+            "openrouter/deepseek/deepseek-v4-pro/high",
+            "openrouter/z-ai/glm-5.2/high",
+            "openrouter/moonshotai/kimi-k3/high"));
     }
 
     [Test]
@@ -613,11 +686,11 @@ internal sealed class ConfigurationTests : IDisposable
         var reloaded = Load(path);
         var rewritten = await File.ReadAllTextAsync(path);
         _ = await Assert.That(configuration.ModelAliases["low_llm"].ModelString)
-            .IsEqualTo("chatgpt/gpt-5.6-terra/medium");
+            .IsEqualTo("chatgpt/gpt-5.6-luna/medium");
         _ = await Assert.That(reloaded.ModelAliases["medium_llm"].ModelString)
-            .IsEqualTo("chatgpt/gpt-5.6-sol/medium");
+            .IsEqualTo("chatgpt/gpt-5.6-terra/medium");
         _ = await Assert.That(reloaded.ModelAliases["high_llm"].ModelString)
-            .IsEqualTo("chatgpt/gpt-5.6-sol/high");
+            .IsEqualTo("chatgpt/gpt-5.6-sol/medium");
         _ = await Assert.That(reloaded.ModelAliases["xhigh_llm"].ModelString)
             .IsEqualTo("chatgpt/gpt-5.6-sol/xhigh");
         _ = await Assert.That(reloaded.ModelAliases["low_llm"].Usage).IsEqualTo("Customized low usage");

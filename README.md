@@ -39,11 +39,15 @@ assembly should have a clear architectural reason.
 A model selection is either a configured model alias or a canonical
 `provider/model[/effort-variant]` selector. The provider is the first path
 segment, and the model may itself contain slashes. The refreshed provider
-catalog supplies autocomplete and model metadata, but it is not an allowlist:
-an unlisted model ID is passed to the provider and can fail when called. The
-optional final segment is treated as an effort variant only when the complete
-remainder is not an exact catalog model ID. This makes selectors stable even
-when a provider offers slash-containing model IDs.
+catalog supplies autocomplete and model metadata. A provider's declared
+`models` are always selectable, even when an endpoint does not list them; their
+metadata is an override for the endpoint response. The
+offline `model_defaults` catalogues seed model names and descriptions, but a
+successful endpoint refresh drops entries that the endpoint omits. An
+undeclared model ID is still passed to the provider and can fail when called.
+The optional final segment is treated as an effort variant only when the
+complete remainder is not an exact catalog model ID. This makes selectors
+stable even when a provider offers slash-containing model IDs.
 
 A variant has a stable catalog name and a provider-facing `reasoning_effort`
 value. They are intentionally distinct: selecting `high`, for example, can map
@@ -262,24 +266,17 @@ The ordinary predefined `model_aliases` targets remain empty. Consequently each
 unconfigured alias produces this startup warning until it is configured:
 `warning: model alias "NAME" is not configured. Use /model-alias to configure.`
 
-Provider defaults are a separate, opt-in complete set of targets. They are
-configured under `provider_model_alias_defaults`; every provider entry must map
-**all four** predefined aliases (`low_llm`, `medium_llm`, `high_llm`, and
-`xhigh_llm`). A partial provider mapping is invalid. The shipped ChatGPT
-mapping is:
-
-```yaml
-provider_model_alias_defaults:
-  chatgpt:
-    low_llm: chatgpt/gpt-5.6-terra/medium
-    medium_llm: chatgpt/gpt-5.6-sol/medium
-    high_llm: chatgpt/gpt-5.6-sol/high
-    xhigh_llm: chatgpt/gpt-5.6-sol/xhigh
-```
+Built-in provider alias targets are also kept in `predefined_config.yaml` as
+serializable defaults. They are a separate, opt-in complete set of targets:
+every provider entry maps all four predefined aliases (`low_llm`, `medium_llm`,
+`high_llm`, and `xhigh_llm`). They do not implicitly set ordinary aliases;
+they are applied only when chosen through `/model-alias`.
 
 A configured entry can override any predefined field without losing its default
-metadata, and can add another alias. Provider defaults do not implicitly set
-ordinary aliases: they are applied only when chosen through `/model-alias`.
+metadata, and can add another alias. Provider model metadata follows a
+separate rule: offline `model_defaults` seed names and descriptions, while
+explicit `models` declarations remain selectable and override endpoint metadata.
+Successful refreshes remove `model_defaults` entries omitted by the endpoint.
 
 ```yaml
 model_aliases:
@@ -400,7 +397,16 @@ Parrot keeps its configuration under `$XDG_CONFIG_HOME/parrotdotnet` (or
 `~/.config/parrotdotnet` when `XDG_CONFIG_HOME` is unset). The shipped
 `predefined_config.yaml` is copied there at startup and replaced whenever the
 running binary changes. It is the complete, agent-readable reference for the
-active defaults; do not edit it.
+active defaults; do not edit it. It owns built-in serializable provider
+defaults, including offline `model_defaults` catalogues of seed model names
+and descriptions. A successful endpoint refresh removes seeded entries that
+are absent from the endpoint response. In contrast, provider `models` are
+explicit declarations: they remain selectable and their metadata overrides
+endpoint metadata.
+
+Implementation-specific provider adapters and model-list decoders remain in
+code, as does the ChatGPT OAuth transport; the YAML contains only their
+serializable defaults and catalog metadata.
 
 Put personal settings in `config.yaml` in the same directory. It is never
 created or overwritten by loading configuration. Parrot recursively merges its

@@ -21,20 +21,27 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
 
     private readonly IOAuthTokenSource _tokens;
     private readonly HttpClient _client;
+    private readonly IReadOnlyList<LLMModel> _declared;
+    private readonly IReadOnlyList<LLMModel> _defaults;
     private readonly Uri _endpoint = new(StreamEndpoint);
     private readonly string _sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
 
-    public ChatGptProvider(IOAuthTokenSource tokens, HttpClient client)
+    public ChatGptProvider(
+        IOAuthTokenSource tokens,
+        HttpClient client,
+        IReadOnlyList<LLMModel> declared,
+        IReadOnlyList<LLMModel> defaults)
     {
         ArgumentNullException.ThrowIfNull(tokens);
         _tokens = tokens;
         _client = client;
+        _declared = declared;
+        _defaults = defaults;
     }
 
     public string Id => ProviderId;
 
-    // The bundled catalogue stands in until the Codex endpoint is reached.
-    public static IReadOnlyList<LLMModel> SeedModels() => BundledModels();
+    public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults);
 
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
         _tokens.HasCredential(cancellationToken);
@@ -49,7 +56,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
             .Get(_client, uri, Headers(access), HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
             .ConfigureAwait(false);
 
-        return DecodeModels(body);
+        return ModelCatalogue.Merge(DecodeModels(body), _declared, []);
     }
 
     public async IAsyncEnumerable<LLMEvent> Call(
@@ -218,24 +225,5 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         }
 
         return headers;
-    }
-
-    private static IReadOnlyList<LLMModel> BundledModels()
-    {
-        var variants = new List<ModelVariant>
-        {
-            new("low", "low"),
-            new("medium", "medium"),
-            new("high", "high"),
-            new("xhigh", "xhigh"),
-        };
-
-        return
-        [
-            LLMModel.Create("gpt-5.4", ProviderId, "GPT-5.4", 400000, 128000, new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants)),
-            LLMModel.Create("gpt-5.4-mini", ProviderId, "GPT-5.4 Mini", 400000, 128000, new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants)),
-            LLMModel.Create("gpt-5.5", ProviderId, "GPT-5.5", 400000, 128000, new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants)),
-            LLMModel.Create("gpt-5.6-sol", ProviderId, "GPT-5.6 Sol", 500000, 128000, new ModelCapabilities(Tools: true, Reasoning: true, Output: ["text"], Variants: variants)),
-        ];
     }
 }
