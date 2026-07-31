@@ -38,18 +38,18 @@ internal sealed class BasicCliTests
         driver.Invoker.ModelAliases.Add(new ModelAlias { Name = "a_llm", Usage = "first" });
 
         var driving = driver.Drive(cancellationToken);
-        await driver.OutputContains("warning: model alias \"z_llm\" is not configured", cancellationToken);
+        await driver.OutputContains("warning: model alias \"z_llm\" is not configured. Use /model-alias to configure.", cancellationToken);
         driver.Input.End();
         _ = await driving;
 
         var first = driver.Output.IndexOf(
-            "warning: model alias \"a_llm\" is not configured", StringComparison.Ordinal);
+            "warning: model alias \"a_llm\" is not configured. Use /model-alias to configure.", StringComparison.Ordinal);
         var last = driver.Output.IndexOf(
-            "warning: model alias \"z_llm\" is not configured", StringComparison.Ordinal);
+            "warning: model alias \"z_llm\" is not configured. Use /model-alias to configure.", StringComparison.Ordinal);
         _ = await Assert.That(first).IsGreaterThanOrEqualTo(0);
         _ = await Assert.That(last).IsGreaterThan(first);
         _ = await Assert.That(driver.Output).DoesNotContain(
-            "warning: model alias \"configured_llm\" is not configured");
+            "warning: model alias \"configured_llm\" is not configured. Use /model-alias to configure.");
     }
 
     [Test]

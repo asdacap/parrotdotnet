@@ -420,6 +420,49 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Provider_model_alias_defaults_have_the_exact_chatgpt_mapping()
+    {
+        var defaults = Load(Path.Combine(_directory, "config.yaml")).ProviderModelAliasDefaults;
+
+        _ = await Assert.That(defaults).Count().IsEqualTo(1);
+        _ = await Assert.That(defaults["chatgpt"]).IsEqualTo(new ProviderModelAliasDefaults(
+            "chatgpt",
+            "chatgpt/gpt-5.6-terra/medium",
+            "chatgpt/gpt-5.6-sol/medium",
+            "chatgpt/gpt-5.6-sol/high",
+            "chatgpt/gpt-5.6-sol/xhigh"));
+    }
+
+    [Test]
+    public async Task Provider_model_alias_defaults_are_validated_after_layering()
+    {
+        var defaults = Load(Write("""
+            provider_model_alias_defaults:
+              chatgpt:
+                low_llm: chatgpt/custom-low
+              local:
+                low_llm: local/low
+                medium_llm: local/medium
+                high_llm: local/high
+                xhigh_llm: local/xhigh
+            """)).ProviderModelAliasDefaults;
+
+        _ = await Assert.That(defaults["chatgpt"].LowModelString).IsEqualTo("chatgpt/custom-low");
+        _ = await Assert.That(defaults["chatgpt"].XHighModelString).IsEqualTo("chatgpt/gpt-5.6-sol/xhigh");
+        _ = await Assert.That(defaults["local"]).IsEqualTo(new ProviderModelAliasDefaults(
+            "local", "local/low", "local/medium", "local/high", "local/xhigh"));
+    }
+
+    [Test]
+    [Arguments("provider_model_alias_defaults: []\n")]
+    [Arguments("provider_model_alias_defaults:\n  local:\n    low_llm: local/low\n")]
+    [Arguments("provider_model_alias_defaults:\n  local:\n    low_llm: local/low\n    medium_llm: local/medium\n    high_llm: local/high\n    xhigh_llm: other/xhigh\n")]
+    [Arguments("provider_model_alias_defaults:\n  local:\n    low_llm: local/low\n    medium_llm: local/medium\n    high_llm: local/high\n    xhigh_llm: local/xhigh\n    extra: local/extra\n")]
+    [Arguments("provider_model_alias_defaults:\n  ' local ':\n    low_llm: local/low\n    medium_llm: local/medium\n    high_llm: local/high\n    xhigh_llm: local/xhigh\n")]
+    public async Task Invalid_provider_model_alias_defaults_are_rejected(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
+
+    [Test]
     public async Task Model_aliases_partially_override_defaults_and_add_custom_aliases()
     {
         var aliases = Load(Write("""
@@ -547,6 +590,74 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(reloaded.ModelAliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             "openai/gpt-5.6", "Fast local work", null, new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(rewritten).Contains("theme: dark");
+    }
+
+    [Test]
+    public async Task Set_model_aliases_persists_all_standard_targets_once_and_preserves_other_yaml()
+    {
+        var path = Write("""
+            theme: dark
+            model_aliases:
+              low_llm:
+                usage: Customized low usage
+                augment_system_prompt: Keep this metadata.
+              custom:
+                model_string: local/custom
+                usage: Custom work
+            """);
+        var configuration = Load(path);
+        var defaults = configuration.ProviderModelAliasDefaults["chatgpt"];
+
+        configuration.SetModelAliases(defaults);
+
+        var reloaded = Load(path);
+        var rewritten = await File.ReadAllTextAsync(path);
+        _ = await Assert.That(configuration.ModelAliases["low_llm"].ModelString)
+            .IsEqualTo("chatgpt/gpt-5.6-terra/medium");
+        _ = await Assert.That(reloaded.ModelAliases["medium_llm"].ModelString)
+            .IsEqualTo("chatgpt/gpt-5.6-sol/medium");
+        _ = await Assert.That(reloaded.ModelAliases["high_llm"].ModelString)
+            .IsEqualTo("chatgpt/gpt-5.6-sol/high");
+        _ = await Assert.That(reloaded.ModelAliases["xhigh_llm"].ModelString)
+            .IsEqualTo("chatgpt/gpt-5.6-sol/xhigh");
+        _ = await Assert.That(reloaded.ModelAliases["low_llm"].Usage).IsEqualTo("Customized low usage");
+        _ = await Assert.That(reloaded.ModelAliases["custom"].ModelString).IsEqualTo("local/custom");
+        _ = await Assert.That(rewritten).Contains("theme: dark");
+        _ = await Assert.That(rewritten).Contains("augment_system_prompt: Keep this metadata.");
+        _ = await Assert.That(rewritten.Split("model_string: chatgpt/", StringSplitOptions.None).Length)
+            .IsEqualTo(5);
+    }
+
+    [Test]
+    public async Task Set_model_aliases_rejects_mismatched_provider_without_changing_memory_or_disk()
+    {
+        var path = Write("theme: dark\n");
+        var configuration = Load(path);
+        var before = await File.ReadAllTextAsync(path);
+
+        _ = await Assert.That(() => configuration.SetModelAliases(new ProviderModelAliasDefaults(
+            "chatgpt",
+            "chatgpt/low",
+            "chatgpt/medium",
+            "other/high",
+            "chatgpt/xhigh"))).Throws<InvalidDataException>();
+        _ = await Assert.That(configuration.ModelAliases["low_llm"].ModelString).IsEmpty();
+        _ = await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(before);
+    }
+
+    [Test]
+    public async Task Set_model_aliases_does_not_change_memory_when_persistence_fails()
+    {
+        var path = Path.Combine(_directory, "config.yaml");
+        var configuration = Load(path);
+        var defaults = configuration.ProviderModelAliasDefaults["chatgpt"];
+        _ = Directory.CreateDirectory(path);
+
+        _ = await Assert.That(() => configuration.SetModelAliases(defaults)).Throws<IOException>();
+        _ = await Assert.That(configuration.ModelAliases["low_llm"].ModelString).IsEmpty();
+        _ = await Assert.That(configuration.ModelAliases["medium_llm"].ModelString).IsEmpty();
+        _ = await Assert.That(configuration.ModelAliases["high_llm"].ModelString).IsEmpty();
+        _ = await Assert.That(configuration.ModelAliases["xhigh_llm"].ModelString).IsEmpty();
     }
 
     [Test]

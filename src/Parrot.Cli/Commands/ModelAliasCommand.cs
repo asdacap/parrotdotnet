@@ -9,6 +9,8 @@ internal sealed class ModelAliasCommand(
     ModelWizard models,
     ISlashDialog dialog) : ISlashCommand
 {
+    private const string ProviderDefaultsId = "/provider-defaults";
+
     public string Name => "/model-alias";
 
     public string Summary => "Configure a model alias";
@@ -19,23 +21,54 @@ internal sealed class ModelAliasCommand(
         {
             var listed = await client.ListModelAliasesAsync(
                 new ListModelAliasesRequest(), cancellationToken: cancellationToken);
-            if (listed.Aliases.Count == 0)
-            {
-                await dialog.ShowError("no model aliases configured", cancellationToken).ConfigureAwait(false);
-                return;
-            }
+            var options = listed.Aliases
+                .OrderBy(alias => alias.Name, StringComparer.Ordinal)
+                .Select(alias => new SlashDialogOption(
+                    alias.Name,
+                    alias.Name,
+                    $"{alias.Usage}; {(alias.ModelString.Length == 0 ? "not configured" : alias.ModelString)}"))
+                .Prepend(new SlashDialogOption(
+                    ProviderDefaultsId,
+                    "Use provider defaults",
+                    "Configure all four model aliases"))
+                .ToArray();
 
             var selectedAlias = await dialog.Select(
                 "Select a model alias",
-                [.. listed.Aliases
-                    .OrderBy(alias => alias.Name, StringComparer.Ordinal)
-                    .Select(alias => new SlashDialogOption(
-                        alias.Name,
-                        alias.Name,
-                        $"{alias.Usage}; {(alias.ModelString.Length == 0 ? "not configured" : alias.ModelString)}"))],
+                options,
                 cancellationToken).ConfigureAwait(false);
             if (selectedAlias is null)
             {
+                return;
+            }
+
+            if (string.Equals(selectedAlias.Id, ProviderDefaultsId, StringComparison.Ordinal))
+            {
+                var defaults = await client.ListProviderModelAliasDefaultsAsync(
+                    new ListProviderModelAliasDefaultsRequest(), cancellationToken: cancellationToken);
+                if (defaults.Providers.Count == 0)
+                {
+                    await dialog.ShowError(
+                        "no available providers have model alias defaults", cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                var provider = await dialog.Select(
+                    "Select provider defaults",
+                    [.. defaults.Providers
+                        .OrderBy(item => item.ProviderId, StringComparer.Ordinal)
+                        .Select(item => new SlashDialogOption(item.ProviderId, item.ProviderId, string.Empty))],
+                    cancellationToken).ConfigureAwait(false);
+                if (provider is null)
+                {
+                    return;
+                }
+
+                _ = await client.ApplyProviderModelAliasDefaultsAsync(
+                    new ApplyProviderModelAliasDefaultsRequest { ProviderId = provider.Id },
+                    cancellationToken: cancellationToken);
+                await dialog.Show(
+                    [$"Model aliases configured from {provider.Id} defaults"], cancellationToken).ConfigureAwait(false);
                 return;
             }
 

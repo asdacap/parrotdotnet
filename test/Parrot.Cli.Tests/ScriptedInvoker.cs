@@ -21,6 +21,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<CreateSessionRequest> _created = [];
     private readonly List<UpdateSessionRequest> _updated = [];
     private readonly List<ConfigureModelAliasRequest> _configuredAliases = [];
+    private readonly List<ApplyProviderModelAliasDefaultsRequest> _appliedProviderModelAliasDefaults = [];
     private readonly List<ReplyQuestionRequest> _questionReplies = [];
     private readonly List<RejectQuestionRequest> _questionRejections = [];
     private readonly List<ReplyPermissionRequest> _permissionReplies = [];
@@ -96,6 +97,17 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public IReadOnlyList<ApplyProviderModelAliasDefaultsRequest> AppliedProviderModelAliasDefaults
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _appliedProviderModelAliasDefaults];
+            }
+        }
+    }
+
     public int Interrupts { get; private set; }
 
     public bool ReplyQuestionNotFound { get; set; }
@@ -105,6 +117,8 @@ internal sealed class ScriptedInvoker : CallInvoker
     public bool SessionLoaded { get; set; }
 
     public List<ModelAlias> ModelAliases { get; } = [];
+
+    public List<ProviderModelAliasDefaults> ProviderModelAliasDefaults { get; } = [];
 
     public int PendingQuestionLists
     {
@@ -315,6 +329,21 @@ internal sealed class ScriptedInvoker : CallInvoker
                     string.Equals(alias.Name, configure.Name, StringComparison.Ordinal));
                 configured.ModelString = configure.ModelString;
                 answered = new ConfigureModelAliasResponse { Alias = configured.Clone() };
+                break;
+            case ListProviderModelAliasDefaultsRequest:
+                var listedDefaults = new ListProviderModelAliasDefaultsResponse();
+                listedDefaults.Providers.Add(ProviderModelAliasDefaults);
+                answered = listedDefaults;
+                break;
+            case ApplyProviderModelAliasDefaultsRequest applyDefaults:
+                lock (_gate)
+                {
+                    _appliedProviderModelAliasDefaults.Add(applyDefaults);
+                }
+
+                var appliedDefaults = new ApplyProviderModelAliasDefaultsResponse();
+                appliedDefaults.Aliases.Add(ModelAliases.Select(alias => alias.Clone()));
+                answered = appliedDefaults;
                 break;
             case ListPendingQuestionsRequest listQuestions:
                 var listedQuestions = new ListPendingQuestionsResponse();
