@@ -6,7 +6,7 @@ namespace Parrot.Process;
 internal sealed class ShellProcessOwners(
     UserSessionResources resources,
     ProcessRunner runner,
-    CancellationToken lifetime) : IActiveWorkSource, IDisposable
+    CancellationToken lifetime) : IActiveWorkSource, IProcessStatusSource, IDisposable
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, ShellProcessOwner> _owners = new(StringComparer.Ordinal);
@@ -43,6 +43,19 @@ internal sealed class ShellProcessOwners(
             return [.. _owners.Values
                 .SelectMany(owner => owner.Active())
                 .OrderBy(item => item.Id, StringComparer.Ordinal)];
+        }
+    }
+
+    public IReadOnlyList<ShellProcessStatusSnapshot> Snapshot()
+    {
+        lock (_gate)
+        {
+            return Array.AsReadOnly(_owners.Values
+                .SelectMany(owner => owner.Snapshot())
+                .OrderBy(item => item.OwnerSessionId, StringComparer.Ordinal)
+                .ThenBy(item => item.Name, StringComparer.Ordinal)
+                .ThenBy(item => item.ProcessId, StringComparer.Ordinal)
+                .ToArray());
         }
     }
 

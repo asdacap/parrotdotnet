@@ -12,7 +12,7 @@ internal sealed class AgentRegistry(
     EventBroker eventBroker,
     EventRepository eventRepository,
     ProfileRegistry profiles,
-    CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource
+    CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource, IAgentStatusSource
 {
     private const string ParentRecipient = "parent";
     private const int MaxDepth = 4;
@@ -160,6 +160,24 @@ internal sealed class AgentRegistry(
         lock (_gate)
         {
             return ObserveActiveChildren(null);
+        }
+    }
+
+    public IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot()
+    {
+        lock (_gate)
+        {
+            var snapshots = _entries.Values
+                .Select(static entry => entry.Session)
+                .Where(static agent => agent.IsActive())
+                .Select(static agent => new ActiveAgentSnapshot(
+                    agent.SessionId,
+                    agent.ParentSessionId,
+                    agent.Name))
+                .OrderBy(static snapshot => snapshot.SessionId, StringComparer.Ordinal)
+                .ToArray();
+
+            return Array.AsReadOnly(snapshots);
         }
     }
 

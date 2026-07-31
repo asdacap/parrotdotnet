@@ -3,6 +3,7 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Security;
@@ -54,18 +55,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         _ = queues.Create("work", "queued work");
         _ = await queues.Push("work", ["item"], QueueDirection.Back, cancellationToken);
-        var processes = new ActiveWorkSource(
-            new ActiveWorkObservation(
-                "agent/process",
-                "process",
-                ActiveWorkKind.Shell,
-                ActiveWorkState.Running));
-        var subagents = new ActiveWorkSource(
-            new ActiveWorkObservation(
-                "child",
-                "worker",
-                ActiveWorkKind.Agent,
-                ActiveWorkState.Running));
+        var processes = new ProcessStatusSource(
+            new ShellProcessStatusSnapshot("agent", "process", "process", ActiveWorkState.Running));
+        var subagents = new AgentStatusSource(
+            new ActiveAgentSnapshot("child", "agent", "worker"));
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, processes, subagents),
             session,
@@ -101,14 +94,11 @@ internal sealed class WaitToolTests : IAsyncDisposable
             """
             Wait timed out after 10000 ms.
 
-            Queues:
-            - work (1 items, description: "queued work")
-
-            Active processes:
-            - agent/process (shell, running, name: process)
-
-            Active subagents:
-            - child (agent, running, name: worker)
+            Runtime:
+            - agent: main (agent)
+              - queue: work (1 items, description: "queued work")
+              - process: agent/process (shell, running, name: process)
+              - agent: worker (child)
             """);
     }
 
@@ -120,9 +110,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queueCatalog = QueueCatalog("pending-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
         var session = Session(provider, [], repository, queueCatalog, queues);
-        var unobserved = new UnobservedActiveWorkSource();
+        var unobservedProcesses = new UnobservedProcessStatusSource();
+        var unobservedAgents = new UnobservedAgentStatusSource();
         var tool = new WaitTool(
-            new RuntimeStatus(queueCatalog, unobserved, unobserved),
+            new RuntimeStatus(queueCatalog, unobservedProcesses, unobservedAgents),
             session,
             TimeProvider.System);
         _ = repository.Admit(
@@ -147,9 +138,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queueCatalog = QueueCatalog("cancellation-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
         var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
-        var unobserved = new UnobservedActiveWorkSource();
+        var unobservedProcesses = new UnobservedProcessStatusSource();
+        var unobservedAgents = new UnobservedAgentStatusSource();
         var tool = new WaitTool(
-            new RuntimeStatus(queueCatalog, unobserved, unobserved),
+            new RuntimeStatus(queueCatalog, unobservedProcesses, unobservedAgents),
             session,
             TimeProvider.System);
         using var canceled = new CancellationTokenSource();
@@ -171,8 +163,9 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var repository = new EventRepository(_database);
         using var queueCatalog = QueueCatalog("round-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
-        var active = new ActiveWorkSource();
-        var factory = new WaitToolFactory(new RuntimeStatus(queueCatalog, active, active), TimeProvider.System);
+        var processes = new ProcessStatusSource();
+        var agents = new AgentStatusSource();
+        var factory = new WaitToolFactory(new RuntimeStatus(queueCatalog, processes, agents), TimeProvider.System);
         var session = Session(provider, [factory], repository, queueCatalog, queues);
 
         _ = await session.Admit("first", "message-1", Delivery.Steer, cancellationToken);
@@ -495,15 +488,26 @@ internal sealed class WaitToolTests : IAsyncDisposable
         return registry;
     }
 
-    private sealed class ActiveWorkSource(params ActiveWorkObservation[] active) : IActiveWorkSource
+    private sealed class ProcessStatusSource(params ShellProcessStatusSnapshot[] active) : IProcessStatusSource
     {
-        public IReadOnlyList<ActiveWorkObservation> Active() => active;
+        public IReadOnlyList<ShellProcessStatusSnapshot> Snapshot() => active;
     }
 
-    private sealed class UnobservedActiveWorkSource : IActiveWorkSource
+    private sealed class AgentStatusSource(params ActiveAgentSnapshot[] active) : IAgentStatusSource
     {
-        public IReadOnlyList<ActiveWorkObservation> Active() =>
-            throw new InvalidOperationException("Active work was observed before timeout.");
+        public IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot() => active;
+    }
+
+    private sealed class UnobservedProcessStatusSource : IProcessStatusSource
+    {
+        public IReadOnlyList<ShellProcessStatusSnapshot> Snapshot() =>
+            throw new InvalidOperationException("Process status was observed before timeout.");
+    }
+
+    private sealed class UnobservedAgentStatusSource : IAgentStatusSource
+    {
+        public IReadOnlyList<ActiveAgentSnapshot> ActiveSnapshot() =>
+            throw new InvalidOperationException("Agent status was observed before timeout.");
     }
 
     private sealed class ManualTimeProvider : TimeProvider

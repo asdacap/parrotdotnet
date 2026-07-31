@@ -17,7 +17,7 @@ internal sealed class WaitTool(
     public string Description =>
         "Wait for incoming activity. Returns early for a new message, direct child-agent completion, "
         + "unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen. "
-        + "A timeout reports queues, active processes, and active subagents.";
+        + "A timeout reports an agent tree containing queues and active processes.";
 
     public string ParametersJson =>
         """

@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Process;
 using Parrot.Queues;
 
 namespace Parrot.Statuses;
@@ -10,14 +11,12 @@ internal sealed class RuntimeStatus
 
     public RuntimeStatus(
         AgentQueueCatalog queues,
-        IActiveWorkSource processes,
-        IActiveWorkSource subagents)
+        IProcessStatusSource processes,
+        IAgentStatusSource subagents)
     {
-        var queueStatus = new QueueStatusProvider(queues);
-        var processStatus = new ActiveWorkStatusProvider(ActiveWorkKind.Shell, processes);
-        var subagentStatus = new ActiveWorkStatusProvider(ActiveWorkKind.Agent, subagents);
-        _activity = new StatusRegistry(queueStatus, processStatus, subagentStatus);
-        _full = new StatusRegistry(new SelectionStatusProvider(), queueStatus, processStatus, subagentStatus);
+        var runtime = new RuntimeTreeStatusProvider(queues, processes, subagents);
+        _activity = new StatusRegistry(runtime);
+        _full = new StatusRegistry(new SelectionStatusProvider(), runtime);
     }
 
     public Task<string> Observe(

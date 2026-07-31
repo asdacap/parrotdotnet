@@ -41,7 +41,7 @@ internal sealed class AgentQueueCatalog : IDisposable
             var directory = identity.Depth == 0
                 ? _resources.QueueDirectory
                 : _resources.AgentQueueDirectory(identity.SessionId);
-            var queues = new AgentQueues(this, identity.SessionId, parent, directory, identity.Depth > 0);
+            var queues = new AgentQueues(this, identity, parent, directory, identity.Depth > 0);
 
             try
             {
@@ -85,6 +85,20 @@ internal sealed class AgentQueueCatalog : IDisposable
             var owner = _agents.GetValueOrDefault(sessionId)
                 ?? throw new InvalidOperationException($"Queue owner '{sessionId}' is not registered.");
             return owner.List();
+        }
+    }
+
+    public IReadOnlyList<QueueOwnerSnapshot> Snapshot()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return Array.AsReadOnly(_agents.Values
+                .OrderBy(owner => owner.SessionId, StringComparer.Ordinal)
+                .Select(owner => new QueueOwnerSnapshot(
+                    owner.Identity,
+                    Array.AsReadOnly(owner.Local.List(owner.SessionId).ToArray())))
+                .ToArray());
         }
     }
 
