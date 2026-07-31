@@ -26,11 +26,12 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(File.Exists(path)).IsFalse();
         _ = await Assert.That(configuration.Model).IsEmpty();
-        _ = await Assert.That(configuration.Prompt).IsEqualTo(
+        _ = await Assert.That(configuration.Prompt).StartsWith(
             "You are parrot, a coding agent. You work in the user's project directory. "
             + "Prefer read, glob, and grep for inspection; write for whole-file creation or replacement; "
             + "edit for exact substitutions; and use exec_command only for shell commands. Filesystem access is determined by the active "
             + "security policy. Prefer small, verifiable steps.");
+        _ = await Assert.That(configuration.Prompt).Contains("# Common subagent spawn strategy");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configuration.DisabledTools).IsEmpty();
@@ -335,7 +336,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(aliases).Count().IsEqualTo(4);
         _ = await Assert.That(aliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
-            "mechanical, single file task, text or code processing when no suitable cli tool available.",
+            "mechanical, single file task, text or code processing when no suitable cli tool available. do not use for review.",
             null,
             new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(aliases["medium_llm"]).IsEqualTo(new ModelAliasConfig(
@@ -372,7 +373,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(aliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             "openai/gpt-5",
-            "mechanical, single file task, text or code processing when no suitable cli tool available.",
+            "mechanical, single file task, text or code processing when no suitable cli tool available. do not use for review.",
             null,
             new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(aliases["xhigh_llm"]).IsEqualTo(new ModelAliasConfig(
@@ -502,7 +503,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(configuration.ModelAliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             "openai/gpt-5",
-            "mechanical, single file task, text or code processing when no suitable cli tool available.",
+            "mechanical, single file task, text or code processing when no suitable cli tool available. do not use for review.",
             null,
             new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
