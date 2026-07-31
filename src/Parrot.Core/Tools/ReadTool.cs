@@ -22,7 +22,7 @@ internal sealed partial class ReadTool(ToolWorkspace workspace, SecurityProfile 
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         string path;
         int offset;
@@ -30,7 +30,7 @@ internal sealed partial class ReadTool(ToolWorkspace workspace, SecurityProfile 
 
         try
         {
-            var input = JsonSerializer.Deserialize(argumentsJson, FileToolJsonContext.Default.ReadToolInput)
+            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, FileToolJsonContext.Default.ReadToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             path = input.Path ?? throw new FormatException("Tool arguments require a string 'path'.");
             offset = input.Offset ?? 1;

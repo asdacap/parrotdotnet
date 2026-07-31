@@ -165,31 +165,31 @@ internal sealed class UserSession : IAsyncDisposable
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var events = _eventBroker.Subscribe();
-        using var inventory = Queues.SubscribeInventory();
-        var initial = await inventory.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        foreach (var published in QueueInventoryProtocol.Convert(initial))
+        using var queues = Queues.SubscribeInventory();
+        using var processes = ShellProcesses.SubscribeInventory();
+
+        var initialQueues = await queues.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var published in QueueInventoryProtocol.Convert(initialQueues))
+        {
+            yield return published;
+        }
+
+        var initialProcesses = await processes.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var published in ShellProcessInventoryProtocol.Convert(initialProcesses))
         {
             yield return published;
         }
 
         var eventPending = (Task<bool>?)events.Reader.WaitToReadAsync(cancellationToken).AsTask();
-        var inventoryPending = (Task<bool>?)inventory.Reader.WaitToReadAsync(cancellationToken).AsTask();
+        var queuePending = (Task<bool>?)queues.Reader.WaitToReadAsync(cancellationToken).AsTask();
+        var processPending = (Task<bool>?)processes.Reader.WaitToReadAsync(cancellationToken).AsTask();
 
-        while (eventPending is not null || inventoryPending is not null)
+        while (eventPending is not null || queuePending is not null || processPending is not null)
         {
-            Task<bool> completed;
-            if (eventPending is null)
-            {
-                completed = inventoryPending ?? throw new InvalidOperationException("queue inventory read is missing");
-            }
-            else if (inventoryPending is null)
-            {
-                completed = eventPending;
-            }
-            else
-            {
-                completed = await Task.WhenAny(eventPending, inventoryPending).ConfigureAwait(false);
-            }
+            var pending = new[] { eventPending, queuePending, processPending }
+                .Where(task => task is not null)
+                .Select(task => task ?? throw new InvalidOperationException("inventory read is missing"));
+            var completed = await Task.WhenAny(pending).ConfigureAwait(false);
 
             if (ReferenceEquals(completed, eventPending))
             {
@@ -208,21 +208,41 @@ internal sealed class UserSession : IAsyncDisposable
                 continue;
             }
 
-            if (!await completed.ConfigureAwait(false))
+            if (ReferenceEquals(completed, queuePending))
             {
-                inventoryPending = null;
+                if (!await completed.ConfigureAwait(false))
+                {
+                    queuePending = null;
+                    continue;
+                }
+
+                if (queues.Reader.TryRead(out var snapshot))
+                {
+                    foreach (var published in QueueInventoryProtocol.Convert(snapshot))
+                    {
+                        yield return published;
+                    }
+                }
+
+                queuePending = queues.Reader.WaitToReadAsync(cancellationToken).AsTask();
                 continue;
             }
 
-            if (inventory.Reader.TryRead(out var snapshot))
+            if (!await completed.ConfigureAwait(false))
             {
-                foreach (var published in QueueInventoryProtocol.Convert(snapshot))
+                processPending = null;
+                continue;
+            }
+
+            if (processes.Reader.TryRead(out var processSnapshot))
+            {
+                foreach (var published in ShellProcessInventoryProtocol.Convert(processSnapshot))
                 {
                     yield return published;
                 }
             }
 
-            inventoryPending = inventory.Reader.WaitToReadAsync(cancellationToken).AsTask();
+            processPending = processes.Reader.WaitToReadAsync(cancellationToken).AsTask();
         }
     }
 
@@ -269,6 +289,7 @@ internal sealed class UserSession : IAsyncDisposable
         // on MoveNext returns false rather than waiting forever.
         _lifetime.Dispose();
         _eventBroker.Dispose();
+        ShellProcesses.Dispose();
         Queues.Dispose();
         _queueDelivery.Dispose();
         _agents.Clear();

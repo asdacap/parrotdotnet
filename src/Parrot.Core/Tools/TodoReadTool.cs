@@ -12,19 +12,19 @@ internal sealed partial class TodoReadTool(AgentSession session) : ITool
 
     public string ParametersJson => Input.Descriptor;
 
-    public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         try
         {
-            _ = JsonSerializer.Deserialize(argumentsJson, TodoJsonContext.Default.TodoReadInput)
+            _ = JsonSerializer.Deserialize(invocation.ArgumentsJson, TodoJsonContext.Default.TodoReadInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
 
             var items = session.Todos.Read(cancellationToken).Select(TodoTools.ToWire).ToArray();
-            return Task.FromResult(JsonSerializer.Serialize(items, TodoJsonContext.Default.TodoWireItemArray));
+            return Task.FromResult<ToolExecutionResult>(JsonSerializer.Serialize(items, TodoJsonContext.Default.TodoWireItemArray));
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return Task.FromResult($"error: {failure.Message}");
+            return Task.FromResult<ToolExecutionResult>($"error: {failure.Message}");
         }
     }
 

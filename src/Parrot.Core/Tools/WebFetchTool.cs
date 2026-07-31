@@ -15,11 +15,11 @@ internal sealed partial class WebFetchTool(WebFetcher fetcher) : ITool
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         try
         {
-            var (address, method) = ReadRequest(argumentsJson);
+            var (address, method) = ReadRequest(invocation.ArgumentsJson);
             var result = await fetcher.Fetch(address, method, cancellationToken).ConfigureAwait(false);
             return result.Text;
         }

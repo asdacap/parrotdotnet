@@ -56,13 +56,13 @@ internal sealed class WaitToolTests : IDisposable
 
         foreach (var arguments in invalid)
         {
-            _ = await Assert.That(await tool.Execute(arguments, cancellationToken)).StartsWith("error:");
+            _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", arguments), cancellationToken)).Text).StartsWith("error:");
         }
 
-        var waiting = tool.Execute("{}", cancellationToken);
+        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), cancellationToken);
         await time.WaitForTimer(cancellationToken);
         time.Advance(TimeSpan.FromSeconds(10));
-        _ = await Assert.That(await waiting).IsEqualTo("Wait timed out after 10000 ms.");
+        _ = await Assert.That((await waiting).Text).IsEqualTo("Wait timed out after 10000 ms.");
     }
 
     [Test]
@@ -83,7 +83,7 @@ internal sealed class WaitToolTests : IDisposable
                 InputAdmitted = new InputAdmitted { InputId = input.Id, MessageId = input.MessageId },
             });
 
-        _ = await Assert.That(await tool.Execute("{}", cancellationToken)).IsEqualTo("Incoming activity is available.");
+        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "{}"), cancellationToken)).Text).IsEqualTo("Incoming activity is available.");
     }
 
     [Test]
@@ -92,7 +92,7 @@ internal sealed class WaitToolTests : IDisposable
         var session = Session(new UnusedProvider(), owner: null, [], selectedRepository: null);
         var tool = new WaitTool(session, TimeProvider.System);
         using var canceled = new CancellationTokenSource();
-        var waiting = tool.Execute("{}", canceled.Token);
+        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), canceled.Token);
         await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
 
         await canceled.CancelAsync();

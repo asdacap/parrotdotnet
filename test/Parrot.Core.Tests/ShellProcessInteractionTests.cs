@@ -39,10 +39,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
         var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            inventory,
             lifetime.Token);
         var process = owner.Start(
             "interactive",
@@ -87,10 +89,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
         var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            inventory,
             lifetime.Token);
         var process = owner.Start(
             "spill",
@@ -133,10 +137,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
         var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            inventory,
             lifetime.Token);
         var process = owner.Start(
             "poll",
@@ -175,10 +181,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
         var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            inventory,
             lifetime.Token);
         var security = SecurityProfile.Compose(readOnly: false, [], [], []);
         var first = owner.Start(
@@ -230,10 +238,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
         var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            inventory,
             lifetime.Token);
         var process = owner.Start(
             "claimed",

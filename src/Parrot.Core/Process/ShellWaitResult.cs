@@ -4,8 +4,11 @@ internal sealed record ShellWaitResult(
     string Name,
     bool Running,
     string Output,
-    ProcessResult? Result)
+    ProcessResult? Result,
+    YieldedShellProcess? YieldedProcess)
 {
+    public bool Yielded => YieldedProcess is not null;
+
     public string Format()
     {
         if (Result is not null)

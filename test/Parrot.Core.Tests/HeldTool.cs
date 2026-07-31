@@ -17,7 +17,7 @@ internal sealed class HeldTool : ITool
 
     public Task Started => _started.Task;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         _started.SetResult();
         await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);

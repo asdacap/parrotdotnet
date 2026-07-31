@@ -20,7 +20,7 @@ internal sealed partial class AgentSpawnTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         string prompt;
         string requestedProfile;
@@ -29,7 +29,7 @@ internal sealed partial class AgentSpawnTool(
 
         try
         {
-            var input = JsonSerializer.Deserialize(argumentsJson, AgentProcessToolJsonContext.Default.AgentSpawnToolInput)
+            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.AgentSpawnToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             prompt = input.Prompt ?? throw new FormatException("Tool arguments require a string 'prompt'.");
             requestedProfile = input.Agent ?? throw new FormatException("Tool arguments require a string 'agent'.");

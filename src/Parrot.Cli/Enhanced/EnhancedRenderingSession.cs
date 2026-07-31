@@ -271,6 +271,7 @@ internal sealed class EnhancedRenderingSession : IDisposable
             CommitBody,
             _toolPresenters,
             UpdateMainAgentActivity);
+        var renderedStream = new ShellProcessSnapshotStreamReader(stream, activity.ReplaceProcesses);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = activity.Run(animating.Token);
 
@@ -314,7 +315,7 @@ internal sealed class EnhancedRenderingSession : IDisposable
                 }
 
                 var completed = await _turnRenderer.RenderSessionTurn(
-                    stream,
+                    renderedStream,
                     Prepare,
                     Render,
                     activity.ReplaceContent,

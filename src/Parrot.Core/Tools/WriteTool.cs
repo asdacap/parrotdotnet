@@ -23,14 +23,14 @@ internal sealed partial class WriteTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         var writeGrantSnapshot = writeGrants.Capture();
 
         try
         {
             var input = JsonSerializer.Deserialize(
-                argumentsJson,
+                invocation.ArgumentsJson,
                 FileMutationJsonContext.Default.WriteToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var path = input.Path ?? throw new FormatException("Tool arguments require a string 'path'.");

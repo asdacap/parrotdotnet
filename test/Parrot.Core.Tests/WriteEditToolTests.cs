@@ -59,7 +59,7 @@ internal sealed class WriteEditToolTests : IDisposable
     [Arguments("edit", "{\"path\":\"x\",\"old_string\":\"x\",\"new_string\":\"y\",\"replace_all\":\"false\"}")]
     public async Task Invalid_runtime_arguments_return_errors(string toolName, string arguments, CancellationToken cancellationToken)
     {
-        var result = await Tool(toolName, WritableProfile()).Execute(arguments, cancellationToken);
+        var result = (await Tool(toolName, WritableProfile()).Execute(new ToolInvocation("test-call", arguments), cancellationToken)).Text;
         _ = await Assert.That(result).StartsWith("error: ");
     }
 
@@ -79,7 +79,7 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "untouched.txt");
         await File.WriteAllTextAsync(path, "old", cancellationToken);
-        var result = await Tool(toolName, WritableProfile()).Execute(arguments, cancellationToken);
+        var result = (await Tool(toolName, WritableProfile()).Execute(new ToolInvocation("test-call", arguments), cancellationToken)).Text;
         _ = await Assert.That(result).StartsWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("old");
         _ = await Assert.That(Directory.GetFileSystemEntries(_root)).HasSingleItem();
@@ -91,8 +91,8 @@ internal sealed class WriteEditToolTests : IDisposable
         var writePath = Path.Combine(_root, "empty.txt");
         var editPath = Path.Combine(_root, "delete.txt");
         await File.WriteAllTextAsync(editPath, "before-middle-after", cancellationToken);
-        var written = await WriteTool().Execute(WriteArguments("empty.txt", string.Empty), cancellationToken);
-        var edited = await EditTool().Execute(EditArguments("delete.txt", "middle", string.Empty, false), cancellationToken);
+        var written = (await WriteTool().Execute(new ToolInvocation("test-call", WriteArguments("empty.txt", string.Empty)), cancellationToken)).Text;
+        var edited = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("delete.txt", "middle", string.Empty, false)), cancellationToken)).Text;
         _ = await Assert.That(written).DoesNotStartWith("error: ");
         _ = await Assert.That(edited).DoesNotStartWith("error: ");
         _ = await Assert.That(new FileInfo(writePath).Length).IsEqualTo(0);
@@ -104,7 +104,7 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "nested", "unicode.txt");
         const string content = "héllo\r\n世界\n";
-        var result = await WriteTool().Execute(WriteArguments("nested/unicode.txt", content), cancellationToken);
+        var result = (await WriteTool().Execute(new ToolInvocation("test-call", WriteArguments("nested/unicode.txt", content)), cancellationToken)).Text;
         _ = await Assert.That(result).Contains("+++ b/nested/unicode.txt");
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         _ = await Assert.That(bytes.AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(content))).IsTrue();
@@ -122,8 +122,8 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "file.txt");
         await File.WriteAllTextAsync(path, "before\n", cancellationToken);
-        var changed = await WriteTool().Execute(WriteArguments("file.txt", "after\n"), cancellationToken);
-        var unchanged = await WriteTool().Execute(WriteArguments("file.txt", "after\n"), cancellationToken);
+        var changed = (await WriteTool().Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "after\n")), cancellationToken)).Text;
+        var unchanged = (await WriteTool().Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "after\n")), cancellationToken)).Text;
         _ = await Assert.That(changed).Contains("-before");
         _ = await Assert.That(changed).Contains("+after");
         _ = await Assert.That(unchanged).IsEqualTo("No changes made.");
@@ -136,7 +136,7 @@ internal sealed class WriteEditToolTests : IDisposable
         var path = Path.Combine(_root, "endings.txt");
         byte[] original = [0xef, 0xbb, 0xbf, (byte)'a', 0x0d, 0x0a, (byte)'b', 0x0d, 0x0a];
         await File.WriteAllBytesAsync(path, original, cancellationToken);
-        _ = await WriteTool().Execute(WriteArguments("endings.txt", "a\nb"), cancellationToken);
+        _ = (await WriteTool().Execute(new ToolInvocation("test-call", WriteArguments("endings.txt", "a\nb")), cancellationToken)).Text;
         _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan()
             .SequenceEqual(Encoding.UTF8.GetBytes("a\nb"))).IsTrue();
     }
@@ -155,7 +155,7 @@ internal sealed class WriteEditToolTests : IDisposable
             File.SetUnixFileMode(path, mode);
         }
 
-        var result = await WriteTool().Execute(WriteArguments("stable.txt", "stable"), cancellationToken);
+        var result = (await WriteTool().Execute(new ToolInvocation("test-call", WriteArguments("stable.txt", "stable")), cancellationToken)).Text;
         _ = await Assert.That(result).IsEqualTo("No changes made.");
         _ = await Assert.That(File.GetLastWriteTimeUtc(path)).IsEqualTo(timestamp);
         if (!OperatingSystem.IsWindows())
@@ -169,9 +169,9 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "matches.txt");
         await File.WriteAllTextAsync(path, "one one", cancellationToken);
-        var multiple = await EditTool().Execute(EditArguments("matches.txt", "one", "two", false), cancellationToken);
-        var zero = await EditTool().Execute(EditArguments("matches.txt", "missing", "two", false), cancellationToken);
-        var allZero = await EditTool().Execute(EditArguments("matches.txt", "missing", "two", true), cancellationToken);
+        var multiple = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("matches.txt", "one", "two", false)), cancellationToken)).Text;
+        var zero = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("matches.txt", "missing", "two", false)), cancellationToken)).Text;
+        var allZero = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("matches.txt", "missing", "two", true)), cancellationToken)).Text;
         _ = await Assert.That(multiple).StartsWith("error: ");
         _ = await Assert.That(multiple).Contains("2");
         _ = await Assert.That(zero).StartsWith("error: ");
@@ -185,8 +185,8 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "ordinal.txt");
         await File.WriteAllTextAsync(path, "aaaa A", cancellationToken);
-        var changed = await EditTool().Execute(EditArguments("ordinal.txt", "aa", "b", true), cancellationToken);
-        var identical = await EditTool().Execute(EditArguments("ordinal.txt", "bb", "bb", false), cancellationToken);
+        var changed = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("ordinal.txt", "aa", "b", true)), cancellationToken)).Text;
+        var identical = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("ordinal.txt", "bb", "bb", false)), cancellationToken)).Text;
         _ = await Assert.That(changed).Contains("+bb A");
         _ = await Assert.That(identical).IsEqualTo("No changes made.");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("bb A");
@@ -198,9 +198,11 @@ internal sealed class WriteEditToolTests : IDisposable
         var path = Path.Combine(_root, "multiline.txt");
         const string original = "start\r\nfirst\nsecond\rend";
         await File.WriteAllTextAsync(path, original, cancellationToken);
-        var result = await EditTool().Execute(
-            EditArguments("multiline.txt", "first\nsecond", "ONE\r\nTWO", false),
-            cancellationToken);
+        var result = (await EditTool().Execute(
+            new ToolInvocation(
+                "test-call",
+                EditArguments("multiline.txt", "first\nsecond", "ONE\r\nTWO", false)),
+            cancellationToken)).Text;
         _ = await Assert.That(result).DoesNotStartWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken))
             .IsEqualTo("start\r\nONE\r\nTWO\rend");
@@ -212,7 +214,7 @@ internal sealed class WriteEditToolTests : IDisposable
         var path = Path.Combine(_root, "mixed.txt");
         byte[] original = [0xef, 0xbb, 0xbf, (byte)'a', 0x0d, 0x0a, (byte)'b', 0x0d, (byte)'c', 0x0a];
         await File.WriteAllBytesAsync(path, original, cancellationToken);
-        _ = await EditTool().Execute(EditArguments("mixed.txt", "b", "β", false), cancellationToken);
+        _ = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("mixed.txt", "b", "β", false)), cancellationToken)).Text;
         byte[] expected = [0xef, 0xbb, 0xbf, (byte)'a', 0x0d, 0x0a, 0xce, 0xb2, 0x0d, (byte)'c', 0x0a];
         _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(expected)).IsTrue();
     }
@@ -224,7 +226,7 @@ internal sealed class WriteEditToolTests : IDisposable
     {
         var path = Path.Combine(_root, "bad.txt");
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
-        var result = await EditTool().Execute(EditArguments("bad.txt", "a", "x", true), cancellationToken);
+        var result = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("bad.txt", "a", "x", true)), cancellationToken)).Text;
         _ = await Assert.That(result).StartsWith("error: ");
         _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(bytes)).IsTrue();
     }
@@ -247,7 +249,7 @@ internal sealed class WriteEditToolTests : IDisposable
         }) ?? throw new InvalidOperationException("Could not start mkfifo.");
         await process.WaitForExitAsync(cancellationToken);
         _ = await Assert.That(process.ExitCode).IsEqualTo(0);
-        var mutation = await Tool(toolName, WritableProfile()).Execute(Arguments(toolName, fifo), cancellationToken);
+        var mutation = (await Tool(toolName, WritableProfile()).Execute(new ToolInvocation("test-call", Arguments(toolName, fifo)), cancellationToken)).Text;
         _ = await Assert.That(mutation).StartsWith("error: ");
     }
 
@@ -259,9 +261,9 @@ internal sealed class WriteEditToolTests : IDisposable
         var target = Directory.CreateDirectory(Path.Combine(_root, "target")).FullName;
         await File.WriteAllTextAsync(Path.Combine(target, "file.txt"), "old", cancellationToken);
         _ = Directory.CreateSymbolicLink(Path.Combine(_root, "alias"), target);
-        var escape = await Tool(toolName, WritableProfile()).Execute(Arguments(toolName, "../escape.txt"), cancellationToken);
-        var denied = await Tool(toolName, SecurityProfile.Compose(true, [], [], [])).Execute(Arguments(toolName, "denied.txt"), cancellationToken);
-        var linked = await Tool(toolName, WritableProfile()).Execute(Arguments(toolName, "alias/file.txt"), cancellationToken);
+        var escape = (await Tool(toolName, WritableProfile()).Execute(new ToolInvocation("test-call", Arguments(toolName, "../escape.txt")), cancellationToken)).Text;
+        var denied = (await Tool(toolName, SecurityProfile.Compose(true, [], [], [])).Execute(new ToolInvocation("test-call", Arguments(toolName, "denied.txt")), cancellationToken)).Text;
+        var linked = (await Tool(toolName, WritableProfile()).Execute(new ToolInvocation("test-call", Arguments(toolName, "alias/file.txt")), cancellationToken)).Text;
         _ = await Assert.That(escape).StartsWith("error: ");
         _ = await Assert.That(denied).StartsWith("error: ");
         _ = await Assert.That(linked).StartsWith("error: ");
@@ -286,7 +288,7 @@ internal sealed class WriteEditToolTests : IDisposable
 
         foreach (var path in new[] { directory.FullName, Path.Combine(regularParent, "child.txt"), fileLink, danglingLink })
         {
-            var result = await Tool(toolName, WritableProfile()).Execute(Arguments(toolName, path), cancellationToken);
+            var result = (await Tool(toolName, WritableProfile()).Execute(new ToolInvocation("test-call", Arguments(toolName, path)), cancellationToken)).Text;
             _ = await Assert.That(result).StartsWith("error: ");
         }
 
@@ -306,7 +308,7 @@ internal sealed class WriteEditToolTests : IDisposable
                 [],
                 [],
                 [new SandboxRule(externalDirectory.FullName, SandboxRuleAction.AllowWrite)]);
-            var created = await Tool("write", allowed).Execute(WriteArguments(external, "new"), cancellationToken);
+            var created = (await Tool("write", allowed).Execute(new ToolInvocation("test-call", WriteArguments(external, "new")), cancellationToken)).Text;
             _ = await Assert.That(created).DoesNotStartWith("error: ");
 
             var denied = SecurityProfile.Compose(
@@ -317,7 +319,7 @@ internal sealed class WriteEditToolTests : IDisposable
                     new SandboxRule(externalDirectory.FullName, SandboxRuleAction.AllowWrite),
                     new SandboxRule(external, SandboxRuleAction.DenyWrite),
                 ]);
-            var result = await Tool("write", denied).Execute(WriteArguments(external, "changed"), cancellationToken);
+            var result = (await Tool("write", denied).Execute(new ToolInvocation("test-call", WriteArguments(external, "changed")), cancellationToken)).Text;
             _ = await Assert.That(result).StartsWith("error: ");
             _ = await Assert.That(await File.ReadAllTextAsync(external, cancellationToken)).IsEqualTo("new");
         }
@@ -337,8 +339,8 @@ internal sealed class WriteEditToolTests : IDisposable
         var write = new WriteTool(workspace, WritableProfile(), new SandboxWriteGrants());
         var edit = new EditTool(workspace, WritableProfile(), new SandboxWriteGrants());
 
-        var written = await write.Execute(WriteArguments("file.txt", "old"), cancellationToken);
-        var edited = await edit.Execute(EditArguments("file.txt", "old", "new", false), cancellationToken);
+        var written = (await write.Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "old")), cancellationToken)).Text;
+        var edited = (await edit.Execute(new ToolInvocation("test-call", EditArguments("file.txt", "old", "new", false)), cancellationToken)).Text;
 
         _ = await Assert.That(written).DoesNotStartWith("error: ");
         _ = await Assert.That(edited).DoesNotStartWith("error: ");
@@ -356,7 +358,7 @@ internal sealed class WriteEditToolTests : IDisposable
         try
         {
             var profile = SecurityProfile.Compose(true, [], [], [new SandboxRule(external, SandboxRuleAction.AllowWrite)]);
-            var result = await Tool(toolName, profile).Execute(Arguments(toolName, external), cancellationToken);
+            var result = (await Tool(toolName, profile).Execute(new ToolInvocation("test-call", Arguments(toolName, external)), cancellationToken)).Text;
             _ = await Assert.That(result).DoesNotStartWith("error: ");
             _ = await Assert.That(await File.ReadAllTextAsync(external, cancellationToken)).IsEqualTo("new");
         }
@@ -387,8 +389,8 @@ internal sealed class WriteEditToolTests : IDisposable
             []);
         var tool = Tool(toolName, profile, grants);
 
-        var allowedResult = await tool.Execute(Arguments(toolName, granted), cancellationToken);
-        var deniedResult = await tool.Execute(Arguments(toolName, denied), cancellationToken);
+        var allowedResult = (await tool.Execute(new ToolInvocation("test-call", Arguments(toolName, granted)), cancellationToken)).Text;
+        var deniedResult = (await tool.Execute(new ToolInvocation("test-call", Arguments(toolName, denied)), cancellationToken)).Text;
 
         _ = await Assert.That(allowedResult).DoesNotStartWith("error: ");
         _ = await Assert.That(deniedResult).StartsWith("error: ");
@@ -413,14 +415,18 @@ internal sealed class WriteEditToolTests : IDisposable
             [],
             []);
 
-        var edited = await Tool("edit", profile, grants).Execute(
-            EditArguments(existing, "old", "new", false),
-            cancellationToken);
+        var edited = (await Tool("edit", profile, grants).Execute(
+            new ToolInvocation(
+                "test-call",
+                EditArguments(existing, "old", "new", false)),
+            cancellationToken)).Text;
         var createdDirectory = Path.Combine(granted, "nested");
         var createdPath = Path.Combine(createdDirectory, "created.txt");
-        var written = await Tool("write", profile, grants).Execute(
-            WriteArguments(createdPath, "created"),
-            cancellationToken);
+        var written = (await Tool("write", profile, grants).Execute(
+            new ToolInvocation(
+                "test-call",
+                WriteArguments(createdPath, "created")),
+            cancellationToken)).Text;
 
         _ = await Assert.That(edited).DoesNotStartWith("error: ");
         _ = await Assert.That(written).DoesNotStartWith("error: ");
@@ -445,9 +451,11 @@ internal sealed class WriteEditToolTests : IDisposable
         var workspacePath = Path.Combine(_root, "workspace.txt");
         await File.WriteAllTextAsync(workspacePath, "old", cancellationToken);
 
-        var result = await Tool(toolName, WritableProfile(), grants).Execute(
-            Arguments(toolName, workspacePath),
-            cancellationToken);
+        var result = (await Tool(toolName, WritableProfile(), grants).Execute(
+            new ToolInvocation(
+                "test-call",
+                Arguments(toolName, workspacePath)),
+            cancellationToken)).Text;
 
         _ = await Assert.That(result).DoesNotStartWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(workspacePath, cancellationToken)).IsEqualTo("new");
@@ -472,12 +480,16 @@ internal sealed class WriteEditToolTests : IDisposable
             [],
             []);
 
-        var readOnlyResult = await Tool(toolName, readOnly, grants).Execute(
-            Arguments(toolName, target),
-            cancellationToken);
-        var deniedResult = await Tool(toolName, explicitDeny, grants).Execute(
-            Arguments(toolName, target),
-            cancellationToken);
+        var readOnlyResult = (await Tool(toolName, readOnly, grants).Execute(
+            new ToolInvocation(
+                "test-call",
+                Arguments(toolName, target)),
+            cancellationToken)).Text;
+        var deniedResult = (await Tool(toolName, explicitDeny, grants).Execute(
+            new ToolInvocation(
+                "test-call",
+                Arguments(toolName, target)),
+            cancellationToken)).Text;
 
         _ = await Assert.That(readOnlyResult).StartsWith("error: ");
         _ = await Assert.That(deniedResult).StartsWith("error: ");
@@ -497,7 +509,7 @@ internal sealed class WriteEditToolTests : IDisposable
 
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
-        _ = await Assert.That(async () => await Tool(toolName, WritableProfile()).Execute(Arguments(toolName, "cancel.txt"), cancellation.Token)).Throws<OperationCanceledException>();
+        _ = await Assert.That(async () => (await Tool(toolName, WritableProfile()).Execute(new ToolInvocation("test-call", Arguments(toolName, "cancel.txt")), cancellation.Token)).Text).Throws<OperationCanceledException>();
     }
 
     private static SecurityProfile WritableProfile() => SecurityProfile.Compose(false, [], [], []);

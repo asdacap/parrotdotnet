@@ -13,9 +13,9 @@ internal sealed partial class QueueListenTool(QueueStore queues) : ITool
 
     public string ParametersJson => Input.Descriptor;
 
-    public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken) => QueueToolExecution.Execute(() =>
+    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken) => QueueToolExecution.Execute(() =>
     {
-        var input = QueueToolExecution.Deserialize(argumentsJson, QueueToolJsonContext.Default.QueueListenToolInput);
+        var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueListenToolInput);
         return QueueToolExecution.Serialize(queues.Monitor(QueueToolExecution.RequireName(input.Name), input.Enabled ?? true));
     });
 

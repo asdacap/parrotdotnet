@@ -26,8 +26,11 @@ internal sealed partial class ExecCommandTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        CancellationToken cancellationToken)
     {
+        var argumentsJson = invocation.ArgumentsJson;
         string command;
         ProcessEnvironmentOverrides environment;
         string? name;
@@ -72,6 +75,7 @@ internal sealed partial class ExecCommandTool(
             var process = processes.Start(
                 name,
                 command,
+                invocation.CallId,
                 environment,
                 session,
                 securityProfile,
@@ -79,7 +83,7 @@ internal sealed partial class ExecCommandTool(
                 terminalMode);
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 
-            return outcome.Format();
+            return new ToolExecutionResult(outcome.Format(), outcome.YieldedProcess);
         }
         catch (Exception failure) when (failure is SandboxUnavailableException or InvalidOperationException)
         {

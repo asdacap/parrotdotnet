@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Protocol;
 
@@ -16,12 +17,17 @@ internal sealed class RawActivityView(
     private readonly List<(AgentSessionState State, string ActivityId)> _activities = [];
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
     private readonly AgentSessionHierarchy _hierarchy = new();
+    private readonly Dictionary<string, ProcessState> _processes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _retiredInventoryInstances = new(StringComparer.Ordinal);
+    private readonly TimeProvider _timeProvider = TimeProvider.System;
 
     private readonly StringBuilder _reasoning = new();
     private readonly SemaphoreSlim _rendering = new(1, 1);
 
     private IReadOnlyList<ILiveBufferItem> _content = [];
+    private string? _inventoryInstanceId;
     private int _frame;
+    private ulong _inventoryRevision;
 
     public RawActivityView(
         Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
@@ -50,7 +56,7 @@ internal sealed class RawActivityView(
                 try
                 {
                     _frame++;
-                    if (_activities.Count > 0)
+                    if (_activities.Count > 0 || _processes.Count > 0)
                     {
                         await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     }
@@ -117,6 +123,56 @@ internal sealed class RawActivityView(
         try
         {
             _ = _reasoning.Clear();
+        }
+        finally
+        {
+            _ = _rendering.Release();
+        }
+    }
+
+    public async Task ReplaceProcesses(
+        ShellProcessSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_retiredInventoryInstances.Contains(snapshot.InventoryInstanceId)
+                || (string.Equals(_inventoryInstanceId, snapshot.InventoryInstanceId, StringComparison.Ordinal)
+                    && snapshot.Revision <= _inventoryRevision))
+            {
+                return;
+            }
+
+            if (_inventoryInstanceId is not null
+                && !string.Equals(_inventoryInstanceId, snapshot.InventoryInstanceId, StringComparison.Ordinal))
+            {
+                _ = _retiredInventoryInstances.Add(_inventoryInstanceId);
+            }
+
+            var future = _processes.Values
+                .Where(process =>
+                    string.Equals(process.InventoryInstanceId, snapshot.InventoryInstanceId, StringComparison.Ordinal)
+                    && process.Revision > snapshot.Revision)
+                .ToArray();
+            _inventoryInstanceId = snapshot.InventoryInstanceId;
+            _inventoryRevision = snapshot.Revision;
+            _processes.Clear();
+            foreach (var process in snapshot.Processes)
+            {
+                _processes[process.ProcessId] = new ProcessState(
+                    process.Clone(),
+                    snapshot.InventoryInstanceId,
+                    snapshot.Revision,
+                    _timeProvider.GetTimestamp());
+            }
+
+            foreach (var process in future)
+            {
+                _processes[process.Process.ProcessId] = process;
+            }
+
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -242,6 +298,13 @@ internal sealed class RawActivityView(
             .ThenBy(activity => activity.State.IsAgentActivity(activity.ActivityId) ? 1 : 0)
             .ThenBy(static activity => activity.ActivityId, StringComparer.Ordinal)
             .Select(CreateActivityItem));
+        items.AddRange(_processes.Values
+            .Where(process => !IsOriginToolActive(process.Process))
+            .OrderBy(static process => process.Process.Depth)
+            .ThenBy(static process => process.Process.OwnerAgentName, StringComparer.Ordinal)
+            .ThenBy(static process => process.Process.Name, StringComparer.Ordinal)
+            .ThenBy(static process => process.Process.ProcessId, StringComparer.Ordinal)
+            .Select(CreateProcessItem));
         return items;
     }
 
@@ -368,9 +431,62 @@ internal sealed class RawActivityView(
 
     private async Task FinishTool(Event published, CancellationToken cancellationToken)
     {
+        static string ReadCommand(string argumentsJson)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(argumentsJson);
+                return document.RootElement.TryGetProperty("command", out var command)
+                    && command.ValueKind == JsonValueKind.String
+                        ? command.GetString() ?? string.Empty
+                        : string.Empty;
+            }
+            catch (JsonException)
+            {
+                return string.Empty;
+            }
+        }
+
         var state = GetNamedAgentSession(published.AgentSessionId);
-        var (activityId, scrollback) = state.FinishTool(published, presenters);
+        var (activityId, scrollback, call, terminal) = state.FinishTool(published, presenters);
         _ = _activities.Remove((state, activityId));
+        if (terminal.YieldedProcess is { } yielded
+            && !_retiredInventoryInstances.Contains(yielded.InventoryInstanceId)
+            && (_inventoryInstanceId is null
+                || !string.Equals(_inventoryInstanceId, yielded.InventoryInstanceId, StringComparison.Ordinal)
+                || _inventoryRevision < yielded.VisibleRevision))
+        {
+            if (_inventoryInstanceId is not null
+                && !string.Equals(_inventoryInstanceId, yielded.InventoryInstanceId, StringComparison.Ordinal))
+            {
+                _ = _retiredInventoryInstances.Add(_inventoryInstanceId);
+                _processes.Clear();
+                _inventoryRevision = 0;
+            }
+
+            _inventoryInstanceId = yielded.InventoryInstanceId;
+            var process = new ActiveShellProcess
+            {
+                ProcessId = yielded.ProcessId,
+                Name = yielded.Name,
+                Command = ReadCommand(call.ArgumentsJson),
+                OriginToolCallId = published.ToolFinished.ToolCallId,
+                OwnerAgentSessionId = published.AgentSessionId,
+                OwnerAgentName = call.Owner,
+                ParentAgentSessionId = string.Empty,
+                ParentAgentName = string.Empty,
+                Depth = _hierarchy.GetDepth(published.AgentSessionId),
+                ElapsedMs = 0,
+            };
+            _ = _processes.TryAdd(
+                yielded.ProcessId,
+                new ProcessState(
+                    process,
+                    yielded.InventoryInstanceId,
+                    yielded.VisibleRevision,
+                    _timeProvider.GetTimestamp()));
+        }
+
         if (scrollback is null)
         {
             await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
@@ -395,6 +511,25 @@ internal sealed class RawActivityView(
             activity.State.Name,
             "♟",
             modelAliasIcon);
+    }
+
+    private bool IsOriginToolActive(ActiveShellProcess process) =>
+        process.OriginToolCallId.Length > 0
+        && _agentSessions.TryGetValue(process.OwnerAgentSessionId, out var owner)
+        && owner.IsToolActive(process.OriginToolCallId);
+
+    private ILiveBufferItem CreateProcessItem(ProcessState process)
+    {
+        var owner = process.Process.OwnerAgentName.Length == 0
+            ? process.Process.OwnerAgentSessionId
+            : process.Process.OwnerAgentName;
+        return new HierarchicalLiveValue(
+            new ShellProcessLiveValue(process.Process, process.ObservedTimestamp, _timeProvider, _frame),
+            Math.Max(0, process.Process.Depth),
+            process.Process.Depth == 0 ? null : owner,
+            owner,
+            null,
+            null);
     }
 
     private HierarchicalScrollbackValue Wrap(
@@ -427,4 +562,10 @@ internal sealed class RawActivityView(
             Snapshot(),
             cancellationToken).ConfigureAwait(false);
     }
+
+    private sealed record ProcessState(
+        ActiveShellProcess Process,
+        string InventoryInstanceId,
+        ulong Revision,
+        long ObservedTimestamp);
 }

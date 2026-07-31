@@ -14,11 +14,11 @@ internal sealed partial class QueueTakeTool(QueueStore queues) : ITool
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         try
         {
-            var input = QueueToolExecution.Deserialize(argumentsJson, QueueToolJsonContext.Default.QueueTakeToolInput);
+            var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueTakeToolInput);
             var name = QueueToolExecution.RequireName(input.Name);
             var count = input.Count ?? 1;
             var direction = QueueToolExecution.ParseDirection(input.Direction);

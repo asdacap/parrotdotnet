@@ -16,5 +16,5 @@ internal interface ITool
 
     string ParametersJson { get; }
 
-    Task<string> Execute(string argumentsJson, CancellationToken cancellationToken);
+    Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken);
 }

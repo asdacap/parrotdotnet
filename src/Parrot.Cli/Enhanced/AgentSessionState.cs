@@ -175,7 +175,9 @@ internal sealed class AgentSessionState(string agentSessionId)
         activityId.StartsWith(ToolActivityPrefix, StringComparison.Ordinal)
         && _foldedTools.ContainsKey(activityId[ToolActivityPrefix.Length..]);
 
-    public (string ActivityId, IScrollbackItem? Scrollback) FinishTool(
+    public bool IsToolActive(string toolCallId) => _activities.Contains(ToolActivityPrefix + toolCallId);
+
+    public (string ActivityId, IScrollbackItem? Scrollback, ToolCallPresentation Call, ToolTerminalPresentation Terminal) FinishTool(
         Event published,
         ToolPresenterRegistry presenters)
     {
@@ -200,7 +202,8 @@ internal sealed class AgentSessionState(string agentSessionId)
                 ToolTerminalStatus.Succeeded,
                 published.ToolFinished.HasResult,
                 published.ToolFinished.Result,
-                string.Empty),
+                string.Empty,
+                published.ToolFinished.YieldedProcess),
             Event.PayloadOneofCase.ToolCancelled => new ToolTerminalPresentation(
                 ToolTerminalStatus.Cancelled,
                 false,
@@ -213,7 +216,7 @@ internal sealed class AgentSessionState(string agentSessionId)
                 published.ToolError.Message),
             _ => throw new InvalidOperationException("The tool event is not terminal."),
         };
-        return (activityId, presenters.PresentTerminal(call, terminal));
+        return (activityId, presenters.PresentTerminal(call, terminal), call, terminal);
     }
 
     public bool IsAgentActivity(string activityId) =>

@@ -287,6 +287,15 @@ only for listened queues. This activity wait is distinct from the specialized
 `wait_agent`, which reads a retained direct-child result, and `wait_process`,
 which waits for one named process.
 
+When `exec_command` yields, its result carries a typed yielded-process handoff
+rather than requiring clients to recognize text. The service also publishes
+complete snapshots of the user session's currently active shell processes from
+its authoritative in-memory owners. Enhanced clients replace their local process
+inventory with each snapshot, including the initial snapshot after reconnect,
+so a dropped stream cannot leave stale rows or lose surviving processes. A
+process row remains live after the originating tool call yields and is removed
+only when a later snapshot reports that the process has actually exited.
+
 Configured aliases may be used anywhere a model selector is accepted,
 including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits
 the parent turn's complete requested selector, including an alias or variant;

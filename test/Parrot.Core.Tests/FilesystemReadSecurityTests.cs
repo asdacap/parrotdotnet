@@ -48,7 +48,7 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 
-        var result = await tool.Execute(arguments, cancellationToken);
+        var result = (await tool.Execute(new ToolInvocation("test-call", arguments), cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo(expected);
     }
@@ -80,7 +80,7 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 
-        var result = await tool.Execute(arguments, cancellationToken);
+        var result = (await tool.Execute(new ToolInvocation("test-call", arguments), cancellationToken)).Text;
 
         _ = await Assert.That(result).IsIn(string.Empty, "error: access denied");
     }
@@ -101,10 +101,12 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             []);
         var workspace = new ToolWorkspace(_root);
 
-        var listing = await new ReadTool(workspace, security).Execute("{\"path\":\"alias\"}", cancellationToken);
-        var matches = await new GrepTool(workspace, security).Execute(
-            "{\"pattern\":\"hidden\",\"path\":\"alias\"}",
-            cancellationToken);
+        var listing = (await new ReadTool(workspace, security).Execute(new ToolInvocation("test-call", "{\"path\":\"alias\"}"), cancellationToken)).Text;
+        var matches = (await new GrepTool(workspace, security).Execute(
+            new ToolInvocation(
+                "test-call",
+                "{\"pattern\":\"hidden\",\"path\":\"alias\"}"),
+            cancellationToken)).Text;
 
         _ = await Assert.That(listing).Contains("visible.txt");
         _ = await Assert.That(listing).DoesNotContain("hidden.txt");
@@ -121,10 +123,12 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         await File.WriteAllTextAsync(externalFile, "outside", cancellationToken);
         var tool = new ReadTool(new ToolWorkspace(workspaceDirectory), Permissive());
 
-        var absolute = await tool.Execute(FormatPathArguments(externalFile), cancellationToken);
-        var parentRelative = await tool.Execute(
-            FormatPathArguments(Path.Combine("..", "external", "outside.txt")),
-            cancellationToken);
+        var absolute = (await tool.Execute(new ToolInvocation("test-call", FormatPathArguments(externalFile)), cancellationToken)).Text;
+        var parentRelative = (await tool.Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatPathArguments(Path.Combine("..", "external", "outside.txt"))),
+            cancellationToken)).Text;
 
         _ = await Assert.That(absolute).Contains("1: outside");
         _ = await Assert.That(parentRelative).Contains("1: outside");
@@ -138,9 +142,11 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         var externalFile = Path.Combine(externalDirectory, "outside.txt");
         await File.WriteAllTextAsync(externalFile, "external text", cancellationToken);
 
-        var result = await new GrepTool(new ToolWorkspace(workspaceDirectory), Permissive()).Execute(
-            FormatSearchArguments("external", externalFile),
-            cancellationToken);
+        var result = (await new GrepTool(new ToolWorkspace(workspaceDirectory), Permissive()).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatSearchArguments("external", externalFile)),
+            cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("outside.txt:1:external text\n");
     }
@@ -155,12 +161,16 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(nestedDirectory, "file.txt"), "external text", cancellationToken);
         var workspace = new ToolWorkspace(workspaceDirectory);
 
-        var grep = await new GrepTool(workspace, Permissive()).Execute(
-            FormatSearchArguments("external", externalDirectory),
-            cancellationToken);
-        var glob = await new GlobTool(workspace, Permissive()).Execute(
-            FormatGlobArguments("**", externalDirectory),
-            cancellationToken);
+        var grep = (await new GrepTool(workspace, Permissive()).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatSearchArguments("external", externalDirectory)),
+            cancellationToken)).Text;
+        var glob = (await new GlobTool(workspace, Permissive()).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatGlobArguments("**", externalDirectory)),
+            cancellationToken)).Text;
 
         _ = await Assert.That(grep).IsEqualTo("nested/file.txt:1:external text\n");
         _ = await Assert.That(glob).IsEqualTo("nested/\nnested/file.txt\n");
@@ -178,15 +188,21 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         var workspace = new ToolWorkspace(workspaceDirectory);
         var security = Permissive();
 
-        var read = await new ReadTool(workspace, security).Execute(
-            FormatPathArguments(Path.Combine("alias", "file.txt")),
-            cancellationToken);
-        var grep = await new GrepTool(workspace, security).Execute(
-            FormatSearchArguments("external", Path.Combine("alias", "file.txt")),
-            cancellationToken);
-        var glob = await new GlobTool(workspace, security).Execute(
-            FormatGlobArguments("**", alias),
-            cancellationToken);
+        var read = (await new ReadTool(workspace, security).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatPathArguments(Path.Combine("alias", "file.txt"))),
+            cancellationToken)).Text;
+        var grep = (await new GrepTool(workspace, security).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatSearchArguments("external", Path.Combine("alias", "file.txt"))),
+            cancellationToken)).Text;
+        var glob = (await new GlobTool(workspace, security).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatGlobArguments("**", alias)),
+            cancellationToken)).Text;
 
         _ = await Assert.That(read).Contains("1: external text");
         _ = await Assert.That(grep).IsEqualTo("file.txt:1:external text\n");
@@ -257,15 +273,21 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             []);
         var workspace = new ToolWorkspace(workspaceDirectory);
 
-        var read = await new ReadTool(workspace, security).Execute(
-            FormatPathArguments(externalDirectory),
-            cancellationToken);
-        var grep = await new GrepTool(workspace, security).Execute(
-            FormatSearchArguments("matching", externalDirectory),
-            cancellationToken);
-        var glob = await new GlobTool(workspace, security).Execute(
-            FormatGlobArguments("**", externalDirectory),
-            cancellationToken);
+        var read = (await new ReadTool(workspace, security).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatPathArguments(externalDirectory)),
+            cancellationToken)).Text;
+        var grep = (await new GrepTool(workspace, security).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatSearchArguments("matching", externalDirectory)),
+            cancellationToken)).Text;
+        var glob = (await new GlobTool(workspace, security).Execute(
+            new ToolInvocation(
+                "test-call",
+                FormatGlobArguments("**", externalDirectory)),
+            cancellationToken)).Text;
 
         _ = await Assert.That(read).IsEqualTo("visible.txt\n");
         _ = await Assert.That(grep).IsEqualTo("visible.txt:1:matching text\n");
@@ -279,11 +301,17 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         string path,
         CancellationToken cancellationToken) => toolName switch
         {
-            "read" => await new ReadTool(workspace, security).Execute(FormatPathArguments(path), cancellationToken),
-            "grep" => await new GrepTool(workspace, security).Execute(
-                FormatSearchArguments("external", path), cancellationToken),
-            "glob" => await new GlobTool(workspace, security).Execute(
-                FormatGlobArguments("**", path), cancellationToken),
+            "read" => (await new ReadTool(workspace, security).Execute(new ToolInvocation("test-call", FormatPathArguments(path)), cancellationToken)).Text,
+            "grep" => (await new GrepTool(workspace, security).Execute(
+                new ToolInvocation(
+                    "test-call",
+                    FormatSearchArguments("external", path)),
+                cancellationToken)).Text,
+            "glob" => (await new GlobTool(workspace, security).Execute(
+                new ToolInvocation(
+                    "test-call",
+                    FormatGlobArguments("**", path)),
+                cancellationToken)).Text,
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 

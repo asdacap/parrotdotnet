@@ -44,9 +44,11 @@ internal sealed class WebFetcherTests
             var bounded = await privateFetcher.Fetch(
                 new Uri(baseAddress, "/gzip"), HttpMethod.Get, cancellationToken);
             var tool = new WebFetchTool(privateFetcher);
-            var toolText = await tool.Execute(
-                $$"""{"url":"{{new Uri(baseAddress, "/tool")}}","method":"get"}""",
-                cancellationToken);
+            var toolText = (await tool.Execute(
+                new ToolInvocation(
+                    "test-call",
+                    $$"""{"url":"{{new Uri(baseAddress, "/tool")}}","method":"get"}"""),
+                cancellationToken)).Text;
             var requests = await serving;
 
             _ = await Assert.That(html.FinalAddress).IsEqualTo(new Uri(baseAddress, "/html"));
@@ -150,9 +152,12 @@ internal sealed class WebFetcherTests
         _ = await Assert.That(address).IsEqualTo(new Uri("https://example.com/path"));
         _ = await Assert.That(defaultMethod).IsEqualTo(HttpMethod.Get);
         _ = await Assert.That(headMethod).IsEqualTo(HttpMethod.Head);
-        _ = await Assert.That(await tool.Execute("[]", CancellationToken.None)).Contains("URL is required");
-        _ = await Assert.That(await tool.Execute(
-            "{\"url\":\"https://example.com\",\"method\":\"POST\"}", CancellationToken.None))
+        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "[]"), CancellationToken.None)).Text).Contains("URL is required");
+        _ = await Assert.That((await tool.Execute(
+            new ToolInvocation(
+                "test-call",
+                "{\"url\":\"https://example.com\",\"method\":\"POST\"}"),
+            CancellationToken.None)).Text)
             .Contains("only GET and HEAD");
     }
 

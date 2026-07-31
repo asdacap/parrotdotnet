@@ -21,12 +21,12 @@ internal sealed class RequestWritePermissionTool(
         {"type":"object","properties":{"paths":{"type":"array","minItems":1,"items":{"type":"string","minLength":1},"description":"Exact absolute paths of existing files or directories to make writable for write, edit, and sandboxed shell operations"},"reason":{"type":"string","minLength":1,"description":"Why write access to these paths is needed"}},"required":["paths","reason"],"additionalProperties":false}
         """;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         try
         {
             var input = JsonSerializer.Deserialize(
-                argumentsJson,
+                invocation.ArgumentsJson,
                 RequestWritePermissionJsonContext.Default.RequestWritePermissionToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var paths = input.Paths ?? throw new FormatException("Tool arguments require an array 'paths'.");

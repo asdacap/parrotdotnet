@@ -28,15 +28,15 @@ internal static class QueueToolExecution
         },
         QueueToolJsonContext.Default.QueueTakeToolResult);
 
-    public static Task<string> Execute(Func<string> action)
+    public static Task<ToolExecutionResult> Execute(Func<string> action)
     {
         try
         {
-            return Task.FromResult(action());
+            return Task.FromResult<ToolExecutionResult>(action());
         }
         catch (Exception failure) when (failure is JsonException or FormatException or QueueException)
         {
-            return Task.FromResult($"error: {failure.Message}");
+            return Task.FromResult<ToolExecutionResult>($"error: {failure.Message}");
         }
     }
 }

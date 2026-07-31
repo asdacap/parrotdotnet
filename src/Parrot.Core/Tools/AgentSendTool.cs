@@ -19,14 +19,14 @@ internal sealed partial class AgentSendTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         string sessionId;
         string message;
 
         try
         {
-            var input = JsonSerializer.Deserialize(argumentsJson, AgentProcessToolJsonContext.Default.AgentSendToolInput)
+            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.AgentSendToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             sessionId = input.SessionId ?? throw new FormatException("Tool arguments require a string 'session_id'.");
             message = input.Message ?? throw new FormatException("Tool arguments require a string 'message'.");

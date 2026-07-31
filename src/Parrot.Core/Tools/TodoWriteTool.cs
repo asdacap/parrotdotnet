@@ -14,11 +14,11 @@ internal sealed partial class TodoWriteTool(AgentSession session) : ITool
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         try
         {
-            var input = JsonSerializer.Deserialize(argumentsJson, TodoJsonContext.Default.TodoWriteInput)
+            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, TodoJsonContext.Default.TodoWriteInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var wireItems = input.Todos ?? throw new FormatException("Tool arguments require an array 'todos'.");
             var items = wireItems.Select(TodoTools.ToDomain).ToArray();

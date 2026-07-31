@@ -16,11 +16,11 @@ internal sealed partial class StatusTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         try
         {
-            _ = JsonSerializer.Deserialize(argumentsJson, StatusToolJsonContext.Default.StatusToolInput)
+            _ = JsonSerializer.Deserialize(invocation.ArgumentsJson, StatusToolJsonContext.Default.StatusToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
         }
         catch (Exception failure) when (failure is JsonException or FormatException)

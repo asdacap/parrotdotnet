@@ -1211,20 +1211,35 @@ internal sealed class AgentSession(
 
         try
         {
-            var result = await tool.Execute(call.ArgumentsJson, cancellationToken).ConfigureAwait(false);
-            if (ToolOutputBlobStore.IsOversized(result))
+            var result = await tool.Execute(
+                new ToolInvocation(call.Id, call.ArgumentsJson),
+                cancellationToken).ConfigureAwait(false);
+            var text = result.Text;
+            if (ToolOutputBlobStore.IsOversized(text))
             {
-                result = await toolOutputBlobs.Persist(result, CancellationToken.None).ConfigureAwait(false);
+                text = await toolOutputBlobs.Persist(text, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            var terminal = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name, Result = text };
+            if (result.YieldedProcess is { } yielded)
+            {
+                terminal.YieldedProcess = new Protocol.YieldedShellProcess
+                {
+                    ProcessId = yielded.ProcessId,
+                    Name = yielded.Name,
+                    InventoryInstanceId = yielded.InventoryInstanceId,
+                    VisibleRevision = yielded.VisibleRevision,
+                };
             }
 
             var finished = new Event
             {
                 Id = Identifier.EventId(),
                 AgentSessionId = SessionId,
-                ToolFinished = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name, Result = result },
+                ToolFinished = terminal,
             };
             await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
-            return result;
+            return text;
         }
         catch (OperationCanceledException)
         {

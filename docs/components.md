@@ -707,11 +707,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   `error: Tool argument 'env' contains an invalid environment value.`
   `wait_process` requires `name` and accepts
   optional `yield_after_ms`; `interrupt_process` requires `name` and cancels the
-  named process tree. A yield returns the reserved process name without stopping
-  it, and a later completion is delivered to the invoking agent through its
-  durable steer queue unless a successful wait or interrupt claims it. `wait_process`
-  replaces the earlier `wait_shell` name so the lifecycle tools use process
-  terminology.
+  named process tree. A yield returns a typed yielded-process handoff containing
+  the reserved process identity without stopping it; clients do not infer the
+  handoff by parsing ordinary result text. A later completion is delivered to
+  the invoking agent through its durable steer queue unless a successful wait or
+  interrupt claims it. Non-yielded executions retain their ordinary terminal
+  result behavior. `wait_process` replaces the earlier `wait_shell` name so the
+  lifecycle tools use process terminology.
 - **Generic activity wait.** `wait` pauses the invoking agent for incoming
   activity and returns early for a new message, direct-child completion,
   unclaimed yielded-process completion, or an item from a queue enabled through
@@ -796,9 +798,15 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   delivery claim rules. Wait and interrupt can address only that agent's current
   binding, while the owner retains every launched process for settlement.
   User-session-wide active-work observations qualify repeated local names with
-  the owning agent session id. Runs use the user-session lifetime token, survive
-  tool-call yield and cancellation, and all per-agent owners are cancelled and
-  joined when that user session is disposed.
+  the owning agent session id. The user-session coordinator derives complete,
+  authoritative active-process snapshots from the live in-memory owners; these
+  snapshots are presentation state, not durable database history. Every stream
+  subscription receives an initial snapshot, including an empty one, and later
+  revisions replace the client's inventory wholesale. Immutable process
+  identities and owner generations prevent a completed run from being confused
+  with a replacement that reuses its local name. Runs use the user-session
+  lifetime token, survive tool-call yield and cancellation, and all per-agent
+  owners are cancelled and joined when that user session is disposed.
 - **Outbound** bubblewrap on Linux, Seatbelt on macOS, and
   `sessions/<id>/blob` for overflow output.
 - **Boundary** no.
@@ -843,10 +851,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **`Listen` is indefinite.** It ends when the client stops listening, not when
   a turn finishes, because a subagent keeps publishing long afterwards. The
   client decides when it has heard enough; `BasicCli` cancels on `TurnEnded`.
-  `UserSession` merges the live-only agent broker with its independent
-  replay-latest queue inventory feed. Every listener receives a complete initial
-  inventory, including an explicit empty snapshot, without changing
-  `EventBroker` into a historical replay mechanism.
+  `UserSession` merges the live-only agent broker with independent replay-latest
+  queue and active-process inventory feeds. Every listener receives complete
+  initial inventories, including explicit empty snapshots. The active-process
+  snapshot is rebuilt from authoritative in-memory shell-process owners rather
+  than persisted history, so reconnect replaces client state with what is still
+  running. Neither inventory changes `EventBroker` into a historical replay
+  mechanism.
 - **The model is session state, not a message property.** Selection belongs to
   `AgentSession`, so changing it is an explicit `UpdateSession` rather than a
   different value on the next prompt. A session is created explicitly too:
@@ -948,8 +959,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   renderer** owns display-width layout, sanitisation, bounded mutable rows,
   serialized ANSI cursor operations, the raw-mode thinking animation, and
   promotion of stable rows into ordinary terminal scrollback. It also owns a
-  persistent queue-inventory row layer between transient turn content and the
-  modeline/editor. Queue rows use fixed retention and survive turn redraws.
+  persistent inventory-row layer between transient turn content and the
+  modeline/editor. Queue rows use fixed retention and survive turn redraws;
+  animated process rows are keyed by immutable process identity and remain until
+  an authoritative snapshot reports actual exit, not merely until the launching
+  tool call yields.
 - **Inbound** the same event stream and payloads as `BasicCli`; every event is
   rendered so admission, promotion, turn, retry, provider, tool, agent, and
   completion activity remains observable. In raw mode event activity replaces
@@ -963,9 +977,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   `Parrot.Cli.Enhanced` package; neither is shared with `BasicCli` or moved into
   the domain.
 - **Note** enhanced mode starts its sole stream consumer immediately and keeps
-  it active while idle and across turns. Queue snapshots are demultiplexed
-  before turn rendering, so they cannot stop thinking animation, split text or
-  reasoning, establish foreground hierarchy, or enter activity/scrollback.
+  it active while idle and across turns. Queue and active-process snapshots are
+  demultiplexed before turn rendering, so they cannot stop thinking animation,
+  split text or reasoning, establish foreground hierarchy, or enter
+  activity/scrollback. Each full process snapshot replaces local process state;
+  therefore reconnect both restores surviving rows and removes stale ones.
   Complete physical assistant rows become immutable scrollback while
   only the unfinished final row remains redrawable. No alternate screen is
   used. On a supported terminal the raw-mode editor provides rune-aware cursor

@@ -14,11 +14,13 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var input = JsonSerializer.Deserialize(argumentsJson, OmittedAgentProcessToolJsonContext.Default.InterruptProcessToolInput)
+            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, OmittedAgentProcessToolJsonContext.Default.InterruptProcessToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var name = (input.Name ?? throw new FormatException("Tool arguments require a string 'name'.")).Trim();
 

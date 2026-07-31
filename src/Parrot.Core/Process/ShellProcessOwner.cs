@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Parrot.Agent;
 using Parrot.Permissions;
 using Parrot.Security;
@@ -10,6 +11,7 @@ internal sealed class ShellProcessOwner(
     string sessionId,
     UserSessionResources resources,
     ProcessRunner runner,
+    ShellProcessInventory inventory,
     CancellationToken lifetime) : IActiveWorkSource
 {
     private readonly Dictionary<string, ManagedShellProcess> _processes = new(StringComparer.Ordinal);
@@ -23,6 +25,43 @@ internal sealed class ShellProcessOwner(
     public ManagedShellProcess Start(
         string? requestedName,
         string command,
+        ProcessEnvironmentOverrides environment,
+        AgentSession agent,
+        SecurityProfile securityProfile,
+        SandboxWriteGrantSnapshot writeGrants,
+        ShellProcessTerminalMode terminalMode) =>
+        Start(
+            requestedName,
+            command,
+            string.Empty,
+            environment,
+            agent,
+            securityProfile,
+            writeGrants,
+            terminalMode);
+
+    public ManagedShellProcess Start(
+        string? requestedName,
+        string command,
+        string originToolCallId,
+        ProcessEnvironmentOverrides environment,
+        AgentSession agent,
+        SecurityProfile securityProfile,
+        SandboxWriteGrantSnapshot writeGrants) =>
+        Start(
+            requestedName,
+            command,
+            originToolCallId,
+            environment,
+            agent,
+            securityProfile,
+            writeGrants,
+            ShellProcessTerminalMode.Pipe);
+
+    public ManagedShellProcess Start(
+        string? requestedName,
+        string command,
+        string originToolCallId,
         ProcessEnvironmentOverrides environment,
         AgentSession agent,
         SecurityProfile securityProfile,
@@ -51,8 +90,19 @@ internal sealed class ShellProcessOwner(
                 writeGrants,
                 terminalMode,
                 lifetime);
+            var state = new ActiveShellProcessState(
+                $"shell-process-{Guid.CreateVersion7():n}",
+                name,
+                command,
+                originToolCallId,
+                agent.SessionId,
+                agent.Name,
+                agent.ParentSessionId,
+                agent.ParentSessionName,
+                agent.Depth,
+                Stopwatch.GetTimestamp());
 
-            var process = new ManagedShellProcess(name, agent, execution, lifetime);
+            var process = new ManagedShellProcess(state, agent, execution, inventory, lifetime);
             _processes[name] = process;
             _ownedProcesses.Add(process);
             return process;

@@ -38,8 +38,11 @@ internal sealed class SubagentTests : IDisposable
         var spawn = new AgentSpawnTool(registry, Router(provider), parent, Turn(parent, Router(provider)));
         var wait = new WaitAgentTool(registry, parent);
 
-        var startedJson = await spawn.Execute(
-            """{"prompt":"do the subtask","agent":"worker","name":"  Child Helper!  "}""", cancellationToken);
+        var startedJson = (await spawn.Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"prompt":"do the subtask","agent":"worker","name":"  Child Helper!  "}"""),
+            cancellationToken)).Text;
         using var started = JsonDocument.Parse(startedJson);
         var sessionId = started.RootElement.GetProperty("session_id").GetString() ?? string.Empty;
 
@@ -49,18 +52,27 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(sessionId).StartsWith("agent-session-");
         await provider.Arrived(cancellationToken);
 
-        var yieldedJson = await wait.Execute(
-            $$"""{"session_id":"{{sessionId}}","yield_after_ms":1}""", cancellationToken);
+        var yieldedJson = (await wait.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{sessionId}}","yield_after_ms":1}"""),
+            cancellationToken)).Text;
         using var yielded = JsonDocument.Parse(yieldedJson);
         _ = await Assert.That(yielded.RootElement.GetProperty("yielded").GetBoolean()).IsTrue();
         _ = await Assert.That(yielded.RootElement.GetProperty("status").GetString()).IsEqualTo("running");
 
         provider.Release();
-        var completedJson = await wait.Execute(
-            """{"session_id":"child-helper"}""", cancellationToken);
+        var completedJson = (await wait.Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"session_id":"child-helper"}"""),
+            cancellationToken)).Text;
         using var completed = JsonDocument.Parse(completedJson);
-        var retainedJson = await wait.Execute(
-            $$"""{"session_id":"{{sessionId}}"}""", cancellationToken);
+        var retainedJson = (await wait.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{sessionId}}"}"""),
+            cancellationToken)).Text;
         using var retained = JsonDocument.Parse(retainedJson);
 
         _ = await Assert.That(completed.RootElement.GetProperty("task_id").GetString()).IsEqualTo(sessionId);
@@ -423,7 +435,7 @@ internal sealed class SubagentTests : IDisposable
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent, Turn(parent, Router(provider)));
 
-        _ = await spawn.Execute("""{"prompt":"inspect","agent":"explore"}""", cancellationToken);
+        _ = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"inspect","agent":"explore"}"""), cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
         provider.Release();
 
@@ -445,7 +457,7 @@ internal sealed class SubagentTests : IDisposable
             new ModelSelector("stepped/replacement"),
             profile: null);
 
-        _ = await spawn.Execute("""{"prompt":"do the subtask","agent":"worker"}""", cancellationToken);
+        _ = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"do the subtask","agent":"worker"}"""), cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
         provider.Release();
 
@@ -481,7 +493,7 @@ internal sealed class SubagentTests : IDisposable
             """{"prompt":"override canonical","agent":"worker","model":"stepped/model"}""",
         })
         {
-            _ = await spawn.Execute(arguments, cancellationToken);
+            _ = (await spawn.Execute(new ToolInvocation("test-call", arguments), cancellationToken)).Text;
             await provider.Arrived(cancellationToken);
             provider.Release();
         }
@@ -512,9 +524,11 @@ internal sealed class SubagentTests : IDisposable
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, router, parent, Turn(parent, router));
 
-        var result = await spawn.Execute(
-            """{"prompt":"work","agent":"worker","model":"broken"}""",
-            cancellationToken);
+        var result = (await spawn.Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"prompt":"work","agent":"worker","model":"broken"}"""),
+            cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("error: model alias: alias \"broken\" is not configured");
         _ = await Assert.That(sessions.Models).IsEmpty();
@@ -536,8 +550,11 @@ internal sealed class SubagentTests : IDisposable
         var send = new AgentSendTool(registry, parent, Turn(parent, Router(provider)));
 
         await provider.Arrived(cancellationToken);
-        var steeredJson = await send.Execute(
-            """{"session_id":"worker","message":"steer now"}""", cancellationToken);
+        var steeredJson = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"session_id":"worker","message":"steer now"}"""),
+            cancellationToken)).Text;
         using var steered = JsonDocument.Parse(steeredJson);
         _ = await Assert.That(steered.RootElement.GetProperty("session_id").GetString())
             .IsEqualTo(spawned.SessionId);
@@ -552,8 +569,11 @@ internal sealed class SubagentTests : IDisposable
         var steeredResult = await spawned.Wait(0, cancellationToken);
         _ = await Assert.That(steeredResult.Output).IsEqualTo("steered");
 
-        var followedUpJson = await send.Execute(
-            $$"""{"session_id":"{{spawned.SessionId}}","message":"follow up"}""", cancellationToken);
+        var followedUpJson = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"follow up"}"""),
+            cancellationToken)).Text;
         using var followedUp = JsonDocument.Parse(followedUpJson);
         _ = await Assert.That(followedUp.RootElement.GetProperty("session_id").GetString())
             .IsEqualTo(spawned.SessionId);
@@ -588,9 +608,11 @@ internal sealed class SubagentTests : IDisposable
         var child = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
         var send = new AgentSendTool(registry, child, Turn(child, Router(provider)));
 
-        var sent = await send.Execute(
-            $$"""{"session_id":"{{parent.SessionId}}","message":"task completed"}""",
-            cancellationToken);
+        var sent = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{parent.SessionId}}","message":"task completed"}"""),
+            cancellationToken)).Text;
         using var result = JsonDocument.Parse(sent);
 
         _ = await Assert.That(result.RootElement.GetProperty("session_id").GetString()).IsEqualTo(parent.SessionId);
@@ -620,9 +642,11 @@ internal sealed class SubagentTests : IDisposable
         var child = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
         var send = new AgentSendTool(registry, child, Turn(child, Router(provider)));
 
-        var sent = await send.Execute(
-            """{"session_id":"parent","message":"task completed"}""",
-            cancellationToken);
+        var sent = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"session_id":"parent","message":"task completed"}"""),
+            cancellationToken)).Text;
         using var result = JsonDocument.Parse(sent);
 
         _ = await Assert.That(result.RootElement.GetProperty("session_id").GetString()).IsEqualTo(parent.SessionId);
@@ -651,7 +675,10 @@ internal sealed class SubagentTests : IDisposable
 
         await provider.Arrived(cancellationToken);
         var sending = new AgentSendTool(registry, parent, Turn(parent, Router(provider))).Execute(
-            $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}""", cancellationToken);
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}"""),
+            cancellationToken);
         provider.Release();
         _ = await sending;
         await provider.Arrived(cancellationToken);
@@ -677,16 +704,27 @@ internal sealed class SubagentTests : IDisposable
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry, parent, Turn(parent, Router(provider)));
 
-        var malformed = await send.Execute("{}", cancellationToken);
-        var blank = await send.Execute(
-            $$"""{"session_id":"{{spawned.SessionId}}","message":" "}""", cancellationToken);
-        var missing = await send.Execute(
-            """{"session_id":"missing","message":"hello"}""", cancellationToken);
-        var invisible = await new AgentSendTool(registry, stranger, Turn(stranger, Router(provider))).Execute(
-            $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}""", cancellationToken);
-        var oversized = await send.Execute(
-            $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (1024 * 1024) + 1)}}"}""",
-            cancellationToken);
+        var malformed = (await send.Execute(new ToolInvocation("test-call", "{}"), cancellationToken)).Text;
+        var blank = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":" "}"""),
+            cancellationToken)).Text;
+        var missing = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"session_id":"missing","message":"hello"}"""),
+            cancellationToken)).Text;
+        var invisible = (await new AgentSendTool(registry, stranger, Turn(stranger, Router(provider))).Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}"""),
+            cancellationToken)).Text;
+        var oversized = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (1024 * 1024) + 1)}}"}"""),
+            cancellationToken)).Text;
 
         _ = await Assert.That(malformed).StartsWith("error:");
         _ = await Assert.That(blank).IsEqualTo("error: no message given");
@@ -705,7 +743,7 @@ internal sealed class SubagentTests : IDisposable
         var parent = Session(provider, 0, "parent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent, Turn(parent, Router(provider)));
 
-        var result = await spawn.Execute("""{"prompt":"work","agent":"build"}""", cancellationToken);
+        var result = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"work","agent":"build"}"""), cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("error: agent profile build cannot be spawned");
     }
@@ -753,8 +791,11 @@ internal sealed class SubagentTests : IDisposable
         _ = await idle.Wait(0, cancellationToken);
 
         var deepParent = Session(provider, 4, "deep-parent", cancellationToken);
-        var tooDeep = await new AgentSpawnTool(registry, Router(provider), deepParent, Turn(deepParent, Router(provider))).Execute(
-            """{"prompt":"too deep","agent":"worker"}""", cancellationToken);
+        var tooDeep = (await new AgentSpawnTool(registry, Router(provider), deepParent, Turn(deepParent, Router(provider))).Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"prompt":"too deep","agent":"worker"}"""),
+            cancellationToken)).Text;
 
         _ = await Assert.That(tooDeep).IsEqualTo("error: subagent depth limit reached");
     }
@@ -779,8 +820,11 @@ internal sealed class SubagentTests : IDisposable
         provider.Release();
         _ = await spawned.Wait(0, cancellationToken);
         var send = new AgentSendTool(registry, parent, Turn(parent, Router(provider)));
-        _ = await send.Execute(
-            $$"""{"session_id":"{{spawned.SessionId}}","message":"wait forever"}""", cancellationToken);
+        _ = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"wait forever"}"""),
+            cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
 
         await registry.DisposeAsync();
@@ -796,8 +840,11 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
         _ = await Assert.That(() => registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker"))
             .Throws<AgentRegistryException>();
-        var rejected = await send.Execute(
-            $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}""", cancellationToken);
+        var rejected = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"again"}"""),
+            cancellationToken)).Text;
         _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");
     }
 

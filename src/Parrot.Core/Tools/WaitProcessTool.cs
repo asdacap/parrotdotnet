@@ -15,8 +15,11 @@ internal sealed partial class WaitProcessTool(ShellProcessOwner processes) : ITo
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        CancellationToken cancellationToken)
     {
+        var argumentsJson = invocation.ArgumentsJson;
         string name;
         TimeSpan? yieldAfter;
 
@@ -34,7 +37,7 @@ internal sealed partial class WaitProcessTool(ShellProcessOwner processes) : ITo
 
             var process = processes.Claim(name);
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
-            return outcome.Format();
+            return new ToolExecutionResult(outcome.Format(), outcome.YieldedProcess);
         }
         catch (Exception failure) when (failure is JsonException or FormatException or InvalidOperationException)
         {

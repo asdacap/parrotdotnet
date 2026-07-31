@@ -61,10 +61,12 @@ internal sealed class ExecCommandToolTests : IDisposable
                 Path.Combine(_workspace, ".data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
+        using var inventory = new ShellProcessInventory();
         var processes = new ShellProcessOwner(
             session.SessionId,
             resources,
             new ProcessRunner(CreateSandboxPassThrough(_workspace)),
+            inventory,
             CancellationToken.None);
         var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
         var tool = new ExecCommandTool(processes, session, securityProfile, session.WriteGrants);
@@ -91,91 +93,82 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(environmentSchema.GetProperty("additionalProperties").GetProperty("type").GetString())
             .IsEqualTo("string");
 
-        var result = await tool.Execute(
-            """{"command":"printf out; printf err >&2; exit 7"}""", cancellationToken);
-        var missing = await tool.Execute("{}", cancellationToken);
-        var malformed = await tool.Execute("[]", cancellationToken);
-        var invalidEnvironment = await tool.Execute(
-            """{"command":"true","env":{"VALUE":1}}""", cancellationToken);
-        var malformedEnvironment = await tool.Execute(
-            """{"command":"true","env":[]}""", cancellationToken);
-        var environment = await tool.Execute(
-            """{"command":"printf '%s' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":"available"}}""",
-            cancellationToken);
-        var emptyEnvironment = await tool.Execute(
-            """{"command":"printf '<%s>' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":""}}""",
-            cancellationToken);
-        var inheritedPath = await tool.Execute(
-            """{"command":"printf '%s' \"$PATH\""}""",
-            cancellationToken);
-        var emptyEnvironmentName = await tool.Execute(
-            """{"command":"true","env":{"":"value"}}""",
-            cancellationToken);
-        var invalidEnvironmentName = await tool.Execute(
-            """{"command":"true","env":{"INVALID=NAME":"value"}}""",
-            cancellationToken);
-        var invalidEnvironmentValue = await tool.Execute(
-            """{"command":"true","env":{"VALUE":"\u0000"}}""",
-            cancellationToken);
+        var result = await Execute(tool, """{"command":"printf out; printf err >&2; exit 7"}""", cancellationToken);
+        var missing = await Execute(tool, "{}", cancellationToken);
+        var malformed = await Execute(tool, "[]", cancellationToken);
+        var invalidEnvironment = await Execute(tool, """{"command":"true","env":{"VALUE":1}}""", cancellationToken);
+        var malformedEnvironment = await Execute(tool, """{"command":"true","env":[]}""", cancellationToken);
+        var environment = await Execute(tool, """{"command":"printf '%s' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":"available"}}""", cancellationToken);
+        var emptyEnvironment = await Execute(tool, """{"command":"printf '<%s>' \"$COMMAND_VALUE\"","env":{"COMMAND_VALUE":""}}""", cancellationToken);
+        var inheritedPath = await Execute(tool, """{"command":"printf '%s' \"$PATH\""}""", cancellationToken);
+        var emptyEnvironmentName = await Execute(tool, """{"command":"true","env":{"":"value"}}""", cancellationToken);
+        var invalidEnvironmentName = await Execute(tool, """{"command":"true","env":{"INVALID=NAME":"value"}}""", cancellationToken);
+        var invalidEnvironmentValue = await Execute(tool, """{"command":"true","env":{"VALUE":"\u0000"}}""", cancellationToken);
 
-        _ = await Assert.That(result).IsEqualTo("Process exited with code 7\n[stdout]\nout\n[stderr]\nerr");
-        _ = await Assert.That(missing).IsEqualTo("error: Tool arguments require a string 'command'.");
-        _ = await Assert.That(malformed).IsEqualTo("error: Tool arguments require a string 'command'.");
-        _ = await Assert.That(invalidEnvironment)
+        _ = await Assert.That(result.Text).IsEqualTo("Process exited with code 7\n[stdout]\nout\n[stderr]\nerr");
+        _ = await Assert.That(missing.Text).IsEqualTo("error: Tool arguments require a string 'command'.");
+        _ = await Assert.That(malformed.Text).IsEqualTo("error: Tool arguments require a string 'command'.");
+        _ = await Assert.That(invalidEnvironment.Text)
             .IsEqualTo("error: Tool argument 'env' must contain only string values.");
-        _ = await Assert.That(malformedEnvironment)
+        _ = await Assert.That(malformedEnvironment.Text)
             .IsEqualTo("error: Tool argument 'env' must be an object containing string values.");
-        _ = await Assert.That(environment).IsEqualTo("Process exited with code 0\n[stdout]\navailable");
-        _ = await Assert.That(emptyEnvironment).IsEqualTo("Process exited with code 0\n[stdout]\n<>");
-        _ = await Assert.That(inheritedPath)
+        _ = await Assert.That(environment.Text).IsEqualTo("Process exited with code 0\n[stdout]\navailable");
+        _ = await Assert.That(emptyEnvironment.Text).IsEqualTo("Process exited with code 0\n[stdout]\n<>");
+        _ = await Assert.That(inheritedPath.Text)
             .IsEqualTo($"Process exited with code 0\n[stdout]\n{Environment.GetEnvironmentVariable("PATH")}");
-        _ = await Assert.That(emptyEnvironmentName)
+        _ = await Assert.That(emptyEnvironmentName.Text)
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
-        _ = await Assert.That(invalidEnvironmentName)
+        _ = await Assert.That(invalidEnvironmentName.Text)
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
-        _ = await Assert.That(invalidEnvironmentValue)
+        _ = await Assert.That(invalidEnvironmentValue.Text)
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
 
-        var spilled = await tool.Execute(
-            """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""",
-            cancellationToken);
+        var spilled = await Execute(tool, """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""", cancellationToken);
         const string spilledPrefix =
             "Process exited with code 0\nTool output exceeded 64 KiB and was saved to ";
         const string spilledSuffix = ".";
-        var spilledPath = spilled[spilledPrefix.Length..^spilledSuffix.Length];
-        _ = await Assert.That(spilled).IsEqualTo(spilledPrefix + spilledPath + spilledSuffix);
+        var spilledPath = spilled.Text[spilledPrefix.Length..^spilledSuffix.Length];
+        _ = await Assert.That(spilled.Text).IsEqualTo(spilledPrefix + spilledPath + spilledSuffix);
         _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();
         _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(resources.BlobDirectory);
 
-        var yielded = await tool.Execute(
-            """{"command":"sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""",
-            cancellationToken);
-        var waited = await new WaitProcessTool(processes).Execute(
-            """{"name":"later"}""", cancellationToken);
-        var reusedAfterCompletion = await tool.Execute(
-            """{"command":"printf reused","name":"later"}""", cancellationToken);
-        var unknown = await new WaitProcessTool(processes).Execute(
-            """{"name":"missing"}""", cancellationToken);
-        var running = await tool.Execute(
-            """{"command":"sleep 30","name":"running","yield_after_ms":0}""",
-            cancellationToken);
-        var runningDuplicate = await tool.Execute(
-            """{"command":"true","name":"running"}""", cancellationToken);
-        var interrupted = await new InterruptProcessTool(processes).Execute(
-            """{"name":"running"}""", cancellationToken);
-        var reusedAfterInterrupt = await tool.Execute(
-            """{"command":"printf restarted","name":"running"}""", cancellationToken);
+        var yielded = await Execute(tool, """{"command":"sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""", cancellationToken);
+        var waited = await Execute(new WaitProcessTool(processes), """{"name":"later"}""", cancellationToken);
+        var reusedAfterCompletion = await Execute(tool, """{"command":"printf reused","name":"later"}""", cancellationToken);
+        var unknown = await Execute(new WaitProcessTool(processes), """{"name":"missing"}""", cancellationToken);
+        var running = await Execute(tool, """{"command":"sleep 30","name":"running","yield_after_ms":0}""", cancellationToken);
+        var runningDuplicate = await Execute(tool, """{"command":"true","name":"running"}""", cancellationToken);
+        var interrupted = await Execute(new InterruptProcessTool(processes), """{"name":"running"}""", cancellationToken);
+        var reusedAfterInterrupt = await Execute(tool, """{"command":"printf restarted","name":"running"}""", cancellationToken);
 
-        _ = await Assert.That(yielded).IsEqualTo("later");
-        _ = await Assert.That(waited).IsEqualTo("Process exited with code 0\n[stdout]\nlater");
-        _ = await Assert.That(reusedAfterCompletion).IsEqualTo("Process exited with code 0\n[stdout]\nreused");
-        _ = await Assert.That(unknown).IsEqualTo("error: Unknown shell process 'missing'.");
-        _ = await Assert.That(running).IsEqualTo("running");
-        _ = await Assert.That(runningDuplicate)
+        _ = await Assert.That(yielded.Text).IsEqualTo("later");
+        _ = await Assert.That(waited.Text).IsEqualTo("Process exited with code 0\n[stdout]\nlater");
+        _ = await Assert.That(reusedAfterCompletion.Text).IsEqualTo("Process exited with code 0\n[stdout]\nreused");
+        _ = await Assert.That(unknown.Text).IsEqualTo("error: Unknown shell process 'missing'.");
+        _ = await Assert.That(running.Text).IsEqualTo("running");
+        _ = await Assert.That(runningDuplicate.Text)
             .IsEqualTo("error: Shell process name 'running' is already reserved.");
-        _ = await Assert.That(interrupted).IsEqualTo("Shell process 'running' interrupted.");
-        _ = await Assert.That(reusedAfterInterrupt).IsEqualTo("Process exited with code 0\n[stdout]\nrestarted");
+        _ = await Assert.That(interrupted.Text).IsEqualTo("Shell process 'running' interrupted.");
+        _ = await Assert.That(reusedAfterInterrupt.Text).IsEqualTo("Process exited with code 0\n[stdout]\nrestarted");
     }
+
+    private static Task<ToolExecutionResult> Execute(
+        ExecCommandTool tool,
+        string argumentsJson,
+        CancellationToken cancellationToken) =>
+        tool.Execute(new ToolInvocation("call-id", argumentsJson), cancellationToken);
+
+    private static Task<ToolExecutionResult> Execute(
+        WaitProcessTool tool,
+        string argumentsJson,
+        CancellationToken cancellationToken) =>
+        tool.Execute(new ToolInvocation("call-id", argumentsJson), cancellationToken);
+
+    private static Task<ToolExecutionResult> Execute(
+        InterruptProcessTool tool,
+        string argumentsJson,
+        CancellationToken cancellationToken) =>
+        tool.Execute(new ToolInvocation("call-id", argumentsJson), cancellationToken);
 
     private static string CreateSandboxPassThrough(string workspace)
     {

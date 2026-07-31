@@ -37,16 +37,22 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
         await File.WriteAllTextAsync(path, "content", cancellationToken);
 
         var encodedPath = Encode(path);
-        var result = await tool.Execute(
-            $$"""{"paths":["{{encodedPath}}"],"reason":"update dependency"}""",
-            cancellationToken);
-        var missingReason = await tool.Execute($$"""{"paths":["{{encodedPath}}"]}""", cancellationToken);
-        var missingPath = await tool.Execute(
-            $$"""{"paths":["{{Encode(Path.Combine(_root, "missing"))}}"],"reason":"update"}""",
-            cancellationToken);
-        var unexpected = await tool.Execute(
-            $$"""{"paths":["{{encodedPath}}"],"reason":"update","extra":true}""",
-            cancellationToken);
+        var result = (await tool.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"paths":["{{encodedPath}}"],"reason":"update dependency"}"""),
+            cancellationToken)).Text;
+        var missingReason = (await tool.Execute(new ToolInvocation("test-call", $$"""{"paths":["{{encodedPath}}"]}"""), cancellationToken)).Text;
+        var missingPath = (await tool.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"paths":["{{Encode(Path.Combine(_root, "missing"))}}"],"reason":"update"}"""),
+            cancellationToken)).Text;
+        var unexpected = (await tool.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"paths":["{{encodedPath}}"],"reason":"update","extra":true}"""),
+            cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("Write permission request rejected.");
         _ = await Assert.That(missingReason).StartsWith("error:");
@@ -70,9 +76,11 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
 
-        var result = await tool.Execute(
-            $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}""",
-            cancellationToken);
+        var result = (await tool.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}"""),
+            cancellationToken)).Text;
 
         _ = await Assert.That(result).Contains("not permitted by the current security profile");
         _ = await Assert.That(broker.Pending()).IsEmpty();

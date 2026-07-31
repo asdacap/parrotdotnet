@@ -15,7 +15,12 @@ internal sealed class ProcessToolPresenterTests
         [
             new ExecCommandToolPresenter(),
             new ToolCallPresentation("main", "exec_command", "{\"command\":\"git status\",\"name\":\"git\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "git", string.Empty),
+            new ToolTerminalPresentation(
+                ToolTerminalStatus.Succeeded,
+                true,
+                "git",
+                string.Empty,
+                new YieldedShellProcess { ProcessId = "process-1", Name = "git" }),
             "$ git status",
             "process git running",
         ];
@@ -23,7 +28,12 @@ internal sealed class ProcessToolPresenterTests
         [
             new ExecCommandToolPresenter(),
             new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\",\"yield_after_ms\":0}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "shell-42", string.Empty),
+            new ToolTerminalPresentation(
+                ToolTerminalStatus.Succeeded,
+                true,
+                "shell-42",
+                string.Empty,
+                new YieldedShellProcess { ProcessId = "process-2", Name = "shell-42" }),
             "$ compile",
             "process shell-42 running",
         ];
@@ -51,6 +61,22 @@ internal sealed class ProcessToolPresenterTests
             "interrupt build",
             "✗ main: interrupt build",
         ];
+    }
+
+    [Test]
+    [Arguments("{\"command\":\"status\",\"name\":\"git\"}", "git")]
+    [Arguments("{\"command\":\"status\"}", "shell-42")]
+    public async Task Exec_output_does_not_imply_a_yielded_process(string arguments, string result)
+    {
+        var presenter = new ExecCommandToolPresenter();
+        var call = new ToolCallPresentation("main", "exec_command", arguments);
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, result, string.Empty);
+
+        var rendered = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+
+        _ = await Assert.That(rendered[0]).IsEqualTo("✓ main: $ status");
+        _ = await Assert.That(string.Join('\n', rendered)).Contains(result);
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("process " + result + " running");
     }
 
     [Test]

@@ -132,6 +132,77 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Shell_process_snapshot_roundtrips_as_field_twenty_five()
+    {
+        var source = new Event
+        {
+            ShellProcessSnapshot = new ShellProcessSnapshot
+            {
+                InventoryInstanceId = "inventory-1",
+                Revision = 9,
+                ChunkIndex = 0,
+                ChunkCount = 1,
+                Processes =
+                {
+                    new ActiveShellProcess
+                    {
+                        ProcessId = "process-1",
+                        Name = "compile",
+                        Command = "dotnet build",
+                        OriginToolCallId = "call-1",
+                        OwnerAgentSessionId = "agent-1",
+                        OwnerAgentName = "main",
+                        ParentAgentSessionId = "parent-1",
+                        ParentAgentName = "parent",
+                        Depth = 2,
+                        ElapsedMs = 42,
+                    },
+                },
+            },
+        };
+
+        var bytes = source.ToByteArray();
+        var roundtripped = Event.Parser.ParseFrom(bytes);
+
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ShellProcessSnapshot);
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.InventoryInstanceId).IsEqualTo("inventory-1");
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.Revision).IsEqualTo(9UL);
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.ChunkCount).IsEqualTo(1U);
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].ProcessId).IsEqualTo("process-1");
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].Command).IsEqualTo("dotnet build");
+        _ = await Assert.That(bytes[0]).IsEqualTo((byte)0xca);
+        _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+    }
+
+    [Test]
+    public async Task Tool_finished_roundtrips_a_yielded_process_handoff()
+    {
+        var source = new Event
+        {
+            ToolFinished = new ToolFinished
+            {
+                ToolCallId = "call-1",
+                ToolName = "exec_command",
+                Result = "compile",
+                YieldedProcess = new YieldedShellProcess
+                {
+                    ProcessId = "process-1",
+                    Name = "compile",
+                    InventoryInstanceId = "inventory-1",
+                    VisibleRevision = 3,
+                },
+            },
+        };
+
+        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
+
+        _ = await Assert.That(roundtripped.ToolFinished.Result).IsEqualTo("compile");
+        _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.ProcessId).IsEqualTo("process-1");
+        _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.InventoryInstanceId).IsEqualTo("inventory-1");
+        _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.VisibleRevision).IsEqualTo(3UL);
+    }
+
+    [Test]
     public async Task Status_injected_roundtrips_as_a_protobuf_payload()
     {
         var source = new Event

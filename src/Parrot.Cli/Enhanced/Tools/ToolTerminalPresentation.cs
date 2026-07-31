@@ -1,4 +1,5 @@
 using System.Globalization;
+using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced.Tools;
 
@@ -6,8 +7,18 @@ internal readonly record struct ToolTerminalPresentation(
     ToolTerminalStatus Status,
     bool ResultPresent,
     string Result,
-    string Error)
+    string Error,
+    YieldedShellProcess? YieldedProcess)
 {
+    public ToolTerminalPresentation(
+        ToolTerminalStatus status,
+        bool resultPresent,
+        string result,
+        string error)
+        : this(status, resultPresent, result, error, null)
+    {
+    }
+
     public ToolTerminalStatus ResolveProcessStatus()
     {
         var status = ResolveStatus();

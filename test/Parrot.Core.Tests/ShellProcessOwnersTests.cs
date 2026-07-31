@@ -40,7 +40,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var repository = new EventRepository(database);
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var resources = CreateResources();
-        var coordinator = new ShellProcessOwners(
+        using var coordinator = new ShellProcessOwners(
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
             lifetime.Token);
@@ -55,6 +55,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var firstProcess = first.Start(
             "shared",
             "sleep 30",
+            "call-id",
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
             security,
@@ -63,6 +64,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var secondProcess = second.Start(
             "shared",
             "sleep 30",
+            "call-id",
             ProcessEnvironmentOverrides.Empty,
             secondAgent,
             security,
@@ -71,6 +73,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         var firstOnlyProcess = first.Start(
             "first-only",
             "sleep 30",
+            "call-id",
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
             security,
@@ -95,10 +98,62 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     }
 
     [Test]
+    public async Task Inventory_tracks_process_from_start_until_completion(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var lifetime = new CancellationTokenSource();
+        using var events = new EventBroker();
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var resources = CreateResources();
+        using var coordinator = new ShellProcessOwners(
+            resources,
+            new ProcessRunner(CreateSandboxPassThrough()),
+            lifetime.Token);
+        var agent = CreateAgent("agent-1", model, events, repository, resources.BlobDirectory, lifetime.Token);
+        var owner = coordinator.Prepare(agent.SessionId);
+        coordinator.Register(owner);
+        var completionMarker = Path.Combine(_workspace, "complete");
+        var process = owner.Start(
+            "visible-from-start",
+            $"while [ ! -f '{completionMarker}' ]; do sleep 0.01; done",
+            "call-id",
+            ProcessEnvironmentOverrides.Empty,
+            agent,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SandboxWriteGrantSnapshot.Empty);
+
+        using var subscription = coordinator.SubscribeInventory();
+        var initial = await subscription.Reader.ReadAsync(cancellationToken);
+
+        _ = await Assert.That(initial.Processes.Count).IsEqualTo(1);
+        _ = await Assert.That(initial.Processes[0].ProcessId).IsEqualTo(process.State.ProcessId);
+        var yielded = await process.Wait(TimeSpan.Zero, cancellationToken);
+        var yieldedProcess = yielded.YieldedProcess
+            ?? throw new InvalidOperationException("The running process did not yield.");
+        _ = await Assert.That(yieldedProcess.VisibleRevision).IsEqualTo(initial.Revision);
+
+        var claimed = owner.Claim(process.Name);
+        await File.WriteAllTextAsync(completionMarker, string.Empty, cancellationToken);
+        _ = await claimed.Wait(null, cancellationToken);
+        var completed = await subscription.Reader.ReadAsync(cancellationToken);
+
+        _ = await Assert.That(completed.Revision).IsGreaterThan(initial.Revision);
+        _ = await Assert.That(completed.Processes).IsEmpty();
+        await coordinator.Settle();
+    }
+
+    [Test]
     public async Task Settling_atomically_rejects_new_owners()
     {
         using var lifetime = new CancellationTokenSource();
-        var coordinator = new ShellProcessOwners(
+        using var coordinator = new ShellProcessOwners(
             CreateResources(),
             new ProcessRunner(string.Empty),
             lifetime.Token);

@@ -40,14 +40,16 @@ internal sealed class TodoToolTests : IDisposable
             var write = new TodoWriteTool(first);
             var read = new TodoReadTool(first);
 
-            var written = await write.Execute(
+            const string argumentsJson =
                 """
                 {"todos":[
                   {"content":"  investigate  ","status":"in_progress","priority":"high"},
                   {"id":"kept","content":"fix","status":"pending","priority":"low"}
                 ]}
-                """,
-                cancellationToken);
+                """;
+            var written = (await write.Execute(
+                new ToolInvocation("test-call", argumentsJson),
+                cancellationToken)).Text;
             using var normalized = JsonDocument.Parse(written);
             var items = normalized.RootElement;
             firstId = items[0].GetProperty("id").GetString() ?? string.Empty;
@@ -58,8 +60,8 @@ internal sealed class TodoToolTests : IDisposable
             _ = await Assert.That(items[0].GetProperty("position").GetInt32()).IsEqualTo(0);
             _ = await Assert.That(items[1].GetProperty("id").GetString()).IsEqualTo("kept");
             _ = await Assert.That(items[1].GetProperty("position").GetInt32()).IsEqualTo(1);
-            _ = await Assert.That(await read.Execute("{}", cancellationToken)).IsEqualTo(written);
-            _ = await Assert.That(await new TodoReadTool(second).Execute("{}", cancellationToken)).IsEqualTo("[]");
+            _ = await Assert.That((await read.Execute(new ToolInvocation("test-call", "{}"), cancellationToken)).Text).IsEqualTo(written);
+            _ = await Assert.That((await new TodoReadTool(second).Execute(new ToolInvocation("test-call", "{}"), cancellationToken)).Text).IsEqualTo("[]");
 
             var updated = repository.Replay().Single();
             _ = await Assert.That(updated.AgentSessionId).IsEqualTo("first");
@@ -69,14 +71,20 @@ internal sealed class TodoToolTests : IDisposable
 
         using var reopened = SessionDatabase.Open(path);
         var reopenedSession = Session(new EventRepository(reopened), "first");
-        var persisted = await new TodoReadTool(reopenedSession).Execute("{}", cancellationToken);
+        var persisted = (await new TodoReadTool(reopenedSession).Execute(new ToolInvocation("test-call", "{}"), cancellationToken)).Text;
 
         _ = await Assert.That(persisted).Contains(firstId);
         _ = await Assert.That(persisted).Contains("\"position\":1");
-        _ = await Assert.That(await new TodoWriteTool(reopenedSession).Execute(
-            """{"todos":[]}""", cancellationToken)).IsEqualTo("[]");
-        _ = await Assert.That(await new TodoReadTool(reopenedSession).Execute(
-            "{}", cancellationToken)).IsEqualTo("[]");
+        _ = await Assert.That((await new TodoWriteTool(reopenedSession).Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"todos":[]}"""),
+            cancellationToken)).Text).IsEqualTo("[]");
+        _ = await Assert.That((await new TodoReadTool(reopenedSession).Execute(
+            new ToolInvocation(
+                "test-call",
+                "{}"),
+            cancellationToken)).Text).IsEqualTo("[]");
     }
 
     [Test]
@@ -92,12 +100,14 @@ internal sealed class TodoToolTests : IDisposable
         var repository = new EventRepository(database);
         var session = Session(repository, "session");
         var write = new TodoWriteTool(session);
-        _ = await write.Execute(
-            """{"todos":[{"id":"kept","content":"original","status":"pending","priority":"medium"}]}""",
-            cancellationToken);
+        _ = (await write.Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"todos":[{"id":"kept","content":"original","status":"pending","priority":"medium"}]}"""),
+            cancellationToken)).Text;
 
-        var result = await write.Execute(argumentsJson, cancellationToken);
-        var current = await new TodoReadTool(session).Execute("{}", cancellationToken);
+        var result = (await write.Execute(new ToolInvocation("test-call", argumentsJson), cancellationToken)).Text;
+        var current = (await new TodoReadTool(session).Execute(new ToolInvocation("test-call", "{}"), cancellationToken)).Text;
 
         _ = await Assert.That(result).StartsWith("error:");
         _ = await Assert.That(current).Contains("original");

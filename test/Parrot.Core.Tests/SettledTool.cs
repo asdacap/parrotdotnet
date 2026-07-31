@@ -13,6 +13,6 @@ internal sealed class SettledTool(string result) : ITool
 
     public string ParametersJson => """{"type":"object","properties":{}}""";
 
-    public Task<string> Execute(string argumentsJson, CancellationToken cancellationToken) =>
-        Task.FromResult(result);
+    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken) =>
+        Task.FromResult<ToolExecutionResult>(result);
 }

@@ -14,11 +14,11 @@ internal sealed partial class QuestionTool(QuestionBroker broker) : ITool
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         try
         {
-            var input = JsonSerializer.Deserialize(argumentsJson, QuestionJsonContext.Default.QuestionToolInput)
+            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, QuestionJsonContext.Default.QuestionToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var wireQuestions = input.Questions ?? throw new FormatException("Tool arguments require an array 'questions'.");
             QuestionDefinition[] questions = [.. wireQuestions.Select(ToDomain)];

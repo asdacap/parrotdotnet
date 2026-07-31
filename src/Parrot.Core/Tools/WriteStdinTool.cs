@@ -15,13 +15,15 @@ internal sealed partial class WriteStdinTool(ShellProcessOwner processes) : IToo
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        CancellationToken cancellationToken)
     {
         try
         {
-            ToolInputConversion.RequireObject(argumentsJson, "name");
+            ToolInputConversion.RequireObject(invocation.ArgumentsJson, "name");
             var input = JsonSerializer.Deserialize(
-                argumentsJson,
+                invocation.ArgumentsJson,
                 OmittedAgentProcessToolJsonContext.Default.WriteStdinToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var name = (input.Name ?? throw new FormatException("Tool arguments require a string 'name'.")).Trim();

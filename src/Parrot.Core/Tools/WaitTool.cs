@@ -19,13 +19,13 @@ internal sealed class WaitTool(AgentSession session, TimeProvider timeProvider) 
         {"type":"object","properties":{"duration_ms":{"type":"integer","minimum":10000,"maximum":4294967294,"default":10000,"description":"Maximum time to wait in milliseconds."}},"additionalProperties":false}
         """;
 
-    public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
     {
         long durationMilliseconds;
 
         try
         {
-            using var arguments = JsonDocument.Parse(argumentsJson);
+            using var arguments = JsonDocument.Parse(invocation.ArgumentsJson);
             var root = arguments.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {

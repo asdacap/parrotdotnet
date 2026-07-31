@@ -6,10 +6,11 @@ namespace Parrot.Process;
 internal sealed class ShellProcessOwners(
     UserSessionResources resources,
     ProcessRunner runner,
-    CancellationToken lifetime) : IActiveWorkSource
+    CancellationToken lifetime) : IActiveWorkSource, IDisposable
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, ShellProcessOwner> _owners = new(StringComparer.Ordinal);
+    private readonly ShellProcessInventory _inventory = new();
     private bool _settling;
     private Task? _settlement;
 
@@ -18,7 +19,7 @@ internal sealed class ShellProcessOwners(
         lock (_gate)
         {
             ValidateRegistration(sessionId);
-            return new ShellProcessOwner(sessionId, resources, runner, lifetime);
+            return new ShellProcessOwner(sessionId, resources, runner, _inventory, lifetime);
         }
     }
 
@@ -32,6 +33,8 @@ internal sealed class ShellProcessOwners(
             _owners.Add(owner.SessionId, owner);
         }
     }
+
+    public ShellProcessInventorySubscription SubscribeInventory() => _inventory.Subscribe();
 
     public IReadOnlyList<ActiveWorkObservation> Active()
     {
@@ -56,6 +59,8 @@ internal sealed class ShellProcessOwners(
             return _settlement;
         }
     }
+
+    public void Dispose() => _inventory.Dispose();
 
     private void ValidateRegistration(string sessionId)
     {

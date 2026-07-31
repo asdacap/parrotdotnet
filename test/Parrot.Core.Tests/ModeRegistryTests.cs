@@ -173,23 +173,29 @@ internal sealed class ModeRegistryTests : IDisposable
         var write = new WriteTool(new ToolWorkspace(workspace), plan.SecurityProfile, grants);
 
         var supporting = Path.Combine(planDirectory, "supporting.md");
-        var written = await write.Execute(WriteArguments(artifact, "# Plan"), cancellationToken);
-        var supported = await write.Execute(WriteArguments(supporting, "details"), cancellationToken);
-        var denied = await write.Execute(WriteArguments(outside, "outside"), cancellationToken);
+        var written = await write.Execute(
+            new ToolInvocation("write-plan", WriteArguments(artifact, "# Plan")),
+            cancellationToken);
+        var supported = await write.Execute(
+            new ToolInvocation("write-supporting", WriteArguments(supporting, "details")),
+            cancellationToken);
+        var denied = await write.Execute(
+            new ToolInvocation("write-outside", WriteArguments(outside, "outside")),
+            cancellationToken);
         var withoutCapability = new WriteTool(
             new ToolWorkspace(workspace),
             plan.SecurityProfile.WithoutRuntimeCapabilities(),
             new SandboxWriteGrants());
         var capabilityRemoved = await withoutCapability.Execute(
-            WriteArguments(artifact, "changed"),
+            new ToolInvocation("write-without-capability", WriteArguments(artifact, "changed")),
             cancellationToken);
 
-        _ = await Assert.That(written).DoesNotStartWith("error: ");
-        _ = await Assert.That(supported).DoesNotStartWith("error: ");
+        _ = await Assert.That(written.Text).DoesNotStartWith("error: ");
+        _ = await Assert.That(supported.Text).DoesNotStartWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(artifact, cancellationToken)).IsEqualTo("# Plan");
         _ = await Assert.That(await File.ReadAllTextAsync(supporting, cancellationToken)).IsEqualTo("details");
-        _ = await Assert.That(denied).StartsWith("error: ");
-        _ = await Assert.That(capabilityRemoved).StartsWith("error: ");
+        _ = await Assert.That(denied.Text).StartsWith("error: ");
+        _ = await Assert.That(capabilityRemoved.Text).StartsWith("error: ");
         _ = await Assert.That(File.Exists(outside)).IsFalse();
     }
 

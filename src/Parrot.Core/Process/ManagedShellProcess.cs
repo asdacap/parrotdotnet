@@ -6,10 +6,13 @@ namespace Parrot.Process;
 internal sealed class ManagedShellProcess
 {
     private readonly AgentSession _agent;
+    private readonly Task<ProcessResult> _completion;
     private readonly ShellProcessExecution _execution;
+    private readonly ShellProcessInventory _inventory;
     private readonly CancellationToken _lifetime;
     private readonly Lock _gate = new();
     private readonly Task _delivery;
+    private readonly YieldedShellProcess _startVisibility;
     private TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task _retirement = Task.CompletedTask;
     private long _cursor;
@@ -17,21 +20,27 @@ internal sealed class ManagedShellProcess
     private bool _delivered;
 
     public ManagedShellProcess(
-        string name,
+        ActiveShellProcessState state,
         AgentSession agent,
         ShellProcessExecution execution,
+        ShellProcessInventory inventory,
         CancellationToken lifetime)
     {
-        Name = name;
+        State = state;
         _agent = agent;
         _execution = execution;
+        _inventory = inventory;
         _lifetime = lifetime;
+        _startVisibility = inventory.Publish(state);
+        _completion = ObserveCompletion(execution.Result);
         _delivery = DeliverWhenUnclaimed();
     }
 
-    public string Name { get; }
+    public ActiveShellProcessState State { get; }
 
-    public bool Completed => _execution.Result.IsCompleted;
+    public string Name => State.Name;
+
+    public bool Completed => _completion.IsCompleted;
 
     public bool Retired
     {
@@ -94,7 +103,7 @@ internal sealed class ManagedShellProcess
 
         try
         {
-            _ = await _execution.Result.WaitAsync(cancellationToken).ConfigureAwait(false);
+            _ = await _completion.WaitAsync(cancellationToken).ConfigureAwait(false);
             return CommitCompleted().Result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -135,6 +144,18 @@ internal sealed class ManagedShellProcess
         }
     }
 
+    private async Task<ProcessResult> ObserveCompletion(Task<ProcessResult> result)
+    {
+        try
+        {
+            return await result.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            _inventory.Remove(State.ProcessId);
+        }
+    }
+
     private async Task<ShellWaitResult> WaitForOutput(
         TimeSpan? yieldAfter,
         CancellationToken cancellationToken)
@@ -143,12 +164,12 @@ internal sealed class ManagedShellProcess
         {
             if (yieldAfter is null)
             {
-                _ = await _execution.Result.WaitAsync(cancellationToken).ConfigureAwait(false);
+                _ = await _completion.WaitAsync(cancellationToken).ConfigureAwait(false);
                 return CommitCompleted();
             }
 
             var delay = Task.Delay(yieldAfter.Value, cancellationToken);
-            var resultTask = _execution.Result.WaitAsync(cancellationToken);
+            var resultTask = _completion.WaitAsync(cancellationToken);
             var completed = await Task.WhenAny(resultTask, delay).ConfigureAwait(false);
 
             if (completed == resultTask)
@@ -179,7 +200,7 @@ internal sealed class ManagedShellProcess
 
         lock (_gate)
         {
-            if (_execution.Result.IsCompleted)
+            if (_completion.IsCompleted)
             {
                 return CommitCompletedLocked();
             }
@@ -190,7 +211,7 @@ internal sealed class ManagedShellProcess
         }
 
         _ = released.TrySetResult();
-        return new ShellWaitResult(Name, true, output, null);
+        return new ShellWaitResult(Name, true, output, null, _startVisibility);
     }
 
     private ShellWaitResult CommitCompleted()
@@ -207,7 +228,7 @@ internal sealed class ManagedShellProcess
         _cursor = cursor;
         RetireLocked();
         _ = _released.TrySetResult();
-        return new ShellWaitResult(Name, false, string.Empty, result);
+        return new ShellWaitResult(Name, false, string.Empty, result, null);
     }
 
     private async Task DeliverWhenUnclaimed()
@@ -216,7 +237,7 @@ internal sealed class ManagedShellProcess
 
         try
         {
-            _ = await _execution.Result.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            _ = await _completion.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -306,7 +327,7 @@ internal sealed class ManagedShellProcess
             return new CompletedRead(
                 startCursor,
                 finalCursor,
-                new ShellWaitResult(Name, false, string.Empty, result));
+                new ShellWaitResult(Name, false, string.Empty, result, null));
         }
     }
 
