@@ -36,9 +36,15 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.DisabledTools).IsEmpty();
         _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
         _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(7);
+        foreach (var profile in configuration.Profiles.Values)
+        {
+            _ = await Assert.That(profile.Prompt).Contains("Hard rules:\n-");
+        }
+
         var build = configuration.Profiles["build"];
         _ = await Assert.That(build.Prompt).Contains("You are Parrot's build mode. Implement and verify the requested changes.");
-        _ = await Assert.That(build.Prompt).Contains("Keep tool side effects within the authorized workspace.");
+        _ = await Assert.That(build.Prompt).Contains(
+            "Hard rules:\n- Keep tool side effects within the authorized workspace.");
         _ = await Assert.That(build.MaxTurns).IsEqualTo(1024);
         _ = await Assert.That(build.ReadOnly).IsFalse();
         _ = await Assert.That(build.SandboxRules).IsEmpty();
