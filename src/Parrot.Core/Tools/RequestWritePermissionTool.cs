@@ -48,6 +48,11 @@ internal sealed class RequestWritePermissionTool(
             }
 
             var targets = paths.Select(SandboxWriteTarget.Resolve).Distinct().ToArray();
+            if (targets.All(target => selection.SecurityProfile.AllowsWrite(target.Path)))
+            {
+                return $"Write permission already allowed by the current security profile; static policy and protected roots still apply: {string.Join(", ", targets.Select(target => target.Path))}";
+            }
+
             var reply = await broker.Request(agentSession, reason, targets, cancellationToken).ConfigureAwait(false);
             if (reply.Kind == PermissionReplyKind.UserAway)
             {

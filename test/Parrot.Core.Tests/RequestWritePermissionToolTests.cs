@@ -32,7 +32,11 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             interactive: false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
-        var profile = SecurityProfile.Compose(readOnly: false, [], [], []);
+        var profile = SecurityProfile.Compose(
+            readOnly: false,
+            [new SandboxRule(_root, SandboxRuleAction.DenyWrite)],
+            [],
+            []);
         var tool = new RequestWritePermissionTool(broker, Session(database, events, profile));
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
@@ -66,6 +70,42 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
     }
 
     [Test]
+    public async Task Profile_authorized_paths_complete_without_a_permission_request(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var events = new EventBroker();
+        using var broker = new PermissionBroker(
+            events,
+            new EventRepository(database),
+            interactive: true,
+            TimeSpan.FromMinutes(20),
+            TimeProvider.System);
+        var path = Path.Combine(_root, "profile-authorized");
+        await File.WriteAllTextAsync(path, "content", cancellationToken);
+        var profile = SecurityProfile.Compose(
+            readOnly: false,
+            [
+                new SandboxRule(_root, SandboxRuleAction.DenyWrite),
+                new SandboxRule(path, SandboxRuleAction.AllowWrite),
+            ],
+            [],
+            []);
+        var session = Session(database, events, profile);
+        var tool = new RequestWritePermissionTool(broker, session);
+
+        var result = (await tool.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}"""),
+            Selection(profile),
+            cancellationToken)).Text;
+
+        _ = await Assert.That(result).Contains("already allowed by the current security profile");
+        _ = await Assert.That(broker.Pending()).IsEmpty();
+        _ = await Assert.That(session.WriteGrants.Capture().Targets).IsEmpty();
+    }
+
+    [Test]
     public async Task Timeout_returns_user_away_as_a_normal_result(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -77,7 +117,11 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             interactive: true,
             TimeSpan.FromMinutes(20),
             time);
-        var profile = SecurityProfile.Compose(readOnly: false, [], [], []);
+        var profile = SecurityProfile.Compose(
+            readOnly: false,
+            [new SandboxRule(_root, SandboxRuleAction.DenyWrite)],
+            [],
+            []);
         var tool = new RequestWritePermissionTool(broker, Session(database, events, profile));
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);

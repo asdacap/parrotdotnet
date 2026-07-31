@@ -205,7 +205,8 @@ existing absolute paths and a nonblank reason. The server resolves each path to
 its canonical physical target: an existing-file grant applies only to that file,
 while an existing-directory grant applies to that directory and its descendants.
 A request does not authorise a tool name, a profile, or an unbounded part of the
-filesystem.
+filesystem. If the active security profile already permits every requested target,
+the request completes immediately without a user prompt or a runtime grant.
 
 The CLI offers only the server-declared choices: **Grant**, **Reject**, and
 **Reject with reason**. Cancelling the picker or reason entry is a plain reject;

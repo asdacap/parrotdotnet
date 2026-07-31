@@ -554,7 +554,9 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   absolute paths and a nonblank reason. The broker resolves canonical physical
   targets: a file grant is exact-file; a directory grant includes descendants.
   It authorises a **canonical operation**, never a tool name (principle 7).
-  Only the server-declared Grant, Reject, and Reject-with-reason replies are
+  When the active security profile already permits every requested target, the
+  tool completes without broker mediation or a runtime grant. Only the
+  server-declared Grant, Reject, and Reject-with-reason replies are
   accepted; cancelled selection or reason entry is Reject, and a blank required
   rejection reason is invalid. Noninteractive sessions reject immediately and
   pending requests time out. Authorisation stays separate from OS containment
