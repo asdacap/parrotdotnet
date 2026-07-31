@@ -28,6 +28,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
     {
         string pattern;
         string path;
+        string? include;
 
         try
         {
@@ -35,6 +36,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
                 ?? throw new FormatException("Tool arguments must be an object.");
             pattern = input.Pattern ?? throw new FormatException("Tool arguments require a string 'pattern'.");
             path = input.Path ?? string.Empty;
+            include = input.Include;
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -47,6 +49,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
         }
 
         Regex regex;
+        Regex? includeRegex;
 
         try
         {
@@ -58,6 +61,30 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
         catch (Exception failure) when (failure is ArgumentException or NotSupportedException)
         {
             return $"error: invalid regular expression: {failure.Message}";
+        }
+
+        if (include is { Length: 0 } || include?.Contains('\0', StringComparison.Ordinal) is true)
+        {
+            return "error: include glob must be a non-empty string without NUL";
+        }
+
+        if (include is not null && Path.IsPathFullyQualified(include))
+        {
+            return "error: include glob must be a relative path";
+        }
+
+        try
+        {
+            includeRegex = include is null
+                ? null
+                : new Regex(
+                    ConvertGlobToRegex(include.Contains('/', StringComparison.Ordinal) ? include : $"**/{include}"),
+                    RegexOptions.NonBacktracking | RegexOptions.CultureInvariant,
+                    Timeout);
+        }
+        catch (Exception failure) when (failure is ArgumentException or NotSupportedException)
+        {
+            return $"error: invalid include glob: {failure.Message}";
         }
 
         (string Lexical, string Physical) resolved;
@@ -97,6 +124,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
                     workspace,
                     resolved,
                     regex,
+                    includeRegex,
                     state,
                     securityProfile,
                     timeoutCancellation.Token)
@@ -127,12 +155,13 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
         ToolWorkspace workspace,
         (string Lexical, string Physical) directory,
         Regex regex,
+        Regex? includeRegex,
         GrepState state,
         SecurityProfile securityProfile,
         CancellationToken cancellationToken)
     {
         var files = new List<string>();
-        CollectFiles(workspace, directory, files, securityProfile, cancellationToken);
+        CollectFiles(workspace, directory, directory.Physical, includeRegex, files, securityProfile, cancellationToken);
         files.Sort(StringComparer.Ordinal);
 
         foreach (var file in files)
@@ -151,6 +180,8 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
     private static void CollectFiles(
         ToolWorkspace workspace,
         (string Lexical, string Physical) directory,
+        string searchRoot,
+        Regex? includeRegex,
         List<string> files,
         SecurityProfile securityProfile,
         CancellationToken cancellationToken)
@@ -205,11 +236,17 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
 
             if ((attributes & FileAttributes.Directory) != 0)
             {
-                CollectFiles(workspace, resolved, files, securityProfile, cancellationToken);
+                CollectFiles(workspace, resolved, searchRoot, includeRegex, files, securityProfile, cancellationToken);
             }
             else
             {
-                files.Add(resolved.Physical);
+                var relative = Path.GetRelativePath(searchRoot, resolved.Physical)
+                    .Replace(Path.DirectorySeparatorChar, '/');
+
+                if (includeRegex is null || includeRegex.IsMatch(relative))
+                {
+                    files.Add(resolved.Physical);
+                }
             }
 
             if (files.Count >= MaxFiles)
@@ -270,6 +307,51 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
         }
     }
 
+    private static string ConvertGlobToRegex(string pattern)
+    {
+        var regex = new StringBuilder("^");
+        var index = 0;
+
+        while (index < pattern.Length)
+        {
+            if (pattern[index] == '*')
+            {
+                if (index + 1 < pattern.Length && pattern[index + 1] == '*')
+                {
+                    index += 2;
+
+                    if (index < pattern.Length && pattern[index] == '/')
+                    {
+                        _ = regex.Append("(.*/)?");
+                        index++;
+                    }
+                    else
+                    {
+                        _ = regex.Append(".*");
+                    }
+                }
+                else
+                {
+                    _ = regex.Append("[^/]*");
+                    index++;
+                }
+            }
+            else if (pattern[index] == '?')
+            {
+                _ = regex.Append("[^/]");
+                index++;
+            }
+            else
+            {
+                _ = regex.Append(Regex.Escape(pattern[index].ToString()));
+                index++;
+            }
+        }
+
+        _ = regex.Append('$');
+        return regex.ToString();
+    }
+
     private static bool IsBinary(string file)
     {
         try
@@ -300,6 +382,10 @@ internal sealed partial class GrepTool(ToolWorkspace workspace, SecurityProfile 
         [JsonPropertyName("path")]
         [Description("Optional workspace-relative or authorized absolute file or directory to search.")]
         public string? Path { get; init; }
+
+        [JsonPropertyName("include")]
+        [Description("Optional root-relative glob pattern restricting searched files, including **.")]
+        public string? Include { get; init; }
     }
 
     private sealed class GrepState

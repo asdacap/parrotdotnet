@@ -45,6 +45,12 @@ internal sealed class ToolInputDescriptorTests
             _ = await Assert.That(terminal.GetProperty("default").GetBoolean()).IsFalse();
         }
 
+        using (var grep = JsonDocument.Parse(GrepTool.Input.Descriptor))
+        {
+            var include = grep.RootElement.GetProperty("properties").GetProperty("include");
+            _ = await Assert.That(include.GetProperty("type").GetString()).IsEqualTo("string");
+        }
+
         using (var writeStdin = JsonDocument.Parse(WriteStdinTool.Input.Descriptor))
         {
             var root = writeStdin.RootElement;

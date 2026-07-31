@@ -12,7 +12,7 @@ internal sealed class ToolPresenterBatchCTests
     public static IEnumerable<object[]> Presenters()
     {
         yield return [new GlobToolPresenter(), "{\"pattern\":\"**/*.cs\",\"path\":\"src\"}", "main: glob \"**/*.cs\" in src"];
-        yield return [new GrepToolPresenter(), "{\"pattern\":\"TODO\",\"path\":\"src\"}", "main: grep \"TODO\" in src"];
+        yield return [new GrepToolPresenter(), "{\"pattern\":\"TODO\",\"path\":\"src\",\"include\":\"**/*.cs\"}", "main: grep \"TODO\" in src matching \"**/*.cs\""];
         yield return [new ReadToolPresenter(), "{\"path\":\"README.md\"}", "main: read README.md"];
         yield return [new WebFetchToolPresenter(), "{\"url\":\"https://example.com/path\"}", "main: web fetch GET https://example.com/path"];
     }
