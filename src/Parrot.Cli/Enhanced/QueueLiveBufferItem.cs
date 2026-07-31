@@ -6,7 +6,7 @@ internal readonly record struct QueueLiveBufferItem(string Name, string Descript
     {
         var name = Normalize(Name);
         var description = Normalize(Description);
-        var label = description.Length == 0 ? name : description;
+        var label = description.Length == 0 ? name : $"{name} — {description}";
         var suffix = ItemCount == 1 ? " · 1 item" : $" · {ItemCount} items";
         const string prefix = "  queue: ";
         var reserved = TerminalText.Width(prefix) + TerminalText.Width(suffix);
