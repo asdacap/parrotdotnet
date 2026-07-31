@@ -72,6 +72,49 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
+    public async Task Active_work_reports_processes_and_subagents_separately(CancellationToken cancellationToken)
+    {
+        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider", "model", string.Empty);
+        var registry = new StatusRegistry(
+            new ActiveWorkStatusProvider(
+                ActiveWorkKind.Agent,
+                new ActiveWorkSource(
+                    new ActiveWorkObservation("child-z", "zeta", ActiveWorkKind.Agent, ActiveWorkState.Running),
+                    new ActiveWorkObservation("child-a", "alpha", ActiveWorkKind.Agent, ActiveWorkState.Running))),
+            new ActiveWorkStatusProvider(
+                ActiveWorkKind.Shell,
+                new ActiveWorkSource(
+                    new ActiveWorkObservation("session/z", "zeta", ActiveWorkKind.Shell, ActiveWorkState.Running),
+                    new ActiveWorkObservation("session/a", "alpha", ActiveWorkKind.Shell, ActiveWorkState.Running))));
+
+        var observed = await registry.Observe(query, null, cancellationToken);
+
+        _ = await Assert.That(observed).IsEqualTo(
+            """
+            Active processes:
+            - session/a (shell, running, name: alpha)
+            - session/z (shell, running, name: zeta)
+
+            Active subagents:
+            - child-a (agent, running, name: alpha)
+            - child-z (agent, running, name: zeta)
+            """);
+    }
+
+    [Test]
+    public async Task Active_work_reports_empty_process_and_subagent_sections(CancellationToken cancellationToken)
+    {
+        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider", "model", string.Empty);
+        var registry = new StatusRegistry(
+            new ActiveWorkStatusProvider(ActiveWorkKind.Agent, new ActiveWorkSource()),
+            new ActiveWorkStatusProvider(ActiveWorkKind.Shell, new ActiveWorkSource()));
+
+        var observed = await registry.Observe(query, null, cancellationToken);
+
+        _ = await Assert.That(observed).IsEqualTo("Active processes: none\n\nActive subagents: none");
+    }
+
+    [Test]
     public async Task Register_and_profile_reject_duplicate_keys()
     {
         var registry = new StatusRegistry(Provider("runtime:selection", "first"));
@@ -104,6 +147,11 @@ internal sealed class StatusRegistryTests
 
     private static ScriptedStatusProvider Provider(string key, string text) =>
         new(key, (_, _) => ValueTask.FromResult(StatusObservation.AvailableText(text)));
+
+    private sealed class ActiveWorkSource(params ActiveWorkObservation[] active) : IActiveWorkSource
+    {
+        public IReadOnlyList<ActiveWorkObservation> Active() => active;
+    }
 
     private sealed class ScriptedStatusProvider(
         string key,

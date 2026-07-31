@@ -73,7 +73,7 @@ internal sealed class UserSession : IAsyncDisposable
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _lifetime.Token);
-        Status = new RuntimeStatus(this);
+        Status = new RuntimeStatus(Queues, ShellProcesses, Registry);
         Registry.AttachStatus(Status);
     }
 

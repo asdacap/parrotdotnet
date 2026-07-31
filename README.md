@@ -282,10 +282,13 @@ status and result to its direct parent as normal steering input. A parent can us
 
 The generic `wait` tool pauses for incoming activity and returns early for a new
 message, direct-child completion, unclaimed yielded-process completion, or an
-item in a queue the agent enabled with `queue_listen`. Queue activity wakes it
-only for listened queues. This activity wait is distinct from the specialized
-`wait_agent`, which reads a retained direct-child result, and `wait_process`,
-which waits for one named process.
+item in a queue the agent enabled with `queue_listen`. A successful wake result
+remains short. Timeout output inventories all queues, active processes, and
+active subagents. The queue inventory includes every queue regardless of
+`queue_listen`; listening controls only whether queue activity is eligible to
+wake the wait. This activity wait is distinct from the specialized `wait_agent`,
+which reads a retained direct-child result, and `wait_process`, which waits for
+one named process.
 
 When `exec_command` yields, its result carries a typed yielded-process handoff
 rather than requiring clients to recognize text. The service also publishes
