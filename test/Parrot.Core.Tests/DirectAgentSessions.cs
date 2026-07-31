@@ -7,6 +7,7 @@ using Parrot.Queues;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
+using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
 
@@ -20,12 +21,15 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
     private readonly List<AgentSession> _sessions = [];
     private readonly List<UserSession> _owners = [];
     private ModelRouter? _router;
+    private bool _includeStatusTool;
 
     public IReadOnlyList<AgentIdentity> Identities => _identities;
 
     public IReadOnlyList<AgentSession> Sessions => _sessions;
 
     public IReadOnlyList<UserSession> Owners => _owners;
+
+    public void IncludeStatusTool() => _includeStatusTool = true;
 
     public void Use(ModelRouter router) => _router = router;
 
@@ -64,7 +68,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 router,
                 eventBroker,
                 eventRepository,
-                [],
+                source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [],
                 TestModels.PromptProvider(".", "."),
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),

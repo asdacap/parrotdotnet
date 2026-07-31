@@ -45,10 +45,10 @@ internal sealed class StatusDrainTests : IDisposable
 
             _ = await Assert.That(Roles(provider.Requests[0])).IsEqualTo("System | User");
             _ = await Assert.That(provider.Requests[0].Instructions).IsNotEmpty();
-            _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Active profile: build");
-            _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Queues: none");
-            _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Active processes: none");
-            _ = await Assert.That(provider.Requests[0].Messages[0].Content).Contains("Active subagents: none");
+            var buildStatus = provider.Requests[0].Messages[0].Content;
+            _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Prompt}\n\nQueues: none");
+            _ = await Assert.That(CountOccurrences(buildStatus, session.Mode.Prompt)).IsEqualTo(1);
+            await AssertStatusOrder(buildStatus, "Active profile: build");
             provider.Release();
             await Settled(session);
 
@@ -66,9 +66,13 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(StatusMessages(repository).Count).IsEqualTo(2);
             _ = await Assert.That(provider.Requests[1].Messages.Count(message => message.Role == LLMRole.System))
                 .IsEqualTo(2);
-            _ = await Assert.That(provider.Requests[1].Messages.Any(message =>
+            var planStatus = provider.Requests[1].Messages.Single(message =>
                 message.Role == LLMRole.System &&
-                message.Content.Contains("Active profile: plan", StringComparison.Ordinal))).IsTrue();
+                message.Content.Contains("Active profile: plan", StringComparison.Ordinal));
+            _ = await Assert.That(planStatus.Content).StartsWith("You are Parrot's plan mode.");
+            _ = await Assert.That(planStatus.Content).Contains("to this exact file:");
+            _ = await Assert.That(CountOccurrences(planStatus.Content, "You are Parrot's plan mode.")).IsEqualTo(1);
+            await AssertStatusOrder(planStatus.Content, "Active profile: plan");
 
             await session.Interrupt(cancellationToken);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();
@@ -140,6 +144,30 @@ internal sealed class StatusDrainTests : IDisposable
     }
 
     [Test]
+    public async Task Status_tool_reports_the_active_profile_prompt(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        var modes = Modes();
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("status-call", "status", "{}")),
+            Answer("done"));
+        await using var session = Session(provider, database, modes, "model", includeStatusTool: true);
+
+        _ = await session.Send("prompt", "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        var result = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.Tool).Content;
+        _ = await Assert.That(result).StartsWith($"{session.Mode.Prompt}\n\nQueues: none");
+        _ = await Assert.That(CountOccurrences(result, session.Mode.Prompt)).IsEqualTo(1);
+        await AssertStatusOrder(result, "Active profile: build");
+
+        provider.Release();
+        await Settled(session);
+    }
+
+    [Test]
     public async Task Tool_rounds_reuse_one_durable_status_message(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -174,6 +202,33 @@ internal sealed class StatusDrainTests : IDisposable
 
     private static LLMEvent Answer(string text, params LLMToolCall[] toolCalls) =>
         LLMEvent.Completed("stop", 1, 0, 1, text, toolCalls);
+
+    private static async Task AssertStatusOrder(string content, string selection)
+    {
+        var queues = content.IndexOf("Queues:", StringComparison.Ordinal);
+        var activeSelection = content.IndexOf(selection, StringComparison.Ordinal);
+        var processes = content.IndexOf("Active processes:", StringComparison.Ordinal);
+        var subagents = content.IndexOf("Active subagents:", StringComparison.Ordinal);
+
+        _ = await Assert.That(queues).IsGreaterThan(0);
+        _ = await Assert.That(queues).IsLessThan(activeSelection);
+        _ = await Assert.That(activeSelection).IsLessThan(processes);
+        _ = await Assert.That(processes).IsLessThan(subagents);
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        var offset = 0;
+
+        while ((offset = text.IndexOf(value, offset, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            offset += value.Length;
+        }
+
+        return count;
+    }
 
     private static string Roles(LLMRequest request) =>
         string.Join(" | ", request.Messages.Select(message => message.Role));
@@ -210,12 +265,24 @@ internal sealed class StatusDrainTests : IDisposable
         SteppedProvider provider,
         SessionDatabase database,
         ModeRegistry modes,
-        string model)
+        string model) => Session(provider, database, modes, model, false);
+
+    private Parrot.Agent.UserSession Session(
+        SteppedProvider provider,
+        SessionDatabase database,
+        ModeRegistry modes,
+        string model,
+        bool includeStatusTool)
     {
         var providerModel = new ProviderModel(provider, new LLMModel(model, provider.Id));
         var router = TestModels.Route(providerModel);
         var sessions = new DirectAgentSessions();
         sessions.Use(router);
+        if (includeStatusTool)
+        {
+            sessions.IncludeStatusTool();
+        }
+
         return new Parrot.Agent.UserSession(
             "user",
             "main-agent",

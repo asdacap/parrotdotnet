@@ -25,7 +25,10 @@ internal sealed class RuntimeStatus
         AgentTurnSelection selection,
         IAgentProfile profile,
         CancellationToken cancellationToken) =>
-        _full.Observe(Query(session, selection, profile.Id), null, cancellationToken);
+        _full.Observe(
+            Query(session, selection, profile.Id),
+            new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
+            cancellationToken);
 
     public Task<string> ObserveActivity(
         AgentSession session,

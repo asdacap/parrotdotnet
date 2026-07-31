@@ -25,16 +25,27 @@ internal sealed class StatusRegistryTests
             new ScriptedStatusProvider(
                 "runtime:blank",
                 static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("  "))));
-        var profile = new ScriptedStatusProvider(
-            "profile:plan",
-            static (_, _) => ValueTask.FromResult(StatusObservation.AvailableText("profile")));
+        var profile = new ProfileStatusProvider("profile:plan", "profile prompt");
 
         var first = await registry.Observe(query, profile, CancellationToken.None);
         var second = await registry.Observe(query, profile, CancellationToken.None);
 
-        _ = await Assert.That(first).IsEqualTo("profile\n\nselection 1");
-        _ = await Assert.That(second).IsEqualTo("profile\n\nselection 2");
+        _ = await Assert.That(first).IsEqualTo("profile prompt\n\nselection 1");
+        _ = await Assert.That(second).IsEqualTo("profile prompt\n\nselection 2");
         _ = await Assert.That(observedQuery).IsEqualTo(query);
+    }
+
+    [Test]
+    [Arguments("profile prompt", true, "profile prompt")]
+    [Arguments("  ", false, "")]
+    public async Task Profile_reports_only_a_nonblank_prompt(string prompt, bool available, string expected)
+    {
+        var observation = await new ProfileStatusProvider("profile:build", prompt).Observe(
+            new StatusQuery("session", string.Empty, string.Empty, "build", "provider", "model", string.Empty),
+            CancellationToken.None);
+
+        _ = await Assert.That(observation.Available).IsEqualTo(available);
+        _ = await Assert.That(observation.Text).IsEqualTo(expected);
     }
 
     [Test]
