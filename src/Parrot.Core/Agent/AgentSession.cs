@@ -32,7 +32,7 @@ internal sealed class AgentSession(
     EventBroker eventBroker,
     EventRepository eventRepository,
     IReadOnlyList<IToolFactory> toolFactories,
-    ISystemPromptProvider systemPromptProvider,
+    ISystemPrompt systemPrompt,
     TodoCollection todos,
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
@@ -67,9 +67,8 @@ internal sealed class AgentSession(
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
     private readonly Lock _selectionGate = new();
-    private readonly ISystemPrompt _systemPrompt = (systemPromptProvider
-        ?? throw new ArgumentNullException(nameof(systemPromptProvider))).Materialize(identity)
-        ?? throw new InvalidOperationException("The system prompt provider returned no prompt.");
+    private readonly ISystemPrompt _systemPrompt = systemPrompt
+        ?? throw new ArgumentNullException(nameof(systemPrompt));
 
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
         ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);

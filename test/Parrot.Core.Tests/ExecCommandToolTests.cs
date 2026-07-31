@@ -47,7 +47,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             events,
             repository,
             [],
-            TestModels.PromptProvider(_workspace, _workspace),
+            TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("session", repository, events),
             new ToolOutputBlobStore(Path.Combine(_workspace, "blob")),
             new Compactor(120_000),

@@ -332,7 +332,7 @@ internal sealed class EventPayloadTests
             events,
             repository,
             [],
-            TestModels.PromptProvider(".", "."),
+            TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("session", repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),

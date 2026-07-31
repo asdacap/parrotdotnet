@@ -167,7 +167,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             events,
             repository,
             [],
-            TestModels.PromptProvider(".", "."),
+            TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("requesting", repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),

@@ -648,7 +648,7 @@ internal sealed class DrainTests : IDisposable
             _broker,
             repository,
             toolFactories,
-            TestModels.PromptProvider(".", "."),
+            TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(_blobDirectory),
             new Compactor(120_000),
