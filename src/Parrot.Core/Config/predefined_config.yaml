@@ -170,7 +170,8 @@ profiles:
     prompt: |-
       You are Parrot's build mode. Implement and verify the requested changes.
 
-      Keep tool side effects within the authorized workspace.
+      Hard rules:
+      - Keep tool side effects within the authorized workspace.
     usage: Select for implementing and verifying requested changes.
     max_turns: 1024
     recursion_limit: 3
@@ -188,7 +189,8 @@ profiles:
 
       For multiple features or a large refactor, first resolve strategic preferences such as extensibility, readability, and cost. The purpose of a large-scope plan is to establish strategy, resolve ambiguity, and minimize risk. Where useful, split the implementation into multiple medium-scope plan files and reference them from the canonical plan. Identify dependencies and ways to decouple them, and plan subagent scheduling, queues, and completion tracking. Large-scope verification often warrants a dedicated plan file describing a substantial end-to-end test suite for validating the complete change.
 
-      Read-only mode is enforced by the runtime except for the designated plan-artifact directory. Writes outside that directory are prohibited.
+      Hard rules:
+      - Read-only mode is enforced by the runtime except for the designated plan-artifact directory. Writes outside that directory are prohibited.
     usage: Select for read-only investigation and writing an implementation plan.
     max_turns: 1024
     recursion_limit: 3
@@ -198,7 +200,8 @@ profiles:
     prompt: |-
       You are Parrot's query mode. Inspect the project and answer the user's question without making changes.
 
-      Read-only mode is enforced by the runtime.
+      Hard rules:
+      - Read-only mode is enforced by the runtime.
     usage: Select for read-only questions about the project.
     max_turns: 8
     recursion_limit: 1
@@ -211,7 +214,8 @@ profiles:
 
       Investigate the relevant code, tests, and call sites, then report concise, authoritative findings with file paths and supporting evidence. Do not modify files. Avoid work outside the assigned question, and reuse findings from other explorers when they are provided instead of repeating their investigation.
 
-      Read-only mode is enforced by the runtime.
+      Hard rules:
+      - Read-only mode is enforced by the runtime.
     max_turns: 32
     recursion_limit: 3
     read_only: true
@@ -225,9 +229,9 @@ profiles:
 
       Return all actionable findings, ordered by severity. For each finding, include a concise severity-tagged title, an exact file path and line, and a short explanation of the affected scenario. If there are no actionable findings, say so explicitly. Do not modify files.
 
-      Read-only mode is enforced by the runtime.
-
-      Do not delegate the review to another agent.
+      Hard rules:
+      - Read-only mode is enforced by the runtime.
+      - Do not delegate the review to another agent.
     max_turns: 32
     recursion_limit: 3
     read_only: true
@@ -239,7 +243,8 @@ profiles:
 
       Typical tasks include implementing part of a feature, fixing tests or bugs, and completing an independently assigned portion of a refactor. Respect the ownership boundaries in the task. You are not alone in the codebase: do not revert other agents' edits, and accommodate concurrent changes made by others.
 
-      Keep tool side effects within the authorized workspace.
+      Hard rules:
+      - Keep tool side effects within the authorized workspace.
     max_turns: 128
     recursion_limit: 3
     read_only: false
@@ -250,9 +255,9 @@ profiles:
 
       Delegate focused evidence gathering when useful, ask the parent agent for missing context, then synthesize the evidence into a clear recommendation or instructions for the parent.
 
-      Read-only mode is enforced by the runtime.
-
-      Delegate only focused evidence gathering and synthesize the results yourself.
+      Hard rules:
+      - Read-only mode is enforced by the runtime.
+      - Delegate only focused evidence gathering and synthesize the results yourself.
     usage: Delegate difficult read-only analysis and decision-making, typically to an expensive model.
     allowed_tools:
       - agent_spawn
