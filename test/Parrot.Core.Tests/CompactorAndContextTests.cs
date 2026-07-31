@@ -84,7 +84,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     {
         var main = ComposeSystemContextProvider().Materialize(AgentIdentity.Main("main", string.Empty));
         var child = ComposeSystemContextProvider().Materialize(
-            AgentIdentity.Child("child", "main", "main-agent", "worker", 1));
+            AgentIdentity.Child("child", "main", "main-agent", "worker", 1, AgentScope.Empty));
         main.RenewEpoch();
         child.RenewEpoch();
 
@@ -100,6 +100,66 @@ internal sealed class CompactorAndContextTests : IDisposable
             + "Child agent depth: 1");
         _ = await Assert.That(childBuilt.IndexOf("Child agent session:", StringComparison.Ordinal))
             .IsLessThan(childBuilt.IndexOf("Available subagents;", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task Scope_context_renders_only_effective_changes_from_ancestors_to_self()
+    {
+        const string planningScope = "Plan the migration\nwithout editing files.";
+        var plannerScope = AgentScope.Empty.DeriveChild("planner", 1, planningScope);
+        var inheritedScope = plannerScope.DeriveChild("worker", 2, string.Empty);
+        var workerScope = plannerScope.DeriveChild("worker", 2, "Inspect the implementation.");
+        var repeatedScope = workerScope.DeriveChild("reviewer", 3, "Inspect the implementation.");
+        var changedScope = repeatedScope.DeriveChild("implementer", 4, "Implement the approved plan.");
+        var unscoped = AgentIdentity.Child(
+            "unscoped",
+            "main",
+            "main-agent",
+            "unscoped",
+            1,
+            AgentScope.Empty).Context;
+        var planner = AgentIdentity.Child(
+            "planner",
+            "main",
+            "main-agent",
+            "planner",
+            1,
+            plannerScope).Context;
+        var worker = AgentIdentity.Child(
+            "worker",
+            "planner",
+            "planner",
+            "worker",
+            2,
+            inheritedScope).Context;
+        var implementer = AgentIdentity.Child(
+            "implementer",
+            "reviewer",
+            "reviewer",
+            "implementer",
+            4,
+            changedScope).Context;
+
+        _ = await Assert.That(unscoped).DoesNotContain("## Scope");
+        _ = await Assert.That(planner).EndsWith(
+            "## Scope\n\n"
+            + "### Self\n"
+            + planningScope);
+        _ = await Assert.That(worker).EndsWith(
+            "## Scope\n\n"
+            + "### 1st Ancestor (planner)\n"
+            + planningScope);
+        _ = await Assert.That(worker).DoesNotContain("### Self");
+        _ = await Assert.That(implementer).EndsWith(
+            "## Scope\n\n"
+            + "### 3rd Ancestor (planner)\n"
+            + planningScope
+            + "\n\n### 2nd Ancestor (worker)\n"
+            + "Inspect the implementation."
+            + "\n\n### Self\n"
+            + "Implement the approved plan.");
+        _ = await Assert.That(implementer).DoesNotContain("reviewer)");
+        _ = await Assert.That(implementer).DoesNotContain("agent-session-");
     }
 
     [Test]
@@ -206,7 +266,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var composite = new CompositeSystemPromptProvider("test:composite", [first, second]);
 
         var main = composite.Materialize(AgentIdentity.Main("main", string.Empty));
-        var child = composite.Materialize(AgentIdentity.Child("child", "main", "main-agent", "worker", 1));
+        var child = composite.Materialize(AgentIdentity.Child("child", "main", "main-agent", "worker", 1, AgentScope.Empty));
         main.RenewEpoch();
         child.RenewEpoch();
 

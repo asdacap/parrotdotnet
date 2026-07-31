@@ -38,6 +38,16 @@ internal sealed class ToolInputDescriptorTests
         _ = await Assert.That(string.Join(",", descriptors.Select(descriptor => descriptor.Name)))
             .IsEqualTo("agent_send,agent_spawn,edit,exec_command,glob,grep,interrupt_process,question,queue_create,queue_info,queue_listen,queue_push,queue_take,read,status,todoread,todowrite,wait_agent,wait_process,web_fetch,write_stdin,write");
 
+        using (var agentSpawn = JsonDocument.Parse(AgentSpawnTool.Input.Descriptor))
+        {
+            var root = agentSpawn.RootElement;
+            var scope = root.GetProperty("properties").GetProperty("scope");
+            _ = await Assert.That(scope.GetProperty("type").GetString()).IsEqualTo("string");
+            _ = await Assert.That(scope.GetProperty("description").GetString()).IsNotEmpty();
+            _ = await Assert.That(root.GetProperty("required").EnumerateArray()
+                .Select(item => item.GetString()).Contains("scope")).IsFalse();
+        }
+
         using (var execCommand = JsonDocument.Parse(ExecCommandTool.Input.Descriptor))
         {
             var terminal = execCommand.RootElement.GetProperty("properties").GetProperty("tty");

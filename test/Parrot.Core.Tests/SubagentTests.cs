@@ -45,7 +45,7 @@ internal sealed class SubagentTests : IDisposable
         var startedJson = (await spawn.Execute(
             new ToolInvocation(
                 "test-call",
-                """{"prompt":"do the subtask","agent":"worker","name":"  Child Helper!  "}"""),
+                """{"prompt":"do the subtask","agent":"worker","name":"  Child Helper!  ","scope":"Inspect only the storage layer."}"""),
             Turn(parent, Router(provider)),
             cancellationToken)).Text;
         using var started = JsonDocument.Parse(startedJson);
@@ -111,6 +111,10 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(systemPrompt).Contains("Parent agent session: agent");
         _ = await Assert.That(systemPrompt).Contains("Parent agent name: ");
         _ = await Assert.That(systemPrompt).Contains("Child agent name: child-helper");
+        _ = await Assert.That(systemPrompt).Contains(
+            "## Scope\n\n"
+            + "### Self\n"
+            + "Inspect only the storage layer.");
     }
 
     [Test]
@@ -130,25 +134,86 @@ internal sealed class SubagentTests : IDisposable
             Turn(firstParent, Router(provider)),
             "worker",
             firstParent.Selection().RequestedModel,
-            "helper");
+            "helper",
+            string.Empty);
         var sibling = registry.Spawn(
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
             firstParent.Selection().RequestedModel,
-            "helper");
+            "helper",
+            string.Empty);
         var otherBranch = registry.Spawn(
             secondParent,
             Turn(secondParent, Router(provider)),
             "worker",
             secondParent.Selection().RequestedModel,
-            "helper");
+            "helper",
+            string.Empty);
 
         _ = await Assert.That(first.Name).IsEqualTo("helper");
         _ = await Assert.That(sibling.Name).IsEqualTo("helper-2");
         _ = await Assert.That(otherBranch.Name).IsEqualTo("helper");
         _ = await Assert.That(registry.GetChild(firstParent, "helper")).IsSameReferenceAs(first);
         _ = await Assert.That(registry.GetChild(secondParent, "helper")).IsSameReferenceAs(otherBranch);
+    }
+
+    [Test]
+    public async Task Scope_changes_inherit_through_the_registry_and_use_canonical_names(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var root = Session(provider, 0, "root", "root-agent", cancellationToken);
+        var planner = registry.Spawn(
+            root,
+            Turn(root, Router(provider)),
+            "worker",
+            root.Selection().RequestedModel,
+            "  Planner!  ",
+            "Plan the migration.");
+        var worker = registry.Spawn(
+            planner,
+            Turn(planner, Router(provider)),
+            "worker",
+            planner.Selection().RequestedModel,
+            "worker",
+            string.Empty);
+        var reviewer = registry.Spawn(
+            worker,
+            Turn(worker, Router(provider)),
+            "worker",
+            worker.Selection().RequestedModel,
+            "reviewer",
+            "Plan the migration.");
+        var implementer = registry.Spawn(
+            worker,
+            Turn(worker, Router(provider)),
+            "worker",
+            worker.Selection().RequestedModel,
+            "implementer",
+            "Implement the migration.");
+
+        _ = await Assert.That(planner.Name).IsEqualTo("planner");
+        _ = await Assert.That(worker.ResolveScope().Format(worker.Depth)).IsEqualTo(
+            "## Scope\n\n"
+            + "### 1st Ancestor (planner)\n"
+            + "Plan the migration.");
+        _ = await Assert.That(reviewer.ResolveScope().Format(reviewer.Depth)).IsEqualTo(
+            "## Scope\n\n"
+            + "### 2nd Ancestor (planner)\n"
+            + "Plan the migration.");
+        _ = await Assert.That(implementer.ResolveScope().Format(implementer.Depth)).IsEqualTo(
+            "## Scope\n\n"
+            + "### 2nd Ancestor (planner)\n"
+            + "Plan the migration.\n\n"
+            + "### Self\n"
+            + "Implement the migration.");
     }
 
     [Test]
@@ -168,7 +233,8 @@ internal sealed class SubagentTests : IDisposable
             Turn(firstParent, Router(provider)),
             "worker",
             firstParent.Selection().RequestedModel,
-            "helper");
+            "helper",
+            string.Empty);
 
         _ = await Assert.That(registry.GetChild(secondParent, target.SessionId)).IsSameReferenceAs(target);
         var unrelated = await Assert.That(() => registry.GetRecipient(secondParent, target.SessionId))
@@ -194,25 +260,29 @@ internal sealed class SubagentTests : IDisposable
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
-            "parent-name");
+            "parent-name",
+            string.Empty);
         var caller = registry.Spawn(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
-            "caller");
+            "caller",
+            string.Empty);
         var parentNameCollision = registry.Spawn(
             caller,
             Turn(caller, Router(provider)),
             "worker",
             caller.Selection().RequestedModel,
-            parent.Name);
+            parent.Name,
+            string.Empty);
         var canonicalCollision = registry.Spawn(
             caller,
             Turn(caller, Router(provider)),
             "worker",
             caller.Selection().RequestedModel,
-            parentNameCollision.SessionId);
+            parentNameCollision.SessionId,
+            string.Empty);
 
         _ = await Assert.That(registry.GetRecipient(caller, parent.Name)).IsSameReferenceAs(parent);
         _ = await Assert.That(registry.GetChild(caller, parent.Name)).IsSameReferenceAs(parentNameCollision);
@@ -238,19 +308,22 @@ internal sealed class SubagentTests : IDisposable
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
-            "grandparent");
+            "grandparent",
+            string.Empty);
         var parent = registry.Spawn(
             grandparent,
             Turn(grandparent, Router(provider)),
             "worker",
             grandparent.Selection().RequestedModel,
-            "parent-agent");
+            "parent-agent",
+            string.Empty);
         var sender = registry.Spawn(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
-            "sender");
+            "sender",
+            string.Empty);
         var send = new AgentSendTool(registry, sender);
 
         var result = (await send.Execute(
@@ -283,13 +356,15 @@ internal sealed class SubagentTests : IDisposable
             Turn(firstParent, Router(provider)),
             "worker",
             firstParent.Selection().RequestedModel,
+            string.Empty,
             string.Empty);
         var second = registry.Spawn(
             secondParent,
             Turn(secondParent, Router(provider)),
             "worker",
             secondParent.Selection().RequestedModel,
-            first.Name);
+            first.Name,
+            string.Empty);
 
         _ = await Assert.That(second.Name).IsEqualTo(first.Name);
         _ = await Assert.That(registry.GetChild(firstParent, first.Name)).IsSameReferenceAs(first);
@@ -313,19 +388,22 @@ internal sealed class SubagentTests : IDisposable
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
-            "actual-parent");
+            "actual-parent",
+            string.Empty);
         var caller = registry.Spawn(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
-            "caller");
+            "caller",
+            string.Empty);
         var namedParent = registry.Spawn(
             caller,
             Turn(caller, Router(provider)),
             "worker",
             caller.Selection().RequestedModel,
-            "parent");
+            "parent",
+            string.Empty);
 
         _ = await Assert.That(registry.GetRecipient(caller, "parent")).IsSameReferenceAs(parent);
         _ = await Assert.That(registry.GetRecipient(caller, parent.SessionId)).IsSameReferenceAs(parent);
@@ -352,7 +430,8 @@ internal sealed class SubagentTests : IDisposable
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
-            "parent");
+            "parent",
+            string.Empty);
 
         _ = await Assert.That(registry.GetRecipient(root, "parent")).IsSameReferenceAs(child);
         _ = await Assert.That(registry.GetChild(root, "parent")).IsSameReferenceAs(child);
@@ -400,7 +479,13 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
-        var child = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "helper");
+        var child = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "helper",
+            string.Empty);
 
         _ = await child.Send("do work", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -437,7 +522,12 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
         var root = Session(provider, 0, "root", cancellationToken);
         var intermediate = registry.Spawn(
-            root, Turn(root, Router(provider)), "worker", root.Selection().RequestedModel, "intermediate");
+            root,
+            Turn(root, Router(provider)),
+            "worker",
+            root.Selection().RequestedModel,
+            "intermediate",
+            string.Empty);
         _ = await intermediate.Send("prepare", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
@@ -449,7 +539,8 @@ internal sealed class SubagentTests : IDisposable
             Turn(intermediate, Router(provider)),
             "worker",
             intermediate.Selection().RequestedModel,
-            "nested");
+            "nested",
+            string.Empty);
 
         _ = await nested.Send("inspect", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -473,7 +564,7 @@ internal sealed class SubagentTests : IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         await Task.CompletedTask;
-        var identity = AgentIdentity.Child("child", "parent", "parent", "helper", 1);
+        var identity = AgentIdentity.Child("child", "parent", "parent", "helper", 1, AgentScope.Empty);
         var notification = AgentExecution.Failed(new string('界', 262_144)).FormatCompletion(identity);
 
         _ = await Assert.That(notification).Contains("Status: failed");
@@ -604,7 +695,13 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
+        var spawned = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty);
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry, parent);
 
@@ -666,7 +763,13 @@ internal sealed class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await parent.Wait(0, cancellationToken);
-        var child = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
+        var child = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty);
         var send = new AgentSendTool(registry, child);
 
         var sent = (await send.Execute(
@@ -701,7 +804,13 @@ internal sealed class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await parent.Wait(0, cancellationToken);
-        var child = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
+        var child = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty);
         var send = new AgentSendTool(registry, child);
 
         var sent = (await send.Execute(
@@ -733,7 +842,13 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
+        var spawned = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty);
         _ = await spawned.Send("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
@@ -764,7 +879,13 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var stranger = Session(provider, 0, "stranger", cancellationToken);
-        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
+        var spawned = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty);
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry, parent);
 
@@ -840,13 +961,15 @@ internal sealed class SubagentTests : IDisposable
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
-            "worker");
+            "worker",
+            string.Empty);
         var grandchild = registry.Spawn(
             child,
             Turn(child, Router(provider)),
             "worker",
             child.Selection().RequestedModel,
-            "grandchild");
+            "grandchild",
+            string.Empty);
 
         _ = await Assert.That(child.ResolveSelection().SecurityProfile.AllowsWrite(capability)).IsTrue();
         _ = await Assert.That(grandchild.ResolveSelection().SecurityProfile.AllowsWrite(capability)).IsTrue();
@@ -877,7 +1000,13 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent);
-        var idle = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "idle");
+        var idle = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "idle",
+            string.Empty);
         _ = await idle.Send("become idle", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
@@ -908,7 +1037,13 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
+        var spawned = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty);
         _ = await spawned.Send("first", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
@@ -933,7 +1068,13 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.ParentAgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(failed.AgentFailed.Name).IsEqualTo("worker");
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
-        _ = await Assert.That(() => registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker"))
+        _ = await Assert.That(() => registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty))
             .Throws<AgentRegistryException>();
         var rejected = (await send.Execute(
             new ToolInvocation(
@@ -998,7 +1139,7 @@ internal sealed class SubagentTests : IDisposable
         var router = Router(provider);
         var identity = depth == 0
             ? AgentIdentity.Main(sessionId, name)
-            : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", name, depth);
+            : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", name, depth, AgentScope.Empty);
         var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         return new AgentSession(
             identity,

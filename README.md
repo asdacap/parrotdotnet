@@ -325,6 +325,11 @@ When each child execution finishes, Parrot automatically sends its terminal
 status and result to its direct parent as normal steering input. A parent can use
 `wait_agent` when it needs to block for the retained child result instead.
 
+`agent_spawn.scope` is optional. When omitted or empty, it inherits the
+parent's scope. A supplied scope changes only the scope hierarchy in the child
+prompt; it is informational only and does not change permissions, session
+ownership, or tool access.
+
 The generic `wait` tool pauses for incoming activity and returns early for a new
 message, direct-child completion, unclaimed yielded-process completion, or an
 item in an accessible queue the invoking agent enabled with `queue_listen`.

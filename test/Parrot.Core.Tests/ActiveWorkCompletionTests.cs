@@ -59,7 +59,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             Turn(parent, router),
             "worker",
             new ModelSelector("child/model"),
-            "direct-child");
+            "direct-child",
+            string.Empty);
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -119,7 +120,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             Turn(parent, router),
             "worker",
             new ModelSelector("child/model"),
-            "direct-child");
+            "direct-child",
+            string.Empty);
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -166,14 +168,29 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             new CompletionMode(enforce: true, maxTurns: 2),
             lifetime.Token);
         var monitored = registry.Spawn(
-            root, Turn(root, router), "worker", new ModelSelector("monitored/model"), "monitored");
+            root,
+            Turn(root, router),
+            "worker",
+            new ModelSelector("monitored/model"),
+            "monitored",
+            string.Empty);
         monitored.UpdateSelection(
             new ModelSelector("monitored/model"),
             new CompletionMode(enforce: true, maxTurns: 2));
         var sibling = registry.Spawn(
-            root, Turn(root, router), "worker", new ModelSelector("sibling/model"), "sibling");
+            root,
+            Turn(root, router),
+            "worker",
+            new ModelSelector("sibling/model"),
+            "sibling",
+            string.Empty);
         var grandchild = registry.Spawn(
-            sibling, Turn(sibling, router), "worker", new ModelSelector("grandchild/model"), "grandchild");
+            sibling,
+            Turn(sibling, router),
+            "worker",
+            new ModelSelector("grandchild/model"),
+            "grandchild",
+            string.Empty);
         using var subscription = _broker.Subscribe();
 
         _ = await sibling.Send("work", cancellationToken);
@@ -282,7 +299,12 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var mode = new CompletionMode(enforce: true, maxTurns: 3);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = registry.Spawn(
-            parent, Turn(parent, router), "worker", new ModelSelector("child/model"), "direct-child");
+            parent,
+            Turn(parent, router),
+            "worker",
+            new ModelSelector("child/model"),
+            "direct-child",
+            string.Empty);
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -329,7 +351,12 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = registry.Spawn(
-            parent, Turn(parent, router), "worker", new ModelSelector("child/model"), "direct-child");
+            parent,
+            Turn(parent, router),
+            "worker",
+            new ModelSelector("child/model"),
+            "direct-child",
+            string.Empty);
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);

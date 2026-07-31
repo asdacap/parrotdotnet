@@ -207,14 +207,14 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queueCatalog = QueueCatalog("parent-listener-queues");
         using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent"));
         using var childQueues = queueCatalog.Register(
-            AgentIdentity.Child("child", "parent", "parent", "child", 1));
+            AgentIdentity.Child("child", "parent", "parent", "child", 1, AgentScope.Empty));
         var child = Session(
             provider,
             [],
             repository,
             queueCatalog,
             childQueues,
-            AgentIdentity.Child("child", "parent", "parent", "child", 1));
+            AgentIdentity.Child("child", "parent", "parent", "child", 1, AgentScope.Empty));
         _ = parentQueues.Create("parent-work", string.Empty);
         _ = await childQueues.Listen("parent-work", true, cancellationToken);
         var waiting = child.WaitForIncomingInput(TimeSpan.FromMinutes(1), TimeProvider.System, cancellationToken);
@@ -240,23 +240,23 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queueCatalog = QueueCatalog("competing-listener-queues");
         using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent"));
         using var firstQueues = queueCatalog.Register(
-            AgentIdentity.Child("first-child", "parent", "parent", "first", 1));
+            AgentIdentity.Child("first-child", "parent", "parent", "first", 1, AgentScope.Empty));
         using var secondQueues = queueCatalog.Register(
-            AgentIdentity.Child("second-child", "parent", "parent", "second", 1));
+            AgentIdentity.Child("second-child", "parent", "parent", "second", 1, AgentScope.Empty));
         var first = Session(
             firstProvider,
             [],
             repository,
             queueCatalog,
             firstQueues,
-            AgentIdentity.Child("first-child", "parent", "parent", "first", 1));
+            AgentIdentity.Child("first-child", "parent", "parent", "first", 1, AgentScope.Empty));
         var second = Session(
             secondProvider,
             [],
             repository,
             queueCatalog,
             secondQueues,
-            AgentIdentity.Child("second-child", "parent", "parent", "second", 1));
+            AgentIdentity.Child("second-child", "parent", "parent", "second", 1, AgentScope.Empty));
         _ = parentQueues.Create("shared-work", string.Empty);
         _ = await firstQueues.Listen("shared-work", true, cancellationToken);
         _ = await secondQueues.Listen("shared-work", true, cancellationToken);
@@ -308,23 +308,23 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queueCatalog = QueueCatalog("disabled-listener-queues");
         using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent"));
         using var disabledQueues = queueCatalog.Register(
-            AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1));
+            AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1, AgentScope.Empty));
         using var activeQueues = queueCatalog.Register(
-            AgentIdentity.Child("active-child", "parent", "parent", "active", 1));
+            AgentIdentity.Child("active-child", "parent", "parent", "active", 1, AgentScope.Empty));
         var disabled = Session(
             disabledProvider,
             [],
             repository,
             queueCatalog,
             disabledQueues,
-            AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1));
+            AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1, AgentScope.Empty));
         var active = Session(
             activeProvider,
             [],
             repository,
             queueCatalog,
             activeQueues,
-            AgentIdentity.Child("active-child", "parent", "parent", "active", 1));
+            AgentIdentity.Child("active-child", "parent", "parent", "active", 1, AgentScope.Empty));
         _ = parentQueues.Create("shared-work", string.Empty);
         _ = await disabledQueues.Listen("shared-work", true, cancellationToken);
         _ = await activeQueues.Listen("shared-work", true, cancellationToken);

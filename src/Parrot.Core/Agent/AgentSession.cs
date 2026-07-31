@@ -222,6 +222,8 @@ internal sealed class AgentSession(
     public async Task Settled() =>
         _ = await ResultSettled().ConfigureAwait(false);
 
+    internal AgentScope ResolveScope() => identity.Scope;
+
     internal bool IsIdle() => State == DrainState.Idle;
 
     internal bool IsActive()

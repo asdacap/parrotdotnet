@@ -316,7 +316,7 @@ internal sealed class AgentQueueTests : IDisposable
         string parentName,
         string name,
         int depth) =>
-        AgentIdentity.Child(sessionId, parentSessionId, parentName, name, depth);
+        AgentIdentity.Child(sessionId, parentSessionId, parentName, name, depth, AgentScope.Empty);
 
     private static QueueNotFoundException CaptureNotFound(Action action)
     {

@@ -28,6 +28,7 @@ internal sealed partial class AgentSpawnTool(
         string requestedProfile;
         string requestedModel;
         string requestedName;
+        string requestedScope;
 
         try
         {
@@ -37,6 +38,7 @@ internal sealed partial class AgentSpawnTool(
             requestedProfile = input.Agent ?? throw new FormatException("Tool arguments require a string 'agent'.");
             requestedModel = input.Model ?? string.Empty;
             requestedName = input.Name ?? string.Empty;
+            requestedScope = input.Scope ?? string.Empty;
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -48,7 +50,7 @@ internal sealed partial class AgentSpawnTool(
             var model = requestedModel.Length == 0
                 ? selection.RequestedModel
                 : router.Resolve(requestedModel).RequestedSelector;
-            var agent = agents.Spawn(session, selection, requestedProfile, model, requestedName);
+            var agent = agents.Spawn(session, selection, requestedProfile, model, requestedName, requestedScope);
             _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
             return new SpawnAgentResult(agent.SessionId, agent.Name, agent.Depth).Format();
         }
@@ -80,5 +82,9 @@ internal sealed partial class AgentSpawnTool(
         [Description("Optional friendly name. It is lowercased and sanitized to letters, digits, and hyphens; omitted or empty names are generated.")]
         [JsonPropertyName("name")]
         public string? Name { get; init; }
+
+        [Description("Optional problem-space scope for the child; omitted or empty inherits the parent's effective scope.")]
+        [JsonPropertyName("scope")]
+        public string? Scope { get; init; }
     }
 }

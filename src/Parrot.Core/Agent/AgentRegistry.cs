@@ -44,10 +44,12 @@ internal sealed class AgentRegistry(
         AgentTurnSelection selection,
         string requestedProfile,
         Llm.ModelSelector model,
-        string requestedName)
+        string requestedName,
+        string requestedScope)
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(requestedScope);
         var profile = profiles.ResolveChild(requestedProfile);
 
         lock (_gate)
@@ -82,7 +84,8 @@ internal sealed class AgentRegistry(
             var sessionId = Identifier.AgentSession();
             var names = NamesFor(parent.SessionId);
             var name = UniqueName(names, requestedName, sessionId);
-            var identity = AgentIdentity.Child(sessionId, parent.SessionId, parent.Name, name, depth);
+            var scope = parent.ResolveScope().DeriveChild(name, depth, requestedScope);
+            var identity = AgentIdentity.Child(sessionId, parent.SessionId, parent.Name, name, depth, scope);
             var lease = agentSessions.Create(
                 identity,
                 model,
