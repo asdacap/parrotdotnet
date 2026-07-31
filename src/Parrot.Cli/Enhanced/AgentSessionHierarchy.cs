@@ -99,6 +99,29 @@ internal sealed class AgentSessionHierarchy
             ? node.ParentSessionId
             : null;
 
+    public string ResolveAgentReference(string ownerAgentSessionId, string reference)
+    {
+        var targetSessionId = reference;
+        if (string.Equals(reference, "parent", StringComparison.Ordinal)
+            && _sessions.TryGetValue(ownerAgentSessionId, out var owner)
+            && owner.ParentSessionId.Length > 0)
+        {
+            targetSessionId = owner.ParentSessionId;
+        }
+
+        if (!_sessions.TryGetValue(targetSessionId, out var target))
+        {
+            return reference;
+        }
+
+        if (target.Name.Length > 0)
+        {
+            return target.Name;
+        }
+
+        return IsRoot(targetSessionId) ? "main" : reference;
+    }
+
     public void Observe(ActiveShellProcess process)
     {
         ArgumentNullException.ThrowIfNull(process);

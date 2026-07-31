@@ -179,9 +179,12 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public bool IsToolActive(string toolCallId) => _activities.Contains(ToolActivityPrefix + toolCallId);
 
+    public void RefreshToolPresentations() => _toolLive.Clear();
+
     public (string ActivityId, IScrollbackItem? Scrollback, ToolCallPresentation Call, ToolTerminalPresentation Terminal) FinishTool(
         Event published,
-        ToolPresenterRegistry presenters)
+        ToolPresenterRegistry presenters,
+        Func<string, string> agentReferenceResolver)
     {
         var (toolCallId, toolName) = GetTerminalTool(published);
         _ = _toolLive.Remove(toolCallId);
@@ -197,7 +200,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         var activityId = ToolActivityPrefix + toolCallId;
         _ = _activities.Remove(activityId);
         _ = _foldedTools.Remove(toolCallId);
-        var call = new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString());
+        var call = new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver);
         var terminal = published.PayloadCase switch
         {
             Event.PayloadOneofCase.ToolFinished => new ToolTerminalPresentation(
@@ -227,7 +230,8 @@ internal sealed class AgentSessionState(string agentSessionId)
     public ILiveBufferItem CreateLiveBufferItem(
         string activityId,
         int frame,
-        ToolPresenterRegistry presenters)
+        ToolPresenterRegistry presenters,
+        Func<string, string> agentReferenceResolver)
     {
         if (IsAgentActivity(activityId))
         {
@@ -241,7 +245,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         {
             var toolCall = _toolCalls[toolCallId];
             live = presenters.PresentLive(
-                new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString()),
+                new ToolCallPresentation(Name, toolCall.Name, toolCall.Arguments.ToString(), agentReferenceResolver),
                 frame);
             _toolLive.Add(toolCallId, live);
         }
