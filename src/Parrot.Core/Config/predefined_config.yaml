@@ -50,6 +50,7 @@ prompt: >-
 
   Do not use the same queue for different role. For example using the same queue for request and result.
   Do not use different subagent consumer prompt for the same queue. The queue item should be of same type.
+  Do not limit an agent to take only one item from the queue. If so, then no need for a queue, just spawn multiple subagent.
   It is preferable that queue consumer use queue_listen+wait rather than polling. Additionally a turn will automatically start on queue item although subagent will send notification to parent once finished before that.
 
 
