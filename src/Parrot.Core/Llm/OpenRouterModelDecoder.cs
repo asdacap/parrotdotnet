@@ -49,12 +49,16 @@ internal sealed class OpenRouterModelDecoder : IModelListDecoder
                 }
 
                 var inputPrice = 0.0;
+                var cachedInputPrice = 0.0;
                 var outputPrice = 0.0;
 
                 if (item.TryGetProperty("pricing", out var pricing) && pricing.ValueKind == JsonValueKind.Object)
                 {
                     fields |= JsonRead.TryReadNonNegativeNumber(pricing, "prompt", out inputPrice)
                         ? ModelMetadataFields.InputPrice
+                        : ModelMetadataFields.None;
+                    fields |= JsonRead.TryReadNonNegativeNumber(pricing, "input_cache_read", out cachedInputPrice)
+                        ? ModelMetadataFields.CachedInputPrice
                         : ModelMetadataFields.None;
                     fields |= JsonRead.TryReadNonNegativeNumber(pricing, "completion", out outputPrice)
                         ? ModelMetadataFields.OutputPrice
@@ -67,6 +71,7 @@ internal sealed class OpenRouterModelDecoder : IModelListDecoder
                     ContextWindow = contextWindow,
                     MaxOutputTokens = maxTokens,
                     InputPrice = inputPrice,
+                    CachedInputPrice = cachedInputPrice,
                     OutputPrice = outputPrice,
                     Capabilities = new ModelCapabilities(
                         Tools: true, Reasoning: variants.Count > 0, Output: ["text"], Variants: variants),

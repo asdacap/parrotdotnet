@@ -960,6 +960,7 @@ internal sealed class Configuration(string path)
                 Context = Integer(item, "context") ?? 0,
                 MaxTokens = Integer(item, "max_tokens") ?? 0,
                 InputPrice = ReadNonNegativeNumber(item, "input_price", $"{key}.{id}.input_price"),
+                CachedInputPrice = ReadNonNegativeNumber(item, "cached_input_price", $"{key}.{id}.cached_input_price"),
                 OutputPrice = ReadNonNegativeNumber(item, "output_price", $"{key}.{id}.output_price"),
                 Tools = Scalar(item, "tools") == "true",
                 Reasoning = Scalar(item, "reasoning") == "true",
@@ -997,6 +998,7 @@ internal sealed class Configuration(string path)
         fields |= Child(model, "context", out _) ? ModelConfigFields.Context : ModelConfigFields.None;
         fields |= Child(model, "max_tokens", out _) ? ModelConfigFields.MaxTokens : ModelConfigFields.None;
         fields |= Child(model, "input_price", out _) ? ModelConfigFields.InputPrice : ModelConfigFields.None;
+        fields |= Child(model, "cached_input_price", out _) ? ModelConfigFields.CachedInputPrice : ModelConfigFields.None;
         fields |= Child(model, "output_price", out _) ? ModelConfigFields.OutputPrice : ModelConfigFields.None;
         fields |= Child(model, "tools", out _) ? ModelConfigFields.Tools : ModelConfigFields.None;
         fields |= Child(model, "reasoning", out _) ? ModelConfigFields.Reasoning : ModelConfigFields.None;

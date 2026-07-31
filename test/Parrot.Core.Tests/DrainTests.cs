@@ -203,6 +203,7 @@ internal sealed class DrainTests : IDisposable
                 [new FixedToolFactory(new SettledTool("settled"))],
                 128,
                 0.125,
+                0.025,
                 0.25,
                 cancellationToken);
             _ = await firstSession.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
@@ -216,7 +217,7 @@ internal sealed class DrainTests : IDisposable
         using (var secondProvider = new SteppedProvider(
             LLMEvent.Completed("stop", 6, 1, 2, "second", [])))
         {
-            var restoredSession = Session(secondProvider, repository, [], 128, 0.125, 0.25, cancellationToken);
+            var restoredSession = Session(secondProvider, repository, [], 128, 0.125, 0.025, 0.25, cancellationToken);
             _ = await restoredSession.Admit("second prompt", "msg-2", Delivery.Steer, cancellationToken);
             await secondProvider.Arrived(cancellationToken);
             secondProvider.Release();
@@ -239,11 +240,11 @@ internal sealed class DrainTests : IDisposable
                 $"{updated.InputTokens}:{updated.CachedInputTokens}:{updated.OutputTokens}:"
                 + $"{updated.ContextSize}:{updated.ContextLimit}")))
             .IsEqualTo("10:3:4:10:128 | 17:5:9:7:128 | 23:6:11:6:128");
-        _ = await Assert.That(statistics[0].InputCost).IsEqualTo(1.25);
+        _ = await Assert.That(statistics[0].InputCost).IsEqualTo(0.95);
         _ = await Assert.That(statistics[0].OutputCost).IsEqualTo(1.0);
-        _ = await Assert.That(statistics[1].InputCost).IsEqualTo(2.125);
+        _ = await Assert.That(statistics[1].InputCost).IsEqualTo(1.625);
         _ = await Assert.That(statistics[1].OutputCost).IsEqualTo(2.25);
-        _ = await Assert.That(statistics[2].InputCost).IsEqualTo(2.875);
+        _ = await Assert.That(statistics[2].InputCost).IsEqualTo(2.275);
         _ = await Assert.That(statistics[2].OutputCost).IsEqualTo(2.75);
         _ = await Assert.That(
             string.Join(" | ", endings.Select(ended => $"{ended.InputTokens}:{ended.OutputTokens}")))
@@ -251,6 +252,22 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(replay.FindIndex(
             published => published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated))
             .IsLessThan(replay.FindIndex(published => published.PayloadCase == Event.PayloadOneofCase.ToolStarted));
+    }
+
+    [Test]
+    public async Task Statistics_charge_cached_tokens_at_input_price_when_cache_price_is_omitted(
+        CancellationToken cancellationToken)
+    {
+        var model = new LLMModel("model", "provider")
+        {
+            InputPrice = 0.125,
+            Fields = ModelMetadataFields.InputPrice,
+        };
+        var statistics = new AgentStatistics(0, 0, 0, 0, 0, 0, 0)
+            .Add(LLMEvent.Completed("stop", 10, 3, 0, string.Empty, []), model);
+
+        _ = await Assert.That(statistics.InputCost).IsEqualTo(1.25);
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
     }
 
     [Test]
@@ -604,7 +621,7 @@ internal sealed class DrainTests : IDisposable
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         CancellationToken lifetime) =>
-        Session(provider, repository, toolFactories, 0, 0, 0, lifetime);
+        Session(provider, repository, toolFactories, 0, 0, 0, 0, lifetime);
 
     private AgentSession Session(
         SteppedProvider provider,
@@ -612,7 +629,7 @@ internal sealed class DrainTests : IDisposable
         IReadOnlyList<IToolFactory> toolFactories,
         IAgentProfile profile,
         CancellationToken lifetime) =>
-        Session(provider, repository, toolFactories, profile, 0, 0, 0, lifetime);
+        Session(provider, repository, toolFactories, profile, 0, 0, 0, 0, lifetime);
 
     private AgentSession Session(
         SteppedProvider provider,
@@ -620,9 +637,10 @@ internal sealed class DrainTests : IDisposable
         IReadOnlyList<IToolFactory> toolFactories,
         int contextWindow,
         double inputPrice,
+        double cachedInputPrice,
         double outputPrice,
         CancellationToken lifetime) =>
-        Session(provider, repository, toolFactories, profile: null, contextWindow, inputPrice, outputPrice, lifetime);
+        Session(provider, repository, toolFactories, profile: null, contextWindow, inputPrice, cachedInputPrice, outputPrice, lifetime);
 
     private AgentSession Session(
         SteppedProvider provider,
@@ -631,6 +649,7 @@ internal sealed class DrainTests : IDisposable
         IAgentProfile? profile,
         int contextWindow,
         double inputPrice,
+        double cachedInputPrice,
         double outputPrice,
         CancellationToken lifetime)
     {
@@ -638,7 +657,11 @@ internal sealed class DrainTests : IDisposable
         {
             ContextWindow = contextWindow,
             InputPrice = inputPrice,
+            CachedInputPrice = cachedInputPrice,
             OutputPrice = outputPrice,
+            Fields = ModelMetadataFields.InputPrice
+                | ModelMetadataFields.OutputPrice
+                | (cachedInputPrice > 0 ? ModelMetadataFields.CachedInputPrice : ModelMetadataFields.None),
         });
         var identity = AgentIdentity.Main("agent", string.Empty);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
