@@ -254,6 +254,99 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Tool_instances_are_created_once_while_profile_filters_change_between_turns(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(Answer("first"), Answer("second"));
+        var repository = new EventRepository(_database);
+        var firstFactory = new CountingToolFactory("first");
+        var secondFactory = new CountingToolFactory("second");
+        var firstProfile = Profile(
+            "first-profile",
+            3,
+            ["first"],
+            new HashSet<string>(StringComparer.Ordinal),
+            readOnly: false);
+        var secondProfile = Profile(
+            "second-profile",
+            3,
+            ["second"],
+            new HashSet<string>(StringComparer.Ordinal),
+            readOnly: true);
+        var session = Session(
+            provider,
+            repository,
+            [firstFactory, secondFactory],
+            firstProfile,
+            cancellationToken);
+
+        _ = await session.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(string.Join(" | ", provider.Requests[0].Tools.Select(tool => tool.Name)))
+            .IsEqualTo("first");
+        provider.Release();
+        await session.Settled();
+
+        session.UpdateSelection(session.Selection().RequestedModel, secondProfile);
+        _ = await session.Admit("second prompt", "msg-2", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(string.Join(" | ", provider.Requests[1].Tools.Select(tool => tool.Name)))
+            .IsEqualTo("second");
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(firstFactory.CreateCount).IsEqualTo(1);
+        _ = await Assert.That(secondFactory.CreateCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_session_tool_receives_each_turns_captured_selection_without_recreation(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "record", "{}")),
+            Answer("first"),
+            Answer(string.Empty, new LLMToolCall("call-2", "record", "{}")),
+            Answer("second"));
+        var repository = new EventRepository(_database);
+        var factory = new RecordingToolFactory();
+        var writable = Profile(
+            "writable",
+            3,
+            ["record"],
+            new HashSet<string>(StringComparer.Ordinal),
+            readOnly: false);
+        var readOnly = Profile(
+            "read-only",
+            3,
+            ["record"],
+            new HashSet<string>(StringComparer.Ordinal),
+            readOnly: true);
+        var session = Session(provider, repository, [factory], writable, cancellationToken);
+
+        _ = await session.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        session.UpdateSelection(session.Selection().RequestedModel, readOnly);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(string.Join(" | ", factory.Tool.Selections.Select(SelectionSummary)))
+            .IsEqualTo("writable:False");
+        provider.Release();
+        await session.Settled();
+
+        _ = await session.Admit("second prompt", "msg-2", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(string.Join(" | ", factory.Tool.Selections.Select(SelectionSummary)))
+            .IsEqualTo("writable:False | read-only:True");
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(factory.CreateCount).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Globally_disabled_tools_are_omitted_even_when_the_profile_allows_them(
         CancellationToken cancellationToken)
     {
@@ -477,17 +570,33 @@ internal sealed class DrainTests : IDisposable
             }).Where(value => value is not null));
 
     private static AgentProfile Profile(int maxTurns) =>
-        Profile(maxTurns, null, new HashSet<string>(StringComparer.Ordinal));
+        Profile(
+            "test",
+            maxTurns,
+            null,
+            new HashSet<string>(StringComparer.Ordinal),
+            readOnly: false);
 
     private static AgentProfile Profile(
         int maxTurns,
         IReadOnlyList<string>? allowedTools,
-        IReadOnlySet<string> disabledTools) => new(
-            "test",
-            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, false, true, []),
+        IReadOnlySet<string> disabledTools) =>
+        Profile("test", maxTurns, allowedTools, disabledTools, readOnly: false);
+
+    private static AgentProfile Profile(
+        string id,
+        int maxTurns,
+        IReadOnlyList<string>? allowedTools,
+        IReadOnlySet<string> disabledTools,
+        bool readOnly) => new(
+            id,
+            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, []),
             [],
             [],
             disabledTools);
+
+    private static string SelectionSummary(AgentTurnSelection selection) =>
+        $"{selection.Profile?.Id}:{selection.SecurityProfile.ReadOnly}";
 
     private AgentSession Session(
         SteppedProvider provider,
@@ -548,5 +657,68 @@ internal sealed class DrainTests : IDisposable
             registry: null,
             queues: TestModels.Queues(AgentIdentity.Main("agent", string.Empty)),
             lifetime);
+    }
+
+    private sealed class CountingToolFactory(string name) : IToolFactory
+    {
+        private readonly NamedTool _tool = new(name);
+
+        public int CreateCount { get; private set; }
+
+        public ITool Create(AgentSession session)
+        {
+            CreateCount++;
+            return _tool;
+        }
+    }
+
+    private sealed class NamedTool(string name) : ITool
+    {
+        public string Name => name;
+
+        public string Description => "Finishes at once.";
+
+        public string ParametersJson => """{"type":"object","properties":{}}""";
+
+        public Task<ToolExecutionResult> Execute(
+            ToolInvocation invocation,
+            AgentTurnSelection selection,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<ToolExecutionResult>(name);
+    }
+
+    private sealed class RecordingToolFactory : IToolFactory
+    {
+        public RecordingTool Tool { get; } = new();
+
+        public int CreateCount { get; private set; }
+
+        public ITool Create(AgentSession session)
+        {
+            CreateCount++;
+            return Tool;
+        }
+    }
+
+    private sealed class RecordingTool : ITool
+    {
+        private readonly List<AgentTurnSelection> _selections = [];
+
+        public string Name => "record";
+
+        public string Description => "Records the turn selection.";
+
+        public string ParametersJson => """{"type":"object","properties":{}}""";
+
+        public IReadOnlyList<AgentTurnSelection> Selections => _selections;
+
+        public Task<ToolExecutionResult> Execute(
+            ToolInvocation invocation,
+            AgentTurnSelection selection,
+            CancellationToken cancellationToken)
+        {
+            _selections.Add(selection);
+            return Task.FromResult<ToolExecutionResult>("recorded");
+        }
     }
 }

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Parrot.Agent;
 using Parrot.Process;
 using Parrot.Tools.Schema;
 
@@ -17,6 +18,7 @@ internal sealed partial class WaitProcessTool(ShellProcessOwner processes) : ITo
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
+        AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
         var argumentsJson = invocation.ArgumentsJson;

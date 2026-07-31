@@ -1,3 +1,4 @@
+using Parrot.Agent;
 using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
@@ -17,7 +18,10 @@ internal sealed class HeldTool : ITool
 
     public Task Started => _started.Task;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         _started.SetResult();
         await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);

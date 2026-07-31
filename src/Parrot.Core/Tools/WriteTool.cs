@@ -2,15 +2,14 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Parrot.Agent;
 using Parrot.Permissions;
-using Parrot.Security;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
 internal sealed partial class WriteTool(
     ToolWorkspace workspace,
-    SecurityProfile securityProfile,
     SandboxWriteGrants writeGrants) : ITool
 {
     private static readonly UTF8Encoding Utf8WithoutBom = new(false);
@@ -23,7 +22,10 @@ internal sealed partial class WriteTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         var writeGrantSnapshot = writeGrants.Capture();
 
@@ -41,7 +43,7 @@ internal sealed partial class WriteTool(
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var resolved = workspace.ResolveMutation(path, create: true, securityProfile, writeGrantSnapshot);
+            var resolved = workspace.ResolveMutation(path, create: true, selection.SecurityProfile, writeGrantSnapshot);
             FileMutation.RequireRegularFileOrMissing(resolved.Physical);
             var before = File.Exists(resolved.Physical)
                 ? await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false)
@@ -52,7 +54,7 @@ internal sealed partial class WriteTool(
                 return FileMutation.NoChanges;
             }
 
-            resolved = workspace.ResolveMutation(path, create: true, securityProfile, writeGrantSnapshot);
+            resolved = workspace.ResolveMutation(path, create: true, selection.SecurityProfile, writeGrantSnapshot);
             await FileMutation.Write(
                 resolved.Physical,
                 after,

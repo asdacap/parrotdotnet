@@ -16,7 +16,7 @@ internal sealed partial class WaitAgentTool(AgentRegistry agents, AgentSession s
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
         string sessionId;
         int yieldAfterMilliseconds;

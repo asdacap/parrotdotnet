@@ -33,7 +33,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
         var profile = SecurityProfile.Compose(readOnly: false, [], [], []);
-        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile), profile);
+        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile));
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
 
@@ -42,17 +42,20 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{encodedPath}}"],"reason":"update dependency"}"""),
+            Selection(profile),
             cancellationToken)).Text;
-        var missingReason = (await tool.Execute(new ToolInvocation("test-call", $$"""{"paths":["{{encodedPath}}"]}"""), cancellationToken)).Text;
+        var missingReason = (await tool.Execute(new ToolInvocation("test-call", $$"""{"paths":["{{encodedPath}}"]}"""), Selection(profile), cancellationToken)).Text;
         var missingPath = (await tool.Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{Encode(Path.Combine(_root, "missing"))}}"],"reason":"update"}"""),
+            Selection(profile),
             cancellationToken)).Text;
         var unexpected = (await tool.Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{encodedPath}}"],"reason":"update","extra":true}"""),
+            Selection(profile),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).IsEqualTo("Write permission request rejected.");
@@ -75,13 +78,14 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             TimeSpan.FromMinutes(20),
             time);
         var profile = SecurityProfile.Compose(readOnly: false, [], [], []);
-        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile), profile);
+        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile));
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
         var executing = tool.Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}"""),
+            Selection(profile),
             cancellationToken);
         _ = await WaitForPending(broker, cancellationToken);
         await time.WaitForTimer(cancellationToken);
@@ -103,7 +107,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
         var profile = SecurityProfile.Compose(readOnly: true, [], [], []);
-        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile), profile);
+        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile));
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
 
@@ -111,10 +115,22 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             new ToolInvocation(
                 "test-call",
                 $$"""{"paths":["{{Encode(path)}}"],"reason":"update dependency"}"""),
+            Selection(profile),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).Contains("not permitted by the current security profile");
         _ = await Assert.That(broker.Pending()).IsEmpty();
+    }
+
+    private static AgentTurnSelection Selection(SecurityProfile profile)
+    {
+        var provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        return new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            null,
+            profile);
     }
 
     private static string Encode(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal);

@@ -2,12 +2,13 @@ using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Parrot.Agent;
 using Parrot.Security;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile securityProfile) : ITool
+internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
 {
     private const int MaxResults = 1000;
     private const int MaxVisited = 100_000;
@@ -21,7 +22,10 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         string pattern;
         string path;
@@ -72,7 +76,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
             return $"error: {failure.Message}";
         }
 
-        if (!securityProfile.AllowsRead(root.Lexical) || !securityProfile.AllowsRead(root.Physical))
+        if (!selection.SecurityProfile.AllowsRead(root.Lexical) || !selection.SecurityProfile.AllowsRead(root.Physical))
         {
             return "error: access denied";
         }
@@ -96,7 +100,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace, SecurityProfile 
                 regex,
                 results,
                 ref visited,
-                securityProfile,
+                selection.SecurityProfile,
                 timeoutCancellation.Token);
 
             if (results.Count == 0)

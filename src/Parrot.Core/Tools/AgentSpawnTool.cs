@@ -10,8 +10,7 @@ namespace Parrot.Tools;
 internal sealed partial class AgentSpawnTool(
     AgentRegistry agents,
     ModelRouter router,
-    AgentSession session,
-    AgentTurnSelection selection) : ITool
+    AgentSession session) : ITool
 {
     public string Name => "agent_spawn";
 
@@ -20,7 +19,10 @@ internal sealed partial class AgentSpawnTool(
 
     public string ParametersJson => Input.Descriptor;
 
-    public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public async Task<ToolExecutionResult> Execute(
+        ToolInvocation invocation,
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
     {
         string prompt;
         string requestedProfile;

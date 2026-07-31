@@ -11,7 +11,7 @@ namespace Parrot.Agent;
 
 // Per user session, which is what lets it hold that session's tool factories:
 // a factory is constructed with the owner it belongs to, and yields one tool
-// instance per agent turn from there.
+// instance per agent session from there.
 internal sealed class AgentSessionFactory(
     UserSession owner,
     string workingDirectory,

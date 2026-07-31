@@ -1,4 +1,7 @@
+using Parrot.Agent;
+using Parrot.Llm;
 using Parrot.Questions;
+using Parrot.Security;
 using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
@@ -16,6 +19,7 @@ internal sealed class QuestionToolTests
             """;
         var executing = tool.Execute(
             new ToolInvocation("test-call", argumentsJson),
+            Selection(),
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
         var question = pending.Questions.Single();
@@ -43,6 +47,7 @@ internal sealed class QuestionToolTests
             """;
         var executing = new QuestionTool(broker).Execute(
             new ToolInvocation("test-call", argumentsJson),
+            Selection(),
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
@@ -63,7 +68,7 @@ internal sealed class QuestionToolTests
     public async Task Unknown_wire_properties_are_rejected(string argumentsJson, CancellationToken cancellationToken)
     {
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
-        var result = (await new QuestionTool(broker).Execute(new ToolInvocation("test-call", argumentsJson), cancellationToken)).Text;
+        var result = (await new QuestionTool(broker).Execute(new ToolInvocation("test-call", argumentsJson), Selection(), cancellationToken)).Text;
 
         _ = await Assert.That(result).StartsWith("error:");
         _ = await Assert.That(broker.Pending()).IsEmpty();
@@ -78,6 +83,7 @@ internal sealed class QuestionToolTests
             new ToolInvocation(
                 "test-call",
                 """{"questions":[{"id":"colour","prompt":"Pick","options":[{"id":"blue","label":"Blue"}]}]}"""),
+            Selection(),
             cancellationToken);
         _ = await WaitForPending(broker, cancellationToken);
         await time.WaitForTimer(cancellationToken);
@@ -95,12 +101,24 @@ internal sealed class QuestionToolTests
             new ToolInvocation(
                 "test-call",
                 """{"questions":[{"id":"colour","prompt":"Pick","options":[{"id":"blue","label":"Blue"}]}]}"""),
+            Selection(),
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
         broker.Reject(pending.Id);
 
         _ = await Assert.That((await executing).Text).IsEqualTo("error: question request rejected");
+    }
+
+    private static AgentTurnSelection Selection()
+    {
+        var provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        return new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            null,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
     }
 
     private static async Task<PendingQuestionRequest> WaitForPending(

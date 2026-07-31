@@ -12,7 +12,7 @@ internal sealed partial class TodoReadTool(AgentSession session) : ITool
 
     public string ParametersJson => Input.Descriptor;
 
-    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, CancellationToken cancellationToken)
+    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
         try
         {
