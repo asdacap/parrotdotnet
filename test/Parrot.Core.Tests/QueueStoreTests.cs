@@ -1,3 +1,4 @@
+using Parrot.Agent;
 using Parrot.Queues;
 
 namespace Parrot.Core.Tests;
@@ -112,12 +113,15 @@ internal sealed class QueueStoreTests : IDisposable
             _ = persisted.Create("empty", "hidden");
         }
 
+        using var inventory = new QueueInventory();
         using var store = new QueueStore(_directory);
-        using var subscription = store.SubscribeInventory();
+        store.AttachInventory(AgentIdentity.Main("agent-owner", "main"), inventory);
+        using var subscription = inventory.Subscribe();
         var initial = await subscription.Reader.ReadAsync(cancellationToken);
 
         _ = await Assert.That(string.Join(",", initial.Queues.Select(queue => queue.Name))).IsEqualTo("alpha,zeta");
         _ = await Assert.That(initial.Queues[0].Description).IsEqualTo("first");
+        _ = await Assert.That(initial.Queues[0].OwnerAgentSessionId).IsEqualTo("agent-owner");
         _ = await Assert.That(initial.Queues[1].ItemCount).IsEqualTo(2);
 
         _ = await store.Take("alpha", 1, QueueDirection.Front, cancellationToken);
@@ -129,9 +133,11 @@ internal sealed class QueueStoreTests : IDisposable
     [Test]
     public async Task Inventory_coalesces_to_latest_including_empty(CancellationToken cancellationToken)
     {
+        using var inventory = new QueueInventory();
         using var store = new QueueStore(_directory);
         _ = store.Create("work", "tasks");
-        using var subscription = store.SubscribeInventory();
+        store.AttachInventory(AgentIdentity.Main("agent-owner", "main"), inventory);
+        using var subscription = inventory.Subscribe();
         _ = await subscription.Reader.ReadAsync(cancellationToken);
 
         _ = store.Push("work", ["one"], QueueDirection.Back);
@@ -140,6 +146,19 @@ internal sealed class QueueStoreTests : IDisposable
 
         var latest = await subscription.Reader.ReadAsync(cancellationToken);
         _ = await Assert.That(latest.Queues).IsEmpty();
+    }
+
+    [Test]
+    public async Task Disposed_store_rejects_operations()
+    {
+        var store = new QueueStore(_directory);
+        _ = store.Create("work", "tasks");
+        store.Dispose();
+
+        _ = await Assert.That(() => store.Push("work", ["late"], QueueDirection.Back))
+            .Throws<ObjectDisposedException>();
+        _ = await Assert.That(() => store.List("agent-owner"))
+            .Throws<ObjectDisposedException>();
     }
 
     [Test]

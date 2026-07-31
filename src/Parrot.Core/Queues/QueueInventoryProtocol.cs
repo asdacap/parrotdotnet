@@ -7,11 +7,12 @@ internal static class QueueInventoryProtocol
 {
     private const int MaximumEventBytes = 32 * 1024 * 1024;
 
-    public static IEnumerable<Event> Convert(QueueInventorySnapshot inventory)
+    public static IEnumerable<Event> Convert(QueueInventorySnapshot inventory, string rootAgentSessionId)
     {
+        ArgumentException.ThrowIfNullOrEmpty(rootAgentSessionId);
         if (inventory.Queues.Count == 0)
         {
-            yield return Build(inventory.Revision, 0, true, null);
+            yield return Build(inventory.Revision, 0, true, rootAgentSessionId, null);
             yield break;
         }
 
@@ -21,17 +22,24 @@ internal static class QueueInventoryProtocol
                 inventory.Revision,
                 checked((uint)index),
                 index == inventory.Queues.Count - 1,
+                rootAgentSessionId,
                 inventory.Queues[index]);
         }
     }
 
-    private static Event Build(ulong revision, uint chunkIndex, bool finalChunk, QueueState? state)
+    private static Event Build(
+        ulong revision,
+        uint chunkIndex,
+        bool finalChunk,
+        string rootAgentSessionId,
+        QueueState? state)
     {
         var snapshot = new Protocol.QueueSnapshot
         {
             Revision = revision,
             ChunkIndex = chunkIndex,
             FinalChunk = finalChunk,
+            RootAgentSessionId = rootAgentSessionId,
         };
         if (state is not null)
         {
@@ -40,6 +48,10 @@ internal static class QueueInventoryProtocol
                 Name = state.Name,
                 Description = state.Description,
                 ItemCount = state.ItemCount,
+                OwnerAgentSessionId = state.OwnerAgentSessionId,
+                OwnerAgentName = state.OwnerAgentName,
+                ParentAgentSessionId = state.ParentAgentSessionId,
+                ParentAgentName = state.ParentAgentName,
             });
         }
 

@@ -542,10 +542,20 @@ internal sealed class ScriptedInvoker : CallInvoker
             Revision = 0,
             ChunkIndex = 0,
             FinalChunk = true,
+            RootAgentSessionId = userSessionId,
         };
         if (_initialQueues.TryGetValue(userSessionId, out var queues))
         {
-            snapshot.Queues.Add(queues.Select(queue => queue.Clone()));
+            snapshot.Queues.Add(queues.Select(queue =>
+            {
+                var cloned = queue.Clone();
+                if (cloned.OwnerAgentSessionId.Length == 0)
+                {
+                    cloned.OwnerAgentSessionId = userSessionId;
+                }
+
+                return cloned;
+            }));
         }
 
         return new Event { QueueSnapshot = snapshot };

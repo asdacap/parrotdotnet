@@ -36,6 +36,8 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string ModelineLabel => $"agent {Name}";
 
+    public bool IsAgentActive => _activities.Contains(AgentActivity);
+
     public LiveModelAliasIcon? ModelAliasIcon { get; private set; }
 
     public void UpdateName(string name) => _name = name;

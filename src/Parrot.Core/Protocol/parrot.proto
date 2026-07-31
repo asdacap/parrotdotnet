@@ -369,16 +369,21 @@ message ShellProcessSnapshot {
 }
 
 message QueueState {
-  string name        = 1;
-  string description = 2;
-  int32 item_count   = 3;
+  string name                    = 1;
+  string description             = 2;
+  int32 item_count               = 3;
+  string owner_agent_session_id  = 4;
+  string owner_agent_name        = 5;
+  string parent_agent_session_id = 6;
+  string parent_agent_name       = 7;
 }
 
 message QueueSnapshot {
-  uint64 revision             = 1;
-  uint32 chunk_index          = 2;
-  bool final_chunk            = 3;
-  repeated QueueState queues  = 4;
+  uint64 revision                    = 1;
+  uint32 chunk_index                 = 2;
+  bool final_chunk                   = 3;
+  repeated QueueState queues         = 4;
+  string root_agent_session_id       = 5;
 }
 
 message AgentStarted {

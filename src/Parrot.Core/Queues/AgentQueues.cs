@@ -113,8 +113,6 @@ internal sealed class AgentQueues(
         return Parent is not null && await Deliver(Parent.Local, cancellationToken).ConfigureAwait(false);
     }
 
-    public QueueInventorySubscription SubscribeInventory() => Local.SubscribeInventory();
-
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)

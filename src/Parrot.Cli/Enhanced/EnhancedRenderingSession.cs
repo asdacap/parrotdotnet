@@ -26,7 +26,6 @@ internal sealed class EnhancedRenderingSession : IDisposable
     private readonly TerminalSpinner _spinner;
 
     private IReadOnlyList<ILiveBufferItem> _body = [];
-    private IReadOnlyList<ILiveBufferItem> _queueRows = [];
     private IReadOnlyList<ILiveBufferItem> _input;
     private string _mainAgentActivity = string.Empty;
     private string _modelineActivity = string.Empty;
@@ -84,8 +83,7 @@ internal sealed class EnhancedRenderingSession : IDisposable
     internal Task<bool> Run(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        var queues = new QueueSnapshotStreamReader(stream, ReplaceQueueRows);
-        return RunCore(new SessionUsageSnapshotStreamReader(queues, ObserveSessionUsage), cancellationToken);
+        return RunCore(new SessionUsageSnapshotStreamReader(stream, ObserveSessionUsage), cancellationToken);
     }
 
     internal async Task ReplaceInput(
@@ -190,7 +188,6 @@ internal sealed class EnhancedRenderingSession : IDisposable
         try
         {
             _body = [];
-            _queueRows = [];
             _usage.Reset();
             _foreground.Reset();
             _modelineTools.Clear();
@@ -236,7 +233,7 @@ internal sealed class EnhancedRenderingSession : IDisposable
     }
 
     private IReadOnlyList<ILiveBufferItem> Snapshot() =>
-        [.. _body, .. _queueRows, CreateModeline(), .. _input];
+        [.. _body, CreateModeline(), .. _input];
 
     private ModelineValue CreateModeline()
     {
@@ -272,7 +269,8 @@ internal sealed class EnhancedRenderingSession : IDisposable
             CommitBody,
             _toolPresenters,
             UpdateMainAgentActivity);
-        var renderedStream = new ShellProcessSnapshotStreamReader(stream, activity.ReplaceProcesses);
+        var queueStream = new QueueSnapshotStreamReader(stream, activity.ReplaceQueues);
+        var renderedStream = new ShellProcessSnapshotStreamReader(queueStream, activity.ReplaceProcesses);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = activity.Run(animating.Token);
 
@@ -426,34 +424,6 @@ internal sealed class EnhancedRenderingSession : IDisposable
                 _modelineActivity = string.Empty;
             }
         }
-    }
-
-    private async Task ReplaceQueueRows(
-        IReadOnlyList<QueueState> queues,
-        CancellationToken cancellationToken)
-    {
-        var rows = queues
-            .Where(static queue => queue.Name.Length > 0 && queue.ItemCount > 0)
-            .GroupBy(static queue => queue.Name, StringComparer.Ordinal)
-            .Select(static group => group.Last())
-            .OrderBy(static queue => queue.Name, StringComparer.Ordinal)
-            .Select(static queue => (ILiveBufferItem)new QueueLiveBufferItem(
-                queue.Name,
-                queue.Description,
-                queue.ItemCount))
-            .ToArray();
-
-        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            _queueRows = rows;
-        }
-        finally
-        {
-            _ = _composing.Release();
-        }
-
-        _ = _updates.Invalidate();
     }
 
     private async Task UpdateMainAgentActivity(string activity, CancellationToken cancellationToken)

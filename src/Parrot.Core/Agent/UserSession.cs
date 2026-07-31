@@ -166,12 +166,13 @@ internal sealed class UserSession : IAsyncDisposable
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var events = _eventBroker.Subscribe();
-        using var queues = Main().Queues.SubscribeInventory();
+        _ = Main();
+        using var queues = QueueCatalog.SubscribeInventory();
         using var processes = ShellProcesses.SubscribeInventory();
         var initialUsage = _eventRepository.Usage();
 
         var initialQueues = await queues.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        foreach (var published in QueueInventoryProtocol.Convert(initialQueues))
+        foreach (var published in QueueInventoryProtocol.Convert(initialQueues, _mainSessionId))
         {
             yield return published;
         }
@@ -222,7 +223,7 @@ internal sealed class UserSession : IAsyncDisposable
 
                 if (queues.Reader.TryRead(out var snapshot))
                 {
-                    foreach (var published in QueueInventoryProtocol.Convert(snapshot))
+                    foreach (var published in QueueInventoryProtocol.Convert(snapshot, _mainSessionId))
                     {
                         yield return published;
                     }

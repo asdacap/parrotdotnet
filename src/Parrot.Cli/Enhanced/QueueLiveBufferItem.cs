@@ -2,6 +2,8 @@ namespace Parrot.Cli.Enhanced;
 
 internal readonly record struct QueueLiveBufferItem(string Name, string Description, int ItemCount) : ILiveBufferItem
 {
+    public string OwnerAgentSessionId { get; init; } = string.Empty;
+
     public MultiLine Render(LiveBufferRenderContext context)
     {
         var name = Normalize(Name);

@@ -144,9 +144,19 @@ internal sealed class EventPayloadTests
                 Revision = 7,
                 ChunkIndex = 2,
                 FinalChunk = true,
+                RootAgentSessionId = "root-session",
                 Queues =
                 {
-                    new QueueState { Name = "release", Description = "release tasks", ItemCount = 3 },
+                    new QueueState
+                    {
+                        OwnerAgentSessionId = "agent-session",
+                        OwnerAgentName = "worker",
+                        ParentAgentSessionId = "root-session",
+                        ParentAgentName = "main",
+                        Name = "release",
+                        Description = "release tasks",
+                        ItemCount = 3,
+                    },
                 },
             },
         };
@@ -158,6 +168,13 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtripped.QueueSnapshot.Revision).IsEqualTo(7UL);
         _ = await Assert.That(roundtripped.QueueSnapshot.ChunkIndex).IsEqualTo(2U);
         _ = await Assert.That(roundtripped.QueueSnapshot.FinalChunk).IsTrue();
+        _ = await Assert.That(roundtripped.QueueSnapshot.RootAgentSessionId).IsEqualTo("root-session");
+        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].OwnerAgentSessionId)
+            .IsEqualTo("agent-session");
+        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].OwnerAgentName).IsEqualTo("worker");
+        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].ParentAgentSessionId)
+            .IsEqualTo("root-session");
+        _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].ParentAgentName).IsEqualTo("main");
         _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].Name).IsEqualTo("release");
         _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].Description).IsEqualTo("release tasks");
         _ = await Assert.That(roundtripped.QueueSnapshot.Queues[0].ItemCount).IsEqualTo(3);

@@ -300,12 +300,12 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   queues end with that child session.
 - **Note** queue files use bounded, strict JSON Lines and lock directories so
   independent store instances/processes share one read-modify-write discipline.
-  The external replay-latest inventory contains only non-empty
-  root-owned queue names, descriptions, and item counts; child-owned queues are
-  never published to clients. It emits complete snapshots after durable root
-  count changes. Queue contents and internal delivery metadata never cross that
-  boundary, and the in-memory revision is not durable history or a reconnect
-  cursor.
+  The external replay-latest inventory contains every non-empty queue in the
+  user session with its owning agent-session id, name, description, and item
+  count. It emits catalog-wide complete snapshots after durable count changes
+  and omits a child's rows when that child ends. Queue contents and internal
+  delivery metadata never cross that boundary, and the in-memory revision is
+  not durable history or a reconnect cursor.
 
 ### `EventBroker` — rank 3, M1
 
@@ -903,8 +903,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   a turn finishes, because a subagent keeps publishing long afterwards. The
   client decides when it has heard enough; `BasicCli` cancels on `TurnEnded`.
   `UserSession` merges the live-only agent broker with independent replay-latest
-  queue and active-process inventory feeds. The queue feed is deliberately
-  root-only: child-owned queues do not appear in the external client inventory.
+  queue and active-process inventory feeds. The queue feed is a catalog-wide
+  replacement inventory whose rows retain their owning agent-session ids, so
+  child-owned queues attach to the same client hierarchy as agent activity.
   Every listener receives complete initial inventories, including explicit
   empty snapshots. Metered usage is likewise delivered as a complete,
   revisioned `Listen` snapshot: it is a transient latest-state projection, not

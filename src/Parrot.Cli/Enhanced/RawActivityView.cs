@@ -18,6 +18,7 @@ internal sealed class RawActivityView(
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
     private readonly AgentSessionHierarchy _hierarchy = new();
     private readonly Dictionary<string, ProcessState> _processes = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string OwnerAgentSessionId, string Name), QueueLiveBufferItem> _queues = [];
     private readonly HashSet<string> _completedProcesses = new(StringComparer.Ordinal);
     private readonly HashSet<string> _retiredInventoryInstances = new(StringComparer.Ordinal);
     private readonly TimeProvider _timeProvider = TimeProvider.System;
@@ -155,6 +156,7 @@ internal sealed class RawActivityView(
                 _completedProcesses.Clear();
                 foreach (var process in snapshot.Processes)
                 {
+                    ObserveProcessHierarchy(process);
                     _processes.Add(process.ProcessId, ProcessState.Observe(
                         process, snapshot.InventoryInstanceId, snapshot.Revision, _timeProvider.GetTimestamp()));
                 }
@@ -186,6 +188,7 @@ internal sealed class RawActivityView(
             _processes.Clear();
             foreach (var process in snapshot.Processes)
             {
+                ObserveProcessHierarchy(process);
                 if (deferred.TryGetValue(process.ProcessId, out var pending))
                 {
                     _processes.Add(process.ProcessId, pending.Observe(process, snapshot.Revision, _timeProvider.GetTimestamp()));
@@ -222,6 +225,36 @@ internal sealed class RawActivityView(
             {
                 await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
             }
+        }
+        finally
+        {
+            _ = _rendering.Release();
+        }
+    }
+
+    public async Task ReplaceQueues(
+        string rootAgentSessionId,
+        IReadOnlyList<QueueState> queues,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(queues);
+
+        await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _hierarchy.ObserveRoot(rootAgentSessionId);
+            _queues.Clear();
+            foreach (var queue in queues.Where(static queue => queue.Name.Length > 0 && queue.ItemCount > 0))
+            {
+                ObserveQueueHierarchy(queue);
+                var key = (queue.OwnerAgentSessionId, queue.Name);
+                _queues[key] = new QueueLiveBufferItem(queue.Name, queue.Description, queue.ItemCount)
+                {
+                    OwnerAgentSessionId = queue.OwnerAgentSessionId,
+                };
+            }
+
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -359,6 +392,50 @@ internal sealed class RawActivityView(
             null);
     }
 
+    private void ObserveQueueHierarchy(QueueState queue)
+    {
+        _hierarchy.Observe(queue);
+        if (queue.OwnerAgentSessionId.Length > 0)
+        {
+            var state = GetAgentSession(queue.OwnerAgentSessionId);
+            if (!state.HasName && queue.OwnerAgentName.Length > 0)
+            {
+                state.UpdateName(queue.OwnerAgentName);
+            }
+        }
+
+        if (queue.ParentAgentSessionId.Length > 0)
+        {
+            var parent = GetAgentSession(queue.ParentAgentSessionId);
+            if (!parent.HasName && queue.ParentAgentName.Length > 0)
+            {
+                parent.UpdateName(queue.ParentAgentName);
+            }
+        }
+    }
+
+    private void ObserveProcessHierarchy(ActiveShellProcess process)
+    {
+        _hierarchy.Observe(process);
+        if (process.OwnerAgentSessionId.Length > 0)
+        {
+            var state = GetAgentSession(process.OwnerAgentSessionId);
+            if (!state.HasName && process.OwnerAgentName.Length > 0)
+            {
+                state.UpdateName(process.OwnerAgentName);
+            }
+        }
+
+        if (process.ParentAgentSessionId.Length > 0)
+        {
+            var parent = GetAgentSession(process.ParentAgentSessionId);
+            if (!parent.HasName && process.ParentAgentName.Length > 0)
+            {
+                parent.UpdateName(process.ParentAgentName);
+            }
+        }
+    }
+
     private List<ILiveBufferItem> Snapshot()
     {
         var items = new List<ILiveBufferItem>(_content.Count + _activities.Count + 1);
@@ -375,19 +452,59 @@ internal sealed class RawActivityView(
                  || !activity.State.IsAgentActivity(activity.ActivityId))
                 && !activity.State.IsFoldedActivity(activity.ActivityId))
             .ToList();
-        var order = _hierarchy.GetPostOrder(activities.Select(static activity => activity.State.AgentSessionId));
-        items.AddRange(activities
-            .OrderBy(activity => order[activity.State.AgentSessionId])
-            .ThenBy(activity => activity.State.IsAgentActivity(activity.ActivityId) ? 1 : 0)
-            .ThenBy(static activity => activity.ActivityId, StringComparer.Ordinal)
-            .Select(CreateActivityItem));
-        items.AddRange(_processes.Values
+        var processes = _processes.Values
             .Where(process => !IsOriginToolActive(process.Process))
-            .OrderBy(static process => process.Process.Depth)
-            .ThenBy(static process => process.Process.OwnerAgentName, StringComparer.Ordinal)
-            .ThenBy(static process => process.Process.Name, StringComparer.Ordinal)
-            .ThenBy(static process => process.Process.ProcessId, StringComparer.Ordinal)
-            .Select(CreateProcessItem));
+            .ToList();
+        var ownerIds = activities.Select(static activity => activity.State.AgentSessionId)
+            .Concat(processes.Select(static process => process.Process.OwnerAgentSessionId))
+            .Concat(_queues.Keys.Select(static key => key.OwnerAgentSessionId))
+            .Where(static ownerId => ownerId.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var state in _agentSessions.Values)
+        {
+            if (!_hierarchy.IsRoot(state.AgentSessionId)
+                && !state.IsAgentActive
+                && ownerIds.Any(ownerId => string.Equals(ownerId, state.AgentSessionId, StringComparison.Ordinal)
+                    || _hierarchy.IsDescendant(ownerId, state.AgentSessionId)))
+            {
+                _ = ownerIds.Add(state.AgentSessionId);
+            }
+        }
+
+        var order = _hierarchy.GetPostOrder(ownerIds);
+        var rows = new List<(string OwnerId, int Kind, string Id, ILiveBufferItem Item)>();
+        rows.AddRange(activities.Select(activity => (
+            activity.State.AgentSessionId,
+            activity.State.IsAgentActivity(activity.ActivityId) ? 3 : 0,
+            activity.ActivityId,
+            (ILiveBufferItem)CreateActivityItem(activity))));
+        rows.AddRange(processes.Select(process => (
+            process.Process.OwnerAgentSessionId,
+            1,
+            process.Process.ProcessId,
+            (ILiveBufferItem)CreateProcessItem(process))));
+        rows.AddRange(_queues.Values.Select(queue => (
+            queue.OwnerAgentSessionId,
+            2,
+            queue.Name,
+            CreateQueueItem(queue))));
+        rows.AddRange((IEnumerable<(string OwnerId, int Kind, string Id, ILiveBufferItem Item)>)_agentSessions.Values
+            .Where(state => !_hierarchy.IsRoot(state.AgentSessionId)
+                && !state.IsAgentActive
+                && ownerIds.Any(ownerId => string.Equals(ownerId, state.AgentSessionId, StringComparison.Ordinal)
+                    || _hierarchy.IsDescendant(ownerId, state.AgentSessionId))
+                && !activities.Any(activity => ReferenceEquals(activity.State, state)
+                    && state.IsAgentActivity(activity.ActivityId)))
+            .Select(state => (
+                state.AgentSessionId,
+                3,
+                "agent",
+                (ILiveBufferItem)CreateNeutralAgentItem(state))));
+        items.AddRange(rows
+            .OrderBy(row => row.OwnerId.Length == 0 ? int.MinValue : order[row.OwnerId])
+            .ThenBy(static row => row.Kind)
+            .ThenBy(static row => row.Id, StringComparer.Ordinal)
+            .Select(static row => row.Item));
         return items;
     }
 
@@ -538,7 +655,7 @@ internal sealed class RawActivityView(
         }
     }
 
-    private ILiveBufferItem CreateActivityItem((AgentSessionState State, string ActivityId) activity)
+    private HierarchicalLiveValue CreateActivityItem((AgentSessionState State, string ActivityId) activity)
     {
         var value = activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters);
         var isAgentActivity = activity.State.IsAgentActivity(activity.ActivityId);
@@ -560,7 +677,33 @@ internal sealed class RawActivityView(
         && _agentSessions.TryGetValue(process.OwnerAgentSessionId, out var owner)
         && owner.IsToolActive(process.OriginToolCallId);
 
-    private ILiveBufferItem CreateProcessItem(ProcessState process)
+    private ILiveBufferItem CreateQueueItem(QueueLiveBufferItem queue)
+    {
+        if (queue.OwnerAgentSessionId.Length == 0 || _hierarchy.IsRoot(queue.OwnerAgentSessionId))
+        {
+            return queue;
+        }
+
+        var owner = _hierarchy.GetLabel(queue.OwnerAgentSessionId) ?? queue.OwnerAgentSessionId;
+        return new HierarchicalLiveValue(
+            queue,
+            _hierarchy.GetDepth(queue.OwnerAgentSessionId),
+            owner,
+            owner,
+            null,
+            null);
+    }
+
+    private HierarchicalLiveValue CreateNeutralAgentItem(AgentSessionState state) =>
+        new(
+            new NeutralAgentLiveBufferItem(state.Name),
+            Math.Max(0, _hierarchy.GetDepth(state.AgentSessionId) - 1),
+            _hierarchy.GetLabel(state.AgentSessionId),
+            state.Name,
+            "♟",
+            null);
+
+    private HierarchicalLiveValue CreateProcessItem(ProcessState process)
     {
         var owner = process.Process.OwnerAgentName.Length == 0
             ? process.Process.OwnerAgentSessionId
@@ -667,6 +810,14 @@ internal sealed class RawActivityView(
             command);
         _processes[yielded.ProcessId] = state;
         return false;
+    }
+
+    private readonly record struct NeutralAgentLiveBufferItem(string Name) : ILiveBufferItem
+    {
+        public MultiLine Render(LiveBufferRenderContext context) => new(
+            [new TerminalLine($"♟ agent {TerminalText.Sanitize(Name)}", context.Palette.LiveMuted)],
+            null,
+            LiveBufferRetention.Fixed);
     }
 
     private sealed record ProcessState(

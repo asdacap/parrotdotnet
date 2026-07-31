@@ -729,6 +729,75 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Queue_inventory_orders_owner_branches_and_keeps_root_rows_flat(
+        CancellationToken cancellationToken)
+    {
+        var draws = new List<string>();
+        var context = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        using var view = new RawActivityView(
+            (items, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                draws.Add(Render(items, context));
+                return Task.CompletedTask;
+            },
+            static (_, _, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            },
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.ReplaceQueues(
+            "root",
+            [
+                Queue("root", "main", string.Empty, string.Empty, "root-q", "root queue"),
+                Queue("z", "z-parent", "root", "main", "work", "z queue"),
+                Queue("child", "child", "z", "z-parent", "work", "child queue"),
+                Queue("a", "a-sibling", "root", "main", "work", "a queue"),
+            ],
+            cancellationToken);
+
+        var rendered = draws[^1];
+        var a = rendered.IndexOf("[a-sibling]", StringComparison.Ordinal);
+        var child = rendered.IndexOf("[child]", StringComparison.Ordinal);
+        var z = rendered.IndexOf("[z-parent]", StringComparison.Ordinal);
+        var root = rendered.IndexOf("queue: root-q", StringComparison.Ordinal);
+        _ = await Assert.That(a).IsGreaterThanOrEqualTo(0);
+        _ = await Assert.That(child).IsGreaterThan(a);
+        _ = await Assert.That(z).IsGreaterThan(child);
+        _ = await Assert.That(root).IsGreaterThan(z);
+        _ = await Assert.That(Count(rendered, "queue: work")).IsEqualTo(3);
+        _ = await Assert.That(rendered).DoesNotContain("[root]");
+        _ = await Assert.That(Count(rendered, "agent child")).IsEqualTo(1);
+        _ = await Assert.That(Count(rendered, "agent z-parent")).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Queue_inventory_identifies_root_when_attaching_after_turn_started(
+        CancellationToken cancellationToken)
+    {
+        var draws = new List<string>();
+        var context = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        using var view = new RawActivityView(
+            (items, _) =>
+            {
+                draws.Add(Render(items, context));
+                return Task.CompletedTask;
+            },
+            static (_, _, _) => Task.CompletedTask,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+
+        await view.ReplaceQueues(
+            "opaque-root",
+            [Queue("opaque-root", "main", string.Empty, string.Empty, "work", "root queue")],
+            cancellationToken);
+
+        _ = await Assert.That(draws[^1]).IsEqualTo("  queue: work — root queue · 1 item");
+    }
+
+    [Test]
     public async Task Hierarchy_resolves_depth_orphans_cycles_and_post_order()
     {
         var hierarchy = new AgentSessionHierarchy();
@@ -762,6 +831,24 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(order["child"]).IsLessThan(order["root"]);
         _ = await Assert.That(order.Count).IsEqualTo(5);
     }
+
+    private static QueueState Queue(
+        string ownerAgentSessionId,
+        string ownerAgentName,
+        string parentAgentSessionId,
+        string parentAgentName,
+        string name,
+        string description) =>
+        new()
+        {
+            OwnerAgentSessionId = ownerAgentSessionId,
+            OwnerAgentName = ownerAgentName,
+            ParentAgentSessionId = parentAgentSessionId,
+            ParentAgentName = parentAgentName,
+            Name = name,
+            Description = description,
+            ItemCount = 1,
+        };
 
     private static string Render(IReadOnlyList<ILiveBufferItem> items, LiveBufferRenderContext context) =>
         string.Join('|', items.SelectMany(item => item.Render(context).Lines).Select(static line => line.Text));

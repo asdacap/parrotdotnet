@@ -228,7 +228,10 @@ the root's queues directly. Queue names must be unique across each direct
 parent-child edge regardless of which endpoint creates the queue first. Siblings
 may reuse a name because their ownership scopes do not overlap. Root-agent
 queues persist with the user session, while a child-owned queue is removed when
-that child session ends.
+that child session ends. Live clients receive a complete non-empty queue
+inventory for the whole user session; each row carries its owner session id so
+hierarchical interfaces can place it with that agent without broadening queue
+access.
 
 ## Service Transport
 
@@ -337,9 +340,10 @@ Listening state belongs to that invoker, not to the queue, so another consumer
 must enable listening independently. A successful wake result remains short.
 Timeout output inventories only that agent's accessible queues, alongside its
 active processes and direct subagents; `queue_listen` controls wake eligibility,
-not inclusion in this agent-facing status. The external client inventory is
-root-only and never exposes child-owned queues. This activity wait is distinct
-from the specialized `wait_agent`, which reads a retained direct-child result,
+not inclusion in this agent-facing status. The external client inventory spans
+the user session and identifies each queue's owning agent, without changing
+which agents can access that queue. This activity wait is distinct from the
+specialized `wait_agent`, which reads a retained direct-child result,
 and `wait_process`, which waits for one named process.
 
 When `exec_command` yields, its result carries a typed yielded-process handoff

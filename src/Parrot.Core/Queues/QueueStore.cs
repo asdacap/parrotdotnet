@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using Parrot.Agent;
 
 namespace Parrot.Queues;
 
@@ -16,12 +17,110 @@ internal sealed class QueueStore(string directory) : IDisposable
 
     private const UnixFileMode FilePermissions = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
-    private readonly QueueInventoryFeed _inventory = new();
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private Dictionary<string, QueueState>? _inventoryIndex;
-    private ulong _inventoryRevision;
+    private readonly QueueStoreGate _gate = new();
+    private readonly Dictionary<string, QueueState> _pendingInventoryStates = new(StringComparer.Ordinal);
+    private QueueInventory? _inventory;
+    private AgentIdentity? _owner;
+    private bool _attachingInventory;
+    private bool _disposed;
 
     public string Directory { get; } = Provision(directory);
+
+    public void AttachInventory(AgentIdentity owner, QueueInventory inventory)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(inventory);
+        _gate.Retain();
+        try
+        {
+            List<QueueState> states;
+            _gate.Wait();
+            try
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_inventory is not null || _attachingInventory)
+                {
+                    throw new InvalidOperationException("Queue store inventory is already attached.");
+                }
+
+                states = ReadInventoryLocked(owner);
+                _owner = owner;
+                _attachingInventory = true;
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            try
+            {
+                inventory.RegisterOwner(owner.SessionId, states);
+            }
+            catch
+            {
+                _gate.WaitAfterDispose();
+                try
+                {
+                    _pendingInventoryStates.Clear();
+                    _owner = null;
+                    _attachingInventory = false;
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+
+                throw;
+            }
+
+            while (true)
+            {
+                QueueState[] pending;
+                var disposed = false;
+                _gate.WaitAfterDispose();
+                try
+                {
+                    if (_disposed)
+                    {
+                        _pendingInventoryStates.Clear();
+                        _attachingInventory = false;
+                        disposed = true;
+                        pending = [];
+                    }
+                    else if (_pendingInventoryStates.Count == 0)
+                    {
+                        _inventory = inventory;
+                        _attachingInventory = false;
+                        return;
+                    }
+                    else
+                    {
+                        pending = [.. _pendingInventoryStates.Values];
+                        _pendingInventoryStates.Clear();
+                    }
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+
+                if (disposed)
+                {
+                    inventory.UnregisterOwner(owner.SessionId);
+                    throw new ObjectDisposedException(nameof(QueueStore));
+                }
+
+                foreach (var state in pending)
+                {
+                    inventory.Update(state);
+                }
+            }
+        }
+        finally
+        {
+            _gate.ReleaseRetention();
+        }
+    }
 
     public QueueInfo Create(string name, string description)
     {
@@ -32,13 +131,14 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             var metadata = new QueueMetadata { Name = name, Description = description };
             CreateFile(path, Encode(metadata, []), name);
             return ToInfo(path, metadata, 0);
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -52,6 +152,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
             using var held = AcquireFileLockSynchronously(path, timeout.Token);
             var (metadata, stored) = Read(path, name);
@@ -87,7 +188,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -104,6 +205,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             using var held = await AcquireFileLockAsync(path, cancellationToken).ConfigureAwait(false);
             var taken = TakeLocked(path, name, count, direction);
             PublishInventoryLocked(taken.Info);
@@ -111,7 +213,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -120,13 +222,14 @@ internal sealed class QueueStore(string directory) : IDisposable
         direction = ResolveTakeDirection(count, direction);
         var path = ResolvePath(name);
 
-        if (!_gate.Wait(0))
+        if (!_gate.TryWait())
         {
             return new QueueTryTakeResult(false, [], null);
         }
 
         try
         {
+            ThrowIfDisposedLocked();
             using var held = TryAcquireFileLock(path);
 
             if (held is null)
@@ -140,7 +243,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -152,12 +255,13 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             var (metadata, items) = Read(path, name);
             return ToInfo(path, metadata, items.Count, listenerSessionId);
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -168,6 +272,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             if (!System.IO.Directory.Exists(Directory))
             {
                 return [];
@@ -197,7 +302,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -209,6 +314,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
             using var held = AcquireFileLockSynchronously(path, timeout.Token);
             var (current, items) = Read(path, name);
@@ -234,7 +340,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -245,6 +351,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             if (!System.IO.Directory.Exists(Directory))
             {
                 return;
@@ -288,7 +395,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -299,6 +406,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             if (!System.IO.Directory.Exists(Directory))
             {
                 return;
@@ -342,7 +450,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -353,12 +461,13 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             var (metadata, _) = Read(path, name);
             return metadata.ListenerSessionIds ?? [];
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -368,6 +477,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             if (!System.IO.Directory.Exists(Directory))
             {
                 return [];
@@ -387,7 +497,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
@@ -402,6 +512,7 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         try
         {
+            ThrowIfDisposedLocked();
             if (!System.IO.Directory.Exists(Directory))
             {
                 return false;
@@ -462,27 +573,39 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
         finally
         {
-            _ = _gate.Release();
-        }
-    }
-
-    public QueueInventorySubscription SubscribeInventory()
-    {
-        _gate.Wait();
-        try
-        {
-            InitializeInventoryLocked();
-            return _inventory.Subscribe(CaptureInventoryLocked());
-        }
-        finally
-        {
-            _ = _gate.Release();
+            _gate.Release();
         }
     }
 
     public void Dispose()
     {
-        _inventory.Dispose();
+        QueueInventory? inventory;
+        AgentIdentity? owner;
+        _gate.Wait();
+        try
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            inventory = _inventory;
+            owner = _owner;
+            _inventory = null;
+            _owner = null;
+            _pendingInventoryStates.Clear();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (inventory is not null && owner is not null)
+        {
+            inventory.UnregisterOwner(owner.SessionId);
+        }
+
         _gate.Dispose();
     }
 
@@ -894,38 +1017,34 @@ internal sealed class QueueStore(string directory) : IDisposable
         };
     }
 
-    private QueueInventorySnapshot CaptureInventoryLocked()
+    private List<QueueState> ReadInventoryLocked(AgentIdentity owner)
     {
-        var queues = _inventoryIndex?.Values
-            .OrderBy(state => state.Name, StringComparer.Ordinal)
-            .ToArray() ?? [];
-        return new(_inventoryRevision, queues);
-    }
-
-    private void InitializeInventoryLocked()
-    {
-        if (_inventoryIndex is not null)
+        if (!System.IO.Directory.Exists(Directory))
         {
-            return;
+            return [];
         }
 
-        var index = new Dictionary<string, QueueState>(StringComparer.Ordinal);
-        if (System.IO.Directory.Exists(Directory))
+        var states = new List<QueueState>();
+        foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*.jsonl")
+                     .Order(StringComparer.Ordinal))
         {
-            foreach (var path in System.IO.Directory.EnumerateFiles(Directory, "*.jsonl")
-                         .Order(StringComparer.Ordinal))
+            var name = Path.GetFileNameWithoutExtension(path);
+            ValidateName(name);
+            var (metadata, items) = Read(path, name);
+            if (items.Count > 0)
             {
-                var name = Path.GetFileNameWithoutExtension(path);
-                ValidateName(name);
-                var (metadata, items) = Read(path, name);
-                if (items.Count > 0)
-                {
-                    index.Add(name, new(name, metadata.Description ?? string.Empty, items.Count));
-                }
+                states.Add(new(
+                    owner.SessionId,
+                    owner.Name,
+                    owner.ParentSessionId,
+                    owner.ParentSessionName,
+                    name,
+                    metadata.Description ?? string.Empty,
+                    items.Count));
             }
         }
 
-        _inventoryIndex = index;
+        return states;
     }
 
     private void PublishInventoryLocked(QueueMetadata metadata, int itemCount) =>
@@ -933,38 +1052,33 @@ internal sealed class QueueStore(string directory) : IDisposable
 
     private void PublishInventoryLocked(QueueInfo info)
     {
-        if (_inventoryIndex is null)
+        if (_owner is null)
         {
             return;
         }
 
-        var changed = info.Size > 0
-            ? SetInventoryLocked(new(info.Name, info.Description, info.Size))
-            : _inventoryIndex.Remove(info.Name);
-        if (!changed)
+        var state = new QueueState(
+            _owner.SessionId,
+            _owner.Name,
+            _owner.ParentSessionId,
+            _owner.ParentSessionName,
+            info.Name,
+            info.Description,
+            info.Size);
+        if (_inventory is null)
         {
+            if (_attachingInventory)
+            {
+                _pendingInventoryStates[info.Name] = state;
+            }
+
             return;
         }
 
-        _inventoryRevision++;
-        _inventory.Publish(CaptureInventoryLocked());
+        _inventory.Update(state);
     }
 
-    private bool SetInventoryLocked(QueueState state)
-    {
-        if (_inventoryIndex is null)
-        {
-            return false;
-        }
-
-        if (_inventoryIndex.TryGetValue(state.Name, out var current) && current == state)
-        {
-            return false;
-        }
-
-        _inventoryIndex[state.Name] = state;
-        return true;
-    }
+    private void ThrowIfDisposedLocked() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     private string ResolvePath(string name)
     {

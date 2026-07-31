@@ -286,6 +286,36 @@ internal sealed class AgentQueueTests : IDisposable
     }
 
     [Test]
+    public async Task Inventory_aggregates_all_owners_and_removes_a_disposed_child(CancellationToken cancellationToken)
+    {
+        using var catalog = new AgentQueueCatalog(Resources("aggregate-inventory"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        var left = catalog.Register(Child("left-agent", "root-agent", "root", "left", 1));
+        using var right = catalog.Register(Child("right-agent", "root-agent", "root", "right", 1));
+        _ = root.Create("root-work", "root");
+        _ = left.Create("shared-name", "left");
+        _ = right.Create("shared-name", "right");
+        using var subscription = catalog.SubscribeInventory();
+        var initial = await subscription.Reader.ReadAsync(cancellationToken);
+
+        _ = await root.Push("root-work", ["root-item"], QueueDirection.Back, cancellationToken);
+        _ = await left.Push("shared-name", ["left-item"], QueueDirection.Back, cancellationToken);
+        _ = await right.Push("shared-name", ["right-item"], QueueDirection.Back, cancellationToken);
+        var aggregated = await ReadInventory(subscription, 3, cancellationToken);
+
+        _ = await Assert.That(aggregated.Queues).Count().IsEqualTo(3);
+        _ = await Assert.That(aggregated.Revision).IsGreaterThan(initial.Revision);
+        _ = await Assert.That(string.Join(',', aggregated.Queues.Select(queue =>
+            $"{queue.OwnerAgentSessionId}/{queue.Name}")))
+            .IsEqualTo("left-agent/shared-name,right-agent/shared-name,root-agent/root-work");
+
+        left.Dispose();
+        var removed = await ReadInventory(subscription, 2, cancellationToken);
+        _ = await Assert.That(removed.Revision).IsGreaterThan(aggregated.Revision);
+        _ = await Assert.That(removed.Queues.Any(queue => queue.OwnerAgentSessionId == "left-agent")).IsFalse();
+    }
+
+    [Test]
     public async Task Root_registration_adopts_legacy_monitored_queues(CancellationToken cancellationToken)
     {
         var resources = Resources("legacy-adoption");
@@ -308,6 +338,21 @@ internal sealed class AgentQueueTests : IDisposable
         _ = await Assert.That(persisted).Contains("\"listener_session_ids\":[\"root-agent\"]");
         _ = await Assert.That(persisted).Contains("\"delivery_listener_session_id\":\"root-agent\"");
         _ = await Assert.That(persisted).DoesNotContain("\"monitored\":true");
+    }
+
+    private static async Task<QueueInventorySnapshot> ReadInventory(
+        QueueInventorySubscription subscription,
+        int expectedCount,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var snapshot = await subscription.Reader.ReadAsync(cancellationToken);
+            if (snapshot.Queues.Count == expectedCount)
+            {
+                return snapshot;
+            }
+        }
     }
 
     private static AgentIdentity Child(

@@ -6,6 +6,7 @@ namespace Parrot.Queues;
 internal sealed class AgentQueueCatalog : IDisposable
 {
     private readonly Dictionary<string, AgentQueues> _agents = new(StringComparer.Ordinal);
+    private readonly QueueInventory _inventory = new();
     private readonly Lock _gate = new();
     private readonly UserSessionResources _resources;
     private bool _disposed;
@@ -44,6 +45,7 @@ internal sealed class AgentQueueCatalog : IDisposable
 
             try
             {
+                queues.Local.AttachInventory(identity, _inventory);
                 if (identity.Depth == 0)
                 {
                     queues.Local.AdoptRootListener(identity.SessionId);
@@ -85,6 +87,8 @@ internal sealed class AgentQueueCatalog : IDisposable
             return owner.List();
         }
     }
+
+    public QueueInventorySubscription SubscribeInventory() => _inventory.Subscribe();
 
     public async Task Notify(QueueStore store, CancellationToken cancellationToken)
     {
@@ -146,6 +150,8 @@ internal sealed class AgentQueueCatalog : IDisposable
         {
             agent.Dispose();
         }
+
+        _inventory.Dispose();
     }
 
     private static void RemoveStaleAgentQueues(string directory)
