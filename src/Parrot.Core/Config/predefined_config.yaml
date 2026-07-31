@@ -95,10 +95,16 @@ model_aliases:
 # define all four aliases, and each target must select that provider.
 provider_model_alias_defaults:
   chatgpt:
-    low_llm: chatgpt/gpt-5.6-terra/medium
-    medium_llm: chatgpt/gpt-5.6-sol/medium
-    high_llm: chatgpt/gpt-5.6-sol/high
+    low_llm: chatgpt/gpt-5.6-luna/medium
+    medium_llm: chatgpt/gpt-5.6-terra/medium
+    high_llm: chatgpt/gpt-5.6-sol/medium
     xhigh_llm: chatgpt/gpt-5.6-sol/xhigh
+
+  opencode-go:
+    low_llm: opencode-go/deepseek-v4-flash/high
+    medium_llm: opencode-go/deepseek-v4-pro/high
+    high_llm: opencode-go/glm-5.2/high
+    xhigh_llm: opencode-go/kimi-k3/high
 
 # System-prompt augmentations keyed by exact provider/model[/variant] selector.
 # Entries merge by selector. An explicit empty value clears an inherited prompt.
