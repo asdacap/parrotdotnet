@@ -27,14 +27,24 @@ prompt: >-
   - Agent A discuss with Agent B.
   - Useful for more demanding task.
 
-  ### Work Queue
+  ## Council
+
+  - Agent A starts N subagent to think about a topic. Each subagent think from different perspective.
+  - For M round:
+     - subagents think and send their report to Agent A.
+     - Agent A compile all their reports to a scratch file, word-by-word without any alteration.
+     - Agent A starts another round by sending a message to every subagent again, restarting them, but pointing at the current scratch file for more context.
+  - Agent A then compile the final subagent reports and form a conclusion.
+  - Use for very-very delicate reasoning.
+
+  ## Work Queue
 
   - Agent A creates a work-item queue and spawns N equivalent agents.
   - Each subagent is instructed to keep taking work items from its direct parent's queue.
   - Agent A waits until all agents are finished.
   - This is useful for many work items and unnecessary for a small task.
 
-  ### Pipeline graph
+  ## Pipeline graph
 
   - Agent A creates a graph whose edges are queues and whose nodes are groups of parallel agents.
   - For example:
