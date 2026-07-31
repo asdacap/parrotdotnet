@@ -80,6 +80,30 @@ internal sealed class ModelAliasCommandTests
         var invoker = new ScriptedInvoker();
         invoker.ProviderModelAliasDefaults.Add(new ProviderModelAliasDefaults { ProviderId = "z-provider" });
         invoker.ProviderModelAliasDefaults.Add(new ProviderModelAliasDefaults { ProviderId = "a-provider" });
+        invoker.ModelAliases.Add(new ModelAlias
+        {
+            Name = "low_llm",
+            ModelString = "aprov/low-model",
+            Usage = "mechanical work",
+        });
+        invoker.ModelAliases.Add(new ModelAlias
+        {
+            Name = "medium_llm",
+            ModelString = "aprov/med-model",
+            Usage = "component work",
+        });
+        invoker.ModelAliases.Add(new ModelAlias
+        {
+            Name = "high_llm",
+            ModelString = "aprov/high-model",
+            Usage = "general purpose",
+        });
+        invoker.ModelAliases.Add(new ModelAlias
+        {
+            Name = "xhigh_llm",
+            ModelString = "aprov/xhigh-model",
+            Usage = "strategic work",
+        });
         var client = new GeneratedParrot.ParrotClient(invoker);
         var dialog = new TestSlashDialog().Select("/provider-defaults", "a-provider");
 
@@ -88,7 +112,12 @@ internal sealed class ModelAliasCommandTests
         _ = await Assert.That(invoker.AppliedProviderModelAliasDefaults).HasSingleItem();
         _ = await Assert.That(invoker.AppliedProviderModelAliasDefaults[0].ProviderId).IsEqualTo("a-provider");
         _ = await Assert.That(invoker.ConfiguredAliases).IsEmpty();
-        _ = await Assert.That(dialog.Shown).Contains("Model aliases configured from a-provider defaults");
+        _ = await Assert.That(dialog.Shown).Count().IsEqualTo(5);
+        _ = await Assert.That(dialog.Shown[0]).IsEqualTo("Model aliases configured from a-provider defaults:");
+        _ = await Assert.That(dialog.Shown[1]).IsEqualTo("  high_llm = aprov/high-model");
+        _ = await Assert.That(dialog.Shown[2]).IsEqualTo("  low_llm = aprov/low-model");
+        _ = await Assert.That(dialog.Shown[3]).IsEqualTo("  medium_llm = aprov/med-model");
+        _ = await Assert.That(dialog.Shown[4]).IsEqualTo("  xhigh_llm = aprov/xhigh-model");
         _ = await Assert.That(dialog.Pickers[1].Title).IsEqualTo("Select provider defaults");
         _ = await Assert.That(string.Join('|', dialog.Pickers[1].Options.Select(option => option.Id)))
             .IsEqualTo("a-provider|z-provider");
