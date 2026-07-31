@@ -34,9 +34,7 @@ internal sealed partial class WaitProcessTool(ShellProcessOwner processes) : ITo
 
             var process = processes.Claim(name);
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
-            return outcome.Yielded
-                ? outcome.Name
-                : ProcessResultFormatter.Format(outcome.Result ?? throw new InvalidOperationException("Missing result."));
+            return outcome.Format();
         }
         catch (Exception failure) when (failure is JsonException or FormatException or InvalidOperationException)
         {

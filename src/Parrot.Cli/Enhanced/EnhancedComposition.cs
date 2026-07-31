@@ -40,6 +40,7 @@ internal partial class EnhancedComposition
                     new WaitAgentToolPresenter(),
                     new WaitProcessToolPresenter(),
                     new WebFetchToolPresenter(),
+                    new WriteStdinToolPresenter(),
                     new WriteToolPresenter(),
                 ],
                 new GenericToolPresenter()))

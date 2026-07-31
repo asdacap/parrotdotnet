@@ -6,20 +6,12 @@ using Parrot.Store;
 
 namespace Parrot.Process;
 
-// Runs shell commands under bubblewrap. The host filesystem is read-only, the
-// working directory is writable, and there is no fallback: if bubblewrap is
-// not available the command does not run (fail closed). That is the security
-// property M3 exists to establish.
 internal sealed partial class ProcessRunner(string bubblewrapPath)
 {
-    private const int MaxFormattedOutputBytes = 64 << 10;
-    private const int MaxStreamOutputCharacters = 64 << 10;
     private const int WriteAccess = 2;
-
+    private const string SandboxHelperPath = "/run/parrot/parrot-pty-attach";
     private readonly string _bubblewrapPath = ValidateBubblewrapPath(bubblewrapPath, requireTrustedPath: false);
 
-    // An empty path means bubblewrap was not found. Kept as a value rather than
-    // a null so the fail-closed check is explicit.
     public bool SandboxAvailable => _bubblewrapPath.Length > 0;
 
     public static ProcessRunner Locate()
@@ -30,12 +22,13 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
 
     public static ProcessRunner Locate(ExecutableLocator locator) => new(locator.Locate("bwrap"));
 
-    public async Task<ProcessResult> Run(
+    public ShellProcessExecution Start(
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants,
+        ShellProcessTerminalMode terminalMode,
         CancellationToken cancellationToken)
     {
         if (!SandboxAvailable)
@@ -44,185 +37,44 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
                 "bubblewrap is required; install bwrap and enable unprivileged user namespaces");
         }
 
-        var startInfo = new ProcessStartInfo
+        return terminalMode switch
         {
-            FileName = _bubblewrapPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
+            ShellProcessTerminalMode.Pipe => StartPipe(
+                command,
+                environment,
+                resources,
+                securityProfile,
+                writeGrants,
+                cancellationToken),
+            ShellProcessTerminalMode.PseudoTerminal => StartPseudoTerminal(
+                command,
+                environment,
+                resources,
+                securityProfile,
+                writeGrants,
+                cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(terminalMode)),
         };
-
-        foreach (var argument in SandboxArguments(command, environment, resources, securityProfile, writeGrants))
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
-        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
-        _ = process.Start();
-
-        var stdoutTask = ReadBounded(process.StandardOutput, resources.BlobDirectory);
-        var stderrTask = ReadBounded(process.StandardError, resources.BlobDirectory);
-        var exitTask = process.WaitForExitAsync(cancellationToken);
-        ProcessOutput[] output;
-
-        try
-        {
-            var pending = new List<Task> { exitTask, stdoutTask, stderrTask };
-
-            while (pending.Count > 0)
-            {
-                var completed = await Task.WhenAny(pending).ConfigureAwait(false);
-                _ = pending.Remove(completed);
-                await completed.ConfigureAwait(false);
-            }
-
-            output = await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-        }
-        catch
-        {
-            Kill(process);
-            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            await DrainAndDelete(stdoutTask, stderrTask).ConfigureAwait(false);
-            throw;
-        }
-
-        var stdout = output[0];
-        var stderr = output[1];
-
-        try
-        {
-            if (!stdout.Spilled && !stderr.Spilled)
-            {
-                var result = new ProcessResult(process.ExitCode, stdout.Text, stderr.Text, string.Empty);
-
-                if (System.Text.Encoding.UTF8.GetByteCount(ProcessResultFormatter.Format(result))
-                    <= MaxFormattedOutputBytes)
-                {
-                    return result;
-                }
-            }
-
-            var blobPath = await new ProcessOutputBlobStore(resources.BlobDirectory)
-                .Persist(process.ExitCode, stdout, stderr, cancellationToken)
-                .ConfigureAwait(false);
-            return new ProcessResult(process.ExitCode, string.Empty, string.Empty, blobPath);
-        }
-        finally
-        {
-            stdout.DeleteTemporaryFile();
-            stderr.DeleteTemporaryFile();
-        }
     }
 
-    private static void Kill(System.Diagnostics.Process process)
+    public async Task<ProcessResult> Run(
+        string command,
+        ProcessEnvironmentOverrides environment,
+        UserSessionResources resources,
+        SecurityProfile securityProfile,
+        SandboxWriteGrantSnapshot writeGrants,
+        CancellationToken cancellationToken)
     {
-        if (!process.HasExited)
-        {
-            process.Kill(entireProcessTree: true);
-        }
+        await using var execution = Start(
+            command,
+            environment,
+            resources,
+            securityProfile,
+            writeGrants,
+            ShellProcessTerminalMode.Pipe,
+            cancellationToken);
+        return await execution.Result.ConfigureAwait(false);
     }
-
-    private static async Task<ProcessOutput> ReadBounded(StreamReader reader, string blobDirectory)
-    {
-        var output = new System.Text.StringBuilder(MaxStreamOutputCharacters);
-        var buffer = new char[4096];
-        while (true)
-        {
-            var read = await reader.ReadAsync(buffer).ConfigureAwait(false);
-
-            if (read == 0)
-            {
-                return new ProcessOutput(output.ToString(), string.Empty);
-            }
-
-            if (output.Length + read <= MaxStreamOutputCharacters)
-            {
-                _ = output.Append(buffer, 0, read);
-                continue;
-            }
-
-            ProcessOutputBlobStore.EnsureDirectory(blobDirectory);
-            var temporaryPath = TemporaryPath(blobDirectory);
-
-            try
-            {
-                await Spill(reader, output, buffer.AsMemory(0, read), temporaryPath).ConfigureAwait(false);
-                return new ProcessOutput(string.Empty, temporaryPath);
-            }
-            catch
-            {
-                File.Delete(temporaryPath);
-                throw;
-            }
-        }
-    }
-
-    private static async Task DrainAndDelete(params Task<ProcessOutput>[] outputs)
-    {
-        try
-        {
-            var completed = await Task.WhenAll(outputs).ConfigureAwait(false);
-
-            foreach (var output in completed)
-            {
-                output.DeleteTemporaryFile();
-            }
-        }
-        catch
-        {
-            foreach (var task in outputs)
-            {
-                try
-                {
-                    var output = await task.ConfigureAwait(false);
-                    output.DeleteTemporaryFile();
-                }
-                catch
-                {
-                }
-            }
-        }
-    }
-
-    private static async Task Spill(
-        StreamReader reader,
-        System.Text.StringBuilder initial,
-        ReadOnlyMemory<char> firstOverflow,
-        string path)
-    {
-        var fileOptions = new FileStreamOptions
-        {
-            Access = FileAccess.Write,
-            Mode = FileMode.CreateNew,
-            Options = FileOptions.Asynchronous,
-        };
-
-        if (!OperatingSystem.IsWindows())
-        {
-            fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-
-        await using var stream = new FileStream(path, fileOptions);
-        await using var writer = new StreamWriter(stream);
-        await writer.WriteAsync(initial.ToString()).ConfigureAwait(false);
-        await writer.WriteAsync(firstOverflow).ConfigureAwait(false);
-        var buffer = new char[4096];
-
-        while (true)
-        {
-            var read = await reader.ReadAsync(buffer).ConfigureAwait(false);
-
-            if (read == 0)
-            {
-                return;
-            }
-
-            await writer.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
-        }
-    }
-
-    private static string TemporaryPath(string blobDirectory) =>
-        Path.Combine(blobDirectory, $".process-{Guid.NewGuid():n}.tmp");
 
     // Read-only host root first, followed by policy mounts in order.
     // --unshare-* and --cap-drop are the containment; --die-with-parent stops
@@ -232,7 +84,8 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants)
+        SandboxWriteGrantSnapshot writeGrants,
+        string pseudoTerminalHelperPath)
     {
         PreparePrivateRuntime(resources);
         var arguments = new List<string>
@@ -266,11 +119,20 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         AddProtectedRoots(arguments, resources);
         AddPrivateRuntime(arguments, resources);
         AddRuntimeCapabilities(arguments, securityProfile, resources);
-        arguments.AddRange(
-        [
-            "--chdir", resources.Workspace.LaunchDirectory,
-            "--", "/bin/sh", "-c", command,
-        ]);
+
+        if (pseudoTerminalHelperPath.Length > 0)
+        {
+            arguments.AddRange(["--ro-bind", pseudoTerminalHelperPath, SandboxHelperPath]);
+        }
+
+        arguments.AddRange(["--chdir", resources.Workspace.LaunchDirectory, "--"]);
+
+        if (pseudoTerminalHelperPath.Length > 0)
+        {
+            arguments.AddRange([SandboxHelperPath, "--attach", "--"]);
+        }
+
+        arguments.AddRange(["/bin/sh", "-c", command]);
         return arguments;
     }
 
@@ -575,4 +437,111 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
     [LibraryImport("libc", EntryPoint = "access", StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Access(string path, int mode);
+
+    private ShellProcessExecution StartPipe(
+        string command,
+        ProcessEnvironmentOverrides environment,
+        UserSessionResources resources,
+        SecurityProfile securityProfile,
+        SandboxWriteGrantSnapshot writeGrants,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = _bubblewrapPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        foreach (var argument in SandboxArguments(
+                     command,
+                     environment,
+                     resources,
+                     securityProfile,
+                     writeGrants,
+                     string.Empty))
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        var process = new System.Diagnostics.Process { StartInfo = startInfo };
+
+        try
+        {
+            _ = process.Start();
+            return new ShellProcessExecution(process, resources.BlobDirectory, cancellationToken);
+        }
+        catch
+        {
+            process.Dispose();
+            throw;
+        }
+    }
+
+    private ShellProcessExecution StartPseudoTerminal(
+        string command,
+        ProcessEnvironmentOverrides environment,
+        UserSessionResources resources,
+        SecurityProfile securityProfile,
+        SandboxWriteGrantSnapshot writeGrants,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            throw new PlatformNotSupportedException("Pseudo-terminal shell processes require Linux.");
+        }
+
+        var helperPath = Path.Combine(AppContext.BaseDirectory, "parrot-pty-attach");
+
+        if (!File.Exists(helperPath))
+        {
+            throw new FileNotFoundException("The PTY attach helper does not exist.", helperPath);
+        }
+
+        var (master, slave) = LinuxPseudoTerminal.Open();
+        System.Diagnostics.Process? process = null;
+
+        try
+        {
+            LinuxPseudoTerminal.Resize(master, 24, 80);
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = helperPath,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            startInfo.ArgumentList.Add("--bridge");
+            startInfo.ArgumentList.Add($"/proc/{Environment.ProcessId}/fd/{slave}");
+            startInfo.ArgumentList.Add("--");
+            startInfo.ArgumentList.Add(_bubblewrapPath);
+
+            foreach (var argument in SandboxArguments(
+                         command,
+                         environment,
+                         resources,
+                         securityProfile,
+                         writeGrants,
+                         helperPath))
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            process = new System.Diagnostics.Process { StartInfo = startInfo };
+            _ = process.Start();
+            return new ShellProcessExecution(
+                process,
+                master,
+                slave,
+                resources.BlobDirectory,
+                cancellationToken);
+        }
+        catch
+        {
+            process?.Dispose();
+            LinuxPseudoTerminal.Close(master);
+            LinuxPseudoTerminal.Close(slave);
+            throw;
+        }
+    }
 }

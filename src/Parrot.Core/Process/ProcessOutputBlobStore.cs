@@ -88,6 +88,70 @@ internal sealed class ProcessOutputBlobStore
         }
     }
 
+    internal string PersistImmediately(int exitCode, ProcessOutput stdout)
+    {
+        EnsureDirectory(_directory);
+
+        for (var attempt = 0; attempt < MaximumNameAttempts; attempt++)
+        {
+            var name = _nextName();
+
+            if (!string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
+                || !name.EndsWith("-arse.dat", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("The process output blob name must be a safe -arse.dat basename.");
+            }
+
+            var path = Path.Combine(_directory, name);
+
+            FileStream stream;
+
+            try
+            {
+                stream = Open(path);
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                using (stream)
+                using (var writer = new StreamWriter(stream, Utf8WithoutBom))
+                {
+                    writer.Write($"Process exited with code {exitCode}\n[stdout]\n");
+                    stdout.CopyTo(writer);
+                }
+
+                return path;
+            }
+            catch
+            {
+                File.Delete(path);
+                throw;
+            }
+        }
+
+        throw new IOException($"Could not create a unique process output blob in '{_directory}'.");
+    }
+
+    private static FileStream Open(string path)
+    {
+        var options = new FileStreamOptions
+        {
+            Access = FileAccess.Write,
+            Mode = FileMode.CreateNew,
+        };
+
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+
+        return new FileStream(path, options);
+    }
+
     private static async Task Write(
         Stream stream,
         int exitCode,

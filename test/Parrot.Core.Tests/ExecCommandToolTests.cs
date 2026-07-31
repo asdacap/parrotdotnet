@@ -66,15 +66,27 @@ internal sealed class ExecCommandToolTests : IDisposable
             resources,
             new ProcessRunner(CreateSandboxPassThrough(_workspace)),
             CancellationToken.None);
-        var tool = new ExecCommandTool(
-            processes,
-            session,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
-            session.WriteGrants);
+        var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
+        var tool = new ExecCommandTool(processes, session, securityProfile, session.WriteGrants);
+        var selection = new AgentTurnSelection(
+            new ModelSelector(model.Selector),
+            TestModels.Resolve(model),
+            null,
+            securityProfile);
+        var factoryTool = new ExecCommandToolFactory(processes).Create(session, selection);
+        var writeStdinFactoryTool = new WriteStdinToolFactory(processes).Create(session, selection);
+        _ = await Assert.That(factoryTool.Name).IsEqualTo("exec_command");
+        _ = await Assert.That(factoryTool.ParametersJson).IsEqualTo(ExecCommandTool.Input.Descriptor);
+        _ = await Assert.That(writeStdinFactoryTool.Name).IsEqualTo("write_stdin");
+        _ = await Assert.That(writeStdinFactoryTool.ParametersJson).IsEqualTo(WriteStdinTool.Input.Descriptor);
         using var schema = JsonDocument.Parse(tool.ParametersJson);
         var schemaRoot = schema.RootElement;
-        var environmentSchema = schemaRoot.GetProperty("properties").GetProperty("env");
+        var properties = schemaRoot.GetProperty("properties");
+        var environmentSchema = properties.GetProperty("env");
+        var terminalSchema = properties.GetProperty("tty");
         _ = await Assert.That(schemaRoot.GetProperty("additionalProperties").GetBoolean()).IsFalse();
+        _ = await Assert.That(terminalSchema.GetProperty("type").GetString()).IsEqualTo("boolean");
+        _ = await Assert.That(terminalSchema.GetProperty("default").GetBoolean()).IsFalse();
         _ = await Assert.That(environmentSchema.GetProperty("type").GetString()).IsEqualTo("object");
         _ = await Assert.That(environmentSchema.GetProperty("additionalProperties").GetProperty("type").GetString())
             .IsEqualTo("string");

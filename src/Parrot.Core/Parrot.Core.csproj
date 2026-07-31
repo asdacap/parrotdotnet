@@ -17,6 +17,30 @@
     </ItemGroup>
   </Target>
 
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <PtyAttachSource>$(MSBuildProjectDirectory)/Process/Native/parrot-pty-attach.c</PtyAttachSource>
+    <PtyAttachCompiler Condition="'$(RuntimeIdentifier)' == 'linux-musl-x64'">musl-clang</PtyAttachCompiler>
+    <PtyAttachCompiler Condition="'$(PtyAttachCompiler)' == ''">cc</PtyAttachCompiler>
+    <PtyAttachLinkMode Condition="'$(RuntimeIdentifier)' == 'linux-musl-x64'">-static</PtyAttachLinkMode>
+    <PtyAttachOutput>$(ArtifactsPath)/obj/$(MSBuildProjectName)/pty-attach/$(Configuration)/$(RuntimeIdentifier)/parrot-pty-attach</PtyAttachOutput>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <Content Include="$(PtyAttachOutput)"
+             TargetPath="parrot-pty-attach"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <Target Name="BuildPtyAttach"
+          BeforeTargets="GetCopyToOutputDirectoryItems"
+          Inputs="$(PtyAttachSource)"
+          Outputs="$(PtyAttachOutput)"
+          Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(PtyAttachOutput)'))" />
+    <Exec Command="&quot;$(PtyAttachCompiler)&quot; -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror $(PtyAttachLinkMode) -o &quot;$(PtyAttachOutput)&quot; &quot;$(PtyAttachSource)&quot;" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Haikunator" />

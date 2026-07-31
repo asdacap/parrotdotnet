@@ -32,6 +32,7 @@ internal sealed partial class ExecCommandTool(
         ProcessEnvironmentOverrides environment;
         string? name;
         TimeSpan? yieldAfter;
+        ShellProcessTerminalMode terminalMode;
 
         try
         {
@@ -44,6 +45,7 @@ internal sealed partial class ExecCommandTool(
                 : new ProcessEnvironmentOverrides(input.Environment);
             name = input.Name;
             yieldAfter = ToolInputConversion.ConvertDelay(input.YieldAfterMilliseconds, "yield_after_ms");
+            terminalMode = input.Terminal ? ShellProcessTerminalMode.PseudoTerminal : ShellProcessTerminalMode.Pipe;
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -73,12 +75,11 @@ internal sealed partial class ExecCommandTool(
                 environment,
                 session,
                 securityProfile,
-                writeGrants.Capture());
+                writeGrants.Capture(),
+                terminalMode);
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 
-            return outcome.Yielded
-                ? outcome.Name
-                : ProcessResultFormatter.Format(outcome.Result ?? throw new InvalidOperationException("Missing result."));
+            return outcome.Format();
         }
         catch (Exception failure) when (failure is SandboxUnavailableException or InvalidOperationException)
         {
@@ -109,5 +110,10 @@ internal sealed partial class ExecCommandTool(
         [JsonPropertyName("yield_after_ms")]
         [ToolMinimum(0)]
         public long? YieldAfterMilliseconds { get; init; }
+
+        [Description("Run the command in a pseudo-terminal so its standard input can accept later write_stdin calls")]
+        [JsonPropertyName("tty")]
+        [ToolDefaultBool(false)]
+        public bool Terminal { get; init; }
     }
 }

@@ -26,10 +26,9 @@ internal sealed class ShellProcessOwner(
         ProcessEnvironmentOverrides environment,
         AgentSession agent,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants)
+        SandboxWriteGrantSnapshot writeGrants,
+        ShellProcessTerminalMode terminalMode)
     {
-        string name;
-
         lock (_gate)
         {
             if (_settling || lifetime.IsCancellationRequested)
@@ -37,34 +36,26 @@ internal sealed class ShellProcessOwner(
                 throw new InvalidOperationException("The user session is shutting down.");
             }
 
-            name = requestedName ?? GenerateName();
+            var name = requestedName ?? GenerateName();
 
-            if (_processes.TryGetValue(name, out var existing) && !existing.Completed)
+            if (_processes.TryGetValue(name, out var existing) && !existing.Retired)
             {
                 throw new InvalidOperationException($"Shell process name '{name}' is already reserved.");
             }
 
-            var execution = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            var execution = runner.Start(
+                command,
+                environment,
+                resources,
+                securityProfile,
+                writeGrants,
+                terminalMode,
+                lifetime);
 
-            try
-            {
-                var result = runner.Run(
-                    command,
-                    environment,
-                    resources,
-                    securityProfile,
-                    writeGrants,
-                    execution.Token);
-                var process = new ManagedShellProcess(name, agent, result, execution, lifetime);
-                _processes[name] = process;
-                _ownedProcesses.Add(process);
-                return process;
-            }
-            catch
-            {
-                execution.Dispose();
-                throw;
-            }
+            var process = new ManagedShellProcess(name, agent, execution, lifetime);
+            _processes[name] = process;
+            _ownedProcesses.Add(process);
+            return process;
         }
     }
 
@@ -80,6 +71,16 @@ internal sealed class ShellProcessOwner(
             process.Claim();
             return process;
         }
+    }
+
+    public async Task<ShellWaitResult> WriteStdin(
+        string name,
+        string input,
+        TimeSpan yieldAfter,
+        CancellationToken cancellationToken)
+    {
+        var process = Claim(name);
+        return await process.WriteStdin(input, yieldAfter, cancellationToken).ConfigureAwait(false);
     }
 
     public IReadOnlyList<ActiveWorkObservation> Active()

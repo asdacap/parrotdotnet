@@ -1,5 +1,6 @@
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
+using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
 
@@ -113,6 +114,125 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
+    public async Task Activity_redacts_sensitive_chunks_and_tracks_names_by_agent_and_call_id()
+    {
+        var registry = new ToolPresenterRegistry([new WriteStdinToolPresenter()], new GenericToolPresenter());
+        var activity = new EnhancedActivity(registry);
+        var first = new Event
+        {
+            AgentSessionId = "main",
+            ToolCallChunk = new ToolCallChunk
+            {
+                ToolCallId = "shared",
+                ToolName = "write_stdin",
+                ArgumentsFragment = "secret input",
+            },
+        };
+        var continuation = new Event
+        {
+            AgentSessionId = "main",
+            ToolCallChunk = new ToolCallChunk
+            {
+                ToolCallId = "shared",
+                ArgumentsFragment = "more secret input",
+            },
+        };
+        var otherAgent = new Event
+        {
+            AgentSessionId = "child",
+            ToolCallChunk = new ToolCallChunk
+            {
+                ToolCallId = "shared",
+                ArgumentsFragment = "unknown secret input",
+            },
+        };
+
+        activity.Observe(first);
+        var firstText = activity.Format(first, false);
+        activity.Observe(continuation);
+        var continuationText = activity.Format(continuation, false);
+        activity.Observe(otherAgent);
+        var otherText = activity.Format(otherAgent, false);
+
+        _ = await Assert.That(firstText).IsEqualTo("tool call write_stdin: <redacted>");
+        _ = await Assert.That(continuationText).IsEqualTo("tool call write_stdin: <redacted>");
+        _ = await Assert.That(otherText).IsEqualTo("tool call: <redacted>");
+        _ = await Assert.That(firstText + continuationText + otherText).DoesNotContain("secret input");
+    }
+
+    [Test]
+    public async Task Activity_forgets_tracked_names_at_terminal_events_and_turn_completion()
+    {
+        var registry = new ToolPresenterRegistry([new ExecCommandToolPresenter()], new GenericToolPresenter());
+        var activity = new EnhancedActivity(registry);
+        var named = Chunk("main", "call", "exec_command", "visible");
+        activity.Observe(named);
+        activity.Observe(new Event
+        {
+            AgentSessionId = "main",
+            ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "exec_command" },
+        });
+        var afterTerminal = Chunk("main", "call", string.Empty, "terminal secret");
+        var secondNamed = Chunk("main", "other", "exec_command", "visible");
+        activity.Observe(secondNamed);
+        activity.Observe(new Event { AgentSessionId = "main", TurnEnded = new TurnEnded() });
+        var afterTurn = Chunk("main", "other", string.Empty, "turn secret");
+
+        var terminalText = activity.Format(afterTerminal, false);
+        var turnText = activity.Format(afterTurn, false);
+
+        _ = await Assert.That(terminalText).IsEqualTo("tool call: <redacted>");
+        _ = await Assert.That(turnText).IsEqualTo("tool call: <redacted>");
+    }
+
+    [Test]
+    public async Task Write_stdin_shows_only_process_character_count_and_status()
+    {
+        var presenter = new WriteStdinToolPresenter();
+        var registry = new ToolPresenterRegistry([presenter], new GenericToolPresenter());
+        const string secretInput = "secret 🔒";
+        const string secretResult = "private process output";
+        var call = new ToolCallPresentation(
+            "main",
+            "write_stdin",
+            "{\"name\":\"build\",\"input\":\"secret \\uD83D\\uDD12\",\"yield_after_ms\":0}");
+        var terminal = new ToolTerminalPresentation(
+            ToolTerminalStatus.Succeeded,
+            true,
+            secretResult,
+            string.Empty);
+
+        var live = registry.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text);
+        var finished = registry.PresentTerminal(call, terminal)
+            ?? throw new InvalidOperationException("Write stdin terminal presentation missing.");
+        var rendered = finished.Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('\n', live)).Contains("main: write 8 chars to build");
+        _ = await Assert.That(string.Join('\n', rendered)).Contains("main: write 8 chars to build");
+        _ = await Assert.That(string.Join('\n', live)).DoesNotContain(secretInput);
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(secretInput);
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(secretResult);
+        _ = await Assert.That(presenter.Metadata.RedactedInputFields).Contains("input");
+        _ = await Assert.That(presenter.Metadata.SuppressTerminalDetails).IsTrue();
+    }
+
+    [Test]
+    public async Task Write_stdin_is_nonthrowing_for_partial_arguments()
+    {
+        var presenter = new WriteStdinToolPresenter();
+        var call = new ToolCallPresentation("main", "write_stdin", "{\"name\":\"build\",\"input\":\"secret");
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Errored, false, string.Empty, "secret error");
+
+        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines[0].Text;
+        var finished = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+
+        _ = await Assert.That(live).Contains("main: write input to process");
+        _ = await Assert.That(string.Join('\n', finished)).Contains("main: write input to process");
+        _ = await Assert.That(live).DoesNotContain("secret");
+        _ = await Assert.That(string.Join('\n', finished)).DoesNotContain("secret error");
+    }
+
+    [Test]
     public async Task Wait_process_is_live_only_and_modeline_eligible()
     {
         var presenter = new WaitProcessToolPresenter();
@@ -142,6 +262,21 @@ internal sealed class ProcessToolPresenterTests
         _ = await Assert.That(string.Join('\n', live)).Contains(liveExpected);
         _ = await Assert.That(string.Join('\n', terminalLines)).Contains(terminalExpected);
     }
+
+    private static Event Chunk(
+        string agentSessionId,
+        string toolCallId,
+        string toolName,
+        string arguments) => new()
+        {
+            AgentSessionId = agentSessionId,
+            ToolCallChunk = new ToolCallChunk
+            {
+                ToolCallId = toolCallId,
+                ToolName = toolName,
+                ArgumentsFragment = arguments,
+            },
+        };
 
     private sealed class ControlledTimeProvider : TimeProvider
     {

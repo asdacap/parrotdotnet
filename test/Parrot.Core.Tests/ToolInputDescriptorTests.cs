@@ -30,12 +30,34 @@ internal sealed class ToolInputDescriptorTests
             ("wait_agent", WaitAgentTool.Input.Descriptor, false),
             ("wait_process", WaitProcessTool.Input.Descriptor, true),
             ("web_fetch", WebFetchTool.Input.Descriptor, false),
+            ("write_stdin", WriteStdinTool.Input.Descriptor, false),
             ("write", WriteTool.Input.Descriptor, false),
         };
 
-        _ = await Assert.That(descriptors.Length).IsEqualTo(21);
+        _ = await Assert.That(descriptors.Length).IsEqualTo(22);
         _ = await Assert.That(string.Join(",", descriptors.Select(descriptor => descriptor.Name)))
-            .IsEqualTo("agent_send,agent_spawn,edit,exec_command,glob,grep,interrupt_process,question,queue_create,queue_info,queue_listen,queue_push,queue_take,read,status,todoread,todowrite,wait_agent,wait_process,web_fetch,write");
+            .IsEqualTo("agent_send,agent_spawn,edit,exec_command,glob,grep,interrupt_process,question,queue_create,queue_info,queue_listen,queue_push,queue_take,read,status,todoread,todowrite,wait_agent,wait_process,web_fetch,write_stdin,write");
+
+        using (var execCommand = JsonDocument.Parse(ExecCommandTool.Input.Descriptor))
+        {
+            var terminal = execCommand.RootElement.GetProperty("properties").GetProperty("tty");
+            _ = await Assert.That(terminal.GetProperty("type").GetString()).IsEqualTo("boolean");
+            _ = await Assert.That(terminal.GetProperty("default").GetBoolean()).IsFalse();
+        }
+
+        using (var writeStdin = JsonDocument.Parse(WriteStdinTool.Input.Descriptor))
+        {
+            var root = writeStdin.RootElement;
+            var properties = root.GetProperty("properties");
+            _ = await Assert.That(string.Join(",", properties.EnumerateObject().Select(property => property.Name)))
+                .IsEqualTo("name,input,yield_after_ms");
+            _ = await Assert.That(string.Join(",", root.GetProperty("required").EnumerateArray()
+                .Select(item => item.GetString())))
+                .IsEqualTo("name,input");
+            var yieldAfter = properties.GetProperty("yield_after_ms");
+            _ = await Assert.That(yieldAfter.GetProperty("minimum").GetInt64()).IsEqualTo(0);
+            _ = await Assert.That(yieldAfter.GetProperty("default").GetInt64()).IsEqualTo(250);
+        }
 
         foreach (var (_, descriptor, omitsAdditionalProperties) in descriptors)
         {

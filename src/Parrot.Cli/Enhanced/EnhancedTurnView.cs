@@ -1,4 +1,5 @@
 using System.Text;
+using Parrot.Cli.Enhanced.Tools;
 using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced;
@@ -10,7 +11,8 @@ internal sealed class EnhancedTurnView(
     Func<int> columns,
     bool renderActivityEvents,
     bool color,
-    ForegroundTurn foreground)
+    ForegroundTurn foreground,
+    ToolPresenterRegistry presenters)
 {
     private const string Dim = "\u001b[2m";
     private const string Cyan = "\u001b[36m";
@@ -18,6 +20,7 @@ internal sealed class EnhancedTurnView(
     private const string Red = "\u001b[31m";
     private const string Reset = "\u001b[0m";
 
+    private readonly EnhancedActivity _activity = new(presenters);
     private readonly MarkdownLiveRenderer _live = new(columns, color);
     private readonly StringBuilder _reasoning = new();
     private MarkdownLiveUpdate? _pendingTextCompletion;
@@ -49,6 +52,7 @@ internal sealed class EnhancedTurnView(
     public async Task<bool?> Render(Event published, CancellationToken cancellationToken)
     {
         foreground.Observe(published);
+        _activity.Observe(published);
 
         switch (published.PayloadCase)
         {
@@ -180,7 +184,7 @@ internal sealed class EnhancedTurnView(
             _ => Dim,
         };
         return Commit(
-            ImmediateScrollbackValue.Trusted([$"{style}  {EnhancedActivity.Format(published, _started)}{Reset}"]),
+            ImmediateScrollbackValue.Trusted([$"{style}  {_activity.Format(published, _started)}{Reset}"]),
             cancellationToken);
     }
 

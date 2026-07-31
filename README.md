@@ -379,6 +379,11 @@ dotnet publish src/Parrot.Cli/Parrot.Cli.csproj -c Release -r linux-musl-x64
 ./artifacts/publish/Parrot.Cli/release_linux-musl-x64/parrot version
 ```
 
+Linux build and publish output also contains `parrot-pty-attach` beside
+`parrot`. The CLI resolves this private pseudo-terminal helper from its own
+application directory; Nix additionally installs it in `bin` so the wrapped
+CLI and the helper are available from the same package.
+
 The dev shell supplies .NET SDK 10, clang, lld, zlib, and a musl cross
 toolchain. Native AOT shells out to a C toolchain and a linker, which on NixOS
 are not on a fixed path, so publishing outside the shell fails at the link step.

@@ -23,6 +23,7 @@ internal partial class AgentSessionComposition
                 return arguments.ToolFactories
                     .Prepend<IToolFactory>(new InterruptProcessToolFactory(processes))
                     .Prepend(new WaitProcessToolFactory(processes))
+                    .Prepend(new WriteStdinToolFactory(processes))
                     .Prepend(new ExecCommandToolFactory(processes))
                     .ToArray();
             })

@@ -29,6 +29,12 @@
           nugetDeps = ./nix/deps.json;
           executables = ["parrot"];
 
+          nativeBuildInputs = [pkgs.stdenv.cc];
+
+          postInstall = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+            install -Dm755 "$out/lib/parrot/parrot-pty-attach" "$out/bin/parrot-pty-attach"
+          '';
+
           dotnet-sdk = sdk;
           # The binary now hosts ASP.NET Core (serve), so it needs that runtime,
           # not just the base one.
@@ -85,6 +91,7 @@
               *) args+=("$a") ;;
             esac
           done
+          unset NIX_CFLAGS_COMPILE NIX_LDFLAGS NIX_HARDENING_ENABLE
           exec ${muslToolchain}/bin/x86_64-unknown-linux-musl-gcc "''${args[@]}"
         '';
       in {

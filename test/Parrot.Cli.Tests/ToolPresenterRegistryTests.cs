@@ -78,6 +78,44 @@ internal sealed class ToolPresenterRegistryTests
     }
 
     [Test]
+    public async Task Registry_redacts_sensitive_input_and_terminal_details_before_specialized_and_fallback_presenters()
+    {
+        var registry = new ToolPresenterRegistry([new SensitiveFailingToolPresenter()], new GenericToolPresenter());
+        const string inputSecret = "secret 🔒";
+        const string resultSecret = "private result";
+        var call = new ToolCallPresentation(
+            "main",
+            "sensitive",
+            "{\"name\":\"build\",\"input\":\"secret \\uD83D\\uDD12\"}");
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, resultSecret, string.Empty);
+
+        var live = registry.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text);
+        var finished = registry.PresentTerminal(call, terminal)
+            ?? throw new InvalidOperationException("Fallback terminal presentation missing.");
+        var rendered = finished.Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('\n', live)).Contains("<redacted: 8 chars>");
+        _ = await Assert.That(string.Join('\n', rendered)).Contains("<redacted: 8 chars>");
+        _ = await Assert.That(string.Join('\n', live)).DoesNotContain(inputSecret);
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(inputSecret);
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain(resultSecret);
+    }
+
+    [Test]
+    public async Task Registry_replaces_malformed_sensitive_input_with_constant_marker()
+    {
+        var registry = new ToolPresenterRegistry([new SensitiveFailingToolPresenter()], new GenericToolPresenter());
+        const string malformed = "{\"input\":\"secret";
+        var call = new ToolCallPresentation("main", "sensitive", malformed);
+
+        var live = registry.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text);
+
+        _ = await Assert.That(string.Join('\n', live)).Contains("<redacted>");
+        _ = await Assert.That(string.Join('\n', live)).DoesNotContain("secret");
+        _ = await Assert.That(string.Join('\n', live)).DoesNotContain(malformed);
+    }
+
+    [Test]
     public async Task Structured_presenters_fall_back_to_the_compact_spill_notice()
     {
         var registry = new ToolPresenterRegistry([new TodoReadToolPresenter()], new GenericToolPresenter());
@@ -91,6 +129,53 @@ internal sealed class ToolPresenterRegistryTests
         var rendered = presented.Render(ScrollbackContext);
 
         _ = await Assert.That(string.Join('\n', rendered)).Contains(notice);
+    }
+
+    [Test]
+    public async Task Registry_redacts_sensitive_presentations_before_falling_back()
+    {
+        var registry = new ToolPresenterRegistry([new SensitiveFailingToolPresenter()], new GenericToolPresenter());
+        var call = new ToolCallPresentation(
+            "main",
+            "sensitive",
+            "{\"input\":\"secret😀\",\"name\":\"worker\"}");
+        var terminal = new ToolTerminalPresentation(
+            ToolTerminalStatus.Errored,
+            true,
+            "secret result",
+            "secret error");
+
+        var live = registry.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text).ToArray();
+        var completed = registry.PresentTerminal(call, terminal)
+            ?? throw new InvalidOperationException("The fallback presenter must render terminal output.");
+        var scrollback = completed.Render(ScrollbackContext);
+        var rendered = string.Join('\n', live.Concat(scrollback));
+
+        _ = await Assert.That(rendered).Contains("<redacted: 7 chars>");
+        _ = await Assert.That(rendered).Contains("worker");
+        _ = await Assert.That(rendered).DoesNotContain("secret😀");
+        _ = await Assert.That(rendered).DoesNotContain("secret result");
+        _ = await Assert.That(rendered).DoesNotContain("secret error");
+    }
+
+    [Test]
+    public async Task Redactor_conceals_non_string_fields_and_invalid_json()
+    {
+        var metadata = ToolPresentationMetadata.Default with
+        {
+            RedactedInputFields = ["input"],
+        };
+        var structured = ToolPresentationRedactor.Redact(
+            new ToolCallPresentation("main", "sensitive", "{\"input\":{\"secret\":true},\"safe\":42}"),
+            metadata);
+        var invalid = ToolPresentationRedactor.Redact(
+            new ToolCallPresentation("main", "sensitive", "not-json secret"),
+            metadata);
+
+        _ = await Assert.That(structured.ArgumentsJson).Contains("<redacted>");
+        _ = await Assert.That(structured.ArgumentsJson).Contains("\"safe\":42");
+        _ = await Assert.That(structured.ArgumentsJson).DoesNotContain("secret");
+        _ = await Assert.That(invalid.ArgumentsJson).IsEqualTo("<redacted>");
     }
 
     [Test]
@@ -164,6 +249,24 @@ internal sealed class ToolPresenterRegistryTests
         _ = await Assert.That(spawnReport.Metadata.TerminalOnly).IsTrue();
         _ = await Assert.That(wait.Metadata.LiveOnly).IsTrue();
         _ = await Assert.That(wait.Metadata.Modeline).IsTrue();
+    }
+
+    private sealed class SensitiveFailingToolPresenter : IToolPresenter
+    {
+        public string ToolName => "sensitive";
+
+        public ToolPresentationMetadata Metadata { get; } = ToolPresentationMetadata.Default with
+        {
+            RedactedInputFields = ["input"],
+            SuppressTerminalDetails = true,
+        };
+
+        public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
+            throw new FormatException("Use fallback.");
+
+        public IScrollbackItem? PresentTerminal(
+            ToolCallPresentation call,
+            ToolTerminalPresentation terminal) => throw new FormatException("Use fallback.");
     }
 
     private sealed class LiveOnlyToolPresenter : IToolPresenter

@@ -58,21 +58,24 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
             security,
-            SandboxWriteGrantSnapshot.Empty);
+            SandboxWriteGrantSnapshot.Empty,
+            ShellProcessTerminalMode.Pipe);
         var secondProcess = second.Start(
             "shared",
             "sleep 30",
             ProcessEnvironmentOverrides.Empty,
             secondAgent,
             security,
-            SandboxWriteGrantSnapshot.Empty);
+            SandboxWriteGrantSnapshot.Empty,
+            ShellProcessTerminalMode.Pipe);
         var firstOnlyProcess = first.Start(
             "first-only",
             "sleep 30",
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
             security,
-            SandboxWriteGrantSnapshot.Empty);
+            SandboxWriteGrantSnapshot.Empty,
+            ShellProcessTerminalMode.Pipe);
         _ = await firstProcess.Wait(TimeSpan.Zero, cancellationToken);
         _ = await secondProcess.Wait(TimeSpan.Zero, cancellationToken);
         _ = await firstOnlyProcess.Wait(TimeSpan.Zero, cancellationToken);

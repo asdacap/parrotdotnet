@@ -6,25 +6,24 @@ namespace Parrot.Process;
 internal sealed class ManagedShellProcess
 {
     private readonly AgentSession _agent;
-    private readonly CancellationTokenSource _execution;
+    private readonly ShellProcessExecution _execution;
     private readonly CancellationToken _lifetime;
     private readonly Lock _gate = new();
-    private readonly Task<ProcessResult> _result;
     private readonly Task _delivery;
     private TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Task _retirement = Task.CompletedTask;
+    private long _cursor;
     private bool _claimed = true;
     private bool _delivered;
 
     public ManagedShellProcess(
         string name,
         AgentSession agent,
-        Task<ProcessResult> result,
-        CancellationTokenSource execution,
+        ShellProcessExecution execution,
         CancellationToken lifetime)
     {
         Name = name;
         _agent = agent;
-        _result = result;
         _execution = execution;
         _lifetime = lifetime;
         _delivery = DeliverWhenUnclaimed();
@@ -32,7 +31,18 @@ internal sealed class ManagedShellProcess
 
     public string Name { get; }
 
-    public bool Completed => _result.IsCompleted;
+    public bool Completed => _execution.Result.IsCompleted;
+
+    public bool Retired
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _delivered;
+            }
+        }
+    }
 
     public void Claim()
     {
@@ -53,31 +63,18 @@ internal sealed class ManagedShellProcess
         }
     }
 
-    public async Task<ShellWaitResult> Wait(TimeSpan? yieldAfter, CancellationToken cancellationToken)
+    public Task<ShellWaitResult> Wait(TimeSpan? yieldAfter, CancellationToken cancellationToken) =>
+        WaitForOutput(yieldAfter, cancellationToken);
+
+    public async Task<ShellWaitResult> WriteStdin(
+        string input,
+        TimeSpan yieldAfter,
+        CancellationToken cancellationToken)
     {
         try
         {
-            if (yieldAfter is null)
-            {
-                var result = await _result.WaitAsync(cancellationToken).ConfigureAwait(false);
-                MarkWaitDelivered();
-                return new ShellWaitResult(Name, result);
-            }
-
-            var delay = Task.Delay(yieldAfter.Value, cancellationToken);
-            var resultTask = _result.WaitAsync(cancellationToken);
-            var completed = await Task.WhenAny(resultTask, delay).ConfigureAwait(false);
-
-            if (completed == resultTask)
-            {
-                var result = await resultTask.ConfigureAwait(false);
-                MarkWaitDelivered();
-                return new ShellWaitResult(Name, result);
-            }
-
-            await delay.ConfigureAwait(false);
-            ReleaseClaim();
-            return new ShellWaitResult(Name, null);
+            await _execution.WriteStdin(input, cancellationToken).ConfigureAwait(false);
+            return await WaitForOutput(yieldAfter, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -86,68 +83,152 @@ internal sealed class ManagedShellProcess
         }
         catch
         {
-            MarkWaitDelivered();
+            ReleaseClaim();
             throw;
         }
     }
 
     public async Task<ProcessResult?> Interrupt(CancellationToken cancellationToken)
     {
-        await _execution.CancelAsync().ConfigureAwait(false);
+        await _execution.Cancel().ConfigureAwait(false);
 
         try
         {
-            var result = await _result.WaitAsync(cancellationToken).ConfigureAwait(false);
-            MarkWaitDelivered();
-            return result;
+            _ = await _execution.Result.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return CommitCompleted().Result;
         }
-        catch (OperationCanceledException) when (_execution.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            MarkWaitDelivered();
+            ReleaseClaim();
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            MarkDelivered();
             return null;
         }
         catch
         {
-            MarkWaitDelivered();
+            MarkDelivered();
             throw;
         }
     }
 
     public async Task Settle()
     {
-        Task delivery;
-
-        lock (_gate)
-        {
-            delivery = _delivery;
-        }
-
         try
         {
-            await delivery.ConfigureAwait(false);
+            await _delivery.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {
-            _execution.Dispose();
+            await _execution.DisposeAsync().ConfigureAwait(false);
+            await _retirement.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
+    }
+
+    private static void DeleteSpeculativeBlob(CompletedRead? completed)
+    {
+        if (completed is { StartCursor: > 0, Result.Result: { Spilled: true } result })
+        {
+            File.Delete(result.BlobPath);
+        }
+    }
+
+    private async Task<ShellWaitResult> WaitForOutput(
+        TimeSpan? yieldAfter,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (yieldAfter is null)
+            {
+                _ = await _execution.Result.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return CommitCompleted();
+            }
+
+            var delay = Task.Delay(yieldAfter.Value, cancellationToken);
+            var resultTask = _execution.Result.WaitAsync(cancellationToken);
+            var completed = await Task.WhenAny(resultTask, delay).ConfigureAwait(false);
+
+            if (completed == resultTask)
+            {
+                _ = await resultTask.ConfigureAwait(false);
+                return CommitCompleted();
+            }
+
+            await delay.ConfigureAwait(false);
+            return CommitRunning();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            ReleaseClaim();
+            throw;
+        }
+        catch
+        {
+            MarkDelivered();
+            throw;
+        }
+    }
+
+    private ShellWaitResult CommitRunning()
+    {
+        TaskCompletionSource released;
+        string output;
+
+        lock (_gate)
+        {
+            if (_execution.Result.IsCompleted)
+            {
+                return CommitCompletedLocked();
+            }
+
+            (_cursor, output) = _execution.ReadTranscript(_cursor);
+            _claimed = false;
+            released = _released;
+        }
+
+        _ = released.TrySetResult();
+        return new ShellWaitResult(Name, true, output, null);
+    }
+
+    private ShellWaitResult CommitCompleted()
+    {
+        lock (_gate)
+        {
+            return CommitCompletedLocked();
+        }
+    }
+
+    private ShellWaitResult CommitCompletedLocked()
+    {
+        var (cursor, result) = _execution.ReadResult(_cursor);
+        _cursor = cursor;
+        RetireLocked();
+        _ = _released.TrySetResult();
+        return new ShellWaitResult(Name, false, string.Empty, result);
     }
 
     private async Task DeliverWhenUnclaimed()
     {
-        string output;
+        string? failureText = null;
 
         try
         {
-            output = ProcessResultFormatter.Format(
-                await _result.WaitAsync(CancellationToken.None).ConfigureAwait(false));
+            _ = await _execution.Result.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
             return;
         }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
         catch (Exception failure)
         {
-            output = $"error: {failure.Message}";
+            failureText = $"error: {failure.Message}";
         }
 
         while (true)
@@ -163,7 +244,8 @@ internal sealed class ManagedShellProcess
 
                 if (!_claimed)
                 {
-                    _delivered = true;
+                    _claimed = true;
+                    _released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     break;
                 }
 
@@ -173,31 +255,91 @@ internal sealed class ManagedShellProcess
             await released.ConfigureAwait(false);
         }
 
-        var text = $"Shell process '{Name}' completed.\n{output}";
+        CompletedRead? completed = null;
 
         try
         {
-            _ = await _agent
-                .Admit(text, Identifier.MessageId(), Delivery.Steer, _lifetime)
-                .ConfigureAwait(false);
+            var output = failureText;
+
+            if (output is null)
+            {
+                completed = ReadCompleted();
+                output = completed.Result.Format();
+            }
+
+            var text = $"Shell process '{Name}' completed.\n{output}";
+            var messageId = Identifier.MessageId();
+
+            try
+            {
+                _ = await _agent
+                    .Admit(text, messageId, Delivery.Steer, _lifetime)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                _ = await _agent
+                    .Admit(text, messageId, Delivery.Steer, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+
+            CommitDelivered(completed);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
+            DeleteSpeculativeBlob(completed);
+            ReleaseClaim();
+        }
+        catch
+        {
+            DeleteSpeculativeBlob(completed);
+            ReleaseClaim();
         }
     }
 
-    private void MarkWaitDelivered()
+    private CompletedRead ReadCompleted()
+    {
+        lock (_gate)
+        {
+            var startCursor = _cursor;
+            var (finalCursor, result) = _execution.ReadResult(startCursor);
+            return new CompletedRead(
+                startCursor,
+                finalCursor,
+                new ShellWaitResult(Name, false, string.Empty, result));
+        }
+    }
+
+    private void CommitDelivered(CompletedRead? completed)
     {
         TaskCompletionSource released;
 
         lock (_gate)
         {
-            _delivered = true;
-            _claimed = false;
+            if (completed is not null)
+            {
+                if (_cursor != completed.StartCursor)
+                {
+                    throw new InvalidOperationException($"Shell process '{Name}' output was consumed concurrently.");
+                }
+
+                _cursor = completed.FinalCursor;
+            }
+
+            RetireLocked();
             released = _released;
         }
 
         _ = released.TrySetResult();
+    }
+
+    private void MarkDelivered()
+    {
+        lock (_gate)
+        {
+            RetireLocked();
+            _ = _released.TrySetResult();
+        }
     }
 
     private void ReleaseClaim()
@@ -215,4 +357,17 @@ internal sealed class ManagedShellProcess
 
         _ = released?.TrySetResult();
     }
+
+    private void RetireLocked()
+    {
+        _delivered = true;
+        _claimed = false;
+
+        if (_retirement.IsCompletedSuccessfully)
+        {
+            _retirement = _execution.DisposeAsync().AsTask();
+        }
+    }
+
+    private sealed record CompletedRead(long StartCursor, long FinalCursor, ShellWaitResult Result);
 }

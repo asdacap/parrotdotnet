@@ -579,7 +579,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn());
+        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn(), Presenters());
         var text = new Event { TextChunk = new TextChunk { Fragment = "pending" } };
         await view.Prepare(text, cancellationToken);
         _ = await view.Render(text, cancellationToken);
@@ -614,7 +614,7 @@ internal sealed class EnhancedCliTests
         }
 
         using var error = new StringWriter();
-        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn());
+        var view = new EnhancedTurnView(Draw, Commit, error, static () => 80, false, false, new ForegroundTurn(), Presenters());
         _ = await view.Render(
             new Event { TextChunk = new TextChunk { Fragment = "complete line\nsuffix" } },
             cancellationToken);
