@@ -1,9 +1,8 @@
 using Parrot.Agent;
-using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueueTakeToolFactory(QueueStore queues) : IToolFactory
+internal sealed class QueueTakeToolFactory : IToolFactory
 {
-    public ITool Create(AgentSession session, AgentTurnSelection selection) => new QueueTakeTool(queues);
+    public ITool Create(AgentSession session, AgentTurnSelection selection) => new QueueTakeTool(session.Queues);
 }

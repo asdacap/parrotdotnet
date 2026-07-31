@@ -304,7 +304,7 @@ internal sealed class EventPayloadTests
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             registry: null,
-            owner: null,
+            queues: TestModels.Queues(AgentIdentity.Main("session", string.Empty)),
             CancellationToken.None);
 
         var llmEvent = source switch

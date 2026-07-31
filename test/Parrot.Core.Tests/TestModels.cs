@@ -1,12 +1,18 @@
+using System.Collections.Concurrent;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Llm;
+using Parrot.Queues;
+using Parrot.State;
+using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
 internal static class TestModels
 {
+    private static readonly ConcurrentBag<AgentQueueCatalog> QueueCatalogs = [];
+
     public static IReadOnlyDictionary<string, ProfileConfig> Profiles { get; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
         {
@@ -38,6 +44,24 @@ internal static class TestModels
                 true,
                 []),
         };
+
+    public static AgentQueues Queues(AgentIdentity identity)
+    {
+        var root = Directory.CreateDirectory(
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"))).FullName;
+        var resources = new UserSessionResources(
+            new StatePaths(root, root, root),
+            UserSessionId.Parse(Guid.NewGuid().ToString("N")),
+            ProjectWorkspace.FromLaunchDirectory(root));
+        var catalog = new AgentQueueCatalog(resources);
+        QueueCatalogs.Add(catalog);
+        if (identity.ParentSessionId.Length > 0)
+        {
+            _ = catalog.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName));
+        }
+
+        return catalog.Register(identity);
+    }
 
     public static ProfileRegistry ProfileRegistry() =>
         new(Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));

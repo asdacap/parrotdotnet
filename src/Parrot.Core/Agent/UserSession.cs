@@ -24,7 +24,6 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly SessionResourceLease _resources;
     private readonly Lock _mainGate = new();
     private readonly UserSessionModes _modes;
-    private readonly SemaphoreSlim _queueDelivery = new(1, 1);
 
     // What every drain inside this session is bounded by. It is owned here
     // rather than by an agent session because the drain outlives the request
@@ -71,11 +70,11 @@ internal sealed class UserSession : IAsyncDisposable
         Mode = modes.Resolve(state.Mode);
         Questions = new QuestionBroker(userInputTimeout, timeProvider);
         Permissions = new PermissionBroker(_eventBroker, _eventRepository, interactivePermissions, userInputTimeout, timeProvider);
-        Queues = agentSessionFactories.CreateQueues(this);
+        QueueCatalog = agentSessionFactories.CreateQueueCatalog(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _lifetime.Token);
-        Status = new RuntimeStatus(Queues, ShellProcesses, Registry);
+        Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry);
         Registry.AttachStatus(Status);
     }
 
@@ -101,7 +100,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal UserSessionResources Resources => _resources.Resources;
 
-    internal QueueStore Queues { get; }
+    internal AgentQueueCatalog QueueCatalog { get; }
 
     internal ShellProcessOwners ShellProcesses { get; }
 
@@ -167,7 +166,7 @@ internal sealed class UserSession : IAsyncDisposable
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var events = _eventBroker.Subscribe();
-        using var queues = Queues.SubscribeInventory();
+        using var queues = Main().Queues.SubscribeInventory();
         using var processes = ShellProcesses.SubscribeInventory();
 
         var initialQueues = await queues.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
@@ -292,55 +291,12 @@ internal sealed class UserSession : IAsyncDisposable
         _lifetime.Dispose();
         _eventBroker.Dispose();
         ShellProcesses.Dispose();
-        Queues.Dispose();
-        _queueDelivery.Dispose();
+        QueueCatalog.Dispose();
         _agents.Clear();
         await _resources.DisposeAsync().ConfigureAwait(false);
     }
 
     internal IReadOnlyList<ActiveWorkObservation> ActiveWork() => [.. ShellProcesses.Active(), .. Registry.Active()];
-
-    internal async Task<bool> DeliverMonitored(AgentSession root, CancellationToken cancellationToken)
-    {
-        if (!CanDeliverMonitored(root))
-        {
-            return false;
-        }
-
-        await _queueDelivery.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (!CanDeliverMonitored(root))
-            {
-                return false;
-            }
-
-            return await Queues.DeliverMonitored(root.ReceiveQueueNotification, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            return false;
-        }
-        finally
-        {
-            _ = _queueDelivery.Release();
-        }
-    }
-
-    internal async Task NotifyQueuePush(CancellationToken cancellationToken)
-    {
-        try
-        {
-            _ = await DeliverMonitored(Main(), cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception)
-        {
-        }
-    }
-
-    private static bool CanDeliverMonitored(AgentSession root) =>
-        root.Depth == 0 && (root.IsIdle() || root.IsWaitingForIncomingInput());
 
     // Built once, on the first prompt. Under a lock because SendMessage arrives
     // on gRPC handler threads and two concurrent first prompts would otherwise

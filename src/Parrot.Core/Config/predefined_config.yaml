@@ -29,29 +29,29 @@ prompt: >-
 
   ### Work Queue
 
-  - Agent A create a work item queue and spawn N equivalent agents.
-  - Each subagent is instructed to keep taking work item from the task queue.
-  - Agent A wait until all agent is finished.
-  - Useful for large number of work item. Unnecessary for small number of task.
+  - Agent A creates a work-item queue and spawns N equivalent agents.
+  - Each subagent is instructed to keep taking work items from its direct parent's queue.
+  - Agent A waits until all agents are finished.
+  - This is useful for many work items and unnecessary for a small task.
 
-  ### Pipelines graph
+  ### Pipeline graph
 
-  - Agent A create a graph where the edge are queues and nodes are multiple parallel agent.
-  - eg:
-    - Agent A create 3 queue.
+  - Agent A creates a graph whose edges are queues and whose nodes are groups of parallel agents.
+  - For example:
+    - Agent A creates three queues:
       - request queue
       - verify queue
       - result queue
-    - It then create 3 sets of agent.
-      - request spawners: create requests
-      - workers: take request and push to verify queue once done or skip directly to result queue
-      - verifier: take item from verify queue, send to result if ok, send back to request if need more work.
-    - Agent A itself take result queue.
+    - It then creates three sets of agents:
+      - request spawners create requests
+      - workers take requests and push them to the verify queue, or skip directly to the result queue
+      - verifiers take items from the verify queue and send them to results or back to requests for more work
+    - Agent A takes from the result queue.
 
-  Do not use the same queue for different role. For example using the same queue for request and result.
-  Do not use different subagent consumer prompt for the same queue. The queue item should be of same type.
-  Do not limit an agent to take only one item from the queue. If so, then no need for a queue, just spawn multiple subagent.
-  It is preferable that queue consumer use queue_listen+wait rather than polling. Additionally a turn will automatically start on queue item although subagent will send notification to parent once finished before that.
+  A queue belongs to the agent that creates it. An agent resolves its own queues first and can also access only its direct parent's queues; a parent cannot access a child's queue, a sibling cannot access another sibling's queue, and a grandchild cannot access the root's queues directly. Queue names must be unique across a parent-child edge in either creation order, but siblings may reuse the same name because they have separate ownership scopes. Prefer parent-owned work queues when several children collaborate.
+  Do not use the same queue for different roles, such as both requests and results. Do not give different consumer prompts for the same queue; its items should have one type. Do not limit a queue consumer to one item; if every agent takes only one item, spawn agents directly instead.
+  queue_listen applies only to the invoking agent, so each consumer that should wake for a queue must enable listening itself. Prefer queue_listen+wait over polling. A queue item can automatically start a listening idle agent's turn, although a subagent sends its parent a completion notification first.
+  Root-agent queues persist with the user session. Child-owned queues exist only for that child agent's lifetime.
 
 
 # Default model selected as provider/model, optionally followed by /variant.

@@ -193,7 +193,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             ["queue_create"],
             new HashSet<string>(["queue_create"], StringComparer.Ordinal))));
 
-        _ = await Assert.That(enabled).Contains("use queue");
+        _ = await Assert.That(enabled).Contains("use a parent-owned queue");
         _ = await Assert.That(disallowed).IsEmpty();
         _ = await Assert.That(disabled).IsEmpty();
     }
@@ -264,7 +264,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
             registry: null,
-            owner: null,
+            queues: TestModels.Queues(AgentIdentity.Main("agent", string.Empty)),
             cancellationToken);
 
         _ = await session.Send(

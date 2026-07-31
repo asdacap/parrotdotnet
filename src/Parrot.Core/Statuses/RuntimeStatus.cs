@@ -9,7 +9,7 @@ internal sealed class RuntimeStatus
     private readonly StatusRegistry _full;
 
     public RuntimeStatus(
-        QueueStore queues,
+        AgentQueueCatalog queues,
         IActiveWorkSource processes,
         IActiveWorkSource subagents)
     {

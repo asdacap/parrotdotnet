@@ -12,5 +12,5 @@ internal interface IAgentSessionFactorySource
 
     ShellProcessOwners CreateShellProcesses(UserSession owner);
 
-    QueueStore CreateQueues(UserSession owner);
+    AgentQueueCatalog CreateQueueCatalog(UserSession owner);
 }

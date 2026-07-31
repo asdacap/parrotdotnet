@@ -32,6 +32,6 @@ internal sealed class AgentSessionFactorySource(
     public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
         new(owner.Resources, processes, owner.Lifetime);
 
-    public QueueStore CreateQueues(UserSession owner) =>
-        new(owner.Resources.QueueDirectory);
+    public AgentQueueCatalog CreateQueueCatalog(UserSession owner) =>
+        new(owner.Resources);
 }

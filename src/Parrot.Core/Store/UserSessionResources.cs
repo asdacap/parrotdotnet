@@ -21,6 +21,7 @@ internal sealed class UserSessionResources
         DatabasePath = RequireContained(Root, Path.Combine(Root, "session.db"));
         BlobDirectory = RequireContained(Root, Path.Combine(Root, "blob"));
         QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
+        AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
         PlanDirectory = RequireContained(Root, Path.Combine(Root, "plan"));
         RuntimeDirectory = RequireContained(Root, Path.Combine(Root, "runtime"));
         RuntimeHomeDirectory = RequireContained(RuntimeDirectory, Path.Combine(RuntimeDirectory, "home"));
@@ -54,6 +55,8 @@ internal sealed class UserSessionResources
 
     public string QueueDirectory { get; }
 
+    public string AgentQueueRootDirectory { get; }
+
     public string PlanDirectory { get; }
 
     public string RuntimeDirectory { get; }
@@ -67,6 +70,21 @@ internal sealed class UserSessionResources
     public IReadOnlyList<string> ProtectedRoots => _protectedRoots;
 
     public bool Owns(string path) => Contains(Root, Path.GetFullPath(path));
+
+    public string AgentQueueDirectory(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        if (sessionId is "." or ".."
+            || sessionId.Any(char.IsWhiteSpace)
+            || sessionId.Contains('/', StringComparison.Ordinal)
+            || sessionId.Contains('\\', StringComparison.Ordinal)
+            || !string.Equals(Path.GetFileName(sessionId), sessionId, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("An agent session id must be one path segment.", nameof(sessionId));
+        }
+
+        return RequireContained(AgentQueueRootDirectory, Path.Combine(AgentQueueRootDirectory, sessionId));
+    }
 
     private static string RequireContained(string root, string path)
     {

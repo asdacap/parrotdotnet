@@ -30,7 +30,7 @@ internal sealed class QueueStoreTests : IDisposable
 
         _ = await Assert.That(string.Join(",", back.Items)).IsEqualTo("three,one");
         _ = await Assert.That(string.Join(",", front.Items)).IsEqualTo("two,zero");
-        _ = await Assert.That(store.Get("build-work-now").Size).IsEqualTo(0);
+        _ = await Assert.That(store.Get("build-work-now", "agent-a").Size).IsEqualTo(0);
         _ = await Assert.That(() => store.TryTake("build-work-now", 1, QueueDirection.Front))
             .Throws<QueueEmptyException>();
     }
@@ -42,17 +42,24 @@ internal sealed class QueueStoreTests : IDisposable
         using var store = new QueueStore(_directory);
         _ = store.Create("alpha-work", string.Empty);
         _ = store.Push("alpha-work", ["first", "second"], QueueDirection.Back);
-        _ = store.Monitor("alpha-work", true);
+        _ = store.Monitor("alpha-work", "agent-a", true);
+        _ = store.Monitor("alpha-work", "agent-b", true);
         var ids = new List<string>();
 
         var rejected = await store.DeliverMonitored(
+            "agent-a",
             (notification, _) =>
             {
                 ids.Add(notification.Id);
                 return Task.FromResult(false);
             },
             cancellationToken);
+        var wrongListener = await store.DeliverMonitored(
+            "agent-b",
+            (_, _) => Task.FromResult(true),
+            cancellationToken);
         var accepted = await store.DeliverMonitored(
+            "agent-a",
             (notification, _) =>
             {
                 ids.Add(notification.Id);
@@ -61,11 +68,35 @@ internal sealed class QueueStoreTests : IDisposable
             cancellationToken);
 
         _ = await Assert.That(rejected).IsFalse();
+        _ = await Assert.That(wrongListener).IsFalse();
         _ = await Assert.That(accepted).IsTrue();
         _ = await Assert.That(ids[0]).IsEqualTo(ids[1]);
         _ = await Assert.That(ids[0]).StartsWith("qnt-");
-        _ = await Assert.That(store.Get("alpha-work").Size).IsEqualTo(1);
-        _ = await Assert.That(store.Get("alpha-work").Monitored).IsTrue();
+        _ = await Assert.That(store.Get("alpha-work", "agent-a").Size).IsEqualTo(1);
+        _ = await Assert.That(store.Get("alpha-work", "agent-a").Monitored).IsTrue();
+        _ = await Assert.That(store.Get("alpha-work", "agent-c").Monitored).IsFalse();
+    }
+
+    [Test]
+    public async Task Listener_queries_are_distinct_sorted_and_persisted()
+    {
+        using (var store = new QueueStore(_directory))
+        {
+            _ = store.Create("alpha-work", string.Empty);
+            _ = store.Create("beta-work", string.Empty);
+            _ = store.Monitor("alpha-work", "agent-b", true);
+            _ = store.Monitor("alpha-work", "agent-a", true);
+            _ = store.Monitor("beta-work", "agent-b", true);
+            _ = store.Monitor("alpha-work", "agent-b", false);
+        }
+
+        using var restored = new QueueStore(_directory);
+        _ = await Assert.That(string.Join(',', restored.ListenerSessionIds("alpha-work"))).IsEqualTo("agent-a");
+        _ = await Assert.That(string.Join(',', restored.ListenerSessionIds())).IsEqualTo("agent-a,agent-b");
+        _ = await Assert.That(restored.List("agent-a").Single(queue => queue.Name == "alpha-work").Monitored)
+            .IsTrue();
+        _ = await Assert.That(restored.List("agent-b").Single(queue => queue.Name == "alpha-work").Monitored)
+            .IsFalse();
     }
 
     [Test]

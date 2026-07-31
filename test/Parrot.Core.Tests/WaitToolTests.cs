@@ -37,10 +37,11 @@ internal sealed class WaitToolTests : IDisposable
     {
         var time = new ManualTimeProvider();
         var provider = new UnusedProvider();
-        var session = Session(provider, owner: null, [], selectedRepository: null);
-        using var queues = new QueueStore(Path.Combine(_root, "schema-queues"));
+        using var queueCatalog = QueueCatalog("schema-queues");
+        using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
+        var session = Session(provider, [], selectedRepository: null, queues);
         _ = queues.Create("work", "queued work");
-        _ = queues.Push("work", ["item"], QueueDirection.Back);
+        _ = await queues.Push("work", ["item"], QueueDirection.Back, cancellationToken);
         var processes = new ActiveWorkSource(
             new ActiveWorkObservation(
                 "agent/process",
@@ -54,7 +55,7 @@ internal sealed class WaitToolTests : IDisposable
                 ActiveWorkKind.Agent,
                 ActiveWorkState.Running));
         var tool = new WaitTool(
-            new RuntimeStatus(queues, processes, subagents),
+            new RuntimeStatus(queueCatalog, processes, subagents),
             session,
             Selection(provider),
             time);
@@ -105,11 +106,12 @@ internal sealed class WaitToolTests : IDisposable
     {
         var repository = new EventRepository(_database);
         var provider = new UnusedProvider();
-        var session = Session(provider, owner: null, [], repository);
-        using var queues = new QueueStore(Path.Combine(_root, "pending-queues"));
+        using var queueCatalog = QueueCatalog("pending-queues");
+        using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
+        var session = Session(provider, [], repository, queues);
         var unobserved = new UnobservedActiveWorkSource();
         var tool = new WaitTool(
-            new RuntimeStatus(queues, unobserved, unobserved),
+            new RuntimeStatus(queueCatalog, unobserved, unobserved),
             session,
             Selection(provider),
             TimeProvider.System);
@@ -132,11 +134,12 @@ internal sealed class WaitToolTests : IDisposable
     public async Task Cancellation_clears_the_wait_registration(CancellationToken cancellationToken)
     {
         var provider = new UnusedProvider();
-        var session = Session(provider, owner: null, [], selectedRepository: null);
-        using var queues = new QueueStore(Path.Combine(_root, "cancellation-queues"));
+        using var queueCatalog = QueueCatalog("cancellation-queues");
+        using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
+        var session = Session(provider, [], selectedRepository: null, queues);
         var unobserved = new UnobservedActiveWorkSource();
         var tool = new WaitTool(
-            new RuntimeStatus(queues, unobserved, unobserved),
+            new RuntimeStatus(queueCatalog, unobserved, unobserved),
             session,
             Selection(provider),
             TimeProvider.System);
@@ -157,10 +160,11 @@ internal sealed class WaitToolTests : IDisposable
             LLMEvent.Completed("tool_calls", 1, 0, 1, string.Empty, [new LLMToolCall("wait-call", "wait", "{}")]),
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
-        using var queues = new QueueStore(Path.Combine(_root, "round-queues"));
+        using var queueCatalog = QueueCatalog("round-queues");
+        using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
         var active = new ActiveWorkSource();
-        var factory = new WaitToolFactory(new RuntimeStatus(queues, active, active), TimeProvider.System);
-        var session = Session(provider, owner: null, [factory], repository);
+        var factory = new WaitToolFactory(new RuntimeStatus(queueCatalog, active, active), TimeProvider.System);
+        var session = Session(provider, [factory], repository, queues);
 
         _ = await session.Admit("first", "message-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -184,6 +188,155 @@ internal sealed class WaitToolTests : IDisposable
         var lifecycle = repository.Replay().Where(published => published.PayloadCase is
             Event.PayloadOneofCase.ToolStarted or Event.PayloadOneofCase.ToolFinished).ToArray();
         _ = await Assert.That(lifecycle.Length).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Child_listener_wakes_and_drains_a_direct_parents_queue(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        var repository = new EventRepository(_database);
+        using var queueCatalog = QueueCatalog("parent-listener-queues");
+        using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent"));
+        using var childQueues = queueCatalog.Register(
+            AgentIdentity.Child("child", "parent", "parent", "child", 1));
+        var child = Session(
+            provider,
+            [],
+            repository,
+            childQueues,
+            AgentIdentity.Child("child", "parent", "parent", "child", 1));
+        _ = parentQueues.Create("parent-work", string.Empty);
+        _ = await childQueues.Listen("parent-work", true, cancellationToken);
+        var waiting = child.WaitForIncomingInput(TimeSpan.FromMinutes(1), TimeProvider.System, cancellationToken);
+        await WaitUntil(child.IsWaitingForIncomingInput, cancellationToken);
+
+        _ = await parentQueues.Push("parent-work", ["from-parent"], QueueDirection.Back, cancellationToken);
+
+        _ = await Assert.That(await waiting).IsTrue();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(string.Join('\n', provider.Requests.Single().Messages.Select(message => message.Content)))
+            .Contains("Queue notification from \"parent-work\":\n\nfrom-parent");
+        _ = await Assert.That(parentQueues.Get("parent-work").Size).IsEqualTo(0);
+        provider.Release();
+        await child.Settled();
+    }
+
+    [Test]
+    public async Task Competing_listeners_deliver_one_item_to_only_one_wait(CancellationToken cancellationToken)
+    {
+        using var firstProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        using var secondProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        var repository = new EventRepository(_database);
+        using var queueCatalog = QueueCatalog("competing-listener-queues");
+        using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent"));
+        using var firstQueues = queueCatalog.Register(
+            AgentIdentity.Child("first-child", "parent", "parent", "first", 1));
+        using var secondQueues = queueCatalog.Register(
+            AgentIdentity.Child("second-child", "parent", "parent", "second", 1));
+        var first = Session(
+            firstProvider,
+            [],
+            repository,
+            firstQueues,
+            AgentIdentity.Child("first-child", "parent", "parent", "first", 1));
+        var second = Session(
+            secondProvider,
+            [],
+            repository,
+            secondQueues,
+            AgentIdentity.Child("second-child", "parent", "parent", "second", 1));
+        _ = parentQueues.Create("shared-work", string.Empty);
+        _ = await firstQueues.Listen("shared-work", true, cancellationToken);
+        _ = await secondQueues.Listen("shared-work", true, cancellationToken);
+        using var firstWaitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var secondWaitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var firstWaiting = first.WaitForIncomingInput(
+            TimeSpan.FromMinutes(1), TimeProvider.System, firstWaitCancellation.Token);
+        var secondWaiting = second.WaitForIncomingInput(
+            TimeSpan.FromMinutes(1), TimeProvider.System, secondWaitCancellation.Token);
+        await WaitUntil(
+            () => first.IsWaitingForIncomingInput() && second.IsWaitingForIncomingInput(),
+            cancellationToken);
+
+        _ = await parentQueues.Push("shared-work", ["single-item"], QueueDirection.Back, cancellationToken);
+        _ = await Task.WhenAll(
+            firstQueues.Deliver(cancellationToken),
+            secondQueues.Deliver(cancellationToken));
+
+        _ = await Assert.That(firstWaiting.IsCompleted ^ secondWaiting.IsCompleted).IsTrue();
+        _ = await Assert.That(firstProvider.Requests.Count + secondProvider.Requests.Count).IsEqualTo(1);
+        _ = await Assert.That(parentQueues.Get("shared-work").Size).IsEqualTo(0);
+
+        if (firstWaiting.IsCompleted)
+        {
+            _ = await Assert.That(await firstWaiting).IsTrue();
+            await firstProvider.Arrived(cancellationToken);
+            await secondWaitCancellation.CancelAsync();
+            _ = await Assert.That(secondWaiting).Throws<OperationCanceledException>();
+            firstProvider.Release();
+            await first.Settled();
+        }
+        else
+        {
+            _ = await Assert.That(await secondWaiting).IsTrue();
+            await secondProvider.Arrived(cancellationToken);
+            await firstWaitCancellation.CancelAsync();
+            _ = await Assert.That(firstWaiting).Throws<OperationCanceledException>();
+            secondProvider.Release();
+            await second.Settled();
+        }
+    }
+
+    [Test]
+    public async Task Disabling_one_listener_leaves_another_listener_active(CancellationToken cancellationToken)
+    {
+        using var disabledProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        using var activeProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        var repository = new EventRepository(_database);
+        using var queueCatalog = QueueCatalog("disabled-listener-queues");
+        using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent"));
+        using var disabledQueues = queueCatalog.Register(
+            AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1));
+        using var activeQueues = queueCatalog.Register(
+            AgentIdentity.Child("active-child", "parent", "parent", "active", 1));
+        var disabled = Session(
+            disabledProvider,
+            [],
+            repository,
+            disabledQueues,
+            AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1));
+        var active = Session(
+            activeProvider,
+            [],
+            repository,
+            activeQueues,
+            AgentIdentity.Child("active-child", "parent", "parent", "active", 1));
+        _ = parentQueues.Create("shared-work", string.Empty);
+        _ = await disabledQueues.Listen("shared-work", true, cancellationToken);
+        _ = await activeQueues.Listen("shared-work", true, cancellationToken);
+        _ = await disabledQueues.Listen("shared-work", false, cancellationToken);
+        using var disabledWaitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var disabledWaiting = disabled.WaitForIncomingInput(
+            TimeSpan.FromMinutes(1), TimeProvider.System, disabledWaitCancellation.Token);
+        var activeWaiting = active.WaitForIncomingInput(TimeSpan.FromMinutes(1), TimeProvider.System, cancellationToken);
+        await WaitUntil(
+            () => disabled.IsWaitingForIncomingInput() && active.IsWaitingForIncomingInput(),
+            cancellationToken);
+
+        _ = await parentQueues.Push("shared-work", ["active-item"], QueueDirection.Back, cancellationToken);
+        _ = await activeQueues.Deliver(cancellationToken);
+
+        _ = await Assert.That(await activeWaiting).IsTrue();
+        await activeProvider.Arrived(cancellationToken);
+        _ = await Assert.That(disabledWaiting.IsCompleted).IsFalse();
+        _ = await Assert.That(disabledProvider.Requests).IsEmpty();
+        _ = await Assert.That(string.Join('\n', activeProvider.Requests.Single().Messages.Select(message => message.Content)))
+            .Contains("Queue notification from \"shared-work\":\n\nactive-item");
+        _ = await Assert.That(parentQueues.Get("shared-work").Size).IsEqualTo(0);
+        await disabledWaitCancellation.CancelAsync();
+        _ = await Assert.That(disabledWaiting).Throws<OperationCanceledException>();
+        activeProvider.Release();
+        await active.Settled();
     }
 
     [Test]
@@ -212,22 +365,21 @@ internal sealed class WaitToolTests : IDisposable
 
         _ = await owner.Send("first", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
-        _ = owner.Queues.Create("ignored", string.Empty);
-        _ = owner.Queues.Push("ignored", ["no wake"], Parrot.Queues.QueueDirection.Back);
-        _ = owner.Queues.Create("work", string.Empty);
-        _ = owner.Queues.Monitor("work", true);
-        _ = owner.Queues.Push("work", ["queued"], Parrot.Queues.QueueDirection.Back);
-        await owner.NotifyQueuePush(cancellationToken);
-        _ = await Assert.That(owner.Queues.Get("work").Size).IsEqualTo(1);
+        var session = await sessions.WaitForSession(cancellationToken);
+        _ = session.Queues.Create("ignored", string.Empty);
+        _ = await session.Queues.Push("ignored", ["no wake"], QueueDirection.Back, cancellationToken);
+        _ = session.Queues.Create("work", string.Empty);
+        _ = await session.Queues.Listen("work", true, cancellationToken);
+        _ = await session.Queues.Push("work", ["queued"], QueueDirection.Back, cancellationToken);
+        _ = await Assert.That(session.Queues.Get("work").Size).IsEqualTo(1);
 
         provider.Release();
-        _ = await sessions.WaitForSession(cancellationToken);
         await provider.Arrived(cancellationToken);
 
         _ = await Assert.That(string.Join('\n', provider.Requests[1].Messages.Select(message => message.Content)))
             .Contains("Queue notification from \"work\":\n\nqueued");
-        _ = await Assert.That(owner.Queues.Get("work").Size).IsEqualTo(0);
-        _ = await Assert.That(owner.Queues.Get("ignored").Size).IsEqualTo(1);
+        _ = await Assert.That(session.Queues.Get("work").Size).IsEqualTo(0);
+        _ = await Assert.That(session.Queues.Get("ignored").Size).IsEqualTo(1);
         provider.Release();
     }
 
@@ -250,22 +402,34 @@ internal sealed class WaitToolTests : IDisposable
     }
 
     private SessionResourceLease Resources(string ownerId) => SessionResourceLease.Own(
-        new UserSessionResources(
-            new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-            UserSessionId.Parse(ownerId),
-            ProjectWorkspace.FromLaunchDirectory(_root)),
+        UserSessionResources(ownerId),
         _database);
+
+    private AgentQueueCatalog QueueCatalog(string ownerId) => new(UserSessionResources(ownerId));
+
+    private UserSessionResources UserSessionResources(string ownerId) => new(
+        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+        UserSessionId.Parse(ownerId),
+        ProjectWorkspace.FromLaunchDirectory(_root));
 
     private AgentSession Session(
         ILLMProvider provider,
-        AgentUserSession? owner,
         IReadOnlyList<IToolFactory> tools,
-        EventRepository? selectedRepository)
+        EventRepository? selectedRepository,
+        AgentQueues queues) =>
+        Session(provider, tools, selectedRepository, queues, AgentIdentity.Main("agent", "main"));
+
+    private AgentSession Session(
+        ILLMProvider provider,
+        IReadOnlyList<IToolFactory> tools,
+        EventRepository? selectedRepository,
+        AgentQueues queues,
+        AgentIdentity identity)
     {
         var repository = selectedRepository ?? new EventRepository(_database);
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
-        return new AgentSession(
-            AgentIdentity.Main("agent", "main"),
+        var session = new AgentSession(
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             _broker,
@@ -280,8 +444,10 @@ internal sealed class WaitToolTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
             null,
-            owner,
+            queues,
             CancellationToken.None);
+        queues.Attach(session);
+        return session;
     }
 
     private sealed class ActiveWorkSource(params ActiveWorkObservation[] active) : IActiveWorkSource
@@ -377,8 +543,8 @@ internal sealed class WaitToolTests : IDisposable
         public Parrot.Process.ShellProcessOwners CreateShellProcesses(AgentUserSession owner) =>
             new(owner.Resources, new Parrot.Process.ProcessRunner(string.Empty), owner.Lifetime);
 
-        public Parrot.Queues.QueueStore CreateQueues(AgentUserSession owner) =>
-            new(Path.Combine(root, "queues", owner.Id));
+        public Parrot.Queues.AgentQueueCatalog CreateQueueCatalog(AgentUserSession owner) =>
+            new(owner.Resources);
 
         public async Task<AgentSession> WaitForSession(CancellationToken cancellationToken) =>
             await _created.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -403,6 +569,7 @@ internal sealed class WaitToolTests : IDisposable
             {
                 var processes = owner.ShellProcesses.Prepare(identity.SessionId);
                 owner.ShellProcesses.Register(processes);
+                var queues = owner.QueueCatalog.Register(identity);
                 var session = new AgentSession(
                     identity,
                     model,
@@ -421,8 +588,9 @@ internal sealed class WaitToolTests : IDisposable
                     securityProfile,
                     status,
                     registry,
-                    owner,
+                    queues,
                     lifetime);
+                queues.Attach(session);
                 _ = source._created.TrySetResult(session);
                 return new AgentSessionLease(session);
             }

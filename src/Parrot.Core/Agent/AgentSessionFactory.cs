@@ -40,11 +40,11 @@ internal sealed class AgentSessionFactory(
             new StatusToolFactory(owner.Status),
             new TodoReadToolFactory(),
             new TodoWriteToolFactory(),
-            new QueueCreateToolFactory(owner.Queues),
-            new QueueInfoToolFactory(owner.Queues),
-            new QueueListenToolFactory(owner.Queues),
-            new QueuePushToolFactory(owner),
-            new QueueTakeToolFactory(owner.Queues),
+            new QueueCreateToolFactory(),
+            new QueueInfoToolFactory(),
+            new QueueListenToolFactory(),
+            new QueuePushToolFactory(),
+            new QueueTakeToolFactory(),
             new QuestionToolFactory(owner.Questions),
             new RequestWritePermissionToolFactory(owner.Permissions),
         ];
@@ -58,8 +58,12 @@ internal sealed class AgentSessionFactory(
         SecurityProfile securityProfile,
         RuntimeStatus? status,
         AgentRegistry registry,
-        CancellationToken lifetime) =>
-        scopes.Create(
+        CancellationToken lifetime)
+    {
+        var queues = owner.QueueCatalog.Register(identity);
+        try
+        {
+            return scopes.Create(
             identity,
             model,
             router,
@@ -74,6 +78,14 @@ internal sealed class AgentSessionFactory(
             securityProfile,
             status,
             registry,
+            queues,
             owner,
             lifetime);
+        }
+        catch
+        {
+            queues.Dispose();
+            throw;
+        }
+    }
 }

@@ -288,9 +288,9 @@ internal sealed class AgentRegistry(
         await _lifetime.CancelAsync().ConfigureAwait(false);
         await Task.WhenAll(children.Select(child => child.Session.Settled())).ConfigureAwait(false);
 
-        foreach (var child in children)
+        for (var index = children.Length - 1; index >= 0; index--)
         {
-            await child.DisposeAsync().ConfigureAwait(false);
+            await children[index].DisposeAsync().ConfigureAwait(false);
         }
 
         _lifetime.Dispose();

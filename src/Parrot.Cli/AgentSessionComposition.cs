@@ -73,8 +73,9 @@ internal partial class AgentSessionComposition
                     arguments.SecurityProfile,
                     arguments.Status,
                     arguments.Registry,
-                    arguments.Owner,
+                    arguments.Queues,
                     arguments.Lifetime);
+                arguments.Queues.Attach(session);
                 arguments.ShellProcesses.Register(processes);
                 return session;
             })
