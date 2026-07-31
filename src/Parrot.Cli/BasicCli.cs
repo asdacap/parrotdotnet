@@ -454,7 +454,8 @@ internal sealed class BasicCli(
         }
 
         await output.WriteLineAsync(completed.Markdown.AsMemory(), cancellationToken).ConfigureAwait(false);
-        await output.WriteAsync(completed.Dialog.Prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteLineAsync(completed.Dialog.Prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await output.WriteAsync("> ".AsMemory(), cancellationToken).ConfigureAwait(false);
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);
         var answer = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
         var selected = answer?.Trim() ?? string.Empty;
@@ -534,7 +535,8 @@ internal sealed class BasicCli(
                 await output.WriteLineAsync($"  {option.Id}: {option.Label}".AsMemory(), cancellationToken).ConfigureAwait(false);
             }
 
-            await output.WriteAsync("answer (or /cancel): ".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteLineAsync("answer (or /cancel)".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await output.WriteAsync("> ".AsMemory(), cancellationToken).ConfigureAwait(false);
             await output.FlushAsync(cancellationToken).ConfigureAwait(false);
             var entered = await input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
             if (entered is null || string.Equals(entered.Trim(), "/cancel", StringComparison.OrdinalIgnoreCase))

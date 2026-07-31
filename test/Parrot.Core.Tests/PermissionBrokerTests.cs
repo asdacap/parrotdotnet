@@ -29,7 +29,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             events,
             new EventRepository(database),
             interactive: true,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System);
         var requesting = Session("requesting", database, events);
         var other = Session("other", database, events);
         var first = Target("first");
@@ -63,7 +64,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             events,
             new EventRepository(database),
             interactive: true,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System);
         var request = broker.Request(
             Session("requesting", database, events),
             "modify dependency",
@@ -94,7 +96,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             events,
             new EventRepository(database),
             interactive: false,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System);
 
         var reply = await broker.Request(
             Session("requesting", database, events),
@@ -108,15 +111,45 @@ internal sealed class PermissionBrokerTests : IDisposable
     }
 
     [Test]
-    public async Task Timeout_removes_pending_and_late_reply_is_not_found(CancellationToken cancellationToken)
+    public async Task Timeout_returns_user_away_removes_pending_and_late_reply_is_not_found(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
         using var events = new EventBroker();
+        var time = new ControlledTimeProvider();
         using var broker = new PermissionBroker(
             events,
             new EventRepository(database),
             interactive: true,
-            TimeSpan.FromMilliseconds(10));
+            TimeSpan.FromMinutes(20),
+            time);
+        var request = broker.Request(
+            Session("requesting", database, events),
+            "modify dependency",
+            [Target("dependency")],
+            cancellationToken);
+        var pending = await WaitForPending(broker, cancellationToken);
+        await time.WaitForTimer(cancellationToken);
+
+        time.Advance(TimeSpan.FromMinutes(20));
+
+        _ = await Assert.That((await request).Kind).IsEqualTo(PermissionReplyKind.UserAway);
+        _ = await Assert.That(broker.Pending()).IsEmpty();
+        _ = await Assert.That(() => broker.Reply(pending.Id, "grant", string.Empty))
+            .Throws<PermissionNotFoundException>();
+    }
+
+    [Test]
+    public async Task Infinite_timeout_stays_pending_until_replied(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var events = new EventBroker();
+        var time = new ControlledTimeProvider();
+        using var broker = new PermissionBroker(
+            events,
+            new EventRepository(database),
+            interactive: true,
+            Timeout.InfiniteTimeSpan,
+            time);
         var request = broker.Request(
             Session("requesting", database, events),
             "modify dependency",
@@ -124,10 +157,121 @@ internal sealed class PermissionBrokerTests : IDisposable
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
-        _ = await Assert.That(async () => await request.WaitAsync(cancellationToken)).Throws<PermissionException>();
+        time.Advance(TimeSpan.FromDays(1));
+        _ = await Assert.That(request.IsCompleted).IsFalse();
+        broker.Reply(pending.Id, "reject", string.Empty);
+
+        _ = await Assert.That((await request).Decision).IsEqualTo(PermissionDecision.Reject);
+    }
+
+    [Test]
+    public async Task Reply_before_timeout_wins_and_timeout_does_not_replace_it(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var events = new EventBroker();
+        var time = new ControlledTimeProvider();
+        using var broker = new PermissionBroker(
+            events,
+            new EventRepository(database),
+            interactive: true,
+            TimeSpan.FromMinutes(20),
+            time);
+        var request = broker.Request(
+            Session("requesting", database, events),
+            "modify dependency",
+            [Target("dependency")],
+            cancellationToken);
+        var pending = await WaitForPending(broker, cancellationToken);
+        await time.WaitForTimer(cancellationToken);
+
+        broker.Reply(pending.Id, "reject", string.Empty);
+        time.Advance(TimeSpan.FromMinutes(20));
+
+        _ = await Assert.That((await request).Decision).IsEqualTo(PermissionDecision.Reject);
+    }
+
+    [Test]
+    public async Task Reply_before_cancellation_wins_and_cancellation_does_not_replace_it(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var events = new EventBroker();
+        using var broker = new PermissionBroker(
+            events,
+            new EventRepository(database),
+            interactive: true,
+            Timeout.InfiniteTimeSpan,
+            TimeProvider.System);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var request = broker.Request(
+            Session("requesting", database, events),
+            "modify dependency",
+            [Target("dependency")],
+            stopping.Token);
+        var pending = await WaitForPending(broker, cancellationToken);
+
+        broker.Reply(pending.Id, "reject", string.Empty);
+        await stopping.CancelAsync();
+
+        _ = await Assert.That((await request).Decision).IsEqualTo(PermissionDecision.Reject);
+    }
+
+    [Test]
+    public async Task Cancellation_removes_pending_and_rejects_late_reply(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var events = new EventBroker();
+        using var broker = new PermissionBroker(
+            events,
+            new EventRepository(database),
+            interactive: true,
+            Timeout.InfiniteTimeSpan,
+            TimeProvider.System);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var request = broker.Request(
+            Session("requesting", database, events),
+            "modify dependency",
+            [Target("dependency")],
+            stopping.Token);
+        var pending = await WaitForPending(broker, cancellationToken);
+
+        await stopping.CancelAsync();
+
+        _ = await Assert.That(request).Throws<OperationCanceledException>();
         _ = await Assert.That(broker.Pending()).IsEmpty();
         _ = await Assert.That(() => broker.Reply(pending.Id, "grant", string.Empty))
             .Throws<PermissionNotFoundException>();
+    }
+
+    [Test]
+    public async Task Disposal_rejects_pending_and_future_requests(CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var events = new EventBroker();
+        var broker = new PermissionBroker(
+            events,
+            new EventRepository(database),
+            interactive: true,
+            Timeout.InfiniteTimeSpan,
+            TimeProvider.System);
+        var session = Session("requesting", database, events);
+        var target = Target("dependency");
+        var request = broker.Request(
+            session,
+            "modify dependency",
+            [target],
+            cancellationToken);
+        _ = await WaitForPending(broker, cancellationToken);
+
+        broker.Dispose();
+        broker.Dispose();
+
+        _ = await Assert.That(request).Throws<PermissionException>();
+        _ = await Assert.That(broker.Pending()).IsEmpty();
+        _ = await Assert.That(async () => await broker.Request(
+            session,
+            "modify dependency",
+            [target],
+            cancellationToken)).Throws<ObjectDisposedException>();
     }
 
     private static AgentSession Session(string id, SessionDatabase database, EventBroker events)

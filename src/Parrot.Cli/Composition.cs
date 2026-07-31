@@ -190,7 +190,8 @@ internal partial class Composition
                     agentSessionFactories,
                     modes,
                     profiles,
-                    configuration.PermissionRequestTimeout);
+                    configuration.UserInputTimeout,
+                    TimeProvider.System);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>

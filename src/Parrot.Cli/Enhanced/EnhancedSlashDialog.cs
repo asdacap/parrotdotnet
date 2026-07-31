@@ -38,7 +38,7 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
                 {
                     var choice = matches[Math.Clamp(selected, 0, matches.Count - 1)];
                     await input.ReplaceInput(
-                        [new PromptValue(title, choice.Label, choice.Label.EnumerateRunes().Count())],
+                        [new LiveTextValue(title), new PromptValue("> ", choice.Label, choice.Label.EnumerateRunes().Count())],
                         cancellationToken).ConfigureAwait(false);
                     return choice;
                 }
@@ -105,7 +105,7 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
             selected - MaximumVisibleOptions + 1,
             0,
             Math.Max(0, matches.Count - MaximumVisibleOptions));
-        List<ILiveBufferItem> items = [prompt];
+        List<ILiveBufferItem> items = [new LiveTextValue(prompt.Prefix), new PromptValue("> ", prompt.Text, prompt.Cursor)];
         if (matches.Count == 0)
         {
             items.Add(new PickerOptionValue("No matches", string.Empty, false));
@@ -123,8 +123,8 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
     }
 
     private static PromptValue InputItem(PromptValue prompt, bool secret) => secret
-        ? new PromptValue(prompt.Prefix, new string('*', prompt.Text.EnumerateRunes().Count()), prompt.Cursor)
-        : prompt;
+        ? new PromptValue("> ", new string('*', prompt.Text.EnumerateRunes().Count()), prompt.Cursor)
+        : new PromptValue("> ", prompt.Text, prompt.Cursor);
 
     private async Task<bool> ShowMessage(string message, bool error, CancellationToken cancellationToken)
     {
@@ -156,7 +156,9 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
 
         while (true)
         {
-            await input.ReplaceInput([InputItem(editor.Prompt, secret)], cancellationToken).ConfigureAwait(false);
+            await input.ReplaceInput(
+                [new LiveTextValue(prompt), InputItem(editor.Prompt, secret)],
+                cancellationToken).ConfigureAwait(false);
             var key = await input.ReadKey(cancellationToken).ConfigureAwait(false);
             if (IsCancellation(key))
             {
@@ -167,7 +169,9 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
             {
                 var submitted = editor.Prompt.Text;
                 var completed = new PromptValue(prompt, submitted, submitted.EnumerateRunes().Count());
-                await input.ReplaceInput([InputItem(completed, secret)], cancellationToken).ConfigureAwait(false);
+                await input.ReplaceInput(
+                    [new LiveTextValue(prompt), InputItem(completed, secret)],
+                    cancellationToken).ConfigureAwait(false);
                 return submitted;
             }
 

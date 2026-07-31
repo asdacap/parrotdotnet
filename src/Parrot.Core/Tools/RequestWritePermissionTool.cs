@@ -48,6 +48,11 @@ internal sealed class RequestWritePermissionTool(
 
             var targets = paths.Select(SandboxWriteTarget.Resolve).Distinct().ToArray();
             var reply = await broker.Request(agentSession, reason, targets, cancellationToken).ConfigureAwait(false);
+            if (reply.Kind == PermissionReplyKind.UserAway)
+            {
+                return "The user is away.";
+            }
+
             if (reply.Decision == PermissionDecision.Grant)
             {
                 return $"Runtime write permission recorded for this agent session; static policy and protected roots still apply: {string.Join(", ", targets.Select(target => target.Path))}";

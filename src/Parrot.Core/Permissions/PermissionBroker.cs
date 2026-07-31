@@ -23,6 +23,7 @@ internal sealed class PermissionBroker : IDisposable
     private readonly EventBroker _events;
     private readonly EventRepository _repository;
     private readonly bool _interactive;
+    private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _timeout;
     private bool _disposed;
 
@@ -30,19 +31,22 @@ internal sealed class PermissionBroker : IDisposable
         EventBroker events,
         EventRepository repository,
         bool interactive,
-        TimeSpan timeout)
+        TimeSpan timeout,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(repository);
-        if (timeout <= TimeSpan.Zero)
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        if (timeout != Timeout.InfiniteTimeSpan && timeout <= TimeSpan.Zero)
         {
-            throw new ArgumentOutOfRangeException(nameof(timeout), "The permission request timeout must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(timeout), "The permission request timeout must be positive or infinite.");
         }
 
         _events = events;
         _repository = repository;
         _interactive = interactive;
         _timeout = timeout;
+        _timeProvider = timeProvider;
     }
 
     public async Task<PermissionReply> Request(
@@ -104,13 +108,13 @@ internal sealed class PermissionBroker : IDisposable
 
         try
         {
-            return await pending.Reply.Task.WaitAsync(_timeout, cancellationToken).ConfigureAwait(false);
+            return await pending.Reply.Task.WaitAsync(_timeout, _timeProvider, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
             if (Remove(id, pending))
             {
-                throw new PermissionException("permission request timed out");
+                return PermissionReply.UserAway;
             }
 
             return pending.RequireOutcome();

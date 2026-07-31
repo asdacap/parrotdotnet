@@ -4,7 +4,21 @@ internal sealed class QuestionBroker : IDisposable
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
+    private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan _timeout;
     private bool _disposed;
+
+    public QuestionBroker(TimeSpan timeout, TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        if (timeout != Timeout.InfiniteTimeSpan && timeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), "The question request timeout must be positive or infinite.");
+        }
+
+        _timeout = timeout;
+        _timeProvider = timeProvider;
+    }
 
     public async Task<QuestionReply> Ask(IReadOnlyList<QuestionDefinition> questions, CancellationToken cancellationToken)
     {
@@ -21,16 +35,25 @@ internal sealed class QuestionBroker : IDisposable
 
         try
         {
-            return await pending.Answer.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await pending.Answer.Task.WaitAsync(_timeout, _timeProvider, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            if (Remove(id, pending))
+            {
+                return QuestionReply.UserAway;
+            }
+
+            return pending.RequireOutcome();
         }
         catch (OperationCanceledException)
         {
-            lock (_gate)
+            if (Remove(id, pending))
             {
-                _ = _pending.Remove(id);
+                throw;
             }
 
-            throw;
+            return pending.RequireOutcome();
         }
     }
 
@@ -48,48 +71,39 @@ internal sealed class QuestionBroker : IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(requestId);
         ArgumentNullException.ThrowIfNull(reply);
-        PendingRequest pending;
-        QuestionReply copied;
 
         lock (_gate)
         {
-            if (!_pending.TryGetValue(requestId, out var found))
+            if (!_pending.TryGetValue(requestId, out var pending))
             {
                 throw new QuestionException($"question request not found: {requestId}");
             }
 
-            pending = found;
-            copied = CopyReply(reply);
+            var copied = CopyReply(reply);
             ValidateReply(pending.Questions, copied);
             _ = _pending.Remove(requestId);
+            pending.Settle(copied);
         }
-
-        _ = pending.Answer.TrySetResult(copied);
     }
 
     public void Reject(string requestId)
     {
         ArgumentException.ThrowIfNullOrEmpty(requestId);
-        PendingRequest pending;
 
         lock (_gate)
         {
-            if (!_pending.TryGetValue(requestId, out var found))
+            if (!_pending.TryGetValue(requestId, out var pending))
             {
                 throw new QuestionException($"question request not found: {requestId}");
             }
 
-            pending = found;
             _ = _pending.Remove(requestId);
+            pending.Fail(new QuestionRejectedException("question request rejected"));
         }
-
-        _ = pending.Answer.TrySetException(new QuestionRejectedException("question request rejected"));
     }
 
     public void Dispose()
     {
-        PendingRequest[] pending;
-
         lock (_gate)
         {
             if (_disposed)
@@ -98,13 +112,12 @@ internal sealed class QuestionBroker : IDisposable
             }
 
             _disposed = true;
-            pending = [.. _pending.Values];
+            var pending = _pending.Values.ToArray();
             _pending.Clear();
-        }
-
-        foreach (var item in pending)
-        {
-            _ = item.Answer.TrySetException(new QuestionRejectedException("question session closed"));
+            foreach (var item in pending)
+            {
+                item.Fail(new QuestionRejectedException("question session closed"));
+            }
         }
     }
 
@@ -118,7 +131,9 @@ internal sealed class QuestionBroker : IDisposable
             question.Custom))];
 
     private static QuestionReply CopyReply(QuestionReply reply) =>
-        new([.. reply.Answers.Select(answer => new QuestionAnswer(answer.QuestionId, [.. answer.OptionIds], answer.Custom))]);
+        new(
+            reply.Kind,
+            [.. reply.Answers.Select(answer => new QuestionAnswer(answer.QuestionId, [.. answer.OptionIds], answer.Custom))]);
 
     private static void ValidateQuestions(IReadOnlyList<QuestionDefinition> questions)
     {
@@ -168,6 +183,11 @@ internal sealed class QuestionBroker : IDisposable
 
     private static void ValidateReply(IReadOnlyList<QuestionDefinition> questions, QuestionReply reply)
     {
+        if (reply.Kind != QuestionReplyKind.Answered)
+        {
+            throw new QuestionException("question replies require user answers");
+        }
+
         if (reply.Answers.Count != questions.Count)
         {
             throw new QuestionException("question replies must answer every question exactly once");
@@ -223,10 +243,44 @@ internal sealed class QuestionBroker : IDisposable
         }
     }
 
+    private bool Remove(string id, PendingRequest expected)
+    {
+        lock (_gate)
+        {
+            return _pending.TryGetValue(id, out var found) && ReferenceEquals(found, expected) && _pending.Remove(id);
+        }
+    }
+
     private sealed class PendingRequest(IReadOnlyList<QuestionDefinition> questions)
     {
+        private QuestionRejectedException? _failure;
+        private QuestionReply? _outcome;
+
         public IReadOnlyList<QuestionDefinition> Questions { get; } = questions;
 
-        public TaskCompletionSource<QuestionReply> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<QuestionReply> Answer { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public QuestionReply RequireOutcome()
+        {
+            if (_failure is not null)
+            {
+                throw _failure;
+            }
+
+            return _outcome ?? throw new InvalidOperationException("The question request has no settled outcome.");
+        }
+
+        public void Settle(QuestionReply outcome)
+        {
+            _outcome = outcome;
+            _ = Answer.TrySetResult(outcome);
+        }
+
+        public void Fail(QuestionRejectedException failure)
+        {
+            _failure = failure;
+            _ = Answer.TrySetException(failure);
+        }
     }
 }
