@@ -117,7 +117,7 @@ internal sealed class QuestionToolTests
         return new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            null,
+            TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []));
     }
 

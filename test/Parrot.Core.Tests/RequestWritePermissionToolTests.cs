@@ -129,7 +129,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
         return new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            null,
+            TestModels.Profile(),
             profile);
     }
 
@@ -158,8 +158,10 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
     {
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var repository = new EventRepository(database);
+        var identity = AgentIdentity.Main("requesting", string.Empty);
+        var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         return new AgentSession(
-            AgentIdentity.Main("requesting", string.Empty),
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             events,
@@ -169,12 +171,12 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             new TodoCollection("requesting", repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            null,
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
             securityProfile,
-            null,
-            null,
-            TestModels.Queues(AgentIdentity.Main("requesting", string.Empty)),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             CancellationToken.None);
     }
 }

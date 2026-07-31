@@ -54,9 +54,9 @@ internal sealed class AgentSessionFactory(
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        IAgentProfile? profile,
+        IAgentProfile profile,
         SecurityProfile securityProfile,
-        RuntimeStatus? status,
+        RuntimeStatus status,
         AgentRegistry registry,
         CancellationToken lifetime)
     {

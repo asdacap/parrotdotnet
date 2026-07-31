@@ -180,7 +180,7 @@ internal sealed class WebFetcherTests
         return new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            null,
+            TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []));
     }
 

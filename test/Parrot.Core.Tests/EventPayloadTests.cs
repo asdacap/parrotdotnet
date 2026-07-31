@@ -288,23 +288,26 @@ internal sealed class EventPayloadTests
         // under test should take the same path production does.
         using var database = SessionDatabase.Open(":memory:");
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var identity = AgentIdentity.Main("session", string.Empty);
+        var repository = new EventRepository(database);
+        var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         var session = new AgentSession(
-            AgentIdentity.Main("session", string.Empty),
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             events,
-            new EventRepository(database),
+            repository,
             [],
             TestModels.PromptProvider(".", "."),
-            new TodoCollection("session", new EventRepository(database), events),
+            new TodoCollection("session", repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            profile: null,
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            status: null,
-            registry: null,
-            queues: TestModels.Queues(AgentIdentity.Main("session", string.Empty)),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             CancellationToken.None);
 
         var llmEvent = source switch

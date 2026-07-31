@@ -224,9 +224,12 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         EventBroker events,
         EventRepository repository,
         string blobDirectory,
-        CancellationToken lifetime) =>
-        new(
-            AgentIdentity.Main(sessionId, sessionId),
+        CancellationToken lifetime)
+    {
+        var identity = AgentIdentity.Main(sessionId, sessionId);
+        var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
+        return new AgentSession(
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             events,
@@ -236,13 +239,14 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             new TodoCollection(sessionId, repository, events),
             new ToolOutputBlobStore(blobDirectory),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            null,
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            null,
-            null,
-            TestModels.Queues(AgentIdentity.Main(sessionId, sessionId)),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             lifetime);
+    }
 
     private string CreateSandboxPassThrough()
     {

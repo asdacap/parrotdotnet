@@ -16,10 +16,10 @@ internal sealed class QueueGuidancePrompt : ISystemPrompt
     public string Build(AgentTurnSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        var allowedTools = selection.Profile?.AllowedTools;
-        var disabledTools = selection.Profile?.DisabledTools;
+        var allowedTools = selection.Profile.AllowedTools;
+        var disabledTools = selection.Profile.DisabledTools;
         return (allowedTools is null || allowedTools.Contains("queue_create", StringComparer.Ordinal))
-            && (disabledTools is null || !disabledTools.Contains("queue_create", StringComparer.Ordinal))
+            && !disabledTools.Contains("queue_create", StringComparer.Ordinal)
             ? Guidance
             : string.Empty;
     }

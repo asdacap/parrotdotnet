@@ -116,7 +116,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             new ResolvedModelSelection(new ModelSelector(model.Selector), null, model, snapshot),
-            null,
+            TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []));
 
         var built = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal))
@@ -149,7 +149,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new ModelSelector(selectedAlias?.Name ?? model.Selector),
                 new ResolvedModelSelection(
                     new ModelSelector(selectedAlias?.Name ?? model.Selector), selectedAlias, model, snapshot),
-                null,
+                TestModels.Profile(),
                 SecurityProfile.Compose(readOnly: false, [], [], []));
 
         var aliasBuilt = prompt.Build(Selection(alias));
@@ -248,23 +248,26 @@ internal sealed class CompactorAndContextTests : IDisposable
             provider,
             new LLMModel("model", provider.Id),
             new Parrot.Llm.ModelVariant("high", "xhigh"));
+        var identity = AgentIdentity.Main("agent", string.Empty);
+        var repository = new EventRepository(database);
+        var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
         var session = new AgentSession(
-            AgentIdentity.Main("agent", string.Empty),
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             broker,
-            new EventRepository(database),
+            repository,
             [],
             TestModels.PromptProvider(_workspace, _workspace),
             new TodoCollection("agent", new EventRepository(database), broker),
             new ToolOutputBlobStore(_workspace),
             new Compactor(tokenBudget: 0),
-            activeWorkReminder: null,
-            profile: null,
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            status: null,
-            registry: null,
-            queues: TestModels.Queues(AgentIdentity.Main("agent", string.Empty)),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             cancellationToken);
 
         _ = await session.Send(
@@ -335,9 +338,9 @@ internal sealed class CompactorAndContextTests : IDisposable
             new Parrot.Config.CliUtilityCandidates([], []),
             new Parrot.Process.ExecutableLocator(string.Empty, string.Empty));
 
-    private static AgentTurnSelection Selection() => Selection(null);
+    private static AgentTurnSelection Selection() => Selection(TestModels.Profile());
 
-    private static AgentTurnSelection Selection(IAgentProfile? profile)
+    private static AgentTurnSelection Selection(IAgentProfile profile)
     {
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));

@@ -36,12 +36,12 @@ internal sealed class AgentSession(
     TodoCollection todos,
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
-    ActiveWorkCompletionReminder? activeWorkReminder,
-    IAgentProfile? profile,
+    ActiveWorkCompletionReminder activeWorkReminder,
+    IAgentProfile profile,
     SecurityProfile securityProfile,
-    RuntimeStatus? status,
-    AgentRegistry? registry,
-    AgentQueues? queues,
+    RuntimeStatus status,
+    AgentRegistry registry,
+    AgentQueues queues,
     CancellationToken lifetime)
 {
     private const string RunawayMessage = "the turn exceeded its provider-request limit";
@@ -62,9 +62,7 @@ internal sealed class AgentSession(
 
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
-    private readonly List<LLMMessage> _history = status is null
-        ? []
-        : [.. eventRepository.ModelHistory(identity.SessionId)];
+    private readonly List<LLMMessage> _history = [.. eventRepository.ModelHistory(identity.SessionId)];
 
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
@@ -107,8 +105,7 @@ internal sealed class AgentSession(
 
     public TodoCollection Todos { get; } = todos;
 
-    public AgentQueues Queues { get; } = queues
-        ?? throw new ArgumentNullException(nameof(queues));
+    public AgentQueues Queues { get; } = queues;
 
     public SandboxWriteGrants WriteGrants { get; } = new();
 
@@ -143,10 +140,11 @@ internal sealed class AgentSession(
 
         lock (_selectionGate)
         {
+            var nextProfile = profile ?? _selection.Profile;
             _selection = new AgentSelection(
                 selectedModel,
-                profile,
-                profile?.SecurityProfile ?? _selection.SecurityProfile);
+                nextProfile,
+                nextProfile.SecurityProfile);
         }
     }
 
@@ -656,10 +654,7 @@ internal sealed class AgentSession(
             completed = AgentExecution.Failed(BoundResult(failure.Message));
         }
 
-        if (registry is not null)
-        {
-            await registry.Deliver(identity, completed).ConfigureAwait(false);
-        }
+        await registry.Deliver(identity, completed).ConfigureAwait(false);
 
         return completed;
     }
@@ -853,8 +848,8 @@ internal sealed class AgentSession(
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
                     activeTools = MaterializeTools()
-                        .Without(activeSelection.Profile?.DisabledTools ?? [])
-                        .Only(activeSelection.Profile?.AllowedTools);
+                        .Without(activeSelection.Profile.DisabledTools)
+                        .Only(activeSelection.Profile.AllowedTools);
                 }
 
                 // Status is committed before promotion, so sequenced history is
@@ -868,7 +863,7 @@ internal sealed class AgentSession(
                     throw new AgentRegistryException("turn selection is unavailable");
                 }
 
-                var maxTurns = activeSelection.Profile?.MaxTurns ?? 24;
+                var maxTurns = activeSelection.Profile.MaxTurns;
                 if (providerRequests >= maxTurns)
                 {
                     await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
@@ -904,8 +899,8 @@ internal sealed class AgentSession(
                     continue;
                 }
 
-                if (activeSelection.Profile?.EnforceActiveWorkCompletion == true
-                    && activeWorkReminder?.Build() is { } reminder)
+                if (activeSelection.Profile.EnforceActiveWorkCompletion
+                    && activeWorkReminder.Build() is { } reminder)
                 {
                     var published = new Event
                     {
@@ -1108,11 +1103,6 @@ internal sealed class AgentSession(
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
-        if (status is null || selection.Profile is null)
-        {
-            return selection;
-        }
-
         if (Depth > 0)
         {
             if (!_initialStatusPending)
@@ -1140,7 +1130,7 @@ internal sealed class AgentSession(
             cancellationToken.ThrowIfCancellationRequested();
             var profile = selection.Profile;
 
-            if (profile is null || !string.Equals(profile.Id, pending.Mode, StringComparison.Ordinal))
+            if (!string.Equals(profile.Id, pending.Mode, StringComparison.Ordinal))
             {
                 selection = RefreshSelection(selection);
                 (selection.Profile as IMode)?.Prepare();

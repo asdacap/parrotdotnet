@@ -372,7 +372,7 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         return new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            null,
+            TestModels.Profile(),
             securityProfile);
     }
 }

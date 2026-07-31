@@ -14,16 +14,28 @@ using AgentUserSession = Parrot.Agent.UserSession;
 
 namespace Parrot.Core.Tests;
 
-internal sealed class WaitToolTests : IDisposable
+internal sealed class WaitToolTests : IAsyncDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-wait-tool-tests", Guid.NewGuid().ToString("n"));
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly EventBroker _broker = new();
+    private readonly List<Parrot.Process.ShellProcessOwners> _processOwners = [];
+    private readonly List<AgentRegistry> _registries = [];
 
     public WaitToolTests() => Directory.CreateDirectory(_root);
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        foreach (var registry in _registries)
+        {
+            await registry.DisposeAsync().ConfigureAwait(false);
+        }
+
+        foreach (var processes in _processOwners)
+        {
+            processes.Dispose();
+        }
+
         _broker.Dispose();
         _database.Dispose();
         if (Directory.Exists(_root))
@@ -39,7 +51,7 @@ internal sealed class WaitToolTests : IDisposable
         var provider = new UnusedProvider();
         using var queueCatalog = QueueCatalog("schema-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
-        var session = Session(provider, [], selectedRepository: null, queues);
+        var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         _ = queues.Create("work", "queued work");
         _ = await queues.Push("work", ["item"], QueueDirection.Back, cancellationToken);
         var processes = new ActiveWorkSource(
@@ -107,7 +119,7 @@ internal sealed class WaitToolTests : IDisposable
         var provider = new UnusedProvider();
         using var queueCatalog = QueueCatalog("pending-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
-        var session = Session(provider, [], repository, queues);
+        var session = Session(provider, [], repository, queueCatalog, queues);
         var unobserved = new UnobservedActiveWorkSource();
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, unobserved, unobserved),
@@ -134,7 +146,7 @@ internal sealed class WaitToolTests : IDisposable
         var provider = new UnusedProvider();
         using var queueCatalog = QueueCatalog("cancellation-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
-        var session = Session(provider, [], selectedRepository: null, queues);
+        var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         var unobserved = new UnobservedActiveWorkSource();
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, unobserved, unobserved),
@@ -161,7 +173,7 @@ internal sealed class WaitToolTests : IDisposable
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
         var active = new ActiveWorkSource();
         var factory = new WaitToolFactory(new RuntimeStatus(queueCatalog, active, active), TimeProvider.System);
-        var session = Session(provider, [factory], repository, queues);
+        var session = Session(provider, [factory], repository, queueCatalog, queues);
 
         _ = await session.Admit("first", "message-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -200,6 +212,7 @@ internal sealed class WaitToolTests : IDisposable
             provider,
             [],
             repository,
+            queueCatalog,
             childQueues,
             AgentIdentity.Child("child", "parent", "parent", "child", 1));
         _ = parentQueues.Create("parent-work", string.Empty);
@@ -234,12 +247,14 @@ internal sealed class WaitToolTests : IDisposable
             firstProvider,
             [],
             repository,
+            queueCatalog,
             firstQueues,
             AgentIdentity.Child("first-child", "parent", "parent", "first", 1));
         var second = Session(
             secondProvider,
             [],
             repository,
+            queueCatalog,
             secondQueues,
             AgentIdentity.Child("second-child", "parent", "parent", "second", 1));
         _ = parentQueues.Create("shared-work", string.Empty);
@@ -300,12 +315,14 @@ internal sealed class WaitToolTests : IDisposable
             disabledProvider,
             [],
             repository,
+            queueCatalog,
             disabledQueues,
             AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1));
         var active = Session(
             activeProvider,
             [],
             repository,
+            queueCatalog,
             activeQueues,
             AgentIdentity.Child("active-child", "parent", "parent", "active", 1));
         _ = parentQueues.Create("shared-work", string.Empty);
@@ -394,7 +411,7 @@ internal sealed class WaitToolTests : IDisposable
         return new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            null,
+            TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []));
     }
 
@@ -413,18 +430,27 @@ internal sealed class WaitToolTests : IDisposable
         ILLMProvider provider,
         IReadOnlyList<IToolFactory> tools,
         EventRepository? selectedRepository,
+        AgentQueueCatalog queueCatalog,
         AgentQueues queues) =>
-        Session(provider, tools, selectedRepository, queues, AgentIdentity.Main("agent", "main"));
+        Session(provider, tools, selectedRepository, queueCatalog, queues, AgentIdentity.Main("agent", "main"));
 
     private AgentSession Session(
         ILLMProvider provider,
         IReadOnlyList<IToolFactory> tools,
         EventRepository? selectedRepository,
+        AgentQueueCatalog queueCatalog,
         AgentQueues queues,
         AgentIdentity identity)
     {
         var repository = selectedRepository ?? new EventRepository(_database);
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var resources = UserSessionResources(identity.SessionId);
+        var processes = PrepareProcesses(resources);
+        var processOwner = processes.Prepare(identity.SessionId);
+        processes.Register(processOwner);
+        var registry = PrepareRegistry(repository);
+        var status = new RuntimeStatus(queueCatalog, processes, registry);
+        registry.AttachStatus(status);
         var session = new AgentSession(
             identity,
             new ModelSelector(model.Selector),
@@ -436,15 +462,37 @@ internal sealed class WaitToolTests : IDisposable
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(Path.Combine(_root, "blobs")),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            null,
+            new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner),
+            TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            null,
-            null,
+            status,
+            registry,
             queues,
             CancellationToken.None);
         queues.Attach(session);
         return session;
+    }
+
+    private Parrot.Process.ShellProcessOwners PrepareProcesses(UserSessionResources resources)
+    {
+        var processes = new Parrot.Process.ShellProcessOwners(
+            resources,
+            new Parrot.Process.ProcessRunner(string.Empty),
+            CancellationToken.None);
+        _processOwners.Add(processes);
+        return processes;
+    }
+
+    private AgentRegistry PrepareRegistry(EventRepository repository)
+    {
+        var registry = new AgentRegistry(
+            new UnsupportedAgentSessionFactory(),
+            _broker,
+            repository,
+            TestModels.ProfileRegistry(),
+            CancellationToken.None);
+        _registries.Add(registry);
+        return registry;
     }
 
     private sealed class ActiveWorkSource(params ActiveWorkObservation[] active) : IActiveWorkSource
@@ -531,6 +579,21 @@ internal sealed class WaitToolTests : IDisposable
         }
     }
 
+    private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
+    {
+        public IAgentSessionLease Create(
+            AgentIdentity identity,
+            ModelSelector model,
+            EventBroker eventBroker,
+            EventRepository eventRepository,
+            IAgentProfile profile,
+            SecurityProfile securityProfile,
+            RuntimeStatus status,
+            AgentRegistry registry,
+            CancellationToken lifetime) =>
+            throw new NotSupportedException("This test session does not support spawning subagents.");
+    }
+
     private sealed class WaitAgentSessions(ModelRouter router, TimeProvider timeProvider, string root) : IAgentSessionFactorySource
     {
         private readonly TaskCompletionSource<AgentSession> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -558,9 +621,9 @@ internal sealed class WaitToolTests : IDisposable
                 ModelSelector model,
                 EventBroker eventBroker,
                 EventRepository eventRepository,
-                IAgentProfile? profile,
+                IAgentProfile profile,
                 SecurityProfile securityProfile,
-                Parrot.Statuses.RuntimeStatus? status,
+                Parrot.Statuses.RuntimeStatus status,
                 AgentRegistry registry,
                 CancellationToken lifetime)
             {
@@ -573,14 +636,12 @@ internal sealed class WaitToolTests : IDisposable
                     router,
                     eventBroker,
                     eventRepository,
-                    [new WaitToolFactory(
-                        status ?? throw new InvalidOperationException("runtime status is unavailable"),
-                        timeProvider)],
+                    [new WaitToolFactory(status, timeProvider)],
                     TestModels.PromptProvider(root, root),
                     new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                     new ToolOutputBlobStore(Path.Combine(root, "blobs")),
                     new Compactor(120_000),
-                    activeWorkReminder: null,
+                    new ActiveWorkCompletionReminder(identity.SessionId, registry, processes),
                     profile,
                     securityProfile,
                     status,

@@ -6,8 +6,10 @@ using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
+using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -43,11 +45,15 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var processes = Processes(string.Empty, lifetime.Token);
         var repository = new EventRepository(_database);
-        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        using var queueCatalog = new AgentQueueCatalog(Resources());
+        var factory = new CompletionAgentSessions(
+            router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry);
+        registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 4);
-        var parent = Session("parent", parentProvider, router, repository, registry, processes, mode, lifetime.Token);
+        var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = registry.Spawn(
             parent,
             Turn(parent, router),
@@ -99,11 +105,15 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var processes = Processes(string.Empty, lifetime.Token);
         var repository = new EventRepository(_database);
-        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        using var queueCatalog = new AgentQueueCatalog(Resources());
+        var factory = new CompletionAgentSessions(
+            router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry);
+        registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 2);
-        var parent = Session("parent", parentProvider, router, repository, registry, processes, mode, lifetime.Token);
+        var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = registry.Spawn(
             parent,
             Turn(parent, router),
@@ -137,9 +147,13 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var processes = Processes(string.Empty, lifetime.Token);
         var repository = new EventRepository(_database);
-        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        using var queueCatalog = new AgentQueueCatalog(Resources());
+        var factory = new CompletionAgentSessions(
+            router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry);
+        registry.AttachStatus(status);
         var root = Session(
             "root",
             rootProvider,
@@ -147,6 +161,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             repository,
             registry,
             processes,
+            queueCatalog,
+            status,
             new CompletionMode(enforce: true, maxTurns: 2),
             lifetime.Token);
         var monitored = registry.Spawn(
@@ -189,9 +205,13 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var processes = Processes(CreateSandboxPassThrough(), lifetime.Token);
         var repository = new EventRepository(_database);
-        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        using var queueCatalog = new AgentQueueCatalog(Resources());
+        var factory = new CompletionAgentSessions(
+            router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry);
+        registry.AttachStatus(status);
         var parent = Session(
             "parent",
             provider,
@@ -199,13 +219,24 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             repository,
             registry,
             processes,
+            queueCatalog,
+            status,
             new CompletionMode(enforce: true, maxTurns: 2),
             lifetime.Token);
         var otherProvider = new HeldProvider("other");
         var otherRouter = Router(otherProvider);
-        var other = BareSession("other", otherProvider, otherRouter, repository, lifetime.Token);
         var otherProcesses = processes.Prepare("other");
         processes.Register(otherProcesses);
+        var other = BareSession(
+            "other",
+            otherProvider,
+            otherRouter,
+            repository,
+            registry,
+            queueCatalog,
+            status,
+            otherProcesses,
+            lifetime.Token);
         var process = otherProcesses.Start(
             "other-work",
             "sleep 30",
@@ -241,11 +272,15 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var processes = Processes(string.Empty, lifetime.Token);
         var repository = new EventRepository(_database);
-        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        using var queueCatalog = new AgentQueueCatalog(Resources());
+        var factory = new CompletionAgentSessions(
+            router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry);
+        registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 3);
-        var parent = Session("parent", parentProvider, router, repository, registry, processes, mode, lifetime.Token);
+        var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = registry.Spawn(
             parent, Turn(parent, router), "worker", new ModelSelector("child/model"), "direct-child");
         using var subscription = _broker.Subscribe();
@@ -284,11 +319,15 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var processes = Processes(string.Empty, lifetime.Token);
         var repository = new EventRepository(_database);
-        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        using var queueCatalog = new AgentQueueCatalog(Resources());
+        var factory = new CompletionAgentSessions(
+            router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry);
+        registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
-        var parent = Session("parent", parentProvider, router, repository, registry, processes, mode, lifetime.Token);
+        var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = registry.Spawn(
             parent, Turn(parent, router), "worker", new ModelSelector("child/model"), "direct-child");
         using var subscription = _broker.Subscribe();
@@ -363,13 +402,17 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         EventRepository repository,
         AgentRegistry registry,
         ShellProcessOwners processes,
+        AgentQueueCatalog queueCatalog,
+        RuntimeStatus status,
         IAgentProfile profile,
         CancellationToken lifetime)
     {
         var owner = processes.Prepare(sessionId);
         processes.Register(owner);
-        return new AgentSession(
-            AgentIdentity.Main(sessionId, sessionId),
+        var identity = AgentIdentity.Main(sessionId, sessionId);
+        var queues = queueCatalog.Register(identity);
+        var session = new AgentSession(
+            identity,
             new ModelSelector($"{provider.Id}/model"),
             router,
             _broker,
@@ -382,10 +425,12 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             new ActiveWorkCompletionReminder(sessionId, registry, owner),
             profile,
             profile.SecurityProfile,
-            status: null,
-            registry: null,
-            queues: TestModels.Queues(AgentIdentity.Main(sessionId, sessionId)),
+            status,
+            registry,
+            queues,
             lifetime);
+        queues.Attach(session);
+        return session;
     }
 
     private AgentSession BareSession(
@@ -393,9 +438,17 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         HeldProvider provider,
         ModelRouter router,
         EventRepository repository,
-        CancellationToken lifetime) =>
-        new(
-            AgentIdentity.Main(sessionId, sessionId),
+        AgentRegistry registry,
+        AgentQueueCatalog queueCatalog,
+        RuntimeStatus status,
+        ShellProcessOwner processes,
+        CancellationToken lifetime)
+    {
+        var identity = AgentIdentity.Main(sessionId, sessionId);
+        var queues = queueCatalog.Register(identity);
+        var profile = TestModels.Profile();
+        var session = new AgentSession(
+            identity,
             new ModelSelector($"{provider.Id}/model"),
             router,
             _broker,
@@ -405,13 +458,16 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             new TodoCollection(sessionId, repository, _broker),
             new ToolOutputBlobStore(_workspace),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            profile: null,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
-            status: null,
-            registry: null,
-            queues: TestModels.Queues(AgentIdentity.Main(sessionId, sessionId)),
+            new ActiveWorkCompletionReminder(sessionId, registry, processes),
+            profile,
+            profile.SecurityProfile,
+            status,
+            registry,
+            queues,
             lifetime);
+        queues.Attach(session);
+        return session;
+    }
 
     private ShellProcessOwners Processes(string sandbox, CancellationToken lifetime) =>
         new(Resources(), new ProcessRunner(sandbox), lifetime);
@@ -474,11 +530,27 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         }
     }
 
+    private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
+    {
+        public IAgentSessionLease Create(
+            AgentIdentity identity,
+            ModelSelector model,
+            EventBroker eventBroker,
+            EventRepository eventRepository,
+            IAgentProfile profile,
+            SecurityProfile securityProfile,
+            RuntimeStatus status,
+            AgentRegistry registry,
+            CancellationToken lifetime) =>
+            throw new NotSupportedException("This test session does not support spawning subagents.");
+    }
+
     private sealed class CompletionAgentSessions(
         ModelRouter router,
         ShellProcessOwners processes,
         EventRepository repository,
         EventBroker broker,
+        AgentQueueCatalog queueCatalog,
         string workspace) : IAgentSessionFactory
     {
         public IAgentSessionLease Create(
@@ -486,15 +558,16 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IAgentProfile? profile,
+            IAgentProfile profile,
             SecurityProfile securityProfile,
-            Parrot.Statuses.RuntimeStatus? status,
+            RuntimeStatus status,
             AgentRegistry registry,
             CancellationToken lifetime)
         {
             var owner = processes.Prepare(identity.SessionId);
             processes.Register(owner);
-            return new AgentSessionLease(new AgentSession(
+            var queues = queueCatalog.Register(identity);
+            var session = new AgentSession(
                 identity,
                 model,
                 router,
@@ -509,9 +582,16 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 profile,
                 securityProfile,
                 status,
-                registry: null,
-                queues: TestModels.Queues(identity),
-                lifetime));
+                TestModels.Registry(
+                    new UnsupportedAgentSessionFactory(),
+                    eventBroker,
+                    eventRepository,
+                    TestModels.ProfileRegistry(),
+                    lifetime),
+                queues,
+                lifetime);
+            queues.Attach(session);
+            return new AgentSessionLease(session);
         }
     }
 

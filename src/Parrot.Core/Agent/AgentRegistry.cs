@@ -77,6 +77,8 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent profile recursion limit reached");
             }
 
+            var status = _status
+                ?? throw new AgentRegistryException("the runtime status is not attached");
             var sessionId = Identifier.AgentSession();
             var names = NamesFor(parent.SessionId);
             var name = UniqueName(names, requestedName, sessionId);
@@ -88,7 +90,7 @@ internal sealed class AgentRegistry(
                 eventRepository,
                 profile,
                 securityProfile,
-                _status,
+                status,
                 this,
                 _lifetime.Token);
 
@@ -291,7 +293,7 @@ internal sealed class AgentRegistry(
 
         while (current is not null)
         {
-            if (string.Equals(current.Selection().Profile?.Id, profileId, StringComparison.Ordinal))
+            if (string.Equals(current.Selection().Profile.Id, profileId, StringComparison.Ordinal))
             {
                 occurrences++;
             }

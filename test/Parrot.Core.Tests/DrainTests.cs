@@ -639,8 +639,10 @@ internal sealed class DrainTests : IDisposable
             InputPrice = inputPrice,
             OutputPrice = outputPrice,
         });
+        var identity = AgentIdentity.Main("agent", string.Empty);
+        var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         return new AgentSession(
-            AgentIdentity.Main("agent", string.Empty),
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             _broker,
@@ -650,12 +652,12 @@ internal sealed class DrainTests : IDisposable
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(_blobDirectory),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            profile,
+            dependencies.ActiveWorkReminder,
+            profile ?? dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            status: null,
-            registry: null,
-            queues: TestModels.Queues(AgentIdentity.Main("agent", string.Empty)),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             lifetime);
     }
 

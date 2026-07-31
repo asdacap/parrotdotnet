@@ -34,7 +34,7 @@ internal sealed class RuntimeStatus
         AgentSession session,
         AgentTurnSelection selection,
         CancellationToken cancellationToken) =>
-        _activity.Observe(Query(session, selection, selection.Profile?.Id ?? string.Empty), null, cancellationToken);
+        _activity.Observe(Query(session, selection, selection.Profile.Id), null, cancellationToken);
 
     private static StatusQuery Query(
         AgentSession session,

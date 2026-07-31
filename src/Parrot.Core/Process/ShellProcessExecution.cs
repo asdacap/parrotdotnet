@@ -10,7 +10,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
     private readonly CancellationTokenSource _cancellation;
     private readonly string _blobDirectory;
     private readonly System.Diagnostics.Process _process;
-    private readonly LinuxProcessSignalTarget? _signalTarget;
+    private readonly LinuxProcessSignalTarget _signalTarget;
     private readonly PtyTranscript? _transcript;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly int _masterDescriptor;
@@ -23,7 +23,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     internal ShellProcessExecution(
         System.Diagnostics.Process process,
-        LinuxProcessSignalTarget? signalTarget,
+        LinuxProcessSignalTarget signalTarget,
         string blobDirectory,
         CancellationToken cancellationToken)
     {
@@ -39,7 +39,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     internal ShellProcessExecution(
         System.Diagnostics.Process process,
-        LinuxProcessSignalTarget? signalTarget,
+        LinuxProcessSignalTarget signalTarget,
         int masterDescriptor,
         int slaveDescriptor,
         string blobDirectory,
@@ -117,7 +117,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
     public void SendSignal(LinuxSignal signal, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        (_signalTarget ?? throw new InvalidOperationException("The shell process has completed.")).Send(signal);
+        _signalTarget.Send(signal);
     }
 
     public (long Cursor, ProcessResult Result) ReadResult(long offset)
@@ -169,7 +169,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
             _cancellation.Dispose();
             _writeGate.Dispose();
             _transcript?.Dispose();
-            _signalTarget?.Dispose();
+            _signalTarget.Dispose();
             _process.Dispose();
         }
     }

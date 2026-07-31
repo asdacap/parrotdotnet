@@ -1,11 +1,15 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Queues;
 using Parrot.Security;
+using Parrot.State;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -32,7 +36,7 @@ internal sealed class SubagentTests : IDisposable
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "child says hi", []));
         var sessions = new TestAgentSessions(Router(provider), deliversCompletions: false);
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent);
@@ -101,7 +105,8 @@ internal sealed class SubagentTests : IDisposable
 
         var systemPrompt = provider.Requests[0].Instructions;
         _ = await Assert.That(provider.Requests[0].Messages)
-            .DoesNotContain(message => message.Role == LLMRole.System);
+            .DoesNotContain(message => message.Role == LLMRole.System
+                && message.Content.Contains($"Child agent session: {sessionId}", StringComparison.Ordinal));
         _ = await Assert.That(systemPrompt).Contains($"Child agent session: {sessionId}");
         _ = await Assert.That(systemPrompt).Contains("Parent agent session: agent");
         _ = await Assert.That(systemPrompt).Contains("Parent agent name: ");
@@ -112,7 +117,7 @@ internal sealed class SubagentTests : IDisposable
     public async Task Friendly_names_are_scoped_to_direct_siblings(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false),
             _broker,
             _repository,
@@ -150,7 +155,7 @@ internal sealed class SubagentTests : IDisposable
     public async Task Canonical_ids_resolve_globally_while_names_stay_local(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false),
             _broker,
             _repository,
@@ -175,7 +180,7 @@ internal sealed class SubagentTests : IDisposable
     public async Task Send_resolution_prefers_canonical_ids_then_the_parent_name(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false),
             _broker,
             _repository,
@@ -218,7 +223,7 @@ internal sealed class SubagentTests : IDisposable
     public async Task Generated_names_are_scoped_to_the_spawning_parent(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false),
             _broker,
             _repository,
@@ -249,7 +254,7 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false),
             _broker,
             _repository,
@@ -287,7 +292,7 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false),
             _broker,
             _repository,
@@ -314,7 +319,7 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false),
             _broker,
             _repository,
@@ -340,7 +345,7 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "child result", []),
             LLMEvent.Completed("stop", 1, 0, 1, "parent result", []));
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: true),
             _broker,
             _repository,
@@ -376,7 +381,7 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "nested result", []),
             LLMEvent.Completed("stop", 1, 0, 1, "intermediate result", []),
             LLMEvent.Completed("stop", 1, 0, 1, "root result", []));
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: true),
             _broker,
             _repository,
@@ -434,7 +439,7 @@ internal sealed class SubagentTests : IDisposable
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var sessions = new TestAgentSessions(Router(provider), deliversCompletions: false);
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent);
@@ -452,7 +457,7 @@ internal sealed class SubagentTests : IDisposable
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var sessions = new TestAgentSessions(Router(provider), deliversCompletions: false);
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         parent.UpdateSelection(parent.Selection().RequestedModel, Profile(ModeRegistry.Build, readOnly: false, []));
@@ -486,7 +491,7 @@ internal sealed class SubagentTests : IDisposable
             new ModelAliasIcon("F", ModelAliasIconColor.Gray));
         var router = Router(provider, [alias]);
         var sessions = new TestAgentSessions(router, deliversCompletions: false);
-        await using var registry = new AgentRegistry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
+        await using var registry = TestModels.Registry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         parent.UpdateSelection(new ModelSelector("fast"), profile: null);
         var spawn = new AgentSpawnTool(registry, router, parent);
@@ -525,7 +530,7 @@ internal sealed class SubagentTests : IDisposable
         var invalid = new ModelAliasDefinition("broken", string.Empty, "Unavailable", null, null);
         var router = Router(provider, [invalid]);
         var sessions = new TestAgentSessions(router, deliversCompletions: false);
-        await using var registry = new AgentRegistry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
+        await using var registry = TestModels.Registry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, router, parent);
 
@@ -548,7 +553,7 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
             LLMEvent.Completed("stop", 1, 0, 1, "steered", []),
             LLMEvent.Completed("stop", 1, 0, 1, "followed up", []));
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
@@ -606,7 +611,7 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
             LLMEvent.Completed("stop", 1, 0, 1, "acknowledged", []));
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         _ = await parent.Send("initial", cancellationToken);
@@ -641,7 +646,7 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
             LLMEvent.Completed("stop", 1, 0, 1, "acknowledged", []));
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent-id", cancellationToken);
         _ = await parent.Send("initial", cancellationToken);
@@ -677,7 +682,7 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
             LLMEvent.Completed("stop", 1, 0, 1, "second", []));
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawned = registry.Spawn(parent, Turn(parent, Router(provider)), "worker", parent.Selection().RequestedModel, "worker");
@@ -707,7 +712,7 @@ internal sealed class SubagentTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var stranger = Session(provider, 0, "stranger", cancellationToken);
@@ -753,7 +758,7 @@ internal sealed class SubagentTests : IDisposable
     public async Task Spawn_rejects_a_foreground_profile(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent);
@@ -769,7 +774,7 @@ internal sealed class SubagentTests : IDisposable
     {
         using var provider = new SteppedProvider();
         var sessions = new TestAgentSessions(Router(provider), deliversCompletions: true);
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var capability = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         var denied = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -819,7 +824,7 @@ internal sealed class SubagentTests : IDisposable
             LLMEvent.Completed("stop", 1, 0, 1, "two", []),
             LLMEvent.Completed("stop", 1, 0, 1, "three", []),
             LLMEvent.Completed("stop", 1, 0, 1, "four", []));
-        await using var registry = new AgentRegistry(
+        await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent);
@@ -847,7 +852,7 @@ internal sealed class SubagentTests : IDisposable
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "first", []),
             LLMEvent.Completed("stop", 1, 0, 1, "unreachable", []));
-        var registry = new AgentRegistry(
+        var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false),
             _broker,
             _repository,
@@ -945,6 +950,7 @@ internal sealed class SubagentTests : IDisposable
         var identity = depth == 0
             ? AgentIdentity.Main(sessionId, name)
             : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", name, depth);
+        var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         return new AgentSession(
             identity,
             new ModelSelector("stepped/model"),
@@ -956,12 +962,12 @@ internal sealed class SubagentTests : IDisposable
             new TodoCollection(identity.SessionId, _repository, _broker),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            profile: null,
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            status: null,
-            registry: null,
-            queues: TestModels.Queues(identity),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             cancellationToken);
     }
 
@@ -982,8 +988,26 @@ internal sealed class SubagentTests : IDisposable
         public SecurityProfile SecurityProfile => securityProfile;
     }
 
+    private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
+    {
+        public IAgentSessionLease Create(
+            AgentIdentity identity,
+            ModelSelector model,
+            EventBroker eventBroker,
+            EventRepository eventRepository,
+            IAgentProfile profile,
+            SecurityProfile securityProfile,
+            RuntimeStatus status,
+            AgentRegistry registry,
+            CancellationToken lifetime) =>
+            throw new NotSupportedException("This test session does not support spawning subagents.");
+    }
+
     private sealed class TestAgentSessions(ModelRouter router, bool deliversCompletions) : IAgentSessionFactory
     {
+        private static readonly ConcurrentBag<UserSessionResources> Resources = [];
+        private static readonly ConcurrentBag<ShellProcessOwners> ProcessOwners = [];
+        private static readonly ConcurrentBag<AgentQueueCatalog> QueueCatalogs = [];
         private readonly List<AgentIdentity> _identities = [];
         private readonly List<ModelSelector> _models = [];
 
@@ -991,7 +1015,7 @@ internal sealed class SubagentTests : IDisposable
 
         public IReadOnlyList<ModelSelector> Models => _models;
 
-        public List<IAgentProfile?> Profiles { get; } = [];
+        public List<IAgentProfile> Profiles { get; } = [];
 
         public List<SecurityProfile> SecurityProfiles { get; } = [];
 
@@ -1000,9 +1024,9 @@ internal sealed class SubagentTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IAgentProfile? profile,
+            IAgentProfile profile,
             SecurityProfile securityProfile,
-            RuntimeStatus? status,
+            RuntimeStatus status,
             AgentRegistry registry,
             CancellationToken lifetime)
         {
@@ -1010,8 +1034,35 @@ internal sealed class SubagentTests : IDisposable
             _models.Add(model);
             Profiles.Add(profile);
             SecurityProfiles.Add(securityProfile);
+            var root = Directory.CreateDirectory(
+                Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"))).FullName;
+            var resources = new UserSessionResources(
+                new StatePaths(root, root, root),
+                UserSessionId.Parse(Guid.NewGuid().ToString("N")),
+                ProjectWorkspace.FromLaunchDirectory(root));
+            var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
+            var queueCatalog = new AgentQueueCatalog(resources);
+            var processOwner = processes.Prepare(identity.SessionId);
+            processes.Register(processOwner);
+            if (identity.ParentSessionId.Length > 0)
+            {
+                _ = queueCatalog.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName));
+            }
 
-            return new AgentSessionLease(new AgentSession(
+            var queues = queueCatalog.Register(identity);
+            var completionRegistry = deliversCompletions
+                ? registry
+                : TestModels.Registry(
+                    new UnsupportedAgentSessionFactory(),
+                    eventBroker,
+                    eventRepository,
+                    TestModels.ProfileRegistry(),
+                    lifetime);
+            Resources.Add(resources);
+            ProcessOwners.Add(processes);
+            QueueCatalogs.Add(queueCatalog);
+
+            var session = new AgentSession(
                 identity,
                 model,
                 router,
@@ -1022,13 +1073,15 @@ internal sealed class SubagentTests : IDisposable
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),
                 new Compactor(120_000),
-                activeWorkReminder: null,
+                new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner),
                 profile,
                 securityProfile,
-                status,
-                deliversCompletions ? registry : null,
-                TestModels.Queues(identity),
-                lifetime));
+                new RuntimeStatus(queueCatalog, processes, registry),
+                completionRegistry,
+                queues,
+                lifetime);
+            queues.Attach(session);
+            return new AgentSessionLease(session);
         }
     }
 }

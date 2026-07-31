@@ -52,9 +52,9 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IAgentProfile? profile,
+            IAgentProfile profile,
             SecurityProfile securityProfile,
-            RuntimeStatus? status,
+            RuntimeStatus status,
             AgentRegistry registry,
             CancellationToken lifetime)
         {
@@ -74,7 +74,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),
                 new Compactor(120_000),
-                activeWorkReminder: null,
+                new ActiveWorkCompletionReminder(identity.SessionId, registry, processes),
                 profile,
                 securityProfile,
                 status,

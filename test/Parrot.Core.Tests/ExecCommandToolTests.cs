@@ -37,23 +37,26 @@ internal sealed class ExecCommandToolTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var identity = AgentIdentity.Main("session", string.Empty);
+        var repository = new EventRepository(database);
+        var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         var session = new AgentSession(
-            AgentIdentity.Main("session", string.Empty),
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             events,
-            new EventRepository(database),
+            repository,
             [],
             TestModels.PromptProvider(_workspace, _workspace),
-            new TodoCollection("session", new EventRepository(database), events),
+            new TodoCollection("session", repository, events),
             new ToolOutputBlobStore(Path.Combine(_workspace, "blob")),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            null,
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            null,
-            null,
-            TestModels.Queues(AgentIdentity.Main("session", string.Empty)),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             CancellationToken.None);
         var resources = new UserSessionResources(
             new StatePaths(
@@ -74,7 +77,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            null,
+            TestModels.Profile(),
             securityProfile);
         var factoryTool = new ExecCommandToolFactory(processes).Create(session);
         var writeStdinFactoryTool = new WriteStdinToolFactory(processes).Create(session);

@@ -164,7 +164,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
 
         var claimed = owner.Claim("poll");
         await claimed.SendSignal(new LinuxSignal(9), cancellationToken);
-        await owner.Settle();
+        await lifetime.CancelAsync();
     }
 
     [Test]
@@ -312,8 +312,10 @@ internal sealed class ShellProcessInteractionTests : IDisposable
     {
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var repository = new EventRepository(database);
+        var identity = AgentIdentity.Main("agent", "agent");
+        var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
         return new AgentSession(
-            AgentIdentity.Main("agent", "agent"),
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             events,
@@ -323,12 +325,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new TodoCollection("agent", repository, events),
             new ToolOutputBlobStore(blobDirectory),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            null,
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            null,
-            null,
-            TestModels.Queues(AgentIdentity.Main("agent", "agent")),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             lifetime);
     }
 

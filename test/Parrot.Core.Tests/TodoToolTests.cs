@@ -126,15 +126,17 @@ internal sealed class TodoToolTests : IDisposable
         return new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
-            null,
+            TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []));
     }
 
     private AgentSession Session(EventRepository repository, string sessionId)
     {
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var identity = AgentIdentity.Main(sessionId, string.Empty);
+        var dependencies = TestModels.Dependencies(identity, _events, repository, CancellationToken.None);
         return new AgentSession(
-            AgentIdentity.Main(sessionId, string.Empty),
+            identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             _events,
@@ -144,12 +146,12 @@ internal sealed class TodoToolTests : IDisposable
             new TodoCollection(sessionId, repository, _events),
             new ToolOutputBlobStore(_root),
             new Compactor(120_000),
-            activeWorkReminder: null,
-            null,
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            null,
-            null,
-            TestModels.Queues(AgentIdentity.Main(sessionId, string.Empty)),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
             CancellationToken.None);
     }
 }

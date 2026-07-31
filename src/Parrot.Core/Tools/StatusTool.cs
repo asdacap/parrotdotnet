@@ -30,11 +30,6 @@ internal sealed partial class StatusTool(
             return $"error: {failure.Message}";
         }
 
-        if (selection.Profile is null)
-        {
-            return "No status is currently available.";
-        }
-
         var text = await status.Observe(session, selection, selection.Profile, cancellationToken).ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(text) ? "No status is currently available." : text;
     }
