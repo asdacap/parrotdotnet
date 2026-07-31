@@ -24,19 +24,19 @@ internal sealed class ExecCommandToolPresenter(TimeProvider timeProvider) : IToo
             new RunningDuration(timeProvider));
     }
 
-    public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
+    public IScrollbackItem? PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
     {
+        if (terminal.YieldedProcess is not null)
+        {
+            return null;
+        }
+
         var command = Command(call.ArgumentsJson);
-        var yielded = terminal.YieldedProcess;
-        var label = yielded is null
-            ? $"{call.Owner}: $ {command}"
-            : $"{call.Owner}: $ {command} (process {yielded.Name} running)";
+        var label = $"{call.Owner}: $ {command}";
         var status = terminal.ResolveProcessStatus();
-        var block = yielded is not null
-            ? ToolBlock.Empty
-            : status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
-                ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? terminal.Result : terminal.Error, 10))
-                : ToolBlock.FromOutput(ToolOutputText.Tail(terminal.Result, 10));
+        var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
+            ? ToolBlock.FromOutput(ToolOutputText.Tail(terminal.ResultPresent ? terminal.Result : terminal.Error, 10))
+            : ToolBlock.FromOutput(ToolOutputText.Tail(terminal.Result, 10));
         return new ToolScrollbackValue(label, block, status, Metadata);
     }
 

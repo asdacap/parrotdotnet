@@ -14,32 +14,6 @@ internal sealed class ProcessToolPresenterTests
         yield return () =>
         [
             new ExecCommandToolPresenter(),
-            new ToolCallPresentation("main", "exec_command", "{\"command\":\"git status\",\"name\":\"git\"}"),
-            new ToolTerminalPresentation(
-                ToolTerminalStatus.Succeeded,
-                true,
-                "git",
-                string.Empty,
-                new YieldedShellProcess { ProcessId = "process-1", Name = "git" }),
-            "$ git status",
-            "process git running",
-        ];
-        yield return () =>
-        [
-            new ExecCommandToolPresenter(),
-            new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\",\"yield_after_ms\":0}"),
-            new ToolTerminalPresentation(
-                ToolTerminalStatus.Succeeded,
-                true,
-                "shell-42",
-                string.Empty,
-                new YieldedShellProcess { ProcessId = "process-2", Name = "shell-42" }),
-            "$ compile",
-            "process shell-42 running",
-        ];
-        yield return () =>
-        [
-            new ExecCommandToolPresenter(),
             new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 7", string.Empty),
             "$ compile",
@@ -72,6 +46,27 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
+    public async Task Yielded_exec_process_defers_terminal_presentation()
+    {
+        var presenter = new ExecCommandToolPresenter();
+        var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}");
+        var terminal = new ToolTerminalPresentation(
+            ToolTerminalStatus.Succeeded,
+            true,
+            "shell-42",
+            string.Empty,
+            new YieldedShellProcess
+            {
+                ProcessId = "process-2",
+                Name = "shell-42",
+                InventoryInstanceId = "inventory",
+                VisibleRevision = 1,
+            });
+
+        _ = await Assert.That(presenter.PresentTerminal(call, terminal)).IsNull();
+    }
+
+    [Test]
     [Arguments("{\"command\":\"status\",\"name\":\"git\"}", "git")]
     [Arguments("{\"command\":\"status\"}", "shell-42")]
     public async Task Exec_output_does_not_imply_a_yielded_process(string arguments, string result)
@@ -80,7 +75,7 @@ internal sealed class ProcessToolPresenterTests
         var call = new ToolCallPresentation("main", "exec_command", arguments);
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, result, string.Empty);
 
-        var rendered = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+        var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException()).Render(ScrollbackContext);
 
         _ = await Assert.That(rendered[0]).IsEqualTo("✓ main: $ status");
         _ = await Assert.That(string.Join('\n', rendered)).Contains(result);
@@ -99,7 +94,7 @@ internal sealed class ProcessToolPresenterTests
             $"Process exited with code 7\nTool output exceeded 64 KiB and was saved to {outputPath}.",
             string.Empty);
 
-        var rendered = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+        var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException()).Render(ScrollbackContext);
 
         _ = await Assert.That(terminal.ResolveProcessStatus()).IsEqualTo(ToolTerminalStatus.ReportedFailure);
         _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: $ compile");
@@ -140,7 +135,7 @@ internal sealed class ProcessToolPresenterTests
         var call = new ToolCallPresentation("main", "exec_command", "{\"command\":\"echo output\"}");
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "output", string.Empty);
 
-        var rendered = presenter.PresentTerminal(call, terminal)
+        var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
             .Render(new ScrollbackRenderContext(32_768, new TerminalPalette(true)));
 
         _ = await Assert.That(rendered[0]).Contains("\u001b[32m");
@@ -258,7 +253,7 @@ internal sealed class ProcessToolPresenterTests
         var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Errored, false, string.Empty, "secret error");
 
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines[0].Text;
-        var finished = presenter.PresentTerminal(call, terminal).Render(ScrollbackContext);
+        var finished = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException()).Render(ScrollbackContext);
 
         _ = await Assert.That(live).Contains("main: write input to process");
         _ = await Assert.That(string.Join('\n', finished)).Contains("main: write input to process");
