@@ -10,6 +10,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
     private readonly CancellationTokenSource _cancellation;
     private readonly string _blobDirectory;
     private readonly System.Diagnostics.Process _process;
+    private readonly LinuxProcessSignalTarget? _signalTarget;
     private readonly PtyTranscript? _transcript;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly int _masterDescriptor;
@@ -22,10 +23,12 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     internal ShellProcessExecution(
         System.Diagnostics.Process process,
+        LinuxProcessSignalTarget? signalTarget,
         string blobDirectory,
         CancellationToken cancellationToken)
     {
         _process = process;
+        _signalTarget = signalTarget;
         _blobDirectory = blobDirectory;
         _masterDescriptor = -1;
         _slaveDescriptor = -1;
@@ -36,12 +39,14 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     internal ShellProcessExecution(
         System.Diagnostics.Process process,
+        LinuxProcessSignalTarget? signalTarget,
         int masterDescriptor,
         int slaveDescriptor,
         string blobDirectory,
         CancellationToken cancellationToken)
     {
         _process = process;
+        _signalTarget = signalTarget;
         _blobDirectory = blobDirectory;
         _masterDescriptor = masterDescriptor;
         _slaveDescriptor = slaveDescriptor;
@@ -109,6 +114,12 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     public Task Cancel() => _cancellation.CancelAsync();
 
+    public void SendSignal(LinuxSignal signal, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        (_signalTarget ?? throw new InvalidOperationException("The shell process has completed.")).Send(signal);
+    }
+
     public (long Cursor, ProcessResult Result) ReadResult(long offset)
     {
         var completed = Volatile.Read(ref _completedResult)
@@ -158,6 +169,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
             _cancellation.Dispose();
             _writeGate.Dispose();
             _transcript?.Dispose();
+            _signalTarget?.Dispose();
             _process.Dispose();
         }
     }

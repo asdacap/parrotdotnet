@@ -466,14 +466,25 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         }
 
         var process = new System.Diagnostics.Process { StartInfo = startInfo };
+        LinuxProcessSignalTarget? signalTarget = null;
+        var started = false;
 
         try
         {
-            _ = process.Start();
-            return new ShellProcessExecution(process, resources.BlobDirectory, cancellationToken);
+            started = process.Start();
+            signalTarget = LinuxProcessSignalTarget.Open(process);
+            return new ShellProcessExecution(process, signalTarget, resources.BlobDirectory, cancellationToken);
         }
         catch
         {
+            signalTarget?.Dispose();
+
+            if (started && !process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit();
+            }
+
             process.Dispose();
             throw;
         }
@@ -501,6 +512,8 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
 
         var (master, slave) = LinuxPseudoTerminal.Open();
         System.Diagnostics.Process? process = null;
+        LinuxProcessSignalTarget? signalTarget = null;
+        var started = false;
 
         try
         {
@@ -528,9 +541,11 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
             }
 
             process = new System.Diagnostics.Process { StartInfo = startInfo };
-            _ = process.Start();
+            started = process.Start();
+            signalTarget = LinuxProcessSignalTarget.Open(process);
             return new ShellProcessExecution(
                 process,
+                signalTarget,
                 master,
                 slave,
                 resources.BlobDirectory,
@@ -538,6 +553,14 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         }
         catch
         {
+            signalTarget?.Dispose();
+
+            if (started && process is not null && !process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit();
+            }
+
             process?.Dispose();
             LinuxPseudoTerminal.Close(master);
             LinuxPseudoTerminal.Close(slave);

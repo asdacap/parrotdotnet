@@ -10,7 +10,9 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
 {
     public string Name => "interrupt_process";
 
-    public string Description => "Interrupt a running shell process owned by this agent session and its process tree.";
+    public string Description =>
+        "Send a Linux signal to a running shell process's tracked top-level wrapper. "
+        + "The signal defaults to 2 and does not target the command or its process tree.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -20,9 +22,26 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
     {
         try
         {
+            ToolInputConversion.RequireObject(invocation.ArgumentsJson, "name");
+            using var document = JsonDocument.Parse(invocation.ArgumentsJson);
+            if (document.RootElement.TryGetProperty("signal", out var signalElement)
+                && signalElement.ValueKind != JsonValueKind.Null
+                && (signalElement.ValueKind != JsonValueKind.Number || !signalElement.TryGetInt32(out _)))
+            {
+                throw new FormatException("Tool argument 'signal' must be an integer.");
+            }
+
             var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, OmittedAgentProcessToolJsonContext.Default.InterruptProcessToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var name = (input.Name ?? throw new FormatException("Tool arguments require a string 'name'.")).Trim();
+            var signalValue = input.Signal ?? 2;
+
+            if (signalValue is < 1 or > 64)
+            {
+                return "error: Tool argument 'signal' must be between 1 and 64.";
+            }
+
+            var signal = new LinuxSignal(signalValue);
 
             if (name.Length == 0)
             {
@@ -30,12 +49,11 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
             }
 
             var process = processes.Claim(name);
-            var result = await process.Interrupt(cancellationToken).ConfigureAwait(false);
-            return result is null
-                ? $"Shell process '{name}' interrupted."
-                : ProcessResultFormatter.Format(result);
+            await process.SendSignal(signal, cancellationToken).ConfigureAwait(false);
+            return $"Signal {signal.Value} sent to shell process '{name}'.";
         }
-        catch (Exception failure) when (failure is JsonException or FormatException or InvalidOperationException)
+        catch (Exception failure) when (
+            failure is JsonException or FormatException or IOException or InvalidOperationException or PlatformNotSupportedException)
         {
             return $"error: {failure.Message}";
         }
@@ -48,5 +66,12 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
         [JsonPropertyName("name")]
         [ToolRequired]
         public string? Name { get; init; }
+
+        [Description("Linux signal number from 1 through 64 to send to the tracked top-level process")]
+        [JsonPropertyName("signal")]
+        [ToolDefaultLong(2)]
+        [ToolMinimum(1)]
+        [ToolMaximum(64)]
+        public int? Signal { get; init; }
     }
 }

@@ -48,18 +48,26 @@ internal sealed class ProcessToolPresenterTests
         yield return () =>
         [
             new InterruptProcessToolPresenter(),
-            new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Shell process 'build' interrupted.", string.Empty),
-            "interrupt build",
-            "interrupt build",
+            new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\",\"signal\":15}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Signal 15 sent to shell process 'build'.", string.Empty),
+            "signal 15 build",
+            "signal 15 build",
         ];
         yield return () =>
         [
             new InterruptProcessToolPresenter(),
             new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\"}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2", string.Empty),
-            "interrupt build",
-            "✗ main: interrupt build",
+            "signal 2 build",
+            "✗ main: signal 2 build",
+        ];
+        yield return () =>
+        [
+            new InterruptProcessToolPresenter(),
+            new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\",\"signal\":null}"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Signal 2 sent to shell process 'build'.", string.Empty),
+            "signal 2 build",
+            "signal 2 build",
         ];
     }
 

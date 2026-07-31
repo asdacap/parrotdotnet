@@ -27,6 +27,22 @@ internal sealed class ToolInputDescriptorGeneratorTests
                 {
                 }
             }
+
+            [AttributeUsage(AttributeTargets.Property)]
+            internal sealed class ToolMinimumAttribute : Attribute
+            {
+                public ToolMinimumAttribute(long value)
+                {
+                }
+            }
+
+            [AttributeUsage(AttributeTargets.Property)]
+            internal sealed class ToolMaximumAttribute : Attribute
+            {
+                public ToolMaximumAttribute(long value)
+                {
+                }
+            }
         }
 
         namespace Models
@@ -262,6 +278,86 @@ internal sealed class ToolInputDescriptorGeneratorTests
             diagnostics,
             "PARROT1010",
             "Tool input model member 'Models.Input' is not supported: inheritance is not supported");
+    }
+
+    [Test]
+    public async Task Maximum_generates_an_integer_maximum()
+    {
+        var (generatorDiagnostics, compilationDiagnostics, generatedSources) = RunGeneration("""
+            [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+            internal sealed partial class Input
+            {
+                [Description("A value")]
+                [Parrot.Tools.Schema.ToolMaximum(42)]
+                public long Value { get; set; }
+            }
+            """);
+
+        _ = await Assert.That(generatorDiagnostics).Count().IsEqualTo(0);
+        _ = await Assert.That(string.Join(
+            Environment.NewLine,
+            compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
+        _ = await Assert.That(ExtractDescriptor(generatedSources.Single().Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"integer\",\"maximum\":42,\"description\":\"A value\"}},\"additionalProperties\":false}");
+    }
+
+    [Test]
+    public async Task Minimum_and_maximum_generate_an_integer_range()
+    {
+        var (generatorDiagnostics, compilationDiagnostics, generatedSources) = RunGeneration("""
+            [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+            internal sealed partial class Input
+            {
+                [Description("A value")]
+                [Parrot.Tools.Schema.ToolMinimum(-10)]
+                [Parrot.Tools.Schema.ToolMaximum(10)]
+                public int Value { get; set; }
+            }
+            """);
+
+        _ = await Assert.That(generatorDiagnostics).Count().IsEqualTo(0);
+        _ = await Assert.That(string.Join(
+            Environment.NewLine,
+            compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
+        _ = await Assert.That(ExtractDescriptor(generatedSources.Single().Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"integer\",\"minimum\":-10,\"maximum\":10,\"description\":\"A value\"}},\"additionalProperties\":false}");
+    }
+
+    [Test]
+    public async Task Minimum_greater_than_maximum_reports_PARROT1005()
+    {
+        var diagnostics = Generate("""
+            [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+            internal sealed partial class Input
+            {
+                [Description("A value")]
+                [Parrot.Tools.Schema.ToolMinimum(11)]
+                [Parrot.Tools.Schema.ToolMaximum(10)]
+                public long Value { get; set; }
+            }
+            """);
+
+        await AssertSingleDiagnostic(
+            diagnostics,
+            "PARROT1005",
+            "Property 'Value' has invalid constraint: ToolMinimum cannot exceed ToolMaximum");
+    }
+
+    [Test]
+    public async Task Maximum_on_a_non_integer_reports_PARROT1005()
+    {
+        var diagnostics = Generate("""
+            [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+            internal sealed partial class Input
+            {
+                [Description("A value")]
+                [Parrot.Tools.Schema.ToolMaximum(10)]
+                public string Value { get; set; } = string.Empty;
+            }
+            """);
+
+        await AssertSingleDiagnostic(
+            diagnostics,
+            "PARROT1005",
+            "Property 'Value' has invalid constraint: ToolMaximum requires an int or long property");
     }
 
     private static ImmutableArray<Diagnostic> Generate(string model) =>

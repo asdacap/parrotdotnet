@@ -51,6 +51,22 @@ internal sealed class ToolInputDescriptorTests
             _ = await Assert.That(include.GetProperty("type").GetString()).IsEqualTo("string");
         }
 
+        using (var interruptProcess = JsonDocument.Parse(InterruptProcessTool.Input.Descriptor))
+        {
+            var root = interruptProcess.RootElement;
+            var properties = root.GetProperty("properties");
+            _ = await Assert.That(string.Join(",", properties.EnumerateObject().Select(property => property.Name)))
+                .IsEqualTo("name,signal");
+            _ = await Assert.That(string.Join(",", root.GetProperty("required").EnumerateArray()
+                .Select(item => item.GetString())))
+                .IsEqualTo("name");
+            var signal = properties.GetProperty("signal");
+            _ = await Assert.That(signal.GetProperty("type").GetString()).IsEqualTo("integer");
+            _ = await Assert.That(signal.GetProperty("minimum").GetInt64()).IsEqualTo(1);
+            _ = await Assert.That(signal.GetProperty("maximum").GetInt64()).IsEqualTo(64);
+            _ = await Assert.That(signal.GetProperty("default").GetInt64()).IsEqualTo(2);
+        }
+
         using (var writeStdin = JsonDocument.Parse(WriteStdinTool.Input.Descriptor))
         {
             var root = writeStdin.RootElement;

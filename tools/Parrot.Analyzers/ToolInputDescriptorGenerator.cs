@@ -14,6 +14,7 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
     private const string RequiredAttributeName = "Parrot.Tools.Schema.ToolRequiredAttribute";
     private const string MinLengthAttributeName = "Parrot.Tools.Schema.ToolMinLengthAttribute";
     private const string MinimumAttributeName = "Parrot.Tools.Schema.ToolMinimumAttribute";
+    private const string MaximumAttributeName = "Parrot.Tools.Schema.ToolMaximumAttribute";
     private const string PatternAttributeName = "Parrot.Tools.Schema.ToolPatternAttribute";
     private const string MinItemsAttributeName = "Parrot.Tools.Schema.ToolMinItemsAttribute";
     private const string MaxItemsAttributeName = "Parrot.Tools.Schema.ToolMaxItemsAttribute";
@@ -511,17 +512,39 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
         }
 
         var minimum = FindAttribute(property, MinimumAttributeName);
+        var maximum = FindAttribute(property, MaximumAttributeName);
+        var hasMinimum = TryGetLong(minimum, out var minimumValue);
+        var hasMaximum = TryGetLong(maximum, out var maximumValue);
         if (minimum is not null)
         {
-            if (kind != SchemaKind.Integer || !TryGetLong(minimum, out var value))
+            if (kind != SchemaKind.Integer || !hasMinimum)
             {
                 ReportInvalidConstraint(property, "ToolMinimum requires an int or long property", diagnostics);
                 valid = false;
             }
             else
             {
-                _ = builder.Append(",\"minimum\":").Append(value.ToString(CultureInfo.InvariantCulture));
+                _ = builder.Append(",\"minimum\":").Append(minimumValue.ToString(CultureInfo.InvariantCulture));
             }
+        }
+
+        if (maximum is not null)
+        {
+            if (kind != SchemaKind.Integer || !hasMaximum)
+            {
+                ReportInvalidConstraint(property, "ToolMaximum requires an int or long property", diagnostics);
+                valid = false;
+            }
+            else
+            {
+                _ = builder.Append(",\"maximum\":").Append(maximumValue.ToString(CultureInfo.InvariantCulture));
+            }
+        }
+
+        if (kind == SchemaKind.Integer && hasMinimum && hasMaximum && minimumValue > maximumValue)
+        {
+            ReportInvalidConstraint(property, "ToolMinimum cannot exceed ToolMaximum", diagnostics);
+            valid = false;
         }
 
         var pattern = FindAttribute(property, PatternAttributeName);

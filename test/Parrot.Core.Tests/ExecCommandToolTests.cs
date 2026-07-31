@@ -137,20 +137,59 @@ internal sealed class ExecCommandToolTests : IDisposable
         var waited = await Execute(new WaitProcessTool(processes), """{"name":"later"}""", cancellationToken);
         var reusedAfterCompletion = await Execute(tool, """{"command":"printf reused","name":"later"}""", cancellationToken);
         var unknown = await Execute(new WaitProcessTool(processes), """{"name":"missing"}""", cancellationToken);
+        var defaultSignalProcess = await Execute(
+            tool,
+            """{"command":"sleep 30","name":"default-signal","yield_after_ms":0}""",
+            cancellationToken);
+        var defaultSignaled = await Execute(
+            new InterruptProcessTool(processes),
+            """{"name":"default-signal"}""",
+            cancellationToken);
+        var defaultCompletion = await Execute(
+            new WaitProcessTool(processes),
+            """{"name":"default-signal"}""",
+            cancellationToken);
         var running = await Execute(tool, """{"command":"sleep 30","name":"running","yield_after_ms":0}""", cancellationToken);
         var runningDuplicate = await Execute(tool, """{"command":"true","name":"running"}""", cancellationToken);
-        var interrupted = await Execute(new InterruptProcessTool(processes), """{"name":"running"}""", cancellationToken);
-        var reusedAfterInterrupt = await Execute(tool, """{"command":"printf restarted","name":"running"}""", cancellationToken);
+        var signaled = await Execute(
+            new InterruptProcessTool(processes),
+            """{"name":"running","signal":17}""",
+            cancellationToken);
+        var killed = await Execute(new InterruptProcessTool(processes), """{"name":"running","signal":9}""", cancellationToken);
+        var waitedAfterKill = await Execute(new WaitProcessTool(processes), """{"name":"running"}""", cancellationToken);
+        var reusedAfterKill = await Execute(tool, """{"command":"printf restarted","name":"running"}""", cancellationToken);
+        var invalidLowSignal = await Execute(
+            new InterruptProcessTool(processes),
+            """{"name":"running","signal":0}""",
+            cancellationToken);
+        var invalidHighSignal = await Execute(
+            new InterruptProcessTool(processes),
+            """{"name":"running","signal":65}""",
+            cancellationToken);
+        var malformedSignal = await Execute(
+            new InterruptProcessTool(processes),
+            """{"name":"running","signal":"SIGINT"}""",
+            cancellationToken);
 
         _ = await Assert.That(yielded.Text).IsEqualTo("later");
         _ = await Assert.That(waited.Text).IsEqualTo("Process exited with code 0\n[stdout]\nlater");
         _ = await Assert.That(reusedAfterCompletion.Text).IsEqualTo("Process exited with code 0\n[stdout]\nreused");
         _ = await Assert.That(unknown.Text).IsEqualTo("error: Unknown shell process 'missing'.");
+        _ = await Assert.That(defaultSignalProcess.Text).IsEqualTo("default-signal");
+        _ = await Assert.That(defaultSignaled.Text).IsEqualTo("Signal 2 sent to shell process 'default-signal'.");
+        _ = await Assert.That(defaultCompletion.Text).StartsWith("Process exited with code ");
         _ = await Assert.That(running.Text).IsEqualTo("running");
         _ = await Assert.That(runningDuplicate.Text)
             .IsEqualTo("error: Shell process name 'running' is already reserved.");
-        _ = await Assert.That(interrupted.Text).IsEqualTo("Shell process 'running' interrupted.");
-        _ = await Assert.That(reusedAfterInterrupt.Text).IsEqualTo("Process exited with code 0\n[stdout]\nrestarted");
+        _ = await Assert.That(signaled.Text).IsEqualTo("Signal 17 sent to shell process 'running'.");
+        _ = await Assert.That(killed.Text).IsEqualTo("Signal 9 sent to shell process 'running'.");
+        _ = await Assert.That(waitedAfterKill.Text).StartsWith("Process exited with code ");
+        _ = await Assert.That(reusedAfterKill.Text).IsEqualTo("Process exited with code 0\n[stdout]\nrestarted");
+        _ = await Assert.That(invalidLowSignal.Text)
+            .IsEqualTo("error: Tool argument 'signal' must be between 1 and 64.");
+        _ = await Assert.That(invalidHighSignal.Text)
+            .IsEqualTo("error: Tool argument 'signal' must be between 1 and 64.");
+        _ = await Assert.That(malformedSignal.Text).IsEqualTo("error: Tool argument 'signal' must be an integer.");
     }
 
     private static Task<ToolExecutionResult> Execute(

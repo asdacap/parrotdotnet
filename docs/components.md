@@ -709,14 +709,24 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   that is empty or contains `=` or NUL, or a value containing NUL, reports
   `error: Tool argument 'env' contains an invalid environment value.`
   `wait_process` requires `name` and accepts
-  optional `yield_after_ms`; `interrupt_process` requires `name` and cancels the
-  named process tree. A yield returns a typed yielded-process handoff containing
-  the reserved process identity without stopping it; clients do not infer the
-  handoff by parsing ordinary result text. A later completion is delivered to
-  the invoking agent through its durable steer queue unless a successful wait or
-  interrupt claims it. Non-yielded executions retain their ordinary terminal
-  result behavior. `wait_process` replaces the earlier `wait_shell` name so the
-  lifecycle tools use process terminology.
+  optional `yield_after_ms`; `interrupt_process` requires `name` and accepts an
+  optional integer `signal` from 1 through 64, defaulting to 2 (`SIGINT`). The
+  host may reject an in-range number that is not a valid signal at runtime. The
+  signal is sent only to the tracked outer wrapper: the outer bubblewrap process
+  for a pipe run, or the outer `parrot-pty-attach --bridge` process for a PTY
+  run. It is not sent directly to the root shell, foreground process group,
+  descendants, or process tree. Success means the kernel accepted delivery. The
+  tool returns immediately with `Signal N sent to shell process 'name'.` and does
+  not wait, escalate, consume output, or retire the process. If the wrapper survives,
+  the process stays reserved and running, and ordinary later completion handles
+  its result. User-session lifetime cancellation and disposal still force-kill
+  the entire process tree. A yield returns a typed yielded-process handoff
+  containing the reserved process identity without stopping it; clients do not
+  infer the handoff by parsing ordinary result text. A later completion is
+  delivered to the invoking agent through its durable steer queue unless a
+  successful wait claims it. Non-yielded executions retain their ordinary
+  terminal result behavior. `wait_process` replaces the earlier `wait_shell`
+  name so the lifecycle tools use process terminology.
 - **Generic activity wait.** `wait` pauses the invoking agent for incoming
   activity and returns early for a new message, direct-child completion,
   unclaimed yielded-process completion, or an item from a queue enabled through

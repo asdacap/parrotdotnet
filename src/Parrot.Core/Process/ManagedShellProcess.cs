@@ -97,29 +97,16 @@ internal sealed class ManagedShellProcess
         }
     }
 
-    public async Task<ProcessResult?> Interrupt(CancellationToken cancellationToken)
+    public Task SendSignal(LinuxSignal signal, CancellationToken cancellationToken)
     {
-        await _execution.Cancel().ConfigureAwait(false);
-
         try
         {
-            _ = await _completion.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return CommitCompleted().Result;
+            _execution.SendSignal(signal, cancellationToken);
+            return Task.CompletedTask;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        finally
         {
             ReleaseClaim();
-            throw;
-        }
-        catch (OperationCanceledException)
-        {
-            MarkDelivered();
-            return null;
-        }
-        catch
-        {
-            MarkDelivered();
-            throw;
         }
     }
 
