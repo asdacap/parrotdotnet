@@ -24,6 +24,7 @@
 - A user session (and all its component including all agent sessions) data is scoped within that user session. Do not
 read or write other user session data.
 - Tools or any permission check should check the security profiles rather than specific directory.
+- Do not make unnecessary change in prod for test.
 
 ## Async lifecycle
 
