@@ -22,6 +22,9 @@ internal sealed record ProviderConfig
     // Opaque JSON object forwarded as the request body's "provider" field.
     public string ProviderPreferences { get; init; } = string.Empty;
 
+    public IReadOnlyDictionary<string, ModelConfig> ModelDefaults { get; init; } =
+        new Dictionary<string, ModelConfig>(StringComparer.Ordinal);
+
     public IReadOnlyDictionary<string, ModelConfig> Models { get; init; } =
         new Dictionary<string, ModelConfig>(StringComparer.Ordinal);
 }

@@ -1,11 +1,10 @@
 namespace Parrot.Llm;
 
-// Builds a provider's model catalogue from what the endpoint serves, described
-// with the best metadata available: a declared model first, then a preset
-// default. Declared models are always kept; defaults are only descriptions and
-// are dropped when the endpoint does not serve them. A null fetched list means
-// no catalogue has loaded yet, and the defaults stand in for one. Port of Go's
-// mergeModels.
+// Builds a provider's model catalogue from what the endpoint serves. Endpoint
+// metadata has priority; declarations and then preset defaults fill fields the
+// endpoint omitted. Declared models are always kept, while defaults disappear
+// after a successful endpoint response omits them. A null fetched list means no
+// catalogue has loaded yet, and configured models stand in for one.
 internal static class ModelCatalogue
 {
     public static IReadOnlyList<LLMModel> Merge(
@@ -13,21 +12,21 @@ internal static class ModelCatalogue
         IReadOnlyList<LLMModel> declared,
         IReadOnlyList<LLMModel> defaults)
     {
-        var describe = new Dictionary<string, LLMModel>(StringComparer.Ordinal);
+        var configured = new Dictionary<string, LLMModel>(StringComparer.Ordinal);
 
         foreach (var item in defaults)
         {
-            describe[item.Id] = item;
+            configured[item.Id] = item;
         }
 
         foreach (var item in declared)
         {
-            describe[item.Id] = item;
+            configured[item.Id] = configured.TryGetValue(item.Id, out var fallback)
+                ? Overlay(fallback, item)
+                : item;
         }
 
-        var source = fetched
-            ?? [.. describe.Keys.Select(id => new LLMModel(id, describe[id].ProviderId))];
-
+        var source = fetched ?? [.. configured.Values];
         var result = new List<LLMModel>();
         var listed = new HashSet<string>(StringComparer.Ordinal);
 
@@ -38,18 +37,21 @@ internal static class ModelCatalogue
                 continue;
             }
 
-            var model = describe.TryGetValue(item.Id, out var described) ? Overlay(described, item) : item;
+            var model = configured.TryGetValue(item.Id, out var fallback)
+                ? Overlay(fallback, item)
+                : item;
 
             if (model.Name.Length == 0)
             {
                 model = model with { Name = model.Id };
             }
 
-            var capabilities = model.Capabilities;
-
-            if (!capabilities.Reasoning && capabilities.Variants.Count > 0)
+            if (!model.Capabilities.Reasoning && model.Capabilities.Variants.Count > 0)
             {
-                model = model with { Capabilities = capabilities with { Reasoning = true } };
+                model = model with
+                {
+                    Capabilities = model.Capabilities with { Reasoning = true },
+                };
             }
 
             result.Add(model);
@@ -59,7 +61,7 @@ internal static class ModelCatalogue
         {
             if (!listed.Contains(item.Id))
             {
-                result.Add(item);
+                result.Add(configured[item.Id]);
             }
         }
 
@@ -67,26 +69,34 @@ internal static class ModelCatalogue
         return result;
     }
 
-    // Known metadata wins; the catalogue only fills the gaps the declaration or
-    // preset left open.
-    private static LLMModel Overlay(LLMModel known, LLMModel fetched)
+    private static LLMModel Overlay(LLMModel fallback, LLMModel preferred)
     {
-        var capabilities = known.Capabilities;
+        var fallbackCapabilities = fallback.Capabilities;
+        var preferredCapabilities = preferred.Capabilities;
+        var tools = Prefer(ModelMetadataFields.Tools) ? preferredCapabilities.Tools : fallbackCapabilities.Tools;
+        var reasoning = Prefer(ModelMetadataFields.Reasoning)
+            ? preferredCapabilities.Reasoning
+            : fallbackCapabilities.Reasoning;
+        var output = Prefer(ModelMetadataFields.Output) ? preferredCapabilities.Output : fallbackCapabilities.Output;
+        var variants = Prefer(ModelMetadataFields.Variants)
+            ? preferredCapabilities.Variants
+            : fallbackCapabilities.Variants;
 
-        if (capabilities.Variants.Count == 0 && fetched.Capabilities.Variants.Count > 0)
+        return preferred with
         {
-            capabilities = capabilities with { Variants = fetched.Capabilities.Variants };
-        }
-
-        return known with
-        {
-            ProviderId = known.ProviderId.Length > 0 ? known.ProviderId : fetched.ProviderId,
-            Name = known.Name.Length > 0 ? known.Name : fetched.Name,
-            ContextWindow = known.ContextWindow != 0 ? known.ContextWindow : fetched.ContextWindow,
-            MaxOutputTokens = known.MaxOutputTokens != 0 ? known.MaxOutputTokens : fetched.MaxOutputTokens,
-            InputPrice = known.InputPrice != 0 ? known.InputPrice : fetched.InputPrice,
-            OutputPrice = known.OutputPrice != 0 ? known.OutputPrice : fetched.OutputPrice,
-            Capabilities = capabilities,
+            ProviderId = preferred.ProviderId.Length > 0 ? preferred.ProviderId : fallback.ProviderId,
+            Name = Prefer(ModelMetadataFields.Name) ? preferred.Name : fallback.Name,
+            ContextWindow = Prefer(ModelMetadataFields.ContextWindow) ? preferred.ContextWindow : fallback.ContextWindow,
+            MaxOutputTokens = Prefer(ModelMetadataFields.MaxOutputTokens)
+                ? preferred.MaxOutputTokens
+                : fallback.MaxOutputTokens,
+            InputPrice = Prefer(ModelMetadataFields.InputPrice) ? preferred.InputPrice : fallback.InputPrice,
+            OutputPrice = Prefer(ModelMetadataFields.OutputPrice) ? preferred.OutputPrice : fallback.OutputPrice,
+            Capabilities = new ModelCapabilities(tools, reasoning, output, variants),
+            Fields = fallback.Fields | preferred.Fields,
         };
+
+        bool Prefer(ModelMetadataFields field) =>
+            preferred.Fields.HasFlag(field) || !fallback.Fields.HasFlag(field);
     }
 }

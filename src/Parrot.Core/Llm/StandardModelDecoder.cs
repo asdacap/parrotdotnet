@@ -25,21 +25,22 @@ internal sealed class StandardModelDecoder : IModelListDecoder
                     continue;
                 }
 
-                var contextWindow = JsonRead.Int(item, "context_window");
-
-                if (contextWindow == 0)
-                {
-                    contextWindow = JsonRead.Int(item, "context_length");
-                }
-
-                var name = JsonRead.String(item, "name");
+                var fields = ModelMetadataFields.None;
+                var hasContext = JsonRead.TryReadInt(item, "context_window", out var contextWindow)
+                    || JsonRead.TryReadInt(item, "context_length", out contextWindow);
+                var hasName = JsonRead.TryReadString(item, "name", out var name);
+                var hasMaxTokens = JsonRead.TryReadInt(item, "max_output_tokens", out var maxTokens);
+                fields |= hasName ? ModelMetadataFields.Name : ModelMetadataFields.None;
+                fields |= hasContext ? ModelMetadataFields.ContextWindow : ModelMetadataFields.None;
+                fields |= hasMaxTokens ? ModelMetadataFields.MaxOutputTokens : ModelMetadataFields.None;
 
                 models.Add(new LLMModel(id, providerId)
                 {
-                    Name = name.Length > 0 ? name : id,
+                    Name = hasName ? name : id,
                     ContextWindow = contextWindow,
-                    MaxOutputTokens = JsonRead.Int(item, "max_output_tokens"),
+                    MaxOutputTokens = maxTokens,
                     Capabilities = new ModelCapabilities(Tools: true, Reasoning: false, Output: ["text"], Variants: []),
+                    Fields = fields,
                 });
             }
         }

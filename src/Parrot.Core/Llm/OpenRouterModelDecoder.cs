@@ -27,18 +27,25 @@ internal sealed class OpenRouterModelDecoder : IModelListDecoder
                     continue;
                 }
 
-                var name = JsonRead.String(item, "name");
-                var maxTokens = item.TryGetProperty("top_provider", out var topProvider)
-                    ? JsonRead.Int(topProvider, "max_completion_tokens")
-                    : 0;
+                var fields = ModelMetadataFields.None;
+                var hasName = JsonRead.TryReadString(item, "name", out var name);
+                var hasContext = JsonRead.TryReadInt(item, "context_length", out var contextWindow);
+                var maxTokens = 0;
+                var hasMaxTokens = item.TryGetProperty("top_provider", out var topProvider)
+                    && JsonRead.TryReadInt(topProvider, "max_completion_tokens", out maxTokens);
+                fields |= hasName ? ModelMetadataFields.Name : ModelMetadataFields.None;
+                fields |= hasContext ? ModelMetadataFields.ContextWindow : ModelMetadataFields.None;
+                fields |= hasMaxTokens ? ModelMetadataFields.MaxOutputTokens : ModelMetadataFields.None;
 
                 IReadOnlyList<ModelVariant> variants = [];
 
                 if (item.TryGetProperty("reasoning", out var reasoning) && reasoning.ValueKind == JsonValueKind.Object)
                 {
-                    variants = ReasoningVariants.FromEfforts(
-                        JsonRead.StringArray(reasoning, "supported_efforts"),
-                        JsonRead.String(reasoning, "default_effort"));
+                    if (JsonRead.TryReadStringArray(reasoning, "supported_efforts", out var efforts))
+                    {
+                        variants = ReasoningVariants.FromEfforts(efforts, JsonRead.String(reasoning, "default_effort"));
+                        fields |= ModelMetadataFields.Reasoning | ModelMetadataFields.Variants;
+                    }
                 }
 
                 var inputPrice = 0.0;
@@ -46,19 +53,24 @@ internal sealed class OpenRouterModelDecoder : IModelListDecoder
 
                 if (item.TryGetProperty("pricing", out var pricing) && pricing.ValueKind == JsonValueKind.Object)
                 {
-                    inputPrice = JsonRead.Number(pricing, "prompt");
-                    outputPrice = JsonRead.Number(pricing, "completion");
+                    fields |= JsonRead.TryReadNonNegativeNumber(pricing, "prompt", out inputPrice)
+                        ? ModelMetadataFields.InputPrice
+                        : ModelMetadataFields.None;
+                    fields |= JsonRead.TryReadNonNegativeNumber(pricing, "completion", out outputPrice)
+                        ? ModelMetadataFields.OutputPrice
+                        : ModelMetadataFields.None;
                 }
 
                 models.Add(new LLMModel(id, providerId)
                 {
-                    Name = name.Length > 0 ? name : id,
-                    ContextWindow = JsonRead.Int(item, "context_length"),
+                    Name = hasName ? name : id,
+                    ContextWindow = contextWindow,
                     MaxOutputTokens = maxTokens,
                     InputPrice = inputPrice,
                     OutputPrice = outputPrice,
                     Capabilities = new ModelCapabilities(
                         Tools: true, Reasoning: variants.Count > 0, Output: ["text"], Variants: variants),
+                    Fields = fields,
                 });
             }
         }

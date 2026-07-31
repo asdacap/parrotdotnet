@@ -27,27 +27,39 @@ internal sealed class KimiModelDecoder : IModelListDecoder
                     continue;
                 }
 
-                var name = JsonRead.String(item, "display_name");
+                var fields = ModelMetadataFields.None;
+                var hasName = JsonRead.TryReadString(item, "display_name", out var name);
+                var hasContext = JsonRead.TryReadInt(item, "context_length", out var contextWindow);
+                var hasReasoning = JsonRead.TryReadBool(item, "supports_reasoning", out var supportsReasoning);
+                fields |= hasName ? ModelMetadataFields.Name : ModelMetadataFields.None;
+                fields |= hasContext ? ModelMetadataFields.ContextWindow : ModelMetadataFields.None;
+                fields |= hasReasoning ? ModelMetadataFields.Reasoning : ModelMetadataFields.None;
                 IReadOnlyList<ModelVariant> variants = [];
 
                 if (item.TryGetProperty("think_efforts", out var thinkEfforts)
                     && thinkEfforts.ValueKind == JsonValueKind.Object
-                    && JsonRead.Bool(thinkEfforts, "support"))
+                    && JsonRead.TryReadStringArray(thinkEfforts, "valid_efforts", out var efforts))
                 {
-                    variants = ReasoningVariants.FromEfforts(
-                        JsonRead.StringArray(thinkEfforts, "valid_efforts"),
-                        JsonRead.String(thinkEfforts, "default_effort"));
+                    fields |= ModelMetadataFields.Variants;
+
+                    if (JsonRead.Bool(thinkEfforts, "support"))
+                    {
+                        variants = ReasoningVariants.FromEfforts(
+                            efforts,
+                            JsonRead.String(thinkEfforts, "default_effort"));
+                    }
                 }
 
                 models.Add(new LLMModel(id, providerId)
                 {
-                    Name = name.Length > 0 ? name : id,
-                    ContextWindow = JsonRead.Int(item, "context_length"),
+                    Name = hasName ? name : id,
+                    ContextWindow = contextWindow,
                     Capabilities = new ModelCapabilities(
                         Tools: true,
-                        Reasoning: JsonRead.Bool(item, "supports_reasoning") || variants.Count > 0,
+                        Reasoning: supportsReasoning || variants.Count > 0,
                         Output: ["text"],
                         Variants: variants),
+                    Fields = fields,
                 });
             }
         }

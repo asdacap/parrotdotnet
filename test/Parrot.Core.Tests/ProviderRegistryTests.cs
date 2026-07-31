@@ -9,6 +9,25 @@ namespace Parrot.Core.Tests;
 internal sealed class ProviderRegistryTests
 {
     [Test]
+    public async Task Buildable_provider_ids_come_from_predefined_and_user_configuration()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-provider-ids", Guid.NewGuid().ToString("n"));
+        var configuration = Configuration.Load(
+            Path.Combine(directory, "config.yaml"),
+            Path.Combine(directory, "predefined_config.yaml"));
+
+        try
+        {
+            _ = await Assert.That(string.Join(",", ProviderRegistryBuilder.BuildableProviderIds(configuration)))
+                .IsEqualTo("chatgpt,kimi-api,kimi-code,opencode-go,openrouter");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Resolve_selects_defaults_and_keeps_the_vendor_prefix()
     {
         var registry = Build(
@@ -140,6 +159,69 @@ internal sealed class ProviderRegistryTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Test]
+    public async Task Build_seeds_custom_provider_from_configured_model_defaults(
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-provider-defaults", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                "providers:\n  custom:\n    base_url: https://example.test/v1\n    model_defaults:\n      seed:\n        name: Seed Name\n        context: 123\n        variants:\n          high:\n            reasoning_effort: high\n          low:\n            reasoning_effort: low\n",
+                cancellationToken);
+            using var handler = new ModelsHandler();
+            using var client = new HttpClient(handler, disposeHandler: false);
+            var registry = await new ProviderRegistryBuilder(
+                Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
+                new InMemoryCredentialStore(),
+                client,
+                new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
+
+            var seed = registry.Models("custom").Single();
+
+            _ = await Assert.That(seed.Id).IsEqualTo("seed");
+            _ = await Assert.That(seed.Name).IsEqualTo("Seed Name");
+            _ = await Assert.That(seed.ContextWindow).IsEqualTo(123);
+            _ = await Assert.That(string.Join(",", seed.Capabilities.Variants.Select(item => item.Name)))
+                .IsEqualTo("high,low");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Chatgpt_refresh_keeps_declarations_drops_unserved_defaults_and_uses_served_default_metadata(
+        CancellationToken cancellationToken)
+    {
+        using var handler = new ChatGptModelsHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        var provider = new ChatGptProvider(
+            new FakeOAuthTokenSource(),
+            client,
+            [new LLMModel("declared", "chatgpt") { Name = "Declared" }],
+            [
+                new LLMModel("default", "chatgpt") { Name = "Default" },
+                new LLMModel("live", "chatgpt")
+                {
+                    InputPrice = 0.001,
+                    Fields = ModelMetadataFields.InputPrice,
+                },
+            ]);
+
+        var seed = provider.SeedModels();
+        var refreshed = await provider.ListModels(cancellationToken);
+
+        _ = await Assert.That(string.Join(",", seed.Select(model => model.Id))).IsEqualTo("declared,default,live");
+        _ = await Assert.That(string.Join(",", refreshed.Select(model => model.Id))).IsEqualTo("declared,live");
+        _ = await Assert.That(refreshed.Single(model => model.Id == "live").InputPrice).IsEqualTo(0.001);
     }
 
     [Test]
@@ -275,6 +357,27 @@ internal sealed class ProviderRegistryTests
 
         _ = defaultSelector;
         return new ProviderRegistry(builtProviders, catalogues);
+    }
+
+    private sealed class ChatGptModelsHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"models":[{"slug":"live","display_name":"Live","context_window":321,"visibility":"list"}]}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            });
+    }
+
+    private sealed class FakeOAuthTokenSource : IOAuthTokenSource
+    {
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<OAuthAccess> Token(CancellationToken cancellationToken) =>
+            Task.FromResult(new OAuthAccess("token", "account"));
     }
 
     private sealed class ModelsHandler : HttpMessageHandler

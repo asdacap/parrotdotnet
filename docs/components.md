@@ -420,9 +420,11 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 
 ### `ProviderRegistry` — rank 5, M1
 
-- **Absorbs** the preset and catalogue half of `provider`.
+- **Absorbs** the provider configuration and catalogue half of `provider`.
 - **Owns** the configured and built-in providers, and the merged model
-  catalogue.
+  catalogue. Built-in serializable provider defaults and offline
+  `model_defaults` catalogues are authored in `predefined_config.yaml`;
+  implementation-specific adapters and decoders remain code-owned.
 - **Inbound** resolve `provider/model` to an `ILLMProvider` and a model; list
   models. The model portion keeps any vendor prefix (split on the first slash),
   so `openrouter/openai/gpt-4o` resolves to provider `openrouter`, model
@@ -431,8 +433,10 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Boundary** no.
 - **Note** the catalogue lives on the registry rather than on `ILLMProvider`,
   so a provider stays stateless: it can list models, but remembering them is the
-  registry's job. The registry is seeded with preset and declared metadata so a
-  model is selectable offline. User-facing listing checks credentials each time,
+  registry's job. Endpoint metadata takes priority, while explicit `models` and
+  offline `model_defaults` fill fields the endpoint omits. After a successful
+  refresh, defaults omitted by the endpoint are dropped; explicit models remain
+  selectable. User-facing listing checks credentials each time,
   skips uncredentialed providers without contacting them, and overlays what each
   available endpoint serves on a best-effort basis.
 
@@ -466,10 +470,12 @@ the two wire dialects and the shared HTTP/SSE machinery are in `Parrot.Llm.Wire`
 - **Retry + classification.** `ProviderErrors` (`IsUsageLimit`/
   `IsEngineOverloaded`) and `RetryingProvider`, a decorator the registry wraps
   around every provider, folding upstream's header-retry and stream-retry layers.
-- **Presets + build.** `ProviderPresets` absorbs `app/presets.go`;
+- **Defaults + build.** Serializable provider defaults and offline
+  `model_defaults` catalogues are loaded from `predefined_config.yaml`.
   `ProviderRegistryBuilder` absorbs `app.BuildProviders` (env-var → credential
-  key resolution, preset merge, retry wrapping). `ProviderRegistry` absorbs
-  `agent/provider.go`.
+  key resolution, defaults merge, retry wrapping). `ProviderRegistry` absorbs
+  `agent/provider.go`. Implementation-specific adapters, model-list decoders,
+  and the ChatGPT OAuth transport remain in code rather than configuration.
 
 ### `ICredentialStore` — schema change (2026-07-24)
 
