@@ -100,6 +100,11 @@
     "hash": "sha256-DwLIq2LSN0y2FmDz1KtUZWvpzBE1ZnkuIy0t8i2O2Y8="
   },
   {
+    "pname": "SixLabors.ImageSharp",
+    "version": "3.1.12",
+    "hash": "sha256-FR8v74w4P/1AZdW5ARW0y8zgDqLtvhxQmL1CKv68xR0="
+  },
+  {
     "pname": "SourceGear.sqlite3",
     "version": "3.53.3",
     "hash": "sha256-EH+QhpU46WTe262bdJIvoECSrbB43keR+ZcJyp7Z8FA="
