@@ -21,7 +21,6 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
             ? Path.GetFullPath(path)
             : Path.GetFullPath(Path.Combine(Root, path));
 
-        RequireContained(lexical);
         _fileSystemPolicy.RequireUnprotected(lexical);
         var physical = ResolveLinks(lexical);
         _fileSystemPolicy.RequireUnprotected(physical);
@@ -194,21 +193,12 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
         return Path.TrimEndingDirectorySeparator((resolved ?? info).FullName);
     }
 
-    private string DisplayPath(string physical) => Path.GetRelativePath(Root, physical);
-
-    private void RequireContained(string full)
+    private static string ResolveLinks(string full)
     {
-        if (!Contained(full))
-        {
-            throw new InvalidOperationException("Path escapes the workspace.");
-        }
-    }
-
-    private string ResolveLinks(string full)
-    {
-        var relative = Path.GetRelativePath(Root, full);
+        var root = Path.GetPathRoot(full) ?? throw new InvalidOperationException($"Invalid path '{full}'.");
+        var relative = Path.GetRelativePath(root, full);
         var parts = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-        var current = Root;
+        var current = Path.TrimEndingDirectorySeparator(root);
 
         foreach (var part in parts)
         {
@@ -227,16 +217,13 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
             FileSystemInfo link = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
             var target = link.ResolveLinkTarget(returnFinalTarget: true)
                 ?? throw new FileNotFoundException($"Symbolic link target for '{current}' is missing.");
-            if (!Contained(target.FullName))
-            {
-                throw new InvalidOperationException("Path traverses a symbolic link outside the workspace.");
-            }
-
             current = target.FullName;
         }
 
         return current;
     }
+
+    private string DisplayPath(string physical) => Path.GetRelativePath(Root, physical);
 
     private bool Contained(string path)
     {

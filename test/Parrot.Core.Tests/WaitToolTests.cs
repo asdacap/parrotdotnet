@@ -151,7 +151,9 @@ internal sealed class WaitToolTests : IDisposable
             "build",
             Resources("user"),
             sessions,
-            new UserSessionModes(new ModeRegistry(TestModels.ProfileRegistry()), Path.Combine(_root, "plans")));
+            new UserSessionModes(new ModeRegistry(TestModels.ProfileRegistry()), Path.Combine(_root, "plans")),
+            interactivePermissions: false,
+            TimeSpan.FromSeconds(1));
 
         _ = await owner.Send("first", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);

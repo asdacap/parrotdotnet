@@ -11,7 +11,7 @@ internal sealed class ToolPresenterBatchCTests
 
     public static IEnumerable<object[]> Presenters()
     {
-        yield return [new GlobToolPresenter(), "{\"pattern\":\"src/**/*.cs\"}", "main: glob \"src/**/*.cs\""];
+        yield return [new GlobToolPresenter(), "{\"pattern\":\"**/*.cs\",\"path\":\"src\"}", "main: glob \"**/*.cs\" in src"];
         yield return [new GrepToolPresenter(), "{\"pattern\":\"TODO\",\"path\":\"src\"}", "main: grep \"TODO\" in src"];
         yield return [new ReadToolPresenter(), "{\"path\":\"README.md\"}", "main: read README.md"];
         yield return [new WebFetchToolPresenter(), "{\"url\":\"https://example.com/path\"}", "main: web fetch GET https://example.com/path"];
@@ -48,6 +48,17 @@ internal sealed class ToolPresenterBatchCTests
         _ = await Assert.That(completed[0]).IsEqualTo($"✗ {expectedLabel}");
         _ = await Assert.That(completed[1]).IsEqualTo("  error: tool failure");
         _ = await Assert.That(((IToolPresentationValue)item).Report.Block.Kind).IsEqualTo(ToolBlockKind.Error);
+    }
+
+    [Test]
+    public async Task Glob_uses_the_workspace_when_path_is_omitted()
+    {
+        var presenter = new GlobToolPresenter();
+        var call = new ToolCallPresentation("main", "glob", "{\"pattern\":\"src/**/*.cs\"}");
+
+        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text).ToArray();
+
+        _ = await Assert.That(live[0]).IsEqualTo("⠋ main: glob \"src/**/*.cs\"");
     }
 
     [Test]

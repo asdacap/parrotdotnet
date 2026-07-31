@@ -8,7 +8,11 @@ namespace Parrot.Tools;
 internal sealed partial class GlobToolInput
 {
     [JsonPropertyName("pattern")]
-    [Description("Relative workspace glob pattern, including ** for recursive matching.")]
+    [Description("Root-relative glob pattern, including ** for recursive matching.")]
     [ToolRequired]
     public string? Pattern { get; init; }
+
+    [JsonPropertyName("path")]
+    [Description("Optional workspace-relative or authorized absolute directory to search.")]
+    public string? Path { get; init; }
 }

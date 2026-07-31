@@ -11,30 +11,43 @@ internal sealed class GlobToolPresenter : IToolPresenter
         Style = ToolPresentationStyle.Muted,
     };
 
-    public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame) =>
-        new ToolLiveValue($"{call.Owner}: glob \"{Pattern(call.ArgumentsJson)}\"", [], Metadata, frame);
+    public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
+    {
+        var (pattern, path) = Arguments(call.ArgumentsJson);
+        return new ToolLiveValue(Label(call.Owner, pattern, path), [], Metadata, frame);
+    }
 
-    public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal) =>
-        DescribeTerminal(call.Owner, Pattern(call.ArgumentsJson), terminal);
+    public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
+    {
+        var (pattern, path) = Arguments(call.ArgumentsJson);
+        return DescribeTerminal(call.Owner, pattern, path, terminal);
+    }
 
-    private static string Pattern(string argumentsJson)
+    private static (string Pattern, string Path) Arguments(string argumentsJson)
     {
         using var document = JsonDocument.Parse(argumentsJson);
         var root = document.RootElement;
-        return root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty("pattern", out var pattern)
-            && pattern.ValueKind == JsonValueKind.String
-            ? pattern.GetString() ?? string.Empty
-            : string.Empty;
+        return (String(root, "pattern"), String(root, "path"));
     }
+
+    private static string Label(string owner, string pattern, string path) => path.Length == 0
+        ? $"{owner}: glob \"{pattern}\""
+        : $"{owner}: glob \"{pattern}\" in {path}";
+
+    private static string String(JsonElement root, string name) => root.ValueKind == JsonValueKind.Object
+        && root.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
 
     private ToolScrollbackValue DescribeTerminal(
         string owner,
         string pattern,
+        string path,
         ToolTerminalPresentation terminal)
     {
         var status = terminal.ResolveStatus();
-        var label = $"{owner}: glob \"{pattern}\"";
+        var label = Label(owner, pattern, path);
         if (status == ToolTerminalStatus.Succeeded)
         {
             var count = ToolOutputText.CountLines(terminal.Result);

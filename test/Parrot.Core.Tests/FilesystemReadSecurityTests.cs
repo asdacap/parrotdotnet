@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Parrot.Security;
 using Parrot.Tools;
 
@@ -109,4 +110,201 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         _ = await Assert.That(listing).DoesNotContain("hidden.txt");
         _ = await Assert.That(matches).IsEmpty();
     }
+
+    [Test]
+    public async Task External_absolute_and_parent_relative_reads_are_allowed_by_default(
+        CancellationToken cancellationToken)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
+        var externalFile = Path.Combine(externalDirectory, "outside.txt");
+        await File.WriteAllTextAsync(externalFile, "outside", cancellationToken);
+        var tool = new ReadTool(new ToolWorkspace(workspaceDirectory), Permissive());
+
+        var absolute = await tool.Execute(FormatPathArguments(externalFile), cancellationToken);
+        var parentRelative = await tool.Execute(
+            FormatPathArguments(Path.Combine("..", "external", "outside.txt")),
+            cancellationToken);
+
+        _ = await Assert.That(absolute).Contains("1: outside");
+        _ = await Assert.That(parentRelative).Contains("1: outside");
+    }
+
+    [Test]
+    public async Task Grep_uses_a_direct_external_file_basename(CancellationToken cancellationToken)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
+        var externalFile = Path.Combine(externalDirectory, "outside.txt");
+        await File.WriteAllTextAsync(externalFile, "external text", cancellationToken);
+
+        var result = await new GrepTool(new ToolWorkspace(workspaceDirectory), Permissive()).Execute(
+            FormatSearchArguments("external", externalFile),
+            cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo("outside.txt:1:external text\n");
+    }
+
+    [Test]
+    public async Task External_directory_searches_use_paths_relative_to_the_requested_root(
+        CancellationToken cancellationToken)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
+        var nestedDirectory = Directory.CreateDirectory(Path.Combine(externalDirectory, "nested")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(nestedDirectory, "file.txt"), "external text", cancellationToken);
+        var workspace = new ToolWorkspace(workspaceDirectory);
+
+        var grep = await new GrepTool(workspace, Permissive()).Execute(
+            FormatSearchArguments("external", externalDirectory),
+            cancellationToken);
+        var glob = await new GlobTool(workspace, Permissive()).Execute(
+            FormatGlobArguments("**", externalDirectory),
+            cancellationToken);
+
+        _ = await Assert.That(grep).IsEqualTo("nested/file.txt:1:external text\n");
+        _ = await Assert.That(glob).IsEqualTo("nested/\nnested/file.txt\n");
+    }
+
+    [Test]
+    public async Task An_external_symlink_is_readable_when_neither_path_is_denied(
+        CancellationToken cancellationToken)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(externalDirectory, "file.txt"), "external text", cancellationToken);
+        var alias = Path.Combine(workspaceDirectory, "alias");
+        _ = Directory.CreateSymbolicLink(alias, externalDirectory);
+        var workspace = new ToolWorkspace(workspaceDirectory);
+        var security = Permissive();
+
+        var read = await new ReadTool(workspace, security).Execute(
+            FormatPathArguments(Path.Combine("alias", "file.txt")),
+            cancellationToken);
+        var grep = await new GrepTool(workspace, security).Execute(
+            FormatSearchArguments("external", Path.Combine("alias", "file.txt")),
+            cancellationToken);
+        var glob = await new GlobTool(workspace, security).Execute(
+            FormatGlobArguments("**", alias),
+            cancellationToken);
+
+        _ = await Assert.That(read).Contains("1: external text");
+        _ = await Assert.That(grep).IsEqualTo("file.txt:1:external text\n");
+        _ = await Assert.That(glob).IsEqualTo("file.txt\n");
+    }
+
+    [Test]
+    [Arguments("read")]
+    [Arguments("grep")]
+    [Arguments("glob")]
+    public async Task A_lexically_denied_external_symlink_root_is_rejected(
+        string toolName,
+        CancellationToken cancellationToken)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(externalDirectory, "file.txt"), "external text", cancellationToken);
+        var alias = Path.Combine(workspaceDirectory, "alias");
+        _ = Directory.CreateSymbolicLink(alias, externalDirectory);
+        var security = SecurityProfile.Compose(
+            readOnly: false,
+            [],
+            [new SandboxRule(alias, SandboxRuleAction.DenyRead)],
+            []);
+
+        var result = await ExecuteReadTool(toolName, new ToolWorkspace(workspaceDirectory), security, alias, cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo("error: access denied");
+    }
+
+    [Test]
+    [Arguments("read")]
+    [Arguments("grep")]
+    [Arguments("glob")]
+    public async Task A_physically_denied_external_symlink_root_is_rejected(
+        string toolName,
+        CancellationToken cancellationToken)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(externalDirectory, "file.txt"), "external text", cancellationToken);
+        var alias = Path.Combine(workspaceDirectory, "alias");
+        _ = Directory.CreateSymbolicLink(alias, externalDirectory);
+        var security = SecurityProfile.Compose(
+            readOnly: false,
+            [],
+            [new SandboxRule(externalDirectory, SandboxRuleAction.DenyRead)],
+            []);
+
+        var result = await ExecuteReadTool(toolName, new ToolWorkspace(workspaceDirectory), security, alias, cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo("error: access denied");
+    }
+
+    [Test]
+    public async Task External_directory_tools_filter_a_denied_child(CancellationToken cancellationToken)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
+        var visible = Path.Combine(externalDirectory, "visible.txt");
+        var hidden = Path.Combine(externalDirectory, "hidden.txt");
+        await File.WriteAllTextAsync(visible, "matching text", cancellationToken);
+        await File.WriteAllTextAsync(hidden, "matching text", cancellationToken);
+        var security = SecurityProfile.Compose(
+            readOnly: false,
+            [],
+            [new SandboxRule(hidden, SandboxRuleAction.DenyRead)],
+            []);
+        var workspace = new ToolWorkspace(workspaceDirectory);
+
+        var read = await new ReadTool(workspace, security).Execute(
+            FormatPathArguments(externalDirectory),
+            cancellationToken);
+        var grep = await new GrepTool(workspace, security).Execute(
+            FormatSearchArguments("matching", externalDirectory),
+            cancellationToken);
+        var glob = await new GlobTool(workspace, security).Execute(
+            FormatGlobArguments("**", externalDirectory),
+            cancellationToken);
+
+        _ = await Assert.That(read).IsEqualTo("visible.txt\n");
+        _ = await Assert.That(grep).IsEqualTo("visible.txt:1:matching text\n");
+        _ = await Assert.That(glob).IsEqualTo("visible.txt\n");
+    }
+
+    private static async Task<string> ExecuteReadTool(
+        string toolName,
+        ToolWorkspace workspace,
+        SecurityProfile security,
+        string path,
+        CancellationToken cancellationToken) => toolName switch
+        {
+            "read" => await new ReadTool(workspace, security).Execute(FormatPathArguments(path), cancellationToken),
+            "grep" => await new GrepTool(workspace, security).Execute(
+                FormatSearchArguments("external", path), cancellationToken),
+            "glob" => await new GlobTool(workspace, security).Execute(
+                FormatGlobArguments("**", path), cancellationToken),
+            _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
+        };
+
+    private static SecurityProfile Permissive() => SecurityProfile.Compose(false, [], [], []);
+
+    private static string FormatPathArguments(string path) =>
+        string.Concat("{\"path\":\"", JsonEncodedText.Encode(path), "\"}");
+
+    private static string FormatSearchArguments(string pattern, string path) =>
+        string.Concat(
+            "{\"pattern\":\"",
+            JsonEncodedText.Encode(pattern),
+            "\",\"path\":\"",
+            JsonEncodedText.Encode(path),
+            "\"}");
+
+    private static string FormatGlobArguments(string pattern, string path) =>
+        string.Concat(
+            "{\"pattern\":\"",
+            JsonEncodedText.Encode(pattern),
+            "\",\"path\":\"",
+            JsonEncodedText.Encode(path),
+            "\"}");
 }

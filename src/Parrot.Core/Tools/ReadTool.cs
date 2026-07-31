@@ -15,7 +15,7 @@ internal sealed class ReadTool(ToolWorkspace workspace, SecurityProfile security
 
     public string Description =>
         "Read a bounded line range from a text file or list a directory. "
-        + "Relative paths resolve within the workspace.";
+        + "Relative paths resolve within the workspace; absolute paths require read permission.";
 
     public string ParametersJson => ReadToolInput.Descriptor;
 

@@ -13,6 +13,6 @@ internal sealed partial class GrepToolInput
     public string? Pattern { get; init; }
 
     [JsonPropertyName("path")]
-    [Description("Optional workspace-relative file or directory to search.")]
+    [Description("Optional workspace-relative or authorized absolute file or directory to search.")]
     public string? Path { get; init; }
 }
