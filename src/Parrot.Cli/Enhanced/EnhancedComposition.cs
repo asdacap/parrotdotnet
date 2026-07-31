@@ -22,7 +22,7 @@ internal partial class EnhancedComposition
             .Bind<Func<TimeSpan, CancellationToken, Task>>()
             .To<Func<TimeSpan, CancellationToken, Task>>(
                 static _ => static (delay, cancellationToken) => Task.Delay(delay, cancellationToken))
-            .Bind<ToolPresenterRegistry>()
+            .Bind<ToolPresenterRegistry>().As(Lifetime.Singleton)
             .To(static _ => new ToolPresenterRegistry(
                 [
                     new AgentSendToolPresenter(),

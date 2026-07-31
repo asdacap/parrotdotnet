@@ -84,20 +84,27 @@ internal sealed class CliLifecycleDriver : IDisposable
     public Task<int> Drive(CancellationToken cancellationToken)
     {
         var client = new GeneratedParrot.ParrotClient(Invoker);
-
-        return _enhanced
-            ? new EnhancedCli(
+        if (_enhanced)
+        {
+            var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+            var terminal = new TestTerminal(Input, _output, _error, 80);
+            var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
+            var renderer = new EnhancedTurnRenderer(terminal, configuration);
+            return new EnhancedCli(
                 client,
                 Interrupts,
                 _enhancedRequest,
                 new UnusedCredentials(),
                 new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-                new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+                configuration,
                 ["provider"],
-                new TestTerminal(Input, _output, _error, 80),
-                new ToolPresenterRegistry([], new GenericToolPresenter()),
-                _delaySubmit).Run(cancellationToken)
-            : new BasicCli(
+                terminal,
+                presenters,
+                renderer,
+                _delaySubmit).Run(cancellationToken);
+        }
+
+        return new BasicCli(
                 client,
                 Interrupts,
                 new UnusedCredentials(),
