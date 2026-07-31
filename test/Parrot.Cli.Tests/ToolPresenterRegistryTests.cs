@@ -42,6 +42,42 @@ internal sealed class ToolPresenterRegistryTests
     }
 
     [Test]
+    public async Task Generic_presenter_formats_json_inputs_and_results_as_yaml()
+    {
+        var presenter = new GenericToolPresenter();
+        var call = new ToolCallPresentation(
+            "main",
+            "unknown",
+            "{\"path\":\"src/App.cs\",\"options\":{\"limit\":2},\"enabled\":true,\"ambiguous\":\"true\"}");
+        var terminal = presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(
+                ToolTerminalStatus.Succeeded,
+                true,
+                "[{\"name\":\"first\"},{\"name\":\"second\"}]",
+                string.Empty));
+        var invalid = presenter.PresentTerminal(
+            new ToolCallPresentation("main", "unknown", "not json"),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "plain result", string.Empty));
+        var duplicate = presenter.PresentLive(
+            new ToolCallPresentation("main", "unknown", "{\"value\":1,\"value\":2}"),
+            0);
+        var live = (IToolPresentationValue)presenter.PresentLive(call, 0);
+
+        var terminalText = ((IToolPresentationValue)terminal).Report.Block.Text;
+        var invalidText = ((IToolPresentationValue)invalid).Report.Block.Text;
+
+        _ = await Assert.That(live.Report.Block.Text).Contains("path: \"src/App.cs\"");
+        _ = await Assert.That(live.Report.Block.Text).Contains("limit: 2");
+        _ = await Assert.That(terminalText).Contains("enabled: true");
+        _ = await Assert.That(terminalText).Contains("ambiguous: \"true\"");
+        _ = await Assert.That(terminalText).Contains("---\n- name: \"first\"");
+        _ = await Assert.That(terminalText).DoesNotContain("{\"");
+        _ = await Assert.That(invalidText).IsEqualTo("not json\n---\nplain result");
+        _ = await Assert.That(duplicate.Render(LiveContext).Lines[1].Text).Contains("{\"value\":1,\"value\":2}");
+    }
+
+    [Test]
     public async Task Structured_presenters_fall_back_to_the_compact_spill_notice()
     {
         var registry = new ToolPresenterRegistry([new TodoReadToolPresenter()], new GenericToolPresenter());
