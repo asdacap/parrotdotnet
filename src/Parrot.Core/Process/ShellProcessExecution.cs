@@ -94,7 +94,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
             while (written < bytes.Length)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                written += LinuxPseudoTerminal.Write(_masterDescriptor, bytes.AsSpan(written));
+                written += LinuxPseudoTerminal.Write(_masterDescriptor, bytes.AsSpan(written), cancellationToken);
             }
         }
         catch (IOException) when (Result.IsCompleted || Volatile.Read(ref _masterClosed) != 0)
@@ -384,7 +384,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         finally
         {
             CloseSlave();
-            CloseMaster();
+            await CloseMaster().ConfigureAwait(false);
             transcript.Complete();
         }
     }
@@ -433,11 +433,20 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         }
     }
 
-    private void CloseMaster()
+    private async Task CloseMaster()
     {
-        if (_masterDescriptor >= 0 && Interlocked.Exchange(ref _masterClosed, 1) == 0)
+        await _writeGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+
+        try
         {
-            LinuxPseudoTerminal.Close(_masterDescriptor);
+            if (_masterDescriptor >= 0 && Interlocked.Exchange(ref _masterClosed, 1) == 0)
+            {
+                LinuxPseudoTerminal.Close(_masterDescriptor);
+            }
+        }
+        finally
+        {
+            _ = _writeGate.Release();
         }
     }
 
