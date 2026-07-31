@@ -27,12 +27,12 @@ prompt: >-
   - Agent A discuss with Agent B.
   - Useful for more demanding task.
 
-  ### Task Queue
+  ### Work Queue
 
-  - Agent A create a task queue and spawn N agents.
-  - Each subagent is instructed to keep taking item to the task queue.
+  - Agent A create a work item queue and spawn N equivalent agents.
+  - Each subagent is instructed to keep taking work item from the task queue.
   - Agent A wait until all agent is finished.
-  - Useful for large number of tasks. Unnecessary for small number of task.
+  - Useful for large number of work item. Unnecessary for small number of task.
 
   ### Pipelines graph
 
@@ -49,6 +49,7 @@ prompt: >-
     - Agent A itself take result queue.
 
   Do not use the same queue for different role. For example using the same queue for request and result.
+  Do not use different subagent consumer prompt for the same queue. The queue item should be of same type.
   It is preferable that queue consumer use queue_listen+wait rather than polling. Additionally a turn will automatically start on queue item although subagent will send notification to parent once finished before that.
 
 
