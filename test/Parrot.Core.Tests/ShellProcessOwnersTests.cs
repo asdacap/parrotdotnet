@@ -98,6 +98,50 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     }
 
     [Test]
+    public async Task Owner_keeps_completed_process_active_until_its_result_is_committed(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var lifetime = new CancellationTokenSource();
+        using var events = new EventBroker();
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var resources = CreateResources();
+        using var coordinator = new ShellProcessOwners(
+            resources,
+            new ProcessRunner(CreateSandboxPassThrough()),
+            lifetime.Token);
+        var agent = CreateAgent("agent-1", model, events, repository, resources.BlobDirectory, lifetime.Token);
+        var owner = coordinator.Prepare(agent.SessionId);
+        coordinator.Register(owner);
+        var process = owner.Start(
+            "completed-but-uncommitted",
+            "true",
+            "call-id",
+            ProcessEnvironmentOverrides.Empty,
+            agent,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SandboxWriteGrantSnapshot.Empty,
+            ShellProcessTerminalMode.Pipe);
+
+        while (!process.Completed)
+        {
+            await Task.Delay(10, cancellationToken);
+        }
+
+        _ = await Assert.That(owner.Active()).HasSingleItem();
+        _ = await process.Wait(yieldAfter: null, cancellationToken);
+        _ = await Assert.That(owner.Active()).IsEmpty();
+
+        await coordinator.Settle();
+    }
+
+    [Test]
     public async Task Inventory_tracks_process_from_start_until_completion(
         CancellationToken cancellationToken)
     {
@@ -192,6 +236,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             new TodoCollection(sessionId, repository, events),
             new ToolOutputBlobStore(blobDirectory),
             new Compactor(120_000),
+            activeWorkReminder: null,
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,

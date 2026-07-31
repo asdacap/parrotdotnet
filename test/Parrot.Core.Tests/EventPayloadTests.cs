@@ -220,6 +220,41 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Active_work_reminder_injected_roundtrips_as_a_distinct_protobuf_payload()
+    {
+        var source = new Event
+        {
+            Id = "reminder-event",
+            AgentSessionId = "session",
+            ActiveWorkReminderInjected = new ActiveWorkReminderInjected(),
+        };
+
+        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
+
+        _ = await Assert.That(roundtripped.Id).IsEqualTo("reminder-event");
+        _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("session");
+        _ = await Assert.That(roundtripped.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.ActiveWorkReminderInjected);
+    }
+
+    [Test]
+    public async Task Active_work_reminder_is_durable_history_with_a_transient_event()
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var published = new Event { Id = "reminder-event", AgentSessionId = "session" };
+
+        repository.AppendActiveWorkReminder(published, "wait for direct active work");
+
+        _ = await Assert.That(published.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.ActiveWorkReminderInjected);
+        var messages = repository.Messages("session");
+        _ = await Assert.That(messages).Count().IsEqualTo(1);
+        _ = await Assert.That(messages[0]).IsEqualTo("system: wait for direct active work");
+        _ = await Assert.That(repository.Replay()).IsEmpty();
+    }
+
+    [Test]
     public async Task Tool_finished_result_preserves_absent_empty_and_nonempty_presence()
     {
         var absent = new Event { ToolFinished = new ToolFinished() };
@@ -264,6 +299,7 @@ internal sealed class EventPayloadTests
             new TodoCollection("session", new EventRepository(database), events),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
+            activeWorkReminder: null,
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,

@@ -36,6 +36,7 @@ internal sealed class AgentSession(
     TodoCollection todos,
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
+    ActiveWorkCompletionReminder? activeWorkReminder,
     IAgentProfile? profile,
     SecurityProfile securityProfile,
     RuntimeStatus? status,
@@ -219,6 +220,14 @@ internal sealed class AgentSession(
         _ = await ResultSettled().ConfigureAwait(false);
 
     internal bool IsIdle() => State == DrainState.Idle;
+
+    internal bool IsActive()
+    {
+        lock (_executionGate)
+        {
+            return State != DrainState.Idle || (_started && !_execution.IsCompleted);
+        }
+    }
 
     internal bool IsWaitingForIncomingInput()
     {
@@ -891,6 +900,20 @@ internal sealed class AgentSession(
                     continue;
                 }
 
+                if (activeSelection.Profile?.EnforceActiveWorkCompletion == true
+                    && activeWorkReminder?.Build() is { } reminder)
+                {
+                    var published = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                    };
+                    eventRepository.AppendActiveWorkReminder(published, reminder);
+                    _history.Add(LLMMessage.System(reminder));
+                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
                 _messageId = Identifier.MessageId();
                 answer = completed.AssistantText;
@@ -1001,7 +1024,7 @@ internal sealed class AgentSession(
     // Whether the model owes an answer. A history ending in a user prompt or a
     // tool result is unanswered; one ending in an assistant message is not.
     private bool Answerable() =>
-        _history.Count > 0 && _history[^1].Role is LLMRole.User or LLMRole.Tool;
+        _history.LastOrDefault(message => message.Role != LLMRole.System)?.Role is LLMRole.User or LLMRole.Tool;
 
     // Every call the model made gets a result, even when the turn is stopped
     // part-way through: a provider rejects a history holding a call with no

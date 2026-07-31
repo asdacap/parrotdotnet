@@ -128,7 +128,8 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.ToolError or
                 Event.PayloadOneofCase.AgentStarted or
                 Event.PayloadOneofCase.AgentFinished or
-                Event.PayloadOneofCase.AgentFailed)
+                Event.PayloadOneofCase.AgentFailed or
+                Event.PayloadOneofCase.ActiveWorkReminderInjected)
             {
                 await output.WriteLineAsync().ConfigureAwait(false);
                 textEndsLine = true;
@@ -149,6 +150,11 @@ internal sealed class BasicCli(
 
                 case Event.PayloadOneofCase.StatusInjected:
                     await output.WriteLineAsync("↻ Status prompt injected".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ActiveWorkReminderInjected:
+                    await output.WriteLineAsync("↻ Active work reminder injected".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 

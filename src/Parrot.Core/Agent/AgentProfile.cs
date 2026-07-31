@@ -27,6 +27,7 @@ internal sealed class AgentProfile : IAgentProfile
         _disabledTools = [.. disabledTools];
         MaxTurns = configuration.MaxTurns;
         RecursionLimit = configuration.RecursionLimit;
+        EnforceActiveWorkCompletion = configuration.EnforceActiveWorkCompletion;
         SecurityProfile = SecurityProfile.Compose(
             configuration.ReadOnly,
             configuration.SandboxRules,
@@ -48,6 +49,8 @@ internal sealed class AgentProfile : IAgentProfile
     public int MaxTurns { get; }
 
     public int RecursionLimit { get; }
+
+    public bool EnforceActiveWorkCompletion { get; }
 
     public SecurityProfile SecurityProfile { get; }
 }

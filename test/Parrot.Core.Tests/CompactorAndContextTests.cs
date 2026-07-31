@@ -246,6 +246,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new TodoCollection("agent", new EventRepository(database), broker),
             new ToolOutputBlobStore(_workspace),
             new Compactor(tokenBudget: 0),
+            activeWorkReminder: null,
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
@@ -343,7 +344,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         IReadOnlySet<string> disabledTools) => new(
             "test",
             new Parrot.Config.ProfileConfig(
-                "Test prompt", "Test profile.", allowedTools, 2, 3, false, []),
+                "Test prompt", "Test profile.", allowedTools, 2, 3, false, true, []),
             [],
             [],
             disabledTools);

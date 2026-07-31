@@ -69,6 +69,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),
                 new Compactor(120_000),
+                activeWorkReminder: null,
                 profile,
                 securityProfile,
                 status,

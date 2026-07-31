@@ -139,15 +139,17 @@ internal sealed class AgentRegistry(
     {
         lock (_gate)
         {
-            return [.. _entries.Values
-                .Select(static entry => entry.Session)
-                .Where(agent => agent.State != DrainState.Idle)
-                .Select(agent => new ActiveWorkObservation(
-                    agent.SessionId,
-                    agent.Name,
-                    ActiveWorkKind.Agent,
-                    ActiveWorkState.Running))
-                .OrderBy(item => item.Id, StringComparer.Ordinal)];
+            return ObserveActiveChildren(null);
+        }
+    }
+
+    public IReadOnlyList<ActiveWorkObservation> ActiveDirectChildren(string parentSessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(parentSessionId);
+
+        lock (_gate)
+        {
+            return ObserveActiveChildren(parentSessionId);
         }
     }
 
@@ -248,6 +250,19 @@ internal sealed class AgentRegistry(
 
         return candidate;
     }
+
+    private IReadOnlyList<ActiveWorkObservation> ObserveActiveChildren(string? parentSessionId) =>
+        [.. _entries.Values
+            .Select(static entry => entry.Session)
+            .Where(agent => agent.IsActive()
+                && (parentSessionId is null
+                    || string.Equals(agent.ParentSessionId, parentSessionId, StringComparison.Ordinal)))
+            .Select(agent => new ActiveWorkObservation(
+                agent.SessionId,
+                agent.Name,
+                ActiveWorkKind.Agent,
+                ActiveWorkState.Running))
+            .OrderBy(item => item.Id, StringComparer.Ordinal)];
 
     private int ProfileOccurrences(AgentSession parent, string profileId)
     {

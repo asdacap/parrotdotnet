@@ -30,6 +30,15 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<ShellProcessOwner>(out var processes);
+                return new ActiveWorkCompletionReminder(
+                    arguments.Identity.SessionId,
+                    arguments.Registry,
+                    processes);
+            })
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new TodoCollection(
                     arguments.Identity.SessionId,
                     arguments.EventRepository,
@@ -46,6 +55,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<TodoCollection>(out var todos);
                 ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
                 ctx.Inject<ShellProcessOwner>(out var processes);
+                ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
                 ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
                 var session = new AgentSession(
                     arguments.Identity,
@@ -58,6 +68,7 @@ internal partial class AgentSessionComposition
                     todos,
                     toolOutputBlobs,
                     arguments.Compactor,
+                    activeWorkReminder,
                     arguments.Profile,
                     arguments.SecurityProfile,
                     arguments.Status,

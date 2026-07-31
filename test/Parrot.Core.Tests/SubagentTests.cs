@@ -855,7 +855,7 @@ internal sealed class SubagentTests : IDisposable
         new(
             new AgentProfile(
                 id,
-                new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, []),
+                new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, true, []),
                 [],
                 [],
                 new HashSet<string>(StringComparer.Ordinal)),
@@ -914,6 +914,7 @@ internal sealed class SubagentTests : IDisposable
             new TodoCollection(identity.SessionId, _repository, _broker),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
+            activeWorkReminder: null,
             profile: null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,
@@ -933,6 +934,8 @@ internal sealed class SubagentTests : IDisposable
         public IReadOnlyList<string> DisabledTools => profile.DisabledTools;
 
         public int MaxTurns => profile.MaxTurns;
+
+        public bool EnforceActiveWorkCompletion => profile.EnforceActiveWorkCompletion;
 
         public SecurityProfile SecurityProfile => securityProfile;
     }
@@ -977,6 +980,7 @@ internal sealed class SubagentTests : IDisposable
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),
                 new Compactor(120_000),
+                activeWorkReminder: null,
                 profile,
                 securityProfile,
                 status,

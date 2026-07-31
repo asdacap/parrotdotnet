@@ -101,6 +101,7 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(profile.Id).IsEqualTo(id);
         _ = await Assert.That(profile.SecurityProfile.ReadOnly).IsEqualTo(readOnly);
         _ = await Assert.That(profile.MaxTurns).IsEqualTo(maxToolRounds);
+        _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsTrue();
         _ = await Assert.That(profile.Prompt).Contains(promptFragment);
         _ = await Assert.That(profile.Prompt).Contains(policyFragment);
 

@@ -106,6 +106,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             new TodoCollection("requesting", repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
+            activeWorkReminder: null,
             null,
             securityProfile,
             null,

@@ -94,6 +94,12 @@ internal sealed class EnhancedTurnView(
                     cancellationToken).ConfigureAwait(false);
                 break;
 
+            case Event.PayloadOneofCase.ActiveWorkReminderInjected:
+                await Commit(
+                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Active work reminder injected{Reset}"]),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
             case Event.PayloadOneofCase.ReasoningChunk:
                 if (renderActivityEvents && !foreground.IsChild(published.AgentSessionId))
                 {

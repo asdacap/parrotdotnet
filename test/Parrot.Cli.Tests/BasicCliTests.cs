@@ -251,6 +251,34 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    public async Task Active_work_reminder_renders_as_its_own_notification(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event { Id = "text", TextChunk = new TextChunk { Fragment = "draft" } },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event
+            {
+                Id = "reminder",
+                ActiveWorkReminderInjected = new ActiveWorkReminderInjected(),
+            },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(output.ToString()).Contains("draft\n↻ Active work reminder injected");
+        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Active work reminder injected");
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task A_line_typed_during_a_turn_is_sent_rather_than_held_until_it_ends(

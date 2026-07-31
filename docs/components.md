@@ -544,7 +544,9 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   status transition. Status is appended atomically as typed, sequenced `system`
   history before the first real provider call and after an actual mode change;
   it is not part of the immutable epoch baseline. Provider/model-only updates,
-  idle drains, interruptions, and tool rounds do not duplicate it.
+  idle drains, interruptions, and tool rounds do not duplicate it. Before a
+  foreground turn completes while direct child agents or shell processes remain
+  active, a distinct reminder is likewise appended as durable `system` history.
 
 ### `AgentSession` — todos (ported 2026-07-24)
 
@@ -675,9 +677,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - `mode` is a first-class field on the .NET session create/update/response
   contract rather than upstream's compatibility alias for `agent`; this port
   does not expose foreground profiles as agents.
-- A status injection publishes a small transient protobuf event after the
-  durable system message commits. The prompt text stays in message history and
-  is not duplicated on the live wire.
+- Status injection and the direct-active-work completion reminder publish
+  distinct small transient protobuf events after their durable system messages
+  commit. Prompt text stays in message history and is not duplicated on the
+  live wire, so clients render each notification from its typed payload.
 - `/mode` and `/modes` select and discover foreground policies. `/status` remains
   deferred because it is a separate user-facing summary, not status-prompt
   injection. Basic and Enhanced render the transient notification independently.

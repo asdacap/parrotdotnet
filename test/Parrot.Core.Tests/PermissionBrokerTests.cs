@@ -145,6 +145,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             new TodoCollection(id, repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Compactor(120_000),
+            activeWorkReminder: null,
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,
