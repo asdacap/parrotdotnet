@@ -22,9 +22,10 @@ internal sealed class ModelCatalogueTests
     {
         var models = OpenRouterModelDecoder.Instance.Decode(
             "p",
-            """{"data":[{"id":"x/y","context_length":9,"pricing":{"prompt":"0.001","completion":"0.002"},"top_provider":{"max_completion_tokens":42},"reasoning":{"supported_efforts":["low","high"],"default_effort":"high"}}]}""");
+            """{"data":[{"id":"x/y","context_length":9,"pricing":{"prompt":"0.001","input_cache_read":"0.00025","completion":"0.002"},"top_provider":{"max_completion_tokens":42},"reasoning":{"supported_efforts":["low","high"],"default_effort":"high"}}]}""");
 
         _ = await Assert.That(models[0].InputPrice).IsEqualTo(0.001);
+        _ = await Assert.That(models[0].CachedInputPrice).IsEqualTo(0.00025);
         _ = await Assert.That(models[0].OutputPrice).IsEqualTo(0.002);
         _ = await Assert.That(models[0].MaxOutputTokens).IsEqualTo(42);
         _ = await Assert.That(models[0].Capabilities.Reasoning).IsTrue();
@@ -37,16 +38,18 @@ internal sealed class ModelCatalogueTests
         var configured = new LLMModel("m", "p")
         {
             InputPrice = 0.01,
+            CachedInputPrice = 0.005,
             OutputPrice = 0.02,
-            Fields = ModelMetadataFields.InputPrice | ModelMetadataFields.OutputPrice,
+            Fields = ModelMetadataFields.InputPrice | ModelMetadataFields.CachedInputPrice | ModelMetadataFields.OutputPrice,
         };
         var fetched = OpenRouterModelDecoder.Instance.Decode(
             "p",
-            """{"data":[{"id":"m","pricing":{"prompt":"0","completion":"0"}}]}""");
+            """{"data":[{"id":"m","pricing":{"prompt":"0","input_cache_read":"0","completion":"0"}}]}""");
 
         var merged = ModelCatalogue.Merge(fetched, [configured], []).Single();
 
         _ = await Assert.That(merged.InputPrice).IsEqualTo(0);
+        _ = await Assert.That(merged.CachedInputPrice).IsEqualTo(0);
         _ = await Assert.That(merged.OutputPrice).IsEqualTo(0);
     }
 
@@ -59,7 +62,8 @@ internal sealed class ModelCatalogueTests
         var configured = new LLMModel("m", "p")
         {
             InputPrice = 0.01,
-            Fields = ModelMetadataFields.InputPrice,
+            CachedInputPrice = 0.005,
+            Fields = ModelMetadataFields.InputPrice | ModelMetadataFields.CachedInputPrice,
         };
         var fetched = OpenRouterModelDecoder.Instance.Decode(
             "p",
@@ -68,6 +72,7 @@ internal sealed class ModelCatalogueTests
         var merged = ModelCatalogue.Merge(fetched, [configured], []).Single();
 
         _ = await Assert.That(merged.InputPrice).IsEqualTo(0.01);
+        _ = await Assert.That(merged.CachedInputPrice).IsEqualTo(0.005);
     }
 
     [Test]
@@ -95,12 +100,14 @@ internal sealed class ModelCatalogueTests
             ContextWindow = 500,
             MaxOutputTokens = 100,
             InputPrice = 0.01,
+            CachedInputPrice = 0.005,
             OutputPrice = 0.02,
             Capabilities = new ModelCapabilities(true, true, ["image"], [new ModelVariant("high", "high")]),
             Fields = ModelMetadataFields.Name
                 | ModelMetadataFields.ContextWindow
                 | ModelMetadataFields.MaxOutputTokens
                 | ModelMetadataFields.InputPrice
+                | ModelMetadataFields.CachedInputPrice
                 | ModelMetadataFields.OutputPrice
                 | ModelMetadataFields.Tools
                 | ModelMetadataFields.Reasoning
@@ -112,10 +119,12 @@ internal sealed class ModelCatalogueTests
             Name = "Endpoint",
             ContextWindow = 0,
             InputPrice = 0,
+            CachedInputPrice = 0,
             Capabilities = new ModelCapabilities(false, false, [], []),
             Fields = ModelMetadataFields.Name
                 | ModelMetadataFields.ContextWindow
                 | ModelMetadataFields.InputPrice
+                | ModelMetadataFields.CachedInputPrice
                 | ModelMetadataFields.Tools
                 | ModelMetadataFields.Reasoning
                 | ModelMetadataFields.Output
@@ -128,6 +137,7 @@ internal sealed class ModelCatalogueTests
         _ = await Assert.That(merged.ContextWindow).IsEqualTo(0);
         _ = await Assert.That(merged.MaxOutputTokens).IsEqualTo(100);
         _ = await Assert.That(merged.InputPrice).IsEqualTo(0);
+        _ = await Assert.That(merged.CachedInputPrice).IsEqualTo(0);
         _ = await Assert.That(merged.OutputPrice).IsEqualTo(0.02);
         _ = await Assert.That(merged.Capabilities.Tools).IsFalse();
         _ = await Assert.That(merged.Capabilities.Reasoning).IsFalse();

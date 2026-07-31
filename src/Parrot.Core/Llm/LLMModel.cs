@@ -11,6 +11,9 @@ internal sealed record LLMModel(string Id, string ProviderId)
     // USD per token.
     public double InputPrice { get; init; }
 
+    // USD per cached input token.
+    public double CachedInputPrice { get; init; }
+
     public double OutputPrice { get; init; }
 
     public ModelCapabilities Capabilities { get; init; } = ModelCapabilities.None;

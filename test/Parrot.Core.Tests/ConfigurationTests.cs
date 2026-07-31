@@ -72,6 +72,9 @@ internal sealed class ConfigurationTests : IDisposable
             StringComparer.Ordinal)).IsTrue();
         _ = await Assert.That(configuration.Providers["openai"].HeaderTimeoutMs).IsEqualTo(10000);
         _ = await Assert.That(configuration.Providers["openai"].BaseUrl).IsEmpty();
+        _ = await Assert.That(configuration.Providers["openai"].ModelDefaults.Keys.SequenceEqual(
+            ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+            StringComparer.Ordinal)).IsTrue();
         _ = await Assert.That(configuration.Providers["openrouter"].Protocol).IsEqualTo("chat-completions");
         _ = await Assert.That(configuration.Providers["openrouter"].BaseUrl).IsEqualTo("https://openrouter.ai/api/v1");
         _ = await Assert.That(configuration.Providers["openrouter"].ApiKeyEnv).IsEqualTo("OPENROUTER_API_KEY");
@@ -81,12 +84,28 @@ internal sealed class ConfigurationTests : IDisposable
             ["kimi-k2-thinking", "kimi-k2-turbo-preview", "kimi-k2-0905-preview"],
             StringComparer.Ordinal)).IsTrue();
         _ = await Assert.That(configuration.Providers["chatgpt"].Models).IsEmpty();
-        _ = await Assert.That(configuration.Providers["chatgpt"].ModelDefaults.Keys.SequenceEqual(
-            ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-sol"],
+        var chatGptDefaults = configuration.Providers["chatgpt"].ModelDefaults;
+        _ = await Assert.That(chatGptDefaults.Keys.SequenceEqual(
+            ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
             StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(configuration.Providers["chatgpt"].ModelDefaults["gpt-5.6-sol"].Variants.Keys.SequenceEqual(
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-sol"].Variants.Keys.SequenceEqual(
             ["low", "medium", "high", "xhigh"],
             StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(chatGptDefaults["gpt-5.4"].InputPrice).IsEqualTo(0.0000025);
+        _ = await Assert.That(chatGptDefaults["gpt-5.4"].OutputPrice).IsEqualTo(0.000015);
+        _ = await Assert.That(chatGptDefaults["gpt-5.4-mini"].InputPrice).IsEqualTo(0.00000075);
+        _ = await Assert.That(chatGptDefaults["gpt-5.4-mini"].OutputPrice).IsEqualTo(0.0000045);
+        _ = await Assert.That(chatGptDefaults["gpt-5.5"].InputPrice).IsEqualTo(0.000005);
+        _ = await Assert.That(chatGptDefaults["gpt-5.5"].OutputPrice).IsEqualTo(0.00003);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-luna"].InputPrice).IsEqualTo(0.0000002);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-luna"].CachedInputPrice).IsEqualTo(0.00000002);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-luna"].OutputPrice).IsEqualTo(0.0000012);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-terra"].InputPrice).IsEqualTo(0.000002);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-terra"].CachedInputPrice).IsEqualTo(0.0000002);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-terra"].OutputPrice).IsEqualTo(0.000012);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-sol"].InputPrice).IsEqualTo(0.000005);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-sol"].CachedInputPrice).IsEqualTo(0.0000005);
+        _ = await Assert.That(chatGptDefaults["gpt-5.6-sol"].OutputPrice).IsEqualTo(0.00003);
         _ = await Assert.That(configuration.Providers["opencode-go"].ModelDefaults["kimi-k3"].Variants.Keys.SequenceEqual(
             ["max", "high", "low"],
             StringComparer.Ordinal)).IsTrue();
@@ -104,6 +123,7 @@ internal sealed class ConfigurationTests : IDisposable
                     context: 128
                     max_tokens: 32
                     input_price: 0.000001
+                    cached_input_price: 0.0000001
                     output_price: 0.000002
                     tools: true
                     reasoning: false
@@ -121,6 +141,7 @@ internal sealed class ConfigurationTests : IDisposable
         var provider = configuration.Providers["custom"];
         _ = await Assert.That(provider.ModelDefaults.Keys).Contains("seeded");
         _ = await Assert.That(provider.ModelDefaults["seeded"].InputPrice).IsEqualTo(0.000001);
+        _ = await Assert.That(provider.ModelDefaults["seeded"].CachedInputPrice).IsEqualTo(0.0000001);
         _ = await Assert.That(provider.ModelDefaults["seeded"].OutputPrice).IsEqualTo(0.000002);
         _ = await Assert.That(provider.ModelDefaults.Keys).DoesNotContain("declared");
         _ = await Assert.That(provider.Models.Keys).Contains("declared");
@@ -134,7 +155,7 @@ internal sealed class ConfigurationTests : IDisposable
     [Arguments("not-a-number")]
     public async Task Provider_model_prices_must_be_finite_non_negative_numbers(string price)
     {
-        var path = Write($"providers:\n  custom:\n    models:\n      m:\n        input_price: {price}\n");
+        var path = Write($"providers:\n  custom:\n    models:\n      m:\n        cached_input_price: {price}\n");
 
         _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
     }

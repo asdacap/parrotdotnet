@@ -23,6 +23,7 @@ internal static class ProviderModels
                 ContextWindow = entry.Value.Context,
                 MaxOutputTokens = entry.Value.MaxTokens,
                 InputPrice = entry.Value.InputPrice,
+                CachedInputPrice = entry.Value.CachedInputPrice,
                 OutputPrice = entry.Value.OutputPrice,
                 Capabilities = new ModelCapabilities(
                     entry.Value.Tools,
@@ -42,6 +43,7 @@ internal static class ProviderModels
         result |= fields.HasFlag(ModelConfigFields.Context) ? ModelMetadataFields.ContextWindow : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.MaxTokens) ? ModelMetadataFields.MaxOutputTokens : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.InputPrice) ? ModelMetadataFields.InputPrice : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.CachedInputPrice) ? ModelMetadataFields.CachedInputPrice : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.OutputPrice) ? ModelMetadataFields.OutputPrice : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.Tools) ? ModelMetadataFields.Tools : ModelMetadataFields.None;
         result |= fields.HasFlag(ModelConfigFields.Reasoning) ? ModelMetadataFields.Reasoning : ModelMetadataFields.None;

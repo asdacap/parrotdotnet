@@ -11,6 +11,8 @@ internal sealed record ModelConfig
 
     public double InputPrice { get; init; }
 
+    public double CachedInputPrice { get; init; }
+
     public double OutputPrice { get; init; }
 
     public bool Tools { get; init; }

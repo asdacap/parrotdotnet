@@ -91,6 +91,9 @@ internal static class ModelCatalogue
                 ? preferred.MaxOutputTokens
                 : fallback.MaxOutputTokens,
             InputPrice = Prefer(ModelMetadataFields.InputPrice) ? preferred.InputPrice : fallback.InputPrice,
+            CachedInputPrice = Prefer(ModelMetadataFields.CachedInputPrice)
+                ? preferred.CachedInputPrice
+                : fallback.CachedInputPrice,
             OutputPrice = Prefer(ModelMetadataFields.OutputPrice) ? preferred.OutputPrice : fallback.OutputPrice,
             Capabilities = new ModelCapabilities(tools, reasoning, output, variants),
             Fields = fallback.Fields | preferred.Fields,

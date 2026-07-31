@@ -327,6 +327,9 @@ providers:
         name: GPT-5.4
         context: 400000
         max_tokens: 128000
+        input_price: 0.0000025
+        cached_input_price: 0.00000025
+        output_price: 0.000015
         tools: true
         reasoning: true
         output: [text]
@@ -339,6 +342,9 @@ providers:
         name: GPT-5.4 Mini
         context: 400000
         max_tokens: 128000
+        input_price: 0.00000075
+        cached_input_price: 0.000000075
+        output_price: 0.0000045
         tools: true
         reasoning: true
         output: [text]
@@ -351,6 +357,39 @@ providers:
         name: GPT-5.5
         context: 400000
         max_tokens: 128000
+        input_price: 0.000005
+        cached_input_price: 0.0000005
+        output_price: 0.00003
+        tools: true
+        reasoning: true
+        output: [text]
+        variants:
+          low: { reasoning_effort: low }
+          medium: { reasoning_effort: medium }
+          high: { reasoning_effort: high }
+          xhigh: { reasoning_effort: xhigh }
+      gpt-5.6-luna:
+        name: GPT-5.6 Luna
+        context: 500000
+        max_tokens: 128000
+        input_price: 0.0000002
+        cached_input_price: 0.00000002
+        output_price: 0.0000012
+        tools: true
+        reasoning: true
+        output: [text]
+        variants:
+          low: { reasoning_effort: low }
+          medium: { reasoning_effort: medium }
+          high: { reasoning_effort: high }
+          xhigh: { reasoning_effort: xhigh }
+      gpt-5.6-terra:
+        name: GPT-5.6 Terra
+        context: 500000
+        max_tokens: 128000
+        input_price: 0.000002
+        cached_input_price: 0.0000002
+        output_price: 0.000012
         tools: true
         reasoning: true
         output: [text]
@@ -363,6 +402,9 @@ providers:
         name: GPT-5.6 Sol
         context: 500000
         max_tokens: 128000
+        input_price: 0.000005
+        cached_input_price: 0.0000005
+        output_price: 0.00003
         tools: true
         reasoning: true
         output: [text]
@@ -373,6 +415,97 @@ providers:
           xhigh: { reasoning_effort: xhigh }
   openai:
     header_timeout_ms: 10000
+    model_defaults:
+      gpt-5.4:
+        name: GPT-5.4
+        context: 400000
+        max_tokens: 128000
+        input_price: 0.0000025
+        cached_input_price: 0.00000025
+        output_price: 0.000015
+        tools: true
+        reasoning: true
+        output: [text]
+        variants:
+          low: { reasoning_effort: low }
+          medium: { reasoning_effort: medium }
+          high: { reasoning_effort: high }
+          xhigh: { reasoning_effort: xhigh }
+      gpt-5.4-mini:
+        name: GPT-5.4 Mini
+        context: 400000
+        max_tokens: 128000
+        input_price: 0.00000075
+        cached_input_price: 0.000000075
+        output_price: 0.0000045
+        tools: true
+        reasoning: true
+        output: [text]
+        variants:
+          low: { reasoning_effort: low }
+          medium: { reasoning_effort: medium }
+          high: { reasoning_effort: high }
+          xhigh: { reasoning_effort: xhigh }
+      gpt-5.5:
+        name: GPT-5.5
+        context: 400000
+        max_tokens: 128000
+        input_price: 0.000005
+        cached_input_price: 0.0000005
+        output_price: 0.00003
+        tools: true
+        reasoning: true
+        output: [text]
+        variants:
+          low: { reasoning_effort: low }
+          medium: { reasoning_effort: medium }
+          high: { reasoning_effort: high }
+          xhigh: { reasoning_effort: xhigh }
+      gpt-5.6-luna:
+        name: GPT-5.6 Luna
+        context: 500000
+        max_tokens: 128000
+        input_price: 0.0000002
+        cached_input_price: 0.00000002
+        output_price: 0.0000012
+        tools: true
+        reasoning: true
+        output: [text]
+        variants:
+          low: { reasoning_effort: low }
+          medium: { reasoning_effort: medium }
+          high: { reasoning_effort: high }
+          xhigh: { reasoning_effort: xhigh }
+      gpt-5.6-terra:
+        name: GPT-5.6 Terra
+        context: 500000
+        max_tokens: 128000
+        input_price: 0.000002
+        cached_input_price: 0.0000002
+        output_price: 0.000012
+        tools: true
+        reasoning: true
+        output: [text]
+        variants:
+          low: { reasoning_effort: low }
+          medium: { reasoning_effort: medium }
+          high: { reasoning_effort: high }
+          xhigh: { reasoning_effort: xhigh }
+      gpt-5.6-sol:
+        name: GPT-5.6 Sol
+        context: 500000
+        max_tokens: 128000
+        input_price: 0.000005
+        cached_input_price: 0.0000005
+        output_price: 0.00003
+        tools: true
+        reasoning: true
+        output: [text]
+        variants:
+          low: { reasoning_effort: low }
+          medium: { reasoning_effort: medium }
+          high: { reasoning_effort: high }
+          xhigh: { reasoning_effort: xhigh }
   openrouter:
     protocol: chat-completions
     base_url: https://openrouter.ai/api/v1
