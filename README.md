@@ -140,13 +140,13 @@ cli_utilities:
     - dotnet
 ```
 
-Sandbox configuration is not the complete filesystem boundary. Parrot always
-protects its state, configuration, and data roots from the built-in filesystem
-tools, even if a profile rule appears to allow them, a protected root is nested
-inside the workspace, or a path reaches one through a symlink. Plan artifacts
-and overflow-output blobs use narrow runtime capabilities; they do not make the
-containing private root generally accessible. Filesystem access does not grant
-network access.
+Sandbox configuration is not the complete filesystem boundary. Every effective
+security profile includes mandatory protection for Parrot's state,
+configuration, and data roots. Configured profile rules, workspace nesting,
+symlinks, and user-approved write grants cannot bypass that protection. Parrot
+may add a trusted, session-scoped runtime capability for a narrow private
+artifact subtree, such as the plan directory, without exposing the containing
+private root. Filesystem access does not grant network access.
 
 The plan foreground profile receives its private plan-artifact location and
 runtime-only write permission from Parrot; child profiles never inherit this

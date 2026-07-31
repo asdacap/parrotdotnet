@@ -35,8 +35,8 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configuration.DisabledTools.Count).IsEqualTo(2);
-        _ = await Assert.That(configuration.DisabledTools["wait_agent"]).IsTrue();
-        _ = await Assert.That(configuration.DisabledTools["wait_process"]).IsTrue();
+        _ = await Assert.That(configuration.DisabledTools).Contains("wait_agent");
+        _ = await Assert.That(configuration.DisabledTools).Contains("wait_process");
         _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
         _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(7);
         foreach (var profile in configuration.Profiles.Values)
@@ -198,7 +198,9 @@ internal sealed class ConfigurationTests : IDisposable
               future_tool: true
             """));
 
-        _ = await Assert.That(configuration.DisabledTools).Count().IsEqualTo(2);
+        _ = await Assert.That(configuration.DisabledTools).Count().IsEqualTo(4);
+        _ = await Assert.That(configuration.DisabledTools).Contains("wait_agent");
+        _ = await Assert.That(configuration.DisabledTools).Contains("wait_process");
         _ = await Assert.That(configuration.DisabledTools).Contains("web_fetch");
         _ = await Assert.That(configuration.DisabledTools).Contains("future_tool");
         _ = await Assert.That(configuration.DisabledTools).DoesNotContain("agent_spawn");

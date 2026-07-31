@@ -377,6 +377,39 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Mandatory_profile_rules_override_configuration_and_session_grants(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var mandatoryRoot = Directory.CreateDirectory(Path.Combine(_workspace, "mandatory")).FullName;
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var grants = new SandboxWriteGrants();
+        grants.Grant(SandboxWriteTarget.Resolve(mandatoryRoot));
+        var profile = SecurityProfile.Compose(
+            readOnly: false,
+            modeRules: [new SandboxRule(mandatoryRoot, SandboxRuleAction.AllowWrite)],
+            globalRules: [],
+            mandatoryRules: [new SandboxRule(mandatoryRoot, SandboxRuleAction.DenyRead)],
+            runtimeCapabilities: []);
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            Resources(_workspace),
+            profile,
+            grants.Capture(),
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(FindMounts(arguments, mandatoryRoot)[^1]).IsEqualTo("--tmpfs");
+    }
+
+    [Test]
     public async Task Protected_roots_override_session_grants(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())

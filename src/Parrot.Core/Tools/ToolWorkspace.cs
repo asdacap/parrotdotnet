@@ -1,18 +1,10 @@
 using Parrot.Permissions;
 using Parrot.Security;
-using Parrot.State;
 
 namespace Parrot.Tools;
 
-internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolicy fileSystemPolicy)
+internal sealed class ToolWorkspace(string workingDirectory)
 {
-    private readonly ToolFileSystemPolicy _fileSystemPolicy = fileSystemPolicy;
-
-    public ToolWorkspace(string workingDirectory)
-        : this(workingDirectory, new ToolFileSystemPolicy(StatePaths.ResolveFromEnvironment()))
-    {
-    }
-
     public string Root { get; } = Canonicalize(workingDirectory);
 
     public (string Lexical, string Physical) ResolveRead(string path)
@@ -21,9 +13,7 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
             ? Path.GetFullPath(path)
             : Path.GetFullPath(Path.Combine(Root, path));
 
-        _fileSystemPolicy.RequireUnprotected(lexical);
         var physical = ResolveLinks(lexical);
-        _fileSystemPolicy.RequireUnprotected(physical);
         return (lexical, physical);
     }
 
@@ -38,10 +28,7 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
             : Path.GetFullPath(Path.Combine(Root, path));
         var inWorkspace = Contained(lexical);
 
-        _fileSystemPolicy.RequireUnprotected(lexical);
-
         var physical = ResolveMutationPath(lexical, path, create);
-        _fileSystemPolicy.RequireUnprotected(physical);
         writeGrants.Validate(lexical);
         if (!string.Equals(physical, lexical, StringComparison.Ordinal))
         {
@@ -122,7 +109,7 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
         var staticallyAllowed = security.AllowsWrite(path)
             && (inWorkspace || HasExternalCapability(path, security));
         var granted = !security.ReadOnly
-            && !IsExplicitlyDenied(path, security)
+            && security.WithoutRuntimeCapabilities().AllowsWrite(path)
             && AllowsGrant(path, writeGrants);
         return staticallyAllowed || granted;
     }
@@ -131,29 +118,6 @@ internal sealed class ToolWorkspace(string workingDirectory, ToolFileSystemPolic
         writeGrants.Targets.Any(target => target.Kind == SandboxWriteTargetKind.Directory
             ? PathContains(target.Path, path)
             : string.Equals(target.Path, path, StringComparison.Ordinal));
-
-    private static bool IsExplicitlyDenied(string path, SecurityProfile security)
-    {
-        var denied = false;
-        foreach (var rule in security.WithoutRuntimeCapabilities().Rules)
-        {
-            if (!PathContains(rule.Path, path))
-            {
-                continue;
-            }
-
-            if (rule.Action is SandboxRuleAction.DenyRead or SandboxRuleAction.DenyWrite)
-            {
-                denied = true;
-            }
-            else if (rule.Action == SandboxRuleAction.AllowWrite)
-            {
-                denied = false;
-            }
-        }
-
-        return denied;
-    }
 
     private static bool HasExternalCapability(string path, SecurityProfile security)
     {

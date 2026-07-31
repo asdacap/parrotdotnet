@@ -1,28 +1,25 @@
 using Parrot.State;
 
-namespace Parrot.Tools;
+namespace Parrot.Security;
 
-internal sealed class ToolFileSystemPolicy(StatePaths paths)
+internal sealed class ApplicationDataSecurityRules
 {
-    private readonly HashSet<string> _protectedRoots = new(
-        [
-            CanonicalizeLexical(paths.State),
-            CanonicalizePhysical(paths.State),
-            CanonicalizeLexical(paths.Config),
-            CanonicalizePhysical(paths.Config),
-            CanonicalizeLexical(paths.Data),
-            CanonicalizePhysical(paths.Data),
-        ],
-        PathComparer());
+    private readonly SandboxRule[] _rules;
 
-    public void RequireUnprotected(string path)
+    public ApplicationDataSecurityRules(StatePaths paths)
     {
-        var full = Path.GetFullPath(path);
-        if (_protectedRoots.Any(root => Contains(root, full)))
-        {
-            throw new InvalidOperationException("Access to protected application data is denied.");
-        }
+        ArgumentNullException.ThrowIfNull(paths);
+
+        var comparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        _rules = [.. new[] { paths.State, paths.Config, paths.Data }
+            .SelectMany(path => new[] { CanonicalizeLexical(path), CanonicalizePhysical(path) })
+            .Distinct(comparer)
+            .Select(path => new SandboxRule(path, SandboxRuleAction.DenyRead))];
     }
+
+    public IReadOnlyList<SandboxRule> Rules => [.. _rules];
 
     private static string CanonicalizeLexical(string path) =>
         Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
@@ -31,7 +28,7 @@ internal sealed class ToolFileSystemPolicy(StatePaths paths)
     {
         var full = Path.GetFullPath(path);
         var root = Path.GetPathRoot(full)
-            ?? throw new InvalidOperationException($"Invalid protected root '{path}'.");
+            ?? throw new InvalidOperationException($"Invalid application data root '{path}'.");
         var parts = Path.GetRelativePath(root, full)
             .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
         var current = Path.TrimEndingDirectorySeparator(root);
@@ -62,16 +59,4 @@ internal sealed class ToolFileSystemPolicy(StatePaths paths)
 
         return Path.TrimEndingDirectorySeparator(current);
     }
-
-    private static bool Contains(string root, string path)
-    {
-        var relative = Path.GetRelativePath(root, path);
-        return relative == "." || (!Path.IsPathRooted(relative)
-            && relative != ".."
-            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
-    }
-
-    private static StringComparer PathComparer() => OperatingSystem.IsWindows()
-        ? StringComparer.OrdinalIgnoreCase
-        : StringComparer.Ordinal;
 }

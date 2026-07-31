@@ -4,24 +4,27 @@ internal sealed class SecurityProfile
 {
     private readonly SandboxRule[] _modeRules;
     private readonly SandboxRule[] _globalRules;
+    private readonly SandboxRule[] _mandatoryRules;
     private readonly SandboxRule[] _runtimeCapabilities;
 
     private SecurityProfile(
         bool readOnly,
         IEnumerable<SandboxRule> modeRules,
         IEnumerable<SandboxRule> globalRules,
+        IEnumerable<SandboxRule> mandatoryRules,
         IEnumerable<SandboxRule> runtimeCapabilities)
     {
         ReadOnly = readOnly;
         _modeRules = [.. modeRules];
         _globalRules = [.. globalRules];
+        _mandatoryRules = [.. mandatoryRules];
         _runtimeCapabilities = [.. runtimeCapabilities];
     }
 
     public bool ReadOnly { get; }
 
     public IReadOnlyList<SandboxRule> Rules =>
-        [.. OrderedBaseRules(), .. _runtimeCapabilities];
+        [.. PolicyRules(), .. _runtimeCapabilities];
 
     public IReadOnlyList<SandboxRule> RuntimeCapabilities => _runtimeCapabilities;
 
@@ -29,15 +32,24 @@ internal sealed class SecurityProfile
         bool readOnly,
         IEnumerable<SandboxRule> modeRules,
         IEnumerable<SandboxRule> globalRules,
+        IEnumerable<SandboxRule> runtimeCapabilities) =>
+        Compose(readOnly, modeRules, globalRules, [], runtimeCapabilities);
+
+    public static SecurityProfile Compose(
+        bool readOnly,
+        IEnumerable<SandboxRule> modeRules,
+        IEnumerable<SandboxRule> globalRules,
+        IEnumerable<SandboxRule> mandatoryRules,
         IEnumerable<SandboxRule> runtimeCapabilities)
     {
         var overrides = modeRules.Select(Normalize).ToArray();
+        var mandatory = mandatoryRules.Select(Normalize).ToArray();
         var capabilities = runtimeCapabilities.Select(Normalize).ToArray();
         var configured = globalRules.Select(Normalize)
             .Where(rule => !readOnly || rule.Action != SandboxRuleAction.AllowWrite)
             .Where(rule => !capabilities.Any(capability => Overlaps(rule.Path, capability.Path)));
 
-        return new(readOnly, overrides, configured, capabilities);
+        return new(readOnly, overrides, configured, mandatory, capabilities);
     }
 
     public bool AllowsRead(string path) => Evaluate(path).Read;
@@ -45,12 +57,13 @@ internal sealed class SecurityProfile
     public bool AllowsWrite(string path) => Evaluate(path).Write;
 
     public SecurityProfile Add(SandboxRule runtimeCapability) =>
-        Compose(ReadOnly, _modeRules, _globalRules, _runtimeCapabilities.Append(runtimeCapability));
+        Compose(ReadOnly, _modeRules, _globalRules, _mandatoryRules, _runtimeCapabilities.Append(runtimeCapability));
 
     public SecurityProfile WithRuntimeCapability(string path) =>
         Add(new(path, SandboxRuleAction.AllowWrite));
 
-    public SecurityProfile WithoutRuntimeCapabilities() => new(ReadOnly, _modeRules, _globalRules, []);
+    public SecurityProfile WithoutRuntimeCapabilities() =>
+        new(ReadOnly, _modeRules, _globalRules, _mandatoryRules, []);
 
     public bool AllowsDelegationTo(SecurityProfile target)
     {
@@ -63,7 +76,7 @@ internal sealed class SecurityProfile
 
         var caller = WithoutRuntimeCapabilities();
         var child = target.WithoutRuntimeCapabilities();
-        var paths = caller._modeRules.Concat(caller._globalRules).Concat(child._modeRules).Concat(child._globalRules)
+        var paths = caller.PolicyRules().Concat(child.PolicyRules())
             .Select(rule => rule.Path)
             .Append(Path.DirectorySeparatorChar.ToString())
             .Distinct(StringComparer.Ordinal);
@@ -112,6 +125,9 @@ internal sealed class SecurityProfile
     private IEnumerable<SandboxRule> OrderedBaseRules() =>
         _globalRules.Concat(_modeRules).OrderBy(rule => rule.Path.Length);
 
+    private IEnumerable<SandboxRule> PolicyRules() =>
+        OrderedBaseRules().Concat(_mandatoryRules);
+
     private (bool Read, bool Write) Evaluate(string path)
     {
         var access = (Read: true, Write: !ReadOnly);
@@ -121,7 +137,7 @@ internal sealed class SecurityProfile
             return (false, false);
         }
 
-        foreach (var rule in OrderedBaseRules().Concat(_runtimeCapabilities))
+        foreach (var rule in PolicyRules().Concat(_runtimeCapabilities))
         {
             if (!Contains(rule.Path, canonicalPath))
             {

@@ -208,6 +208,7 @@ internal sealed class SessionStoreTests : IDisposable
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,
+                [],
                 configuration.DisabledTools),
             configuration.DefaultProfile);
     }

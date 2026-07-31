@@ -1,6 +1,10 @@
+using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Permissions;
 using Parrot.Security;
+using Parrot.State;
+using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
 
@@ -36,6 +40,7 @@ internal sealed class ModeRegistryTests : IDisposable
         var profiles = new ProfileRegistry(
             configuration.Profiles,
             configuration.SandboxRules,
+            [],
             configuration.DisabledTools);
         var modes = new ModeRegistry(profiles, configuration.DefaultProfile);
 
@@ -126,6 +131,7 @@ internal sealed class ModeRegistryTests : IDisposable
             new ProfileRegistry(
                 profiles,
                 [new SandboxRule(denied, SandboxRuleAction.DenyWrite)],
+                [],
                 configuration.DisabledTools),
             ModeRegistry.Build);
 
@@ -145,6 +151,46 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
             Path.Combine(planDirectory, "..", "outside.md"))).IsFalse();
         _ = await Assert.That(plan.SecurityProfile.WithoutRuntimeCapabilities().AllowsWrite(artifact)).IsFalse();
+    }
+
+    [Test]
+    public async Task Plan_runtime_capability_lets_WriteTool_write_only_inside_the_plan_directory(
+        CancellationToken cancellationToken)
+    {
+        var workspace = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var paths = new StatePaths(
+            Path.Combine(_root, "state"),
+            Path.Combine(_root, "config"),
+            Path.Combine(_root, "data"));
+        var registry = Registry(new ApplicationDataSecurityRules(paths).Rules);
+        var planDirectory = Path.Combine(paths.State, "sessions", "session", "plan");
+        var plan = new UserSessionModes(registry, planDirectory).Resolve(ModeRegistry.Plan);
+        plan.Prepare();
+        var artifact = PlanArtifactIn(planDirectory);
+        var outside = Path.Combine(paths.State, "sessions", "session", "outside.md");
+        var grants = new SandboxWriteGrants();
+        grants.Grant(SandboxWriteTarget.Resolve(paths.State));
+        var write = new WriteTool(new ToolWorkspace(workspace), plan.SecurityProfile, grants);
+
+        var supporting = Path.Combine(planDirectory, "supporting.md");
+        var written = await write.Execute(WriteArguments(artifact, "# Plan"), cancellationToken);
+        var supported = await write.Execute(WriteArguments(supporting, "details"), cancellationToken);
+        var denied = await write.Execute(WriteArguments(outside, "outside"), cancellationToken);
+        var withoutCapability = new WriteTool(
+            new ToolWorkspace(workspace),
+            plan.SecurityProfile.WithoutRuntimeCapabilities(),
+            new SandboxWriteGrants());
+        var capabilityRemoved = await withoutCapability.Execute(
+            WriteArguments(artifact, "changed"),
+            cancellationToken);
+
+        _ = await Assert.That(written).DoesNotStartWith("error: ");
+        _ = await Assert.That(supported).DoesNotStartWith("error: ");
+        _ = await Assert.That(await File.ReadAllTextAsync(artifact, cancellationToken)).IsEqualTo("# Plan");
+        _ = await Assert.That(await File.ReadAllTextAsync(supporting, cancellationToken)).IsEqualTo("details");
+        _ = await Assert.That(denied).StartsWith("error: ");
+        _ = await Assert.That(capabilityRemoved).StartsWith("error: ");
+        _ = await Assert.That(File.Exists(outside)).IsFalse();
     }
 
     [Test]
@@ -242,13 +288,23 @@ internal sealed class ModeRegistryTests : IDisposable
     private static string PlanArtifactIn(string directory) =>
         Directory.GetFiles(directory, "plan-*.md").Single();
 
+    private static string WriteArguments(string path, string content) =>
+        string.Concat(
+            "{\"path\":\"",
+            JsonEncodedText.Encode(path),
+            "\",\"content\":\"",
+            JsonEncodedText.Encode(content),
+            "\"}");
+
     private UserSessionModes OwnerModes(string ownerId) =>
         new(Registry(), Path.Combine(_root, "sessions", ownerId, "plan"));
 
     private string PlanArtifact(string ownerId) =>
         PlanArtifactIn(Path.Combine(_root, "sessions", ownerId, "plan"));
 
-    private ModeRegistry Registry()
+    private ModeRegistry Registry() => Registry([]);
+
+    private ModeRegistry Registry(IReadOnlyList<SandboxRule> mandatoryRules)
     {
         var configuration = Configuration.Load(
             Path.Combine(_root, "config.yaml"),
@@ -257,6 +313,7 @@ internal sealed class ModeRegistryTests : IDisposable
             new ProfileRegistry(
                 configuration.Profiles,
                 configuration.SandboxRules,
+                mandatoryRules,
                 configuration.DisabledTools),
             configuration.DefaultProfile);
     }

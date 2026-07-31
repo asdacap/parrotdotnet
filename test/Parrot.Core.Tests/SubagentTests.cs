@@ -810,6 +810,7 @@ internal sealed class SubagentTests : IDisposable
                 id,
                 new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, []),
                 [],
+                [],
                 new HashSet<string>(StringComparer.Ordinal)),
             SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities));
 

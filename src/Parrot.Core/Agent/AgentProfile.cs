@@ -12,11 +12,13 @@ internal sealed class AgentProfile : IAgentProfile
         string id,
         ProfileConfig configuration,
         IReadOnlyList<SandboxRule> globalRules,
+        IReadOnlyList<SandboxRule> mandatoryRules,
         IReadOnlySet<string> disabledTools)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(globalRules);
+        ArgumentNullException.ThrowIfNull(mandatoryRules);
         ArgumentNullException.ThrowIfNull(disabledTools);
         Id = id;
         Prompt = configuration.Prompt;
@@ -29,6 +31,7 @@ internal sealed class AgentProfile : IAgentProfile
             configuration.ReadOnly,
             configuration.SandboxRules,
             globalRules,
+            mandatoryRules,
             []);
     }
 

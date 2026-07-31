@@ -491,10 +491,13 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 - **Outbound** typed permission requests and replies through `EventBroker`,
   `Configuration` for standing grants, and the requesting agent's sandbox for
   accepted runtime grants.
-- **Boundary** no. A grant enables write, edit, and shell access within its
-  target, is runtime-only and nonpersistent, and does not transfer to child or
-  sibling agents or merge into `SecurityProfile`. A read-only profile, explicit
-  static deny, and protected roots override it; it has no network effect.
+- **Boundary** no. A user-approved `SandboxWriteGrant` enables write, edit, and
+  shell access within its target, is runtime-only and nonpersistent, and does
+  not transfer to child or sibling agents or merge into `SecurityProfile`. A
+  read-only profile, explicit static deny, and mandatory protected roots
+  override it. This grant is distinct from trusted runtime capabilities that
+  Parrot adds to `SecurityProfile` for narrow session-owned resources such as a
+  plan directory; neither mechanism has network effect.
 
 ### `QuestionBroker` — rank 5, M3
 

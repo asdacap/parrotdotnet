@@ -345,6 +345,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new Parrot.Config.ProfileConfig(
                 "Test prompt", "Test profile.", allowedTools, 2, 3, false, []),
             [],
+            [],
             disabledTools);
 
     private CompositeSystemPromptProvider ComposeSystemContextProvider() =>
