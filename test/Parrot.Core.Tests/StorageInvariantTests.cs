@@ -30,7 +30,7 @@ internal sealed class StorageInvariantTests : IDisposable
 
             for (var index = 0; index < 50; index++)
             {
-                repository.Append(new Event { Id = $"{index}", AgentSessionId = "agent" }, "user", "hello");
+                _ = repository.Append(new Event { Id = $"{index}", AgentSessionId = "agent" }, "user", "hello");
             }
 
             // WAL is the failure this guards: it coordinates through a
@@ -53,8 +53,8 @@ internal sealed class StorageInvariantTests : IDisposable
         using var database = SessionDatabase.Open(Path.Combine(_root, "sessions", "two", "session.db"));
         var repository = new EventRepository(database);
 
-        repository.Append(new Event { Id = "e1", AgentSessionId = "agent" }, "user", "the prompt");
-        repository.Append(new Event { Id = "e2", AgentSessionId = "agent" }, null, null);
+        _ = repository.Append(new Event { Id = "e1", AgentSessionId = "agent" }, "user", "the prompt");
+        _ = repository.Append(new Event { Id = "e2", AgentSessionId = "agent" }, null, null);
 
         _ = await Assert.That(repository.Replay().Count).IsEqualTo(2);
 
@@ -65,13 +65,95 @@ internal sealed class StorageInvariantTests : IDisposable
     }
 
     [Test]
+    public async Task Usage_projection_replaces_agent_totals_and_aggregates_agents()
+    {
+        var path = Path.Combine(_root, "sessions", "usage", "session.db");
+        ulong revision;
+        using (var database = SessionDatabase.Open(path))
+        {
+            var repository = new EventRepository(database);
+            var root = repository.SessionState("user", "build").AgentSessionId;
+            _ = repository.Append(Statistics("root-1", root, 10, 3, 4, 8, 128, 1, 2), null, null);
+            _ = repository.Append(Statistics("child-1", "child", 7, 2, 5, 99, 999, 0.5, 0.25), null, null);
+            var usage = repository.Append(Statistics("root-2", root, 15, 5, 6, 9, 128, 1.5, 2.5), null, null)
+                ?? throw new InvalidOperationException("statistics did not project usage");
+
+            revision = usage.Revision;
+            _ = await Assert.That(usage.InputTokens).IsEqualTo(22);
+            _ = await Assert.That(usage.CachedInputTokens).IsEqualTo(7);
+            _ = await Assert.That(usage.OutputTokens).IsEqualTo(11);
+            _ = await Assert.That(usage.ContextSize).IsEqualTo(9);
+            _ = await Assert.That(usage.ContextLimit).IsEqualTo(128);
+            _ = await Assert.That(usage.InputCost).IsEqualTo(2.0);
+            _ = await Assert.That(usage.OutputCost).IsEqualTo(2.75);
+        }
+
+        using var reopened = SessionDatabase.Open(path);
+        var restored = new EventRepository(reopened).Usage();
+        _ = await Assert.That(restored.Revision).IsEqualTo(revision);
+        _ = await Assert.That(restored.InputTokens).IsEqualTo(22);
+        _ = await Assert.That(restored.OutputTokens).IsEqualTo(11);
+    }
+
+    [Test]
+    public async Task Usage_projection_backfills_latest_legacy_statistics_once()
+    {
+        using var database = SessionDatabase.Open(Path.Combine(_root, "sessions", "legacy-usage", "session.db"));
+        var repository = new EventRepository(database);
+        var root = repository.SessionState("user", "build").AgentSessionId;
+        _ = repository.Append(Statistics("old-root", root, 4, 1, 2, 3, 100, 0.4, 0.2), null, null);
+        _ = repository.Append(Statistics("new-root", root, 9, 2, 5, 6, 100, 0.9, 0.5), null, null);
+        _ = repository.Append(Statistics("child", "child", 3, 1, 1, 80, 200, 0.3, 0.1), null, null);
+
+        using (var legacy = database.Connection.CreateCommand())
+        {
+            legacy.CommandText = "DELETE FROM agent_usage; DELETE FROM projection_version;";
+            _ = await legacy.ExecuteNonQueryAsync();
+        }
+
+        var backfilled = new EventRepository(database).Usage();
+        _ = await Assert.That(backfilled.InputTokens).IsEqualTo(12);
+        _ = await Assert.That(backfilled.CachedInputTokens).IsEqualTo(3);
+        _ = await Assert.That(backfilled.OutputTokens).IsEqualTo(6);
+        _ = await Assert.That(backfilled.ContextSize).IsEqualTo(6);
+        _ = await Assert.That(backfilled.ContextLimit).IsEqualTo(100);
+        _ = await Assert.That(backfilled.InputCost).IsEqualTo(1.2);
+        _ = await Assert.That(backfilled.OutputCost).IsEqualTo(0.6);
+
+        var second = new EventRepository(database).Usage();
+        _ = await Assert.That(second).IsEqualTo(backfilled);
+    }
+
+    [Test]
+    public async Task Failed_event_insert_does_not_change_usage_projection()
+    {
+        using var database = SessionDatabase.Open(Path.Combine(_root, "sessions", "atomic-usage", "session.db"));
+        var repository = new EventRepository(database);
+        var root = repository.SessionState("user", "build").AgentSessionId;
+        var first = Statistics("same", root, 4, 1, 2, 3, 100, 0.4, 0.2);
+        _ = repository.Append(first, null, null);
+
+        _ = await Assert.That(() => repository.Append(
+            Statistics("same", root, 40, 10, 20, 30, 100, 4, 2),
+            null,
+            null)).ThrowsException();
+
+        var usage = repository.Usage();
+        _ = await Assert.That(usage.InputTokens).IsEqualTo(4);
+        _ = await Assert.That(usage.OutputTokens).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Events_survive_reopening_the_database()
     {
         var path = Path.Combine(_root, "sessions", "three", "session.db");
 
         using (var first = SessionDatabase.Open(path))
         {
-            new EventRepository(first).Append(new Event { Id = "kept", AgentSessionId = "agent" }, "user", "durable");
+            _ = new EventRepository(first).Append(
+                new Event { Id = "kept", AgentSessionId = "agent" },
+                "user",
+                "durable");
         }
 
         using var second = SessionDatabase.Open(path);
@@ -143,4 +225,30 @@ internal sealed class StorageInvariantTests : IDisposable
         _ = await Assert.That(WorkingDirectoryClaim.Fingerprint("/a"))
             .IsEqualTo(WorkingDirectoryClaim.Fingerprint("/a"));
     }
+
+    private static Event Statistics(
+        string id,
+        string agentSessionId,
+        long inputTokens,
+        long cachedInputTokens,
+        long outputTokens,
+        long contextSize,
+        long contextLimit,
+        double inputCost,
+        double outputCost) =>
+        new()
+        {
+            Id = id,
+            AgentSessionId = agentSessionId,
+            AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
+            {
+                InputTokens = inputTokens,
+                CachedInputTokens = cachedInputTokens,
+                OutputTokens = outputTokens,
+                ContextSize = contextSize,
+                ContextLimit = contextLimit,
+                InputCost = inputCost,
+                OutputCost = outputCost,
+            },
+        };
 }

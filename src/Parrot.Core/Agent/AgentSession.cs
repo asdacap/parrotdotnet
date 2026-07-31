@@ -1333,7 +1333,11 @@ internal sealed class AgentSession(
         string? content,
         CancellationToken cancellationToken)
     {
-        eventRepository.Append(published, role, content);
+        var usage = eventRepository.Append(published, role, content);
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+        if (usage is not null)
+        {
+            await eventBroker.Publish(usage.ConvertToEvent(), cancellationToken).ConfigureAwait(false);
+        }
     }
 }

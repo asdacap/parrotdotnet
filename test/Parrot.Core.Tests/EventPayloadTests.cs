@@ -45,6 +45,40 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Session_usage_snapshot_roundtrips_as_field_twenty_seven()
+    {
+        var source = new Event
+        {
+            SessionUsageSnapshot = new SessionUsageSnapshot
+            {
+                Revision = 42,
+                InputTokens = 4_000_000_000,
+                CachedInputTokens = 3_000_000_000,
+                OutputTokens = 2_000_000_000,
+                ContextSize = 100_000,
+                ContextLimit = 500_000,
+                InputCost = 12.5,
+                OutputCost = 7.25,
+            },
+        };
+
+        var bytes = source.ToByteArray();
+        var roundtripped = Event.Parser.ParseFrom(bytes);
+
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
+        _ = await Assert.That(roundtripped.SessionUsageSnapshot.Revision).IsEqualTo(42UL);
+        _ = await Assert.That(roundtripped.SessionUsageSnapshot.InputTokens).IsEqualTo(4_000_000_000);
+        _ = await Assert.That(roundtripped.SessionUsageSnapshot.CachedInputTokens).IsEqualTo(3_000_000_000);
+        _ = await Assert.That(roundtripped.SessionUsageSnapshot.OutputTokens).IsEqualTo(2_000_000_000);
+        _ = await Assert.That(roundtripped.SessionUsageSnapshot.ContextSize).IsEqualTo(100_000);
+        _ = await Assert.That(roundtripped.SessionUsageSnapshot.ContextLimit).IsEqualTo(500_000);
+        _ = await Assert.That(roundtripped.SessionUsageSnapshot.InputCost).IsEqualTo(12.5);
+        _ = await Assert.That(roundtripped.SessionUsageSnapshot.OutputCost).IsEqualTo(7.25);
+        _ = await Assert.That(bytes[0]).IsEqualTo((byte)0xda);
+        _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
+    }
+
+    [Test]
     public async Task Pending_permission_roundtrips_as_a_protobuf_payload()
     {
         var source = new Event

@@ -168,6 +168,7 @@ internal sealed class UserSession : IAsyncDisposable
         using var events = _eventBroker.Subscribe();
         using var queues = Main().Queues.SubscribeInventory();
         using var processes = ShellProcesses.SubscribeInventory();
+        var initialUsage = _eventRepository.Usage();
 
         var initialQueues = await queues.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         foreach (var published in QueueInventoryProtocol.Convert(initialQueues))
@@ -180,6 +181,8 @@ internal sealed class UserSession : IAsyncDisposable
         {
             yield return published;
         }
+
+        yield return initialUsage.ConvertToEvent();
 
         var eventPending = (Task<bool>?)events.Reader.WaitToReadAsync(cancellationToken).AsTask();
         var queuePending = (Task<bool>?)queues.Reader.WaitToReadAsync(cancellationToken).AsTask();

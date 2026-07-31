@@ -6,58 +6,52 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedTerminalFoundationTests
 {
     [Test]
-    public async Task Runtime_usage_aggregates_latest_root_and_descendant_deltas_once()
+    public async Task Runtime_usage_prefers_newer_durable_session_snapshots()
     {
         var tracker = new RuntimeUsageTracker();
-        tracker.Observe(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted() });
-        tracker.Observe(new Event
+        _ = tracker.Observe(new SessionUsageSnapshot
         {
-            AgentSessionId = "child",
-            AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            Revision = 4,
+            InputTokens = 2_400,
+            CachedInputTokens = 1_600,
+            OutputTokens = 600,
+            ContextSize = 3_000,
+            ContextLimit = 128_000,
+            InputCost = 0.5,
+            OutputCost = 1,
         });
-        tracker.Observe(new Event
+        _ = tracker.Observe(new SessionUsageSnapshot
         {
-            AgentSessionId = "root",
-            AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
-            {
-                InputTokens = 2_400,
-                CachedInputTokens = 1_600,
-                OutputTokens = 600,
-                ContextSize = 3_000,
-                ContextLimit = 128_000,
-                InputCost = 0.5,
-                OutputCost = 1,
-            },
+            Revision = 5,
+            InputTokens = 2_500,
+            CachedInputTokens = 1_625,
+            OutputTokens = 650,
+            ContextSize = 3_100,
+            ContextLimit = 128_000,
+            InputCost = 0.625,
+            OutputCost = 1.25,
         });
-        tracker.Observe(new Event
+        _ = tracker.Observe(new SessionUsageSnapshot
         {
-            AgentSessionId = "child",
-            AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
-            {
-                InputTokens = 100,
-                CachedInputTokens = 25,
-                OutputTokens = 50,
-                InputCost = 0.125,
-            },
+            Revision = 4,
+            InputTokens = 9_999,
+            OutputTokens = 9_999,
         });
 
         var usage = tracker.Current;
         _ = await Assert.That(usage.FormatTokens()).IsEqualTo("+2.5ki +650o (+65.00% cache)");
-        _ = await Assert.That(usage.FormatContext()).IsEqualTo("3k/128k");
-        _ = await Assert.That(usage.FormatCost()).IsEqualTo("$1.63");
+        _ = await Assert.That(usage.FormatContext()).IsEqualTo("3.1k/128k");
+        _ = await Assert.That(usage.FormatCost()).IsEqualTo("$1.88");
 
-        tracker.Observe(new Event
+        tracker.Reset();
+        _ = await Assert.That(tracker.Current).IsEqualTo(default);
+        _ = await Assert.That(tracker.Observe(new SessionUsageSnapshot
         {
-            AgentSessionId = "child",
-            AgentStatisticsUpdated = new AgentStatisticsUpdatedEvent
-            {
-                InputTokens = 100,
-                CachedInputTokens = 25,
-                OutputTokens = 50,
-                InputCost = 0.125,
-            },
-        });
-        _ = await Assert.That(tracker.Current).IsEqualTo(usage);
+            Revision = 1,
+            InputTokens = 10,
+            OutputTokens = 2,
+        })).IsTrue();
+        _ = await Assert.That(tracker.Current.FormatTokens()).IsEqualTo("+10i +2o");
     }
 
     [Test]

@@ -96,7 +96,7 @@ internal sealed class PermissionBroker : IDisposable
                     AgentSessionId = agentSession.SessionId,
                     PermissionPending = ToProtocol(id, pending),
                 };
-                _repository.Append(published, null, null);
+                _ = _repository.Append(published, null, null);
                 _events.Publish(published);
             }
             catch

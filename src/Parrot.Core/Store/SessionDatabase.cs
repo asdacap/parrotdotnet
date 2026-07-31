@@ -119,6 +119,23 @@ internal sealed class SessionDatabase : IDisposable
                     agent_session TEXT NOT NULL,
                     mode          TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS agent_usage (
+                    agent_session      TEXT PRIMARY KEY,
+                    revision           INTEGER NOT NULL CHECK (revision > 0),
+                    input_tokens       INTEGER NOT NULL,
+                    cached_input_tokens INTEGER NOT NULL,
+                    output_tokens      INTEGER NOT NULL,
+                    context_size       INTEGER NOT NULL,
+                    context_limit      INTEGER NOT NULL,
+                    input_cost         REAL NOT NULL,
+                    output_cost        REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS projection_version (
+                    name    TEXT PRIMARY KEY,
+                    version INTEGER NOT NULL
+                );
                 """;
             _ = schema.ExecuteNonQuery();
         }

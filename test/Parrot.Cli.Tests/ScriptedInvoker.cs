@@ -13,6 +13,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly Dictionary<string, ChannelStreamWriter<Event>> _activeEvents = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<Event>> _eventsAwaitingListeners = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<QueueState>> _initialQueues = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SessionUsageSnapshot> _initialUsage = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingQuestion>> _pendingQuestions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<PendingPermission>> _pendingPermissions = new(StringComparer.Ordinal);
     private readonly List<string> _sent = [];
@@ -230,6 +231,16 @@ internal sealed class ScriptedInvoker : CallInvoker
         lock (_gate)
         {
             _initialQueues[userSessionId] = [.. queues.Select(queue => queue.Clone())];
+        }
+    }
+
+    public void SetInitialUsage(string userSessionId, SessionUsageSnapshot usage)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+
+        lock (_gate)
+        {
+            _initialUsage[userSessionId] = usage.Clone();
         }
     }
 
@@ -472,6 +483,12 @@ internal sealed class ScriptedInvoker : CallInvoker
             if (!events.TryWrite(InitialQueueSnapshot(listen.UserSessionId)))
             {
                 throw new InvalidOperationException("the scripted stream rejected its initial queue snapshot");
+            }
+
+            if (_initialUsage.TryGetValue(listen.UserSessionId, out var usage)
+                && !events.TryWrite(new Event { SessionUsageSnapshot = usage.Clone() }))
+            {
+                throw new InvalidOperationException("the scripted stream rejected its initial usage snapshot");
             }
 
             foreach (var awaiting in GetEventsAwaitingListeners(listen.UserSessionId))

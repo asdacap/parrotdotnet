@@ -493,6 +493,11 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues).HasSingleItem();
         _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues[0].Name).IsEqualTo("release");
         _ = await Assert.That(stream.Reader.Current.QueueSnapshot.Queues[0].ItemCount).IsEqualTo(2);
+        _ = await Assert.That(await stream.Reader.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(stream.Reader.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ShellProcessSnapshot);
+        _ = await Assert.That(await stream.Reader.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(stream.Reader.Current.PayloadCase).IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
+        _ = await Assert.That(stream.Reader.Current.SessionUsageSnapshot.Revision).IsEqualTo(0UL);
 
         await service.DisposeAsync();
         await listening;

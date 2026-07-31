@@ -84,7 +84,8 @@ internal sealed class EnhancedRenderingSession : IDisposable
     internal Task<bool> Run(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        return RunCore(new QueueSnapshotStreamReader(stream, ReplaceQueueRows), cancellationToken);
+        var queues = new QueueSnapshotStreamReader(stream, ReplaceQueueRows);
+        return RunCore(new SessionUsageSnapshotStreamReader(queues, ObserveSessionUsage), cancellationToken);
     }
 
     internal async Task ReplaceInput(
@@ -368,8 +369,25 @@ internal sealed class EnhancedRenderingSession : IDisposable
         await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _usage.Observe(published);
             ObserveModelineActivity(published);
+        }
+        finally
+        {
+            _ = _composing.Release();
+        }
+    }
+
+    private async Task ObserveSessionUsage(
+        SessionUsageSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_usage.Observe(snapshot))
+            {
+                _ = _updates.Invalidate();
+            }
         }
         finally
         {
