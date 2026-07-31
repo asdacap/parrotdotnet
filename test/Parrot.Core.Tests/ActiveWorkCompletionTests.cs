@@ -1,0 +1,572 @@
+using System.Runtime.Versioning;
+using Parrot.Agent;
+using Parrot.Context;
+using Parrot.Events;
+using Parrot.Llm;
+using Parrot.Permissions;
+using Parrot.Process;
+using Parrot.Protocol;
+using Parrot.Security;
+using Parrot.State;
+using Parrot.Store;
+
+namespace Parrot.Core.Tests;
+
+internal sealed class ActiveWorkCompletionTests : IDisposable
+{
+    private readonly string _workspace = Path.Combine(
+        Path.GetTempPath(), "parrot-active-work-completion-tests", Guid.NewGuid().ToString("n"));
+
+    private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
+    private readonly EventBroker _broker = new();
+
+    public ActiveWorkCompletionTests() => Directory.CreateDirectory(_workspace);
+
+    public void Dispose()
+    {
+        _broker.Dispose();
+        _database.Dispose();
+
+        if (Directory.Exists(_workspace))
+        {
+            Directory.Delete(_workspace, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Enabled_profile_defers_completion_until_direct_work_settles(
+        CancellationToken cancellationToken)
+    {
+        using var parentProvider = new HeldProvider("parent", Answer("ignored"), Answer("finished"));
+        using var childProvider = new HeldProvider("child", Answer("child finished"));
+        var router = Router(parentProvider, childProvider);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var processes = Processes(string.Empty, lifetime.Token);
+        var repository = new EventRepository(_database);
+        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        await using var registry = new AgentRegistry(
+            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var mode = new CompletionMode(enforce: true, maxTurns: 4);
+        var parent = Session("parent", parentProvider, router, repository, registry, processes, mode, lifetime.Token);
+        var child = registry.Spawn(
+            parent,
+            Turn(parent, router),
+            "worker",
+            new ModelSelector("child/model"),
+            "direct-child");
+        using var subscription = _broker.Subscribe();
+
+        _ = await child.Send("work", cancellationToken);
+        await childProvider.Arrived(cancellationToken);
+        _ = await parent.Send("finish", cancellationToken);
+        await parentProvider.Arrived(cancellationToken);
+        parentProvider.Release();
+        await parentProvider.Arrived(cancellationToken);
+
+        var beforeSettlement = Events(subscription);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(0);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(0);
+        _ = await Assert.That(mode.Completions).IsEqualTo(0);
+        _ = await Assert.That(Reminders(beforeSettlement, "parent")).HasSingleItem();
+        _ = await Assert.That(parentProvider.Requests[1].Messages.Any(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains(child.SessionId, StringComparison.Ordinal))).IsTrue();
+
+        childProvider.Release();
+        await child.Settled();
+        parentProvider.Release();
+        await parent.Settled();
+
+        var allEvents = beforeSettlement.Concat(Events(subscription)).ToArray();
+        _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(2);
+        _ = await Assert.That(Reminders(allEvents, "parent")).HasSingleItem();
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(1);
+        _ = await Assert.That(mode.Completions).IsEqualTo(1);
+        _ = await Assert.That(repository.Messages("parent").Count(message =>
+            message.StartsWith("assistant:", StringComparison.Ordinal))).IsEqualTo(1);
+        _ = await Assert.That(repository.Messages("parent")[^1]).IsEqualTo("assistant: finished");
+    }
+
+    [Test]
+    public async Task Disabled_profile_does_not_defer_for_active_direct_work(CancellationToken cancellationToken)
+    {
+        using var parentProvider = new HeldProvider("parent", Answer("finished"));
+        using var childProvider = new HeldProvider("child", Answer("child finished"));
+        var router = Router(parentProvider, childProvider);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var processes = Processes(string.Empty, lifetime.Token);
+        var repository = new EventRepository(_database);
+        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        await using var registry = new AgentRegistry(
+            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var mode = new CompletionMode(enforce: false, maxTurns: 2);
+        var parent = Session("parent", parentProvider, router, repository, registry, processes, mode, lifetime.Token);
+        var child = registry.Spawn(
+            parent,
+            Turn(parent, router),
+            "worker",
+            new ModelSelector("child/model"),
+            "direct-child");
+        using var subscription = _broker.Subscribe();
+
+        _ = await child.Send("work", cancellationToken);
+        await childProvider.Arrived(cancellationToken);
+        _ = await parent.Send("finish", cancellationToken);
+        await parentProvider.Arrived(cancellationToken);
+        parentProvider.Release();
+        await parent.Settled();
+
+        _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(Reminders(Events(subscription), "parent")).IsEmpty();
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(1);
+        _ = await Assert.That(mode.Completions).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Enforcement_excludes_active_siblings_and_grandchildren(CancellationToken cancellationToken)
+    {
+        using var monitoredProvider = new HeldProvider("monitored", Answer("finished"));
+        using var siblingProvider = new HeldProvider("sibling", Answer("sibling finished"));
+        using var grandchildProvider = new HeldProvider("grandchild", Answer("grandchild finished"));
+        using var rootProvider = new HeldProvider("root");
+        var router = Router(monitoredProvider, siblingProvider, grandchildProvider, rootProvider);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var processes = Processes(string.Empty, lifetime.Token);
+        var repository = new EventRepository(_database);
+        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        await using var registry = new AgentRegistry(
+            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var root = Session(
+            "root",
+            rootProvider,
+            router,
+            repository,
+            registry,
+            processes,
+            new CompletionMode(enforce: true, maxTurns: 2),
+            lifetime.Token);
+        var monitored = registry.Spawn(
+            root, Turn(root, router), "worker", new ModelSelector("monitored/model"), "monitored");
+        monitored.UpdateSelection(
+            new ModelSelector("monitored/model"),
+            new CompletionMode(enforce: true, maxTurns: 2));
+        var sibling = registry.Spawn(
+            root, Turn(root, router), "worker", new ModelSelector("sibling/model"), "sibling");
+        var grandchild = registry.Spawn(
+            sibling, Turn(sibling, router), "worker", new ModelSelector("grandchild/model"), "grandchild");
+        using var subscription = _broker.Subscribe();
+
+        _ = await sibling.Send("work", cancellationToken);
+        await siblingProvider.Arrived(cancellationToken);
+        _ = await grandchild.Send("work", cancellationToken);
+        await grandchildProvider.Arrived(cancellationToken);
+        _ = await monitored.Send("finish", cancellationToken);
+        await monitoredProvider.Arrived(cancellationToken);
+        monitoredProvider.Release();
+        await monitored.Settled();
+
+        _ = await Assert.That(monitoredProvider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(Reminders(Events(subscription), monitored.SessionId)).IsEmpty();
+        _ = await Assert.That(Payloads(
+            repository, monitored.SessionId, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Enforcement_uses_only_the_sessions_local_shell_process_owner(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var provider = new HeldProvider("parent", Answer("finished"));
+        var router = Router(provider);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var processes = Processes(CreateSandboxPassThrough(), lifetime.Token);
+        var repository = new EventRepository(_database);
+        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        await using var registry = new AgentRegistry(
+            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var parent = Session(
+            "parent",
+            provider,
+            router,
+            repository,
+            registry,
+            processes,
+            new CompletionMode(enforce: true, maxTurns: 2),
+            lifetime.Token);
+        var otherProvider = new HeldProvider("other");
+        var otherRouter = Router(otherProvider);
+        var other = BareSession("other", otherProvider, otherRouter, repository, lifetime.Token);
+        var otherProcesses = processes.Prepare("other");
+        processes.Register(otherProcesses);
+        var process = otherProcesses.Start(
+            "other-work",
+            "sleep 30",
+            "call",
+            ProcessEnvironmentOverrides.Empty,
+            other,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SandboxWriteGrantSnapshot.Empty);
+        _ = await process.Wait(TimeSpan.Zero, cancellationToken);
+        using var subscription = _broker.Subscribe();
+
+        _ = await parent.Send("finish", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await parent.Settled();
+
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(Reminders(Events(subscription), "parent")).IsEmpty();
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+
+        await lifetime.CancelAsync();
+        await processes.Settle();
+        otherProvider.Dispose();
+    }
+
+    [Test]
+    public async Task Repeated_ignored_reminders_reach_the_turn_limit_without_completing_plan(
+        CancellationToken cancellationToken)
+    {
+        using var parentProvider = new HeldProvider("parent", Answer("one"), Answer("two"), Answer("three"));
+        using var childProvider = new HeldProvider("child", Answer("child finished"));
+        var router = Router(parentProvider, childProvider);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var processes = Processes(string.Empty, lifetime.Token);
+        var repository = new EventRepository(_database);
+        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        await using var registry = new AgentRegistry(
+            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var mode = new CompletionMode(enforce: true, maxTurns: 3);
+        var parent = Session("parent", parentProvider, router, repository, registry, processes, mode, lifetime.Token);
+        var child = registry.Spawn(
+            parent, Turn(parent, router), "worker", new ModelSelector("child/model"), "direct-child");
+        using var subscription = _broker.Subscribe();
+
+        _ = await child.Send("work", cancellationToken);
+        await childProvider.Arrived(cancellationToken);
+        _ = await parent.Send("finish", cancellationToken);
+        for (var request = 0; request < 3; request++)
+        {
+            await parentProvider.Arrived(cancellationToken);
+            parentProvider.Release();
+        }
+
+        await parent.Settled();
+
+        var events = Events(subscription);
+        _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(3);
+        _ = await Assert.That(Reminders(events, "parent")).Count().IsEqualTo(3);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(0);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(0);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnFailed)).IsEqualTo(1);
+        _ = await Assert.That(mode.Completions).IsEqualTo(0);
+        _ = await Assert.That(repository.Replay().Single(published =>
+            published.AgentSessionId == "parent"
+            && published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
+            .IsEqualTo("the turn exceeded its provider-request limit");
+    }
+
+    [Test]
+    public async Task Interruption_bypasses_active_work_completion_enforcement(CancellationToken cancellationToken)
+    {
+        using var parentProvider = new HeldProvider("parent", Answer("unreachable"));
+        using var childProvider = new HeldProvider("child", Answer("child finished"));
+        var router = Router(parentProvider, childProvider);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var processes = Processes(string.Empty, lifetime.Token);
+        var repository = new EventRepository(_database);
+        var factory = new CompletionAgentSessions(router, processes, repository, _broker, _workspace);
+        await using var registry = new AgentRegistry(
+            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
+        var mode = new CompletionMode(enforce: true, maxTurns: 2);
+        var parent = Session("parent", parentProvider, router, repository, registry, processes, mode, lifetime.Token);
+        var child = registry.Spawn(
+            parent, Turn(parent, router), "worker", new ModelSelector("child/model"), "direct-child");
+        using var subscription = _broker.Subscribe();
+
+        _ = await child.Send("work", cancellationToken);
+        await childProvider.Arrived(cancellationToken);
+        _ = await parent.Send("finish", cancellationToken);
+        await parentProvider.Arrived(cancellationToken);
+        await parent.Interrupt(cancellationToken);
+
+        _ = await Assert.That(Reminders(Events(subscription), "parent")).IsEmpty();
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(0);
+        _ = await Assert.That(mode.Completions).IsEqualTo(0);
+        _ = await Assert.That(repository.Replay().Single(published =>
+            published.AgentSessionId == "parent"
+            && published.PayloadCase == Event.PayloadOneofCase.TurnEnded).TurnEnded.FinishReason)
+            .IsEqualTo("interrupted");
+    }
+
+    private static LLMEvent Answer(string text) => LLMEvent.Completed("stop", 1, 0, 1, text, []);
+
+    private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
+    {
+        var selection = session.Selection();
+        return new AgentTurnSelection(
+            selection.RequestedModel,
+            router.Resolve(selection.RequestedModel.Value),
+            selection.Profile,
+            selection.SecurityProfile);
+    }
+
+    private static List<Event> Events(EventSubscription subscription)
+    {
+        var events = new List<Event>();
+        while (subscription.Reader.TryRead(out var published))
+        {
+            events.Add(published);
+        }
+
+        return events;
+    }
+
+    private static IReadOnlyList<Event> Reminders(IEnumerable<Event> events, string sessionId) =>
+        [.. events.Where(published => published.AgentSessionId == sessionId
+            && published.PayloadCase == Event.PayloadOneofCase.ActiveWorkReminderInjected)];
+
+    private static int Payloads(
+        EventRepository repository,
+        string sessionId,
+        Event.PayloadOneofCase payload) =>
+        repository.Replay().Count(published =>
+            published.AgentSessionId == sessionId && published.PayloadCase == payload);
+
+    private static ModelRouter Router(params HeldProvider[] providers)
+    {
+        var models = providers.ToDictionary<ILLMProvider, string, IReadOnlyList<LLMModel>>(
+            provider => provider.Id,
+            provider => [new LLMModel("model", provider.Id)],
+            StringComparer.Ordinal);
+        var registry = new ProviderRegistry(providers, models);
+        return new ModelRouter(
+            registry,
+            new ModelAliasCatalog(registry, []),
+            $"{providers[0].Id}/model");
+    }
+
+    private AgentSession Session(
+        string sessionId,
+        HeldProvider provider,
+        ModelRouter router,
+        EventRepository repository,
+        AgentRegistry registry,
+        ShellProcessOwners processes,
+        IAgentProfile profile,
+        CancellationToken lifetime)
+    {
+        var owner = processes.Prepare(sessionId);
+        processes.Register(owner);
+        return new AgentSession(
+            AgentIdentity.Main(sessionId, sessionId),
+            new ModelSelector($"{provider.Id}/model"),
+            router,
+            _broker,
+            repository,
+            [],
+            TestModels.PromptProvider(_workspace, _workspace),
+            new TodoCollection(sessionId, repository, _broker),
+            new ToolOutputBlobStore(_workspace),
+            new Compactor(120_000),
+            new ActiveWorkCompletionReminder(sessionId, registry, owner),
+            profile,
+            profile.SecurityProfile,
+            status: null,
+            registry: null,
+            owner: null,
+            lifetime);
+    }
+
+    private AgentSession BareSession(
+        string sessionId,
+        HeldProvider provider,
+        ModelRouter router,
+        EventRepository repository,
+        CancellationToken lifetime) =>
+        new(
+            AgentIdentity.Main(sessionId, sessionId),
+            new ModelSelector($"{provider.Id}/model"),
+            router,
+            _broker,
+            repository,
+            [],
+            TestModels.PromptProvider(_workspace, _workspace),
+            new TodoCollection(sessionId, repository, _broker),
+            new ToolOutputBlobStore(_workspace),
+            new Compactor(120_000),
+            activeWorkReminder: null,
+            profile: null,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            status: null,
+            registry: null,
+            owner: null,
+            lifetime);
+
+    private ShellProcessOwners Processes(string sandbox, CancellationToken lifetime) =>
+        new(Resources(), new ProcessRunner(sandbox), lifetime);
+
+    private UserSessionResources Resources() =>
+        new(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+
+    [SupportedOSPlatform("linux")]
+    private string CreateSandboxPassThrough()
+    {
+        var path = Path.Combine(_workspace, "sandbox");
+        var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
+            + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
+            + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"
+            + "  shift\ndone\nshift\nexec \"$@\"\n";
+        File.WriteAllText(path, script);
+        File.SetUnixFileMode(
+            path,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
+    }
+
+    private sealed class CompletionMode(bool enforce, int maxTurns) : IMode
+    {
+        public int Completions { get; private set; }
+
+        public string Id => "test";
+
+        public string Prompt => "Test prompt.";
+
+        public IReadOnlyList<string>? AllowedTools => null;
+
+        public IReadOnlyList<string> DisabledTools => [];
+
+        public int MaxTurns => maxTurns;
+
+        public bool EnforceActiveWorkCompletion => enforce;
+
+        public SecurityProfile SecurityProfile { get; } = SecurityProfile.Compose(readOnly: false, [], [], []);
+
+        public void Prepare()
+        {
+        }
+
+        public PlanCompleted Complete(string sessionId, string messageId)
+        {
+            Completions++;
+            return new PlanCompleted
+            {
+                AgentSessionId = sessionId,
+                MessageId = messageId,
+                Markdown = "# Completed",
+            };
+        }
+    }
+
+    private sealed class CompletionAgentSessions(
+        ModelRouter router,
+        ShellProcessOwners processes,
+        EventRepository repository,
+        EventBroker broker,
+        string workspace) : IAgentSessionFactory
+    {
+        public IAgentSessionLease Create(
+            AgentIdentity identity,
+            ModelSelector model,
+            EventBroker eventBroker,
+            EventRepository eventRepository,
+            IAgentProfile? profile,
+            SecurityProfile securityProfile,
+            Parrot.Statuses.RuntimeStatus? status,
+            AgentRegistry registry,
+            CancellationToken lifetime)
+        {
+            var owner = processes.Prepare(identity.SessionId);
+            processes.Register(owner);
+            return new AgentSessionLease(new AgentSession(
+                identity,
+                model,
+                router,
+                broker,
+                repository,
+                [],
+                TestModels.PromptProvider(workspace, workspace),
+                new TodoCollection(identity.SessionId, repository, broker),
+                new ToolOutputBlobStore(workspace),
+                new Compactor(120_000),
+                new ActiveWorkCompletionReminder(identity.SessionId, registry, owner),
+                profile,
+                securityProfile,
+                status,
+                registry: null,
+                owner: null,
+                lifetime));
+        }
+    }
+
+    private sealed class HeldProvider(string id, params LLMEvent[] answers) : ILLMProvider, IDisposable
+    {
+        private readonly Queue<LLMEvent> _answers = new(answers);
+        private readonly List<LLMRequest> _requests = [];
+        private readonly Lock _gate = new();
+        private readonly SemaphoreSlim _arrived = new(0);
+        private readonly SemaphoreSlim _released = new(0);
+
+        public string Id { get; } = id;
+
+        public IReadOnlyList<LLMRequest> Requests
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _requests];
+                }
+            }
+        }
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LLMModel>>([]);
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            LLMEvent answer;
+            lock (_gate)
+            {
+                _requests.Add(request);
+                answer = _answers.Count == 0
+                    ? Answer("nothing scripted")
+                    : _answers.Dequeue();
+            }
+
+            _ = _arrived.Release();
+            await _released.WaitAsync(cancellationToken).ConfigureAwait(false);
+            yield return answer;
+        }
+
+        public Task Arrived(CancellationToken cancellationToken) => _arrived.WaitAsync(cancellationToken);
+
+        public void Release() => _released.Release();
+
+        public void Dispose()
+        {
+            _arrived.Dispose();
+            _released.Dispose();
+        }
+    }
+}

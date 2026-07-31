@@ -138,7 +138,7 @@ internal sealed class ShellProcessOwner(
         lock (_gate)
         {
             return [.. _processes.Values
-                .Where(process => !process.Completed)
+                .Where(process => !process.Retired)
                 .Select(process => new ActiveWorkObservation(
                     $"{sessionId}/{process.Name}",
                     process.Name,

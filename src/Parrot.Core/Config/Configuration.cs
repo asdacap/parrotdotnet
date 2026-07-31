@@ -462,7 +462,17 @@ internal sealed class Configuration(string path)
             }
 
             _ = profile.Children.Remove(new YamlScalarNode("status"));
-            ValidateKeys(profile, $"profiles.{id}", "prompt", "usage", "allowed_tools", "max_turns", "recursion_limit", "read_only", "sandbox_rules");
+            ValidateKeys(
+                profile,
+                $"profiles.{id}",
+                "prompt",
+                "usage",
+                "allowed_tools",
+                "max_turns",
+                "recursion_limit",
+                "read_only",
+                "enforce_active_work_completion",
+                "sandbox_rules");
         }
 
         foreach (var id in ids)
@@ -479,6 +489,10 @@ internal sealed class Configuration(string path)
                 PositiveInteger(profile, "max_turns", $"profiles.{id}.max_turns"),
                 NonNegativeInteger(profile, "recursion_limit", $"profiles.{id}.recursion_limit"),
                 ReadBoolean(profile, "read_only", $"profiles.{id}.read_only"),
+                ReadBoolean(
+                    profile,
+                    "enforce_active_work_completion",
+                    $"profiles.{id}.enforce_active_work_completion"),
                 ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules"));
         }
 

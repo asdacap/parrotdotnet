@@ -14,5 +14,7 @@ internal interface IAgentProfile
 
     int MaxTurns { get; }
 
+    bool EnforceActiveWorkCompletion { get; }
+
     SecurityProfile SecurityProfile { get; }
 }

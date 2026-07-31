@@ -484,7 +484,7 @@ internal sealed class DrainTests : IDisposable
         IReadOnlyList<string>? allowedTools,
         IReadOnlySet<string> disabledTools) => new(
             "test",
-            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, false, []),
+            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, false, true, []),
             [],
             [],
             disabledTools);
@@ -541,6 +541,7 @@ internal sealed class DrainTests : IDisposable
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(_blobDirectory),
             new Compactor(120_000),
+            activeWorkReminder: null,
             profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             status: null,

@@ -320,6 +320,7 @@ message Event {
     PendingPermission      permission_pending      = 23;
     QueueSnapshot          queue_snapshot          = 24;
     ShellProcessSnapshot   shell_process_snapshot  = 25;
+    ActiveWorkReminderInjected active_work_reminder_injected = 26;
   }
 }
 
@@ -390,6 +391,10 @@ message TodoState {
 // Transient notification that the durable runtime status system message was
 // added to model history. Its text is deliberately not duplicated on the wire.
 message StatusInjected {}
+
+// Transient notification that a durable system reminder about direct active
+// work was added to model history. Its text remains in history, not on the wire.
+message ActiveWorkReminderInjected {}
 
 message AgentStatisticsUpdatedEvent {
   int64  input_tokens        = 1;

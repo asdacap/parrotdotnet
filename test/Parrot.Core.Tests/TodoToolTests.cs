@@ -129,6 +129,7 @@ internal sealed class TodoToolTests : IDisposable
             new TodoCollection(sessionId, repository, _events),
             new ToolOutputBlobStore(_root),
             new Compactor(120_000),
+            activeWorkReminder: null,
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,

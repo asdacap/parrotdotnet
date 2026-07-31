@@ -177,6 +177,7 @@ profiles:
     max_turns: 1024
     recursion_limit: 3
     read_only: false
+    enforce_active_work_completion: true
   plan:
     prompt: |-
       You are Parrot's plan mode. Inspect the project and write the complete implementation plan to the designated canonical plan file. This mode is read-only except for its designated plan-artifact directory.
@@ -195,6 +196,7 @@ profiles:
     max_turns: 1024
     recursion_limit: 3
     read_only: true
+    enforce_active_work_completion: true
   query:
     prompt: |-
       You are Parrot's query mode. Inspect the project and answer the user's question without making changes.
@@ -205,6 +207,7 @@ profiles:
     max_turns: 8
     recursion_limit: 1
     read_only: true
+    enforce_active_work_completion: true
   explorer:
     usage: Delegate focused read-only codebase investigation and evidence gathering.
     prompt: |-
@@ -217,6 +220,7 @@ profiles:
     max_turns: 32
     recursion_limit: 3
     read_only: true
+    enforce_active_work_completion: true
   review:
     usage: Delegate defect-first read-only review of a requested change.
     prompt: |-
@@ -232,6 +236,7 @@ profiles:
     max_turns: 32
     recursion_limit: 3
     read_only: true
+    enforce_active_work_completion: true
   worker:
     usage: Delegate independently scoped implementation or production work.
     prompt: |-
@@ -244,6 +249,7 @@ profiles:
     max_turns: 128
     recursion_limit: 3
     read_only: false
+    enforce_active_work_completion: true
   thinker:
     prompt: |-
       You are Parrot's thinker agent. Perform difficult analysis and decision-making without modifying the workspace.
@@ -262,6 +268,7 @@ profiles:
     max_turns: 256
     recursion_limit: 1
     read_only: true
+    enforce_active_work_completion: true
 
 # Tools disabled globally, keyed by tool ID. True disables a tool; false in a
 # higher-precedence layer re-enables an inherited disabled entry.

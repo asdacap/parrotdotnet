@@ -323,6 +323,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new TodoCollection("agent", repository, events),
             new ToolOutputBlobStore(blobDirectory),
             new Compactor(120_000),
+            activeWorkReminder: null,
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,

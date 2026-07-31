@@ -20,6 +20,8 @@ internal sealed class SessionMode(
 
     public int MaxTurns => profile.MaxTurns;
 
+    public bool EnforceActiveWorkCompletion => profile.EnforceActiveWorkCompletion;
+
     public SecurityProfile SecurityProfile { get; } = securityProfile;
 
     public void Prepare() => prepare();

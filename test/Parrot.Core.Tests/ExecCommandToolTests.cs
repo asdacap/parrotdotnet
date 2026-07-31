@@ -48,6 +48,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             new TodoCollection("session", new EventRepository(database), events),
             new ToolOutputBlobStore(Path.Combine(_workspace, "blob")),
             new Compactor(120_000),
+            activeWorkReminder: null,
             null,
             SecurityProfile.Compose(readOnly: false, [], [], []),
             null,

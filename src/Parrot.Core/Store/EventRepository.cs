@@ -476,6 +476,20 @@ internal sealed class EventRepository(SessionDatabase database)
         }
     }
 
+    public void AppendActiveWorkReminder(Event published, string content)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+
+        published.ActiveWorkReminderInjected = new ActiveWorkReminderInjected();
+
+        lock (_gate)
+        {
+            using var transaction = database.Begin();
+            Project(transaction, published.AgentSessionId, "system", content);
+            transaction.Commit();
+        }
+    }
+
     // Spelt out rather than derived from the enum name: the column outlives any
     // rename of the generated member.
     //

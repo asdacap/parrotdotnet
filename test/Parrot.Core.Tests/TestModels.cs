@@ -26,6 +26,7 @@ internal static class TestModels
                 32,
                 3,
                 true,
+                true,
                 []),
             ["worker"] = new ProfileConfig(
                 "You are a worker agent.",
@@ -34,6 +35,7 @@ internal static class TestModels
                 64,
                 3,
                 false,
+                true,
                 []),
         };
 
@@ -90,5 +92,6 @@ internal static class TestModels
         64,
         3,
         readOnly,
+        true,
         []);
 }

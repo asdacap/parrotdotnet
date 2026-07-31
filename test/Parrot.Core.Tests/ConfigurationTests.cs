@@ -42,6 +42,7 @@ internal sealed class ConfigurationTests : IDisposable
         foreach (var profile in configuration.Profiles.Values)
         {
             _ = await Assert.That(profile.Prompt).Contains("Hard rules:\n-");
+            _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsTrue();
         }
 
         var build = configuration.Profiles["build"];
@@ -283,6 +284,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["worker"].MaxTurns).IsEqualTo(128);
         _ = await Assert.That(configuration.Profiles["thinker"].MaxTurns).IsEqualTo(256);
         _ = await Assert.That(configuration.Profiles["worker"].AllowedTools).IsNull();
+        _ = await Assert.That(configuration.Profiles.Values.All(profile => profile.EnforceActiveWorkCompletion)).IsTrue();
         _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.SequenceEqual(
             ["agent_spawn", "agent_send", "wait_agent", "wait"],
             StringComparer.Ordinal)).IsTrue();
@@ -333,6 +335,15 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Profile_active_work_completion_policy_can_be_overridden()
+    {
+        var configuration = Load(Write("profiles:\n  query:\n    enforce_active_work_completion: false\n"));
+
+        _ = await Assert.That(configuration.Profiles["query"].EnforceActiveWorkCompletion).IsFalse();
+        _ = await Assert.That(configuration.Profiles["build"].EnforceActiveWorkCompletion).IsTrue();
+    }
+
+    [Test]
     public async Task Invalid_security_configuration_fails_closed()
     {
         var relativePath = Write("sandbox_rules:\n  - path: relative\n    rule: allow_write\n");
@@ -346,6 +357,10 @@ internal sealed class ConfigurationTests : IDisposable
 
         var invalidBoolean = Write("profiles:\n  query:\n    read_only: yes\n");
         _ = await Assert.That(() => Load(invalidBoolean)).Throws<InvalidDataException>();
+
+        var invalidCompletionPolicy = Write(
+            "profiles:\n  query:\n    enforce_active_work_completion: yes\n");
+        _ = await Assert.That(() => Load(invalidCompletionPolicy)).Throws<InvalidDataException>();
     }
 
     [Test]
