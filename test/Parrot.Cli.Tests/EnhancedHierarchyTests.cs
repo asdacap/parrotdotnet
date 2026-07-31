@@ -798,6 +798,133 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Agent_send_resolves_the_recipient_name_in_live_and_completed_activity(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new List<string>();
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+        using var view = new RawActivityView(
+            (items, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                drawn.Add(Render(items, liveContext));
+                return Task.CompletedTask;
+            },
+            (item, _, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                committed.Add(string.Join('|', item.Render(scrollbackContext)));
+                return Task.CompletedTask;
+            },
+            new ToolPresenterRegistry([new AgentSendToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                ToolCallChunk = new ToolCallChunk
+                {
+                    ToolCallId = "send",
+                    ToolName = "agent_send",
+                    ArgumentsFragment = "{\"session_id\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                ToolStarted = new ToolStarted { ToolCallId = "send", ToolName = "agent_send" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("Send to agent-session-opaque");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "agent-session-opaque",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "scout" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("Send to scout");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("Send to agent-session-opaque");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                ToolFinished = new ToolFinished
+                {
+                    ToolCallId = "send",
+                    ToolName = "agent_send",
+                    Result = "{\"session_id\":\"agent-session-opaque\",\"name\":\"scout\",\"status\":\"running\"}",
+                },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(committed).HasSingleItem();
+        _ = await Assert.That(committed[0]).Contains("✓ Send to scout|inspect logs");
+        _ = await Assert.That(committed[0]).DoesNotContain("agent-session-opaque");
+    }
+
+    [Test]
+    public async Task Agent_send_refreshes_a_root_recipient_after_an_empty_queue_snapshot(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new List<string>();
+        var context = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        using var view = new RawActivityView(
+            (items, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                drawn.Add(Render(items, context));
+                return Task.CompletedTask;
+            },
+            static (_, _, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            },
+            new ToolPresenterRegistry([new AgentSendToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolCallChunk = new ToolCallChunk
+                {
+                    ToolCallId = "send",
+                    ToolName = "agent_send",
+                    ArgumentsFragment = "{\"session_id\":\"late-root\",\"message\":\"completed\"}",
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolStarted = new ToolStarted { ToolCallId = "send", ToolName = "agent_send" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("Send to late-root");
+
+        await view.ReplaceQueues("late-root", [], cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("Send to main");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("Send to late-root");
+    }
+
+    [Test]
     public async Task Hierarchy_resolves_depth_orphans_cycles_and_post_order()
     {
         var hierarchy = new AgentSessionHierarchy();
@@ -828,6 +955,10 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(hierarchy.GetDepth("orphan")).IsEqualTo(1);
         _ = await Assert.That(hierarchy.GetDepth("cycle-a")).IsGreaterThanOrEqualTo(1);
         _ = await Assert.That(hierarchy.GetLabel("child")).IsEqualTo("friendly");
+        _ = await Assert.That(hierarchy.ResolveAgentReference("root", "child")).IsEqualTo("friendly");
+        _ = await Assert.That(hierarchy.ResolveAgentReference("child", "parent")).IsEqualTo("main");
+        _ = await Assert.That(hierarchy.ResolveAgentReference("child", "root")).IsEqualTo("main");
+        _ = await Assert.That(hierarchy.ResolveAgentReference("child", "unknown")).IsEqualTo("unknown");
         _ = await Assert.That(order["child"]).IsLessThan(order["root"]);
         _ = await Assert.That(order.Count).IsEqualTo(5);
     }

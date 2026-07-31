@@ -243,6 +243,7 @@ internal sealed class RawActivityView(
         try
         {
             _hierarchy.ObserveRoot(rootAgentSessionId);
+            RefreshToolPresentations();
             _queues.Clear();
             foreach (var queue in queues.Where(static queue => queue.Name.Length > 0 && queue.ItemCount > 0))
             {
@@ -274,7 +275,16 @@ internal sealed class RawActivityView(
         await _rendering.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var rootSessionId = _hierarchy.RootSessionId;
             _hierarchy.Observe(published);
+            if (!string.Equals(rootSessionId, _hierarchy.RootSessionId, StringComparison.Ordinal)
+                || published.PayloadCase is Event.PayloadOneofCase.AgentStarted
+                or Event.PayloadOneofCase.AgentFinished
+                or Event.PayloadOneofCase.AgentFailed)
+            {
+                RefreshToolPresentations();
+            }
+
             switch (published.PayloadCase)
             {
                 case Event.PayloadOneofCase.AgentStarted:
@@ -282,6 +292,7 @@ internal sealed class RawActivityView(
                         published.AgentSessionId,
                         published.AgentStarted.Name,
                         cancellationToken).ConfigureAwait(false);
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.AgentStatisticsUpdated:
                     await UpdateAgentStatistics(
@@ -412,6 +423,8 @@ internal sealed class RawActivityView(
                 parent.UpdateName(queue.ParentAgentName);
             }
         }
+
+        RefreshToolPresentations();
     }
 
     private void ObserveProcessHierarchy(ActiveShellProcess process)
@@ -434,6 +447,8 @@ internal sealed class RawActivityView(
                 parent.UpdateName(process.ParentAgentName);
             }
         }
+
+        RefreshToolPresentations();
     }
 
     private List<ILiveBufferItem> Snapshot()
@@ -614,6 +629,14 @@ internal sealed class RawActivityView(
     private void ToolCall(string agentSessionId, ToolCallChunk chunk) =>
         GetAgentSession(agentSessionId).CollectToolCall(chunk);
 
+    private void RefreshToolPresentations()
+    {
+        foreach (var state in _agentSessions.Values)
+        {
+            state.RefreshToolPresentations();
+        }
+    }
+
     private void StartTool(Event published)
     {
         var state = GetNamedAgentSession(published.AgentSessionId);
@@ -632,7 +655,10 @@ internal sealed class RawActivityView(
     private async Task FinishTool(Event published, CancellationToken cancellationToken)
     {
         var state = GetNamedAgentSession(published.AgentSessionId);
-        var (activityId, scrollback, call, terminal) = state.FinishTool(published, presenters);
+        var (activityId, scrollback, call, terminal) = state.FinishTool(
+            published,
+            presenters,
+            reference => _hierarchy.ResolveAgentReference(state.AgentSessionId, reference));
         _ = _activities.Remove((state, activityId));
         var deferred = terminal.YieldedProcess;
         if (deferred is not null)
@@ -657,7 +683,11 @@ internal sealed class RawActivityView(
 
     private HierarchicalLiveValue CreateActivityItem((AgentSessionState State, string ActivityId) activity)
     {
-        var value = activity.State.CreateLiveBufferItem(activity.ActivityId, _frame, presenters);
+        var value = activity.State.CreateLiveBufferItem(
+            activity.ActivityId,
+            _frame,
+            presenters,
+            reference => _hierarchy.ResolveAgentReference(activity.State.AgentSessionId, reference));
         var isAgentActivity = activity.State.IsAgentActivity(activity.ActivityId);
         var depth = _hierarchy.GetDepth(activity.State.AgentSessionId);
         var modelAliasIcon = _hierarchy.IsChild(activity.State.AgentSessionId) && isAgentActivity

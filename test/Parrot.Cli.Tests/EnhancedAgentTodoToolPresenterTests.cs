@@ -13,8 +13,12 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
         yield return () =>
         [
             new AgentSendToolPresenter(),
-            new ToolCallPresentation("main", "agent_send", "{\"session_id\":\"scout\",\"message\":\"inspect logs\"}"),
-            "{\"status\":\"running\"}",
+            new ToolCallPresentation(
+                "main",
+                "agent_send",
+                "{\"session_id\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
+                static reference => reference == "agent-session-opaque" ? "scout" : reference),
+            "{\"session_id\":\"agent-session-opaque\",\"name\":\"scout\",\"status\":\"running\"}",
             "main: Send to scout",
             "✓ main: Send to scout|  inspect logs",
         ];
@@ -90,6 +94,42 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
         _ = await Assert.That(string.Join('|', completed)).Contains("  line 1");
         _ = await Assert.That(completed[^1]).Contains("lines truncated.");
         _ = await Assert.That(string.Join('|', completed)).DoesNotContain("line 12");
+    }
+
+    [Test]
+    public async Task Agent_send_prefers_the_completed_recipient_name_and_falls_back_to_the_live_resolution()
+    {
+        var presenter = new AgentSendToolPresenter();
+        var call = new ToolCallPresentation(
+            "main",
+            "agent_send",
+            "{\"session_id\":\"agent-session-opaque\",\"message\":\"inspect logs\"}",
+            static _ => "known-before-send");
+        var completed = presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(
+                ToolTerminalStatus.Succeeded,
+                true,
+                "{\"session_id\":\"agent-session-opaque\",\"name\":\"resolved-by-core\",\"status\":\"running\"}",
+                string.Empty)).Render(ScrollbackContext);
+        var legacy = presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "not json", string.Empty))
+            .Render(ScrollbackContext);
+        var nonObject = presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "[]", string.Empty))
+            .Render(ScrollbackContext);
+        var failed = presenter.PresentTerminal(
+            call,
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "error: unavailable", string.Empty))
+            .Render(ScrollbackContext);
+
+        _ = await Assert.That(completed[0]).IsEqualTo("✓ main: Send to resolved-by-core");
+        _ = await Assert.That(legacy[0]).IsEqualTo("✓ main: Send to known-before-send");
+        _ = await Assert.That(nonObject[0]).IsEqualTo("✓ main: Send to known-before-send");
+        _ = await Assert.That(failed[0]).IsEqualTo("✗ main: Send to known-before-send");
+        _ = await Assert.That(string.Join('|', failed)).Contains("error: unavailable");
     }
 
     [Test]
