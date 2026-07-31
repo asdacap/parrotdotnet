@@ -39,11 +39,12 @@ assembly should have a clear architectural reason.
 A model selection is either a configured model alias or a canonical
 `provider/model[/effort-variant]` selector. The provider is the first path
 segment, and the model may itself contain slashes. The refreshed provider
-catalog supplies autocomplete and model metadata. A provider's declared
-`models` are always selectable, even when an endpoint does not list them; their
-metadata is an override for the endpoint response. The
-offline `model_defaults` catalogues seed model names and descriptions, but a
-successful endpoint refresh drops entries that the endpoint omits. An
+catalog supplies autocomplete and model metadata. Endpoint-provided metadata
+has priority; configured `models` and `model_defaults` fill only fields the
+endpoint omits. Declared `models` are always selectable, even when an endpoint
+does not list them. Offline `model_defaults` catalogues seed model names and
+descriptions, but a successful endpoint refresh drops entries that the endpoint
+omits. An
 undeclared model ID is still passed to the provider and can fail when called.
 The optional final segment is treated as an effort variant only when the
 complete remainder is not an exact catalog model ID. This makes selectors
@@ -274,9 +275,10 @@ they are applied only when chosen through `/model-alias`.
 
 A configured entry can override any predefined field without losing its default
 metadata, and can add another alias. Provider model metadata follows a
-separate rule: offline `model_defaults` seed names and descriptions, while
-explicit `models` declarations remain selectable and override endpoint metadata.
-Successful refreshes remove `model_defaults` entries omitted by the endpoint.
+separate rule: endpoint fields take priority, while explicit `models` and
+offline `model_defaults` fill fields omitted by the endpoint. Explicit models
+remain selectable; successful refreshes remove `model_defaults` entries omitted
+by the endpoint.
 
 ```yaml
 model_aliases:
@@ -399,10 +401,10 @@ Parrot keeps its configuration under `$XDG_CONFIG_HOME/parrotdotnet` (or
 running binary changes. It is the complete, agent-readable reference for the
 active defaults; do not edit it. It owns built-in serializable provider
 defaults, including offline `model_defaults` catalogues of seed model names
-and descriptions. A successful endpoint refresh removes seeded entries that
-are absent from the endpoint response. In contrast, provider `models` are
-explicit declarations: they remain selectable and their metadata overrides
-endpoint metadata.
+and descriptions. Endpoint metadata takes priority, while `models` and
+`model_defaults` fill fields omitted by the endpoint. A successful endpoint
+refresh removes seeded entries that are absent from the response. Provider
+`models` remain selectable even when the endpoint omits them.
 
 Implementation-specific provider adapters and model-list decoders remain in
 code, as does the ChatGPT OAuth transport; the YAML contains only their

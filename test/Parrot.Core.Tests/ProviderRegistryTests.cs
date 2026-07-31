@@ -198,7 +198,7 @@ internal sealed class ProviderRegistryTests
     }
 
     [Test]
-    public async Task Chatgpt_refresh_keeps_declarations_and_drops_unserved_defaults(
+    public async Task Chatgpt_refresh_keeps_declarations_drops_unserved_defaults_and_uses_served_default_metadata(
         CancellationToken cancellationToken)
     {
         using var handler = new ChatGptModelsHandler();
@@ -207,13 +207,21 @@ internal sealed class ProviderRegistryTests
             new FakeOAuthTokenSource(),
             client,
             [new LLMModel("declared", "chatgpt") { Name = "Declared" }],
-            [new LLMModel("default", "chatgpt") { Name = "Default" }]);
+            [
+                new LLMModel("default", "chatgpt") { Name = "Default" },
+                new LLMModel("live", "chatgpt")
+                {
+                    InputPrice = 0.001,
+                    Fields = ModelMetadataFields.InputPrice,
+                },
+            ]);
 
         var seed = provider.SeedModels();
         var refreshed = await provider.ListModels(cancellationToken);
 
-        _ = await Assert.That(string.Join(",", seed.Select(model => model.Id))).IsEqualTo("declared,default");
+        _ = await Assert.That(string.Join(",", seed.Select(model => model.Id))).IsEqualTo("declared,default,live");
         _ = await Assert.That(string.Join(",", refreshed.Select(model => model.Id))).IsEqualTo("declared,live");
+        _ = await Assert.That(refreshed.Single(model => model.Id == "live").InputPrice).IsEqualTo(0.001);
     }
 
     [Test]

@@ -15,6 +15,8 @@ internal sealed record LLMModel(string Id, string ProviderId)
 
     public ModelCapabilities Capabilities { get; init; } = ModelCapabilities.None;
 
+    public ModelMetadataFields Fields { get; init; }
+
     public static LLMModel Create(
         string id,
         string providerId,

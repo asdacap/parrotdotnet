@@ -103,6 +103,8 @@ internal sealed class ConfigurationTests : IDisposable
                     name: Seeded
                     context: 128
                     max_tokens: 32
+                    input_price: 0.000001
+                    output_price: 0.000002
                     tools: true
                     reasoning: false
                     output: [text]
@@ -118,9 +120,23 @@ internal sealed class ConfigurationTests : IDisposable
 
         var provider = configuration.Providers["custom"];
         _ = await Assert.That(provider.ModelDefaults.Keys).Contains("seeded");
+        _ = await Assert.That(provider.ModelDefaults["seeded"].InputPrice).IsEqualTo(0.000001);
+        _ = await Assert.That(provider.ModelDefaults["seeded"].OutputPrice).IsEqualTo(0.000002);
         _ = await Assert.That(provider.ModelDefaults.Keys).DoesNotContain("declared");
         _ = await Assert.That(provider.Models.Keys).Contains("declared");
         _ = await Assert.That(provider.Models.Keys).DoesNotContain("seeded");
+    }
+
+    [Test]
+    [Arguments("-0.1")]
+    [Arguments("NaN")]
+    [Arguments("Infinity")]
+    [Arguments("not-a-number")]
+    public async Task Provider_model_prices_must_be_finite_non_negative_numbers(string price)
+    {
+        var path = Write($"providers:\n  custom:\n    models:\n      m:\n        input_price: {price}\n");
+
+        _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
     }
 
     [Test]

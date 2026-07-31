@@ -1,6 +1,6 @@
 namespace Parrot.Config;
 
-// Per-model metadata a user may declare or override under a provider.
+// Per-model metadata a user may declare under a provider.
 internal sealed record ModelConfig
 {
     public string Name { get; init; } = string.Empty;
@@ -8,6 +8,10 @@ internal sealed record ModelConfig
     public int Context { get; init; }
 
     public int MaxTokens { get; init; }
+
+    public double InputPrice { get; init; }
+
+    public double OutputPrice { get; init; }
 
     public bool Tools { get; init; }
 
@@ -18,4 +22,6 @@ internal sealed record ModelConfig
     // Variant name to reasoning effort.
     public IReadOnlyDictionary<string, string> Variants { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+
+    public ModelConfigFields Fields { get; init; }
 }

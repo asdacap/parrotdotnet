@@ -384,10 +384,10 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Boundary** no.
 - **Note** the catalogue lives on the registry rather than on `ILLMProvider`,
   so a provider stays stateless: it can list models, but remembering them is the
-  registry's job. Offline `model_defaults` seed model names and descriptions;
-  after a successful refresh, entries omitted by the endpoint are dropped.
-  Explicit `models` declarations are always selectable and their metadata
-  overrides endpoint metadata. User-facing listing checks credentials each time,
+  registry's job. Endpoint metadata takes priority, while explicit `models` and
+  offline `model_defaults` fill fields the endpoint omits. After a successful
+  refresh, defaults omitted by the endpoint are dropped; explicit models remain
+  selectable. User-facing listing checks credentials each time,
   skips uncredentialed providers without contacting them, and overlays what each
   available endpoint serves on a best-effort basis.
 

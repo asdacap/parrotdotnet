@@ -56,7 +56,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
             .Get(_client, uri, Headers(access), HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
             .ConfigureAwait(false);
 
-        return ModelCatalogue.Merge(DecodeModels(body), _declared, []);
+        return ModelCatalogue.Merge(DecodeModels(body), _declared, _defaults);
     }
 
     public async IAsyncEnumerable<LLMEvent> Call(
@@ -157,12 +157,16 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
                     continue;
                 }
 
-                var name = JsonRead.String(item, "display_name");
+                var fields = ModelMetadataFields.ContextWindow;
+                var hasName = JsonRead.TryReadString(item, "display_name", out var name);
+                fields |= hasName ? ModelMetadataFields.Name : ModelMetadataFields.None;
                 var efforts = new List<string>();
 
                 if (item.TryGetProperty("supported_reasoning_levels", out var levels)
                     && levels.ValueKind == JsonValueKind.Array)
                 {
+                    fields |= ModelMetadataFields.Reasoning | ModelMetadataFields.Variants;
+
                     foreach (var level in levels.EnumerateArray())
                     {
                         var effort = JsonRead.String(level, "effort");
@@ -178,10 +182,11 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
 
                 models.Add(new LLMModel(slug, ProviderId)
                 {
-                    Name = name.Length > 0 ? name : slug,
+                    Name = hasName ? name : slug,
                     ContextWindow = contextWindow,
                     Capabilities = new ModelCapabilities(
                         Tools: true, Reasoning: variants.Count > 0, Output: ["text"], Variants: variants),
+                    Fields = fields,
                 });
             }
         }

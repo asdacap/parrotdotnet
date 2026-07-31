@@ -22,6 +22,8 @@ internal static class ProviderModels
                 Name = entry.Value.Name,
                 ContextWindow = entry.Value.Context,
                 MaxOutputTokens = entry.Value.MaxTokens,
+                InputPrice = entry.Value.InputPrice,
+                OutputPrice = entry.Value.OutputPrice,
                 Capabilities = new ModelCapabilities(
                     entry.Value.Tools,
                     entry.Value.Reasoning || entry.Value.Variants.Count > 0,
@@ -29,6 +31,22 @@ internal static class ProviderModels
                     [.. (sortVariants
                         ? entry.Value.Variants.OrderBy(variant => variant.Key, StringComparer.Ordinal)
                         : entry.Value.Variants.AsEnumerable()).Select(variant => new ModelVariant(variant.Key, variant.Value))]),
+                Fields = ConvertFields(entry.Value.Fields),
             }),
         ];
+
+    private static ModelMetadataFields ConvertFields(ModelConfigFields fields)
+    {
+        var result = ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.Name) ? ModelMetadataFields.Name : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.Context) ? ModelMetadataFields.ContextWindow : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.MaxTokens) ? ModelMetadataFields.MaxOutputTokens : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.InputPrice) ? ModelMetadataFields.InputPrice : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.OutputPrice) ? ModelMetadataFields.OutputPrice : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.Tools) ? ModelMetadataFields.Tools : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.Reasoning) ? ModelMetadataFields.Reasoning : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.Output) ? ModelMetadataFields.Output : ModelMetadataFields.None;
+        result |= fields.HasFlag(ModelConfigFields.Variants) ? ModelMetadataFields.Variants : ModelMetadataFields.None;
+        return result;
+    }
 }

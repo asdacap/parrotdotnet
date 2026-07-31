@@ -504,6 +504,10 @@ providers:
 #         context: 128000
 #         # Maximum output tokens.
 #         max_tokens: 16384
+#         # USD per input token.
+#         input_price: 0.000001
+#         # USD per output token.
+#         output_price: 0.000002
 #         # Whether the model supports tool calls.
 #         tools: true
 #         # Whether the model supports reasoning tokens.

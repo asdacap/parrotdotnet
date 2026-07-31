@@ -959,14 +959,50 @@ internal sealed class Configuration(string path)
                 Name = Scalar(item, "name"),
                 Context = Integer(item, "context") ?? 0,
                 MaxTokens = Integer(item, "max_tokens") ?? 0,
+                InputPrice = ReadNonNegativeNumber(item, "input_price", $"{key}.{id}.input_price"),
+                OutputPrice = ReadNonNegativeNumber(item, "output_price", $"{key}.{id}.output_price"),
                 Tools = Scalar(item, "tools") == "true",
                 Reasoning = Scalar(item, "reasoning") == "true",
                 Output = StringSequence(item, "output"),
                 Variants = ReadVariants(item),
+                Fields = ReadModelFields(item),
             };
         }
 
         return result;
+    }
+
+    private static double ReadNonNegativeNumber(YamlMappingNode parent, string key, string path)
+    {
+        if (!Child(parent, key, out var node))
+        {
+            return 0;
+        }
+
+        if (node is not YamlScalarNode { Value: { } scalar }
+            || !double.TryParse(scalar, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            || !double.IsFinite(value)
+            || value < 0)
+        {
+            throw new InvalidDataException($"{path} must be a finite non-negative number");
+        }
+
+        return value;
+    }
+
+    private static ModelConfigFields ReadModelFields(YamlMappingNode model)
+    {
+        var fields = ModelConfigFields.None;
+        fields |= Child(model, "name", out _) ? ModelConfigFields.Name : ModelConfigFields.None;
+        fields |= Child(model, "context", out _) ? ModelConfigFields.Context : ModelConfigFields.None;
+        fields |= Child(model, "max_tokens", out _) ? ModelConfigFields.MaxTokens : ModelConfigFields.None;
+        fields |= Child(model, "input_price", out _) ? ModelConfigFields.InputPrice : ModelConfigFields.None;
+        fields |= Child(model, "output_price", out _) ? ModelConfigFields.OutputPrice : ModelConfigFields.None;
+        fields |= Child(model, "tools", out _) ? ModelConfigFields.Tools : ModelConfigFields.None;
+        fields |= Child(model, "reasoning", out _) ? ModelConfigFields.Reasoning : ModelConfigFields.None;
+        fields |= Child(model, "output", out _) ? ModelConfigFields.Output : ModelConfigFields.None;
+        fields |= Child(model, "variants", out _) ? ModelConfigFields.Variants : ModelConfigFields.None;
+        return fields;
     }
 
     private static Dictionary<string, string> ReadVariants(YamlMappingNode model)
