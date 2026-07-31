@@ -14,12 +14,17 @@ internal sealed class SessionResourceLease : IDisposable, IAsyncDisposable
         Resources = resources;
         _database = database;
         _activation = activation;
-        Events = new EventRepository(database);
+        var imageStore = new ImageArtifactStore(resources);
+        Events = new EventRepository(database, imageStore);
+        Images = new ImageArtifactRepository(imageStore, Events);
+        Images.RemoveStaleUnreferenced(DateTimeOffset.UtcNow.AddDays(-1));
     }
 
     public UserSessionResources Resources { get; }
 
     public EventRepository Events { get; }
+
+    public ImageArtifactRepository Images { get; }
 
     public static SessionResourceLease Open(UserSessionResources resources, IDisposable activation)
     {

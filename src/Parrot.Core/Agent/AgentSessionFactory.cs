@@ -23,11 +23,13 @@ internal sealed class AgentSessionFactory(
     IAgentSessionScopeFactory scopes) : IAgentSessionFactory
 {
     private readonly ToolWorkspace _workspace = new(workingDirectory);
+    private readonly ImageArtifactRepository _images = owner.Images;
 
     private IReadOnlyList<IToolFactory> ToolFactories =>
         field ??=
         [
             new ReadToolFactory(_workspace),
+            new ReadImageToolFactory(_workspace, _images),
             new GlobToolFactory(_workspace),
             new GrepToolFactory(_workspace),
             new WriteToolFactory(_workspace),

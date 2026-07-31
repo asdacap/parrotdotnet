@@ -21,7 +21,8 @@ internal sealed class BasicCli(
     bool inputRedirected,
     TextReader input,
     TextWriter output,
-    TextWriter error) : IInterruptListener
+    TextWriter error,
+    PromptAttachmentUploader attachments) : IInterruptListener
 {
     private const string Prompt = "> ";
 
@@ -238,6 +239,31 @@ internal sealed class BasicCli(
         }
     }
 
+    private static async Task<(bool Completed, string? Line)> ReadLine(
+        TextReader input,
+        CancellationToken cancellationToken,
+        params Task[] interruptions)
+    {
+        using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var line = input.ReadLineAsync(reading.Token).AsTask();
+        var completed = await Task.WhenAny([line, .. interruptions]).ConfigureAwait(false);
+        if (completed == line)
+        {
+            return (true, await line.ConfigureAwait(false));
+        }
+
+        await reading.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            _ = await line.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        return (false, null);
+    }
+
     private static string Summarise(TurnEnded ended) =>
         $"turn ended ({ended.FinishReason}, {ended.InputTokens} total in / {ended.OutputTokens} total out)";
 
@@ -260,8 +286,14 @@ internal sealed class BasicCli(
         using var call = client.Listen(
             new ListenRequest { UserSessionId = userSessionId }, cancellationToken: listening.Token);
 
-        _ = await client.SendMessageAsync(
-            Message(userSessionId, prompt), cancellationToken: cancellationToken);
+        var message = await attachments.Prepare(client, userSessionId, mode, prompt, error, cancellationToken)
+            .ConfigureAwait(false);
+        if (message is null)
+        {
+            return CommandDispatcher.ExitFailure;
+        }
+
+        _ = await client.SendMessageAsync(message, cancellationToken: cancellationToken);
 
         var completed = await RenderTurn(call.ResponseStream, output, error, listening.Token).ConfigureAwait(false);
 
@@ -333,26 +365,14 @@ internal sealed class BasicCli(
                     continue;
                 }
 
-                using var reading = CancellationTokenSource.CreateLinkedTokenSource(application.Token);
-                var lineTask = input.ReadLineAsync(reading.Token).AsTask();
                 var questionTask = _questions.Reader.WaitToReadAsync(application.Token).AsTask();
                 var permissionTask = _permissions.WaitToRead(application.Token).AsTask();
-                _ = await Task.WhenAny(lineTask, questionTask, permissionTask).ConfigureAwait(false);
-                if (!lineTask.IsCompleted)
+                var (completed, line) = await ReadLine(input, application.Token, questionTask, permissionTask).ConfigureAwait(false);
+                if (!completed)
                 {
-                    await reading.CancelAsync().ConfigureAwait(false);
-                    try
-                    {
-                        _ = await lineTask.ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                    }
-
                     continue;
                 }
 
-                var line = await lineTask.ConfigureAwait(false);
                 if (line is null)
                 {
                     break;
@@ -377,9 +397,16 @@ internal sealed class BasicCli(
                     continue;
                 }
 
+                var message = await attachments.Prepare(client, session.Id, session.Mode, entered, error, application.Token)
+                    .ConfigureAwait(false);
+                if (message is null)
+                {
+                    await Ready(output, application.Token).ConfigureAwait(false);
+                    continue;
+                }
+
                 _busy = true;
-                _ = await client.SendMessageAsync(
-                    Message(session.Id, entered), cancellationToken: application.Token);
+                _ = await client.SendMessageAsync(message, cancellationToken: application.Token);
                 binding.RenderIfCompleted();
             }
         }

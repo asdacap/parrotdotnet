@@ -1,3 +1,4 @@
+using Parrot.Agent;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
@@ -5,8 +6,10 @@ using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
+using Parrot.Tools;
 using YamlDotNet.Core;
 
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -477,6 +480,13 @@ internal sealed class CommandDispatcher(
         model = !modelOverridden && configuration.Model.Length > 0 ? configuration.Model : model;
         mode = mode.Length == 0 ? configuration.DefaultProfile : mode;
         var prompt = string.Join(' ', words);
+        var attachmentProfiles = new ProfileRegistry(
+            configuration.Profiles,
+            configuration.SandboxRules,
+            new ApplicationDataSecurityRules(paths).Rules,
+            configuration.DisabledTools);
+        var attachmentModes = new ModeRegistry(attachmentProfiles, configuration.DefaultProfile);
+        var attachments = new PromptAttachmentUploader(new ToolWorkspace(Directory.GetCurrentDirectory()), attachmentModes);
 
         // Remote: the server owns the provider, the state, and the tools; this
         // process is only a client of the same contract (principle 11).
@@ -532,7 +542,8 @@ internal sealed class CommandDispatcher(
                     Console.IsInputRedirected,
                     Console.In,
                     output,
-                    error);
+                    error,
+                    attachments);
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
 
@@ -552,7 +563,8 @@ internal sealed class CommandDispatcher(
                     Console.IsInputRedirected,
                     Console.In,
                     output,
-                    error);
+                    error,
+                    attachments);
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
 
@@ -565,7 +577,8 @@ internal sealed class CommandDispatcher(
                 configuration,
                 remoteProviderIds,
                 new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
-                remoteTerminal);
+                remoteTerminal,
+                attachments);
             return await remoteChat.Cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
@@ -609,7 +622,8 @@ internal sealed class CommandDispatcher(
                 Console.IsInputRedirected,
                 Console.In,
                 output,
-                error);
+                error,
+                attachments);
             return await cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
@@ -629,7 +643,8 @@ internal sealed class CommandDispatcher(
                 Console.IsInputRedirected,
                 Console.In,
                 output,
-                error);
+                error,
+                attachments);
             return await cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
@@ -642,7 +657,8 @@ internal sealed class CommandDispatcher(
             configuration,
             providerIds,
             new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
-            terminal);
+            terminal,
+            attachments);
         return await enhancedChat.Cli.Run(cancellationToken).ConfigureAwait(false);
     }
 }

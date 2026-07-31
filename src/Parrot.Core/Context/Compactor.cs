@@ -14,7 +14,12 @@ internal sealed class Compactor(int tokenBudget)
     public static int EstimateTokens(IReadOnlyList<LLMMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        return messages.Sum(message => (message.Content.Length / 4) + 8);
+        return messages.Sum(message => message.Contents.Sum(content => content.Kind switch
+        {
+            LLMContentKind.Text => content.Text.Length / 4,
+            LLMContentKind.Image => EstimateImageTokens(content.Image.Length),
+            _ => throw new InvalidOperationException($"unsupported LLM content kind {content.Kind}"),
+        }) + 8);
     }
 
     // Summarises everything but the last few messages and returns a fresh, short
@@ -42,18 +47,15 @@ internal sealed class Compactor(int tokenBudget)
             return history;
         }
 
-        var transcript = string.Join(
-            "\n", toSummarise.Select(message => $"{message.Role}: {message.Content}"));
-
         var request = new LLMRequest
         {
             Model = model,
             MaxTokens = 1024,
             Messages =
             [
-                LLMMessage.System("Summarise this conversation so it can continue. Keep decisions, "
-                    + "file paths, and open tasks. Be terse."),
-                LLMMessage.User(transcript),
+                LLMMessage.System("Summarise the following conversation so it can continue. Keep decisions, "
+                    + "file paths, open tasks, and relevant evidence from images. Be terse."),
+                .. toSummarise,
             ],
         };
 
@@ -76,4 +78,7 @@ internal sealed class Compactor(int tokenBudget)
 
     public bool ShouldCompact(IReadOnlyList<LLMMessage> history) =>
         EstimateTokens(history) > tokenBudget;
+
+    private static int EstimateImageTokens(int byteLength) =>
+        Math.Max(1024, checked((byteLength + 2) / 3));
 }

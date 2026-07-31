@@ -30,12 +30,9 @@ internal sealed class UserSession : IAsyncDisposable
     // that woke it, and this is the thing whose lifetime it should match.
     private readonly CancellationTokenSource _lifetime = new();
 
-    // The main agent session is not built here. Its tools are constructed with
-    // the session they belong to, and their factories with this user session,
-    // so building it in the constructor would need a `this` that does not
-    // finish existing until the constructor returns. It is built on the first
-    // prompt instead; its id is settled now so History has something to ask
-    // about before then.
+    // The main agent session is built after the rest of this owner has been
+    // initialized so recovered durable work can resume immediately. Its id is
+    // settled first so History can address it throughout construction.
     private readonly string _mainSessionId;
     private readonly string _rootAgentName;
     private ModelSelector _model;
@@ -76,6 +73,7 @@ internal sealed class UserSession : IAsyncDisposable
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _lifetime.Token);
         Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry);
         Registry.AttachStatus(Status);
+        Main().Recover();
     }
 
     public string Id { get; }
@@ -99,6 +97,8 @@ internal sealed class UserSession : IAsyncDisposable
     internal CancellationToken Lifetime => _lifetime.Token;
 
     internal UserSessionResources Resources => _resources.Resources;
+
+    internal ImageArtifactRepository Images => _resources.Images;
 
     internal AgentQueueCatalog QueueCatalog { get; }
 
@@ -255,9 +255,16 @@ internal sealed class UserSession : IAsyncDisposable
     // actually runs the turn. Admitting is not running it: it returns as soon
     // as the prompt is durable, whether or not a turn was already in flight.
     public async Task<Admission> Send(
-        string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken)
+        string prompt, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
+        await Send([ConversationPart.TextPart(prompt)], messageId, delivery, cancellationToken).ConfigureAwait(false);
+
+    public async Task<Admission> Send(
+        IReadOnlyList<ConversationPart> parts,
+        string messageId,
+        Delivery delivery,
+        CancellationToken cancellationToken)
     {
-        var (admission, _) = await Main().Send(prompt, messageId, delivery, cancellationToken)
+        var (admission, _) = await Main().Send(parts, messageId, delivery, cancellationToken)
             .ConfigureAwait(false);
         return admission;
     }
@@ -302,9 +309,8 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal IReadOnlyList<ActiveWorkObservation> ActiveWork() => [.. ShellProcesses.Active(), .. Registry.Active()];
 
-    // Built once, on the first prompt. Under a lock because SendMessage arrives
-    // on gRPC handler threads and two concurrent first prompts would otherwise
-    // each build a main session.
+    // Built once after owner initialization. The lock also protects concurrent
+    // access from RPC handlers throughout the session lifetime.
     private AgentSession Main()
     {
         lock (_mainGate)

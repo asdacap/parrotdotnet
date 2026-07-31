@@ -17,7 +17,11 @@ internal static class ChatCompletionsAdapter
 
         if (request.Instructions.Length > 0)
         {
-            messages.Add(new Message { Role = "system", Content = request.Instructions });
+            messages.Add(new Message
+            {
+                Role = "system",
+                Content = JsonSerializer.SerializeToElement(request.Instructions, WireJsonContext.Default.String),
+            });
         }
 
         foreach (var message in request.Messages)
@@ -25,7 +29,7 @@ internal static class ChatCompletionsAdapter
             messages.Add(new Message
             {
                 Role = RoleName(message.Role),
-                Content = message.Content.Length == 0 && message.ToolCalls.Count > 0 ? null : message.Content,
+                Content = Content(message),
                 ToolCallId = message.ToolCallId.Length == 0 ? null : message.ToolCallId,
                 ToolCalls = message.ToolCalls.Count == 0
                     ? null
@@ -206,6 +210,24 @@ internal static class ChatCompletionsAdapter
         }
     }
 
+    private static JsonElement? Content(LLMMessage message)
+    {
+        if (message.Contents.All(part => part.Kind == LLMContentKind.Text))
+        {
+            return message.Content.Length == 0 && message.ToolCalls.Count > 0
+                ? null
+                : JsonSerializer.SerializeToElement(message.Content, WireJsonContext.Default.String);
+        }
+
+        var content = message.Contents.Select(part => part.Kind == LLMContentKind.Image
+            ? new ChatContentPart { Type = "image_url", ImageUrl = new ImageUrl { Url = DataUrl(part) } }
+            : new ChatContentPart { Type = "text", Text = part.Text }).ToList();
+        return JsonSerializer.SerializeToElement(content, WireJsonContext.Default.ChatContentParts);
+    }
+
+    private static string DataUrl(LLMContent content) =>
+        $"data:{content.MediaType};base64,{Convert.ToBase64String(content.Image)}";
+
     private static JsonElement ParseSchema(string schema)
     {
         using var document = JsonDocument.Parse(schema.Length > 0 ? schema : "{}");
@@ -298,13 +320,31 @@ internal static class ChatCompletionsAdapter
         public required string Role { get; init; }
 
         [JsonPropertyName("content")]
-        public string? Content { get; init; }
+        public JsonElement? Content { get; init; }
 
         [JsonPropertyName("tool_call_id")]
         public string? ToolCallId { get; init; }
 
         [JsonPropertyName("tool_calls")]
         public IReadOnlyList<ToolCall>? ToolCalls { get; init; }
+    }
+
+    internal sealed class ChatContentPart
+    {
+        [JsonPropertyName("type")]
+        public required string Type { get; init; }
+
+        [JsonPropertyName("text")]
+        public string? Text { get; init; }
+
+        [JsonPropertyName("image_url")]
+        public ImageUrl? ImageUrl { get; init; }
+    }
+
+    internal sealed class ImageUrl
+    {
+        [JsonPropertyName("url")]
+        public required string Url { get; init; }
     }
 
     internal sealed class ToolCall

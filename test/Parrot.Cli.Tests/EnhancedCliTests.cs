@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using Parrot.Agent;
 using Parrot.Auth;
 using Parrot.Cli.Enhanced;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
 using Parrot.Protocol;
+using Parrot.Tools;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Tests;
@@ -114,7 +116,8 @@ internal sealed class EnhancedCliTests
             terminal,
             presenters,
             renderer,
-            ImmediateDelay());
+            ImmediateDelay(),
+            Attachments());
         var running = cli.Run(cancellationToken);
 
         terminal.Type("first prompt\r");
@@ -789,7 +792,8 @@ internal sealed class EnhancedCliTests
             terminal,
             presenters,
             renderer,
-            ImmediateDelay());
+            ImmediateDelay(),
+            Attachments());
         var running = cli.Run(cancellationToken);
 
         terminal.Type("/m");
@@ -1067,6 +1071,21 @@ internal sealed class EnhancedCliTests
         });
         return pending;
     }
+
+    private static PromptAttachmentUploader Attachments()
+    {
+        var profiles = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
+        {
+            [ModeRegistry.Build] = Profile(),
+            [ModeRegistry.Plan] = Profile(),
+            [ModeRegistry.Query] = Profile(),
+        };
+        return new PromptAttachmentUploader(
+            new ToolWorkspace(Directory.GetCurrentDirectory()),
+            new ModeRegistry(new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal)), ModeRegistry.Build));
+    }
+
+    private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, []);
 
     private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
 

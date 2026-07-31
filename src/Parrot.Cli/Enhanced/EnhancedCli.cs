@@ -20,7 +20,8 @@ internal sealed class EnhancedCli(
     ITerminal terminal,
     ToolPresenterRegistry toolPresenters,
     EnhancedTurnRenderer turnRenderer,
-    Func<TimeSpan, CancellationToken, Task> delaySubmit) : IInterruptListener, ISlashSessionBinding
+    Func<TimeSpan, CancellationToken, Task> delaySubmit,
+    PromptAttachmentUploader attachments) : IInterruptListener, ISlashSessionBinding
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
     private const string DisableKeyboardEnhancement = "\u001b[<u";
@@ -227,14 +228,20 @@ internal sealed class EnhancedCli(
 
         async Task StartTurn(string entered)
         {
+            var message = await attachments.Prepare(client, session.Id, session.Mode, entered, terminal.Error, cancellationToken)
+                .ConfigureAwait(false);
+            if (message is null)
+            {
+                return;
+            }
+
             _busy = true;
             await renderingSession.BeginTurn(
                 ImmediateScrollbackValue.User(entered),
                 [editor.Prompt],
                 binding?.Token ?? cancellationToken,
                 cancellationToken).ConfigureAwait(false);
-            _ = await client.SendMessageAsync(
-                Message(session.Id, entered), cancellationToken: cancellationToken);
+            _ = await client.SendMessageAsync(message, cancellationToken: cancellationToken);
         }
 
         async Task StartRendering(AsyncServerStreamingCall<Event> activeCall, CancellationToken streamToken)

@@ -393,6 +393,24 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(compacted[3].ToolCallId).IsEqualTo("call-2");
     }
 
+    [Test]
+    public async Task Compaction_counts_and_preserves_image_content(CancellationToken cancellationToken)
+    {
+        var image = LLMContent.ImagePart(new byte[4096], "image/png");
+        var history = new List<LLMMessage>
+        {
+            LLMMessage.User([LLMContent.TextPart("evidence"), image]),
+        };
+        history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"tail {index}")));
+        var provider = new ScriptedProvider("SUMMARY");
+
+        _ = await Assert.That(Compactor.EstimateTokens([LLMMessage.User([image])])).IsGreaterThan(1000);
+        _ = await Compactor.Compact(provider, "model", history, cancellationToken);
+
+        var request = provider.Requests.Single();
+        _ = await Assert.That(request.Messages[1].Contents.Any(content => content.Kind == LLMContentKind.Image)).IsTrue();
+    }
+
     private static Parrot.Process.CliUtilityAvailability EmptyCliUtilities() =>
         Parrot.Process.CliUtilityAvailability.Inspect(
             new Parrot.Config.CliUtilityCandidates([], []),
