@@ -14,7 +14,7 @@ internal sealed class ResponsesAdapterTests
         {
             Model = "gpt-5.6-sol",
             Messages = [LLMMessage.User("hello")],
-            Tools = [new LLMToolDefinition("write", "Creates or replaces a file.", Parrot.Tools.WriteToolInput.Descriptor)],
+            Tools = [new LLMToolDefinition("write", "Creates or replaces a file.", Parrot.Tools.WriteTool.Input.Descriptor)],
         };
         using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
         var tool = document.RootElement.GetProperty("tools")[0];

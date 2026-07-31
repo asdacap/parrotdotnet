@@ -34,6 +34,150 @@ internal sealed class ToolInputDescriptorGeneratorTests
         """;
 
     [Test]
+    public async Task A_top_level_model_still_compiles_and_generates_its_schema()
+    {
+        var (generatorDiagnostics, compilationDiagnostics, generatedSources) = RunGeneration("""
+            [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+            internal sealed partial class Input
+            {
+                [Description("A value")]
+                public string Value { get; set; } = string.Empty;
+            }
+            """);
+
+        _ = await Assert.That(generatorDiagnostics).Count().IsEqualTo(0);
+        _ = await Assert.That(string.Join(
+            Environment.NewLine,
+            compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
+        _ = await Assert.That(generatedSources).Count().IsEqualTo(1);
+        _ = await Assert.That(generatedSources[0].Value).Contains("internal sealed partial class Input");
+        _ = await Assert.That(ExtractDescriptor(generatedSources[0].Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"string\",\"description\":\"A value\"}},\"additionalProperties\":false}");
+    }
+
+    [Test]
+    public async Task A_model_nested_through_partial_types_compiles_and_generates_its_schema()
+    {
+        var (generatorDiagnostics, compilationDiagnostics, generatedSources) = RunGeneration("""
+            public abstract partial record class Outer
+            {
+                internal readonly partial record struct Middle
+                {
+                    [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+                    private sealed partial record class Input
+                    {
+                        [Description("A value")]
+                        public string Value { get; set; } = string.Empty;
+                    }
+                }
+            }
+            """);
+
+        _ = await Assert.That(generatorDiagnostics).Count().IsEqualTo(0);
+        _ = await Assert.That(string.Join(
+            Environment.NewLine,
+            compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
+        _ = await Assert.That(generatedSources).Count().IsEqualTo(1);
+        _ = await Assert.That(generatedSources[0].Value).Contains("public abstract partial record class Outer");
+        _ = await Assert.That(generatedSources[0].Value).Contains("internal readonly partial record struct Middle");
+        _ = await Assert.That(generatedSources[0].Value).Contains("private sealed partial record class Input");
+        _ = await Assert.That(generatedSources[0].Value).Contains("private static string Descriptor");
+        _ = await Assert.That(ExtractDescriptor(generatedSources[0].Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"string\",\"description\":\"A value\"}},\"additionalProperties\":false}");
+    }
+
+    [Test]
+    public async Task Nested_input_models_generate_all_descriptors_and_the_input_graph_schema()
+    {
+        var (generatorDiagnostics, compilationDiagnostics, generatedSources) = RunGeneration("""
+            internal sealed partial class Tool
+            {
+                [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+                internal sealed partial class Input
+                {
+                    [Description("Questions to ask")]
+                    public Question[]? Questions { get; set; }
+
+                    [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+                    internal sealed partial class Question
+                    {
+                        [Description("Available options")]
+                        public Option[]? Options { get; set; }
+                    }
+
+                    [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+                    internal sealed partial class Option
+                    {
+                        [Description("Option label")]
+                        public string Label { get; set; } = string.Empty;
+                    }
+                }
+            }
+            """);
+
+        _ = await Assert.That(generatorDiagnostics).Count().IsEqualTo(0);
+        _ = await Assert.That(string.Join(
+            Environment.NewLine,
+            compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
+        _ = await Assert.That(generatedSources).Count().IsEqualTo(3);
+        var inputSource = generatedSources.Single(source =>
+            source.Key.EndsWith("_Input.Descriptor.g.cs", StringComparison.Ordinal));
+        _ = await Assert.That(ExtractDescriptor(inputSource.Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Questions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"Options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"Label\":{\"type\":\"string\",\"description\":\"Option label\"}},\"additionalProperties\":false},\"description\":\"Available options\"}},\"additionalProperties\":false},\"description\":\"Questions to ask\"}},\"additionalProperties\":false}");
+    }
+
+    [Test]
+    public async Task A_generic_model_reports_PARROT1002()
+    {
+        var diagnostics = Generate("""
+            [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+            internal sealed partial class Input<T>
+            {
+            }
+            """);
+
+        await AssertSingleDiagnostic(
+            diagnostics,
+            "PARROT1002",
+            "Tool input model 'Models.Input<T>' must be non-generic and nested only in non-generic partial types");
+    }
+
+    [Test]
+    public async Task A_model_in_a_generic_containing_type_reports_PARROT1002()
+    {
+        var diagnostics = Generate("""
+            internal partial class Outer<T>
+            {
+                [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+                internal sealed partial class Input
+                {
+                }
+            }
+            """);
+
+        await AssertSingleDiagnostic(
+            diagnostics,
+            "PARROT1002",
+            "Tool input model 'Models.Outer<T>.Input' must be non-generic and nested only in non-generic partial types");
+    }
+
+    [Test]
+    public async Task A_model_in_a_non_partial_containing_type_reports_PARROT1002()
+    {
+        var diagnostics = Generate("""
+            internal class Outer
+            {
+                [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
+                internal sealed partial class Input
+                {
+                }
+            }
+            """);
+
+        await AssertSingleDiagnostic(
+            diagnostics,
+            "PARROT1002",
+            "Tool input model 'Models.Outer.Input' must be non-generic and nested only in non-generic partial types");
+    }
+
+    [Test]
     public async Task A_property_without_a_description_reports_PARROT1009()
     {
         var diagnostics = Generate("""
@@ -120,7 +264,13 @@ internal sealed class ToolInputDescriptorGeneratorTests
             "Tool input model member 'Models.Input' is not supported: inheritance is not supported");
     }
 
-    private static ImmutableArray<Diagnostic> Generate(string model)
+    private static ImmutableArray<Diagnostic> Generate(string model) =>
+        RunGeneration(model).GeneratorDiagnostics;
+
+    private static (
+        ImmutableArray<Diagnostic> GeneratorDiagnostics,
+        ImmutableArray<Diagnostic> CompilationDiagnostics,
+        ImmutableArray<KeyValuePair<string, string>> GeneratedSources) RunGeneration(string model)
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(Preamble + model + "\n}");
         var trustedAssemblies = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string
@@ -134,8 +284,26 @@ internal sealed class ToolInputDescriptorGeneratorTests
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         var driver = CSharpGeneratorDriver.Create(new ToolInputDescriptorGenerator().AsSourceGenerator());
 
-        var resultDriver = driver.RunGeneratorsAndUpdateCompilation(compilation, out _, out _);
-        return [.. resultDriver.GetRunResult().Results.SelectMany(result => result.Diagnostics)];
+        var resultDriver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+        var runResult = resultDriver.GetRunResult();
+        var generatorDiagnostics = runResult.Results.SelectMany(result => result.Diagnostics).ToImmutableArray();
+        var generatedSources = runResult.Results
+            .SelectMany(result => result.GeneratedSources)
+            .Select(source => new KeyValuePair<string, string>(source.HintName, source.SourceText.ToString()))
+            .ToImmutableArray();
+        return (generatorDiagnostics, outputCompilation.GetDiagnostics(), generatedSources);
+    }
+
+    private static string ExtractDescriptor(string generatedSource)
+    {
+        var property = CSharpSyntaxTree.ParseText(generatedSource)
+            .GetRoot()
+            .DescendantNodes()
+            .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.PropertyDeclarationSyntax>()
+            .Single(declaration => declaration.Identifier.ValueText == "Descriptor");
+        return property.ExpressionBody?.Expression is Microsoft.CodeAnalysis.CSharp.Syntax.LiteralExpressionSyntax literal
+            ? literal.Token.ValueText
+            : throw new InvalidOperationException("Generated Descriptor is not a string literal expression.");
     }
 
     private static async Task AssertSingleDiagnostic(

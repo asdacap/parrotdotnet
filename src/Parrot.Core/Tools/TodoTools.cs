@@ -4,7 +4,7 @@ namespace Parrot.Tools;
 
 internal static class TodoTools
 {
-    public static TodoItem ToDomain(TodoWriteItem item)
+    public static TodoItem ToDomain(TodoWriteTool.Input.Item item)
     {
         ArgumentNullException.ThrowIfNull(item);
         var content = item.Content ?? throw new FormatException("Todo item requires string 'content'.");

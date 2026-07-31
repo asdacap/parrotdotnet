@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Permissions;
 using Parrot.Security;
@@ -61,5 +62,14 @@ internal sealed class RequestWritePermissionTool(
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    internal sealed class Input
+    {
+        [JsonPropertyName("paths")]
+        public string[]? Paths { get; init; }
+
+        [JsonPropertyName("reason")]
+        public string? Reason { get; init; }
     }
 }

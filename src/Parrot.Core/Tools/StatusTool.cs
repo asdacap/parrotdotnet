@@ -1,10 +1,11 @@
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Statuses;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class StatusTool(
+internal sealed partial class StatusTool(
     RuntimeStatus status,
     AgentSession session,
     AgentTurnSelection selection) : ITool
@@ -13,7 +14,7 @@ internal sealed class StatusTool(
 
     public string Description => "Query current runtime, mode, and profile status without adding it to the system prompt.";
 
-    public string ParametersJson => StatusToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -35,4 +36,7 @@ internal sealed class StatusTool(
         var text = await status.Observe(session, selection, selection.Profile, cancellationToken).ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(text) ? "No status is currently available." : text;
     }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input;
 }

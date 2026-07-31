@@ -1,9 +1,12 @@
+using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class WaitAgentTool(AgentRegistry agents, AgentSession session) : ITool
+internal sealed partial class WaitAgentTool(AgentRegistry agents, AgentSession session) : ITool
 {
     public string Name => "wait_agent";
 
@@ -11,7 +14,7 @@ internal sealed class WaitAgentTool(AgentRegistry agents, AgentSession session) 
         "Wait for a child agent session to complete, yielding if the requested period elapses. "
         + "Canonical session IDs resolve globally; friendly names resolve among this session's direct children. Waiting never stops the agent.";
 
-    public string ParametersJson => WaitAgentToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -50,5 +53,20 @@ internal sealed class WaitAgentTool(AgentRegistry agents, AgentSession session) 
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input
+    {
+        [Description("Child agent session ID or friendly name.")]
+        [JsonPropertyName("session_id")]
+        [ToolMinLength(1)]
+        [ToolRequired]
+        public string? SessionId { get; init; }
+
+        [Description("Yield if the agent has not completed after this many milliseconds. Zero or omitted waits indefinitely.")]
+        [JsonPropertyName("yield_after_ms")]
+        [ToolMinimum(0)]
+        public int? YieldAfterMilliseconds { get; init; }
     }
 }

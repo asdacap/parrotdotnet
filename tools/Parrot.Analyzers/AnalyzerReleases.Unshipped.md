@@ -10,7 +10,7 @@ PARROT0002 | Parrot.Design | Warning | Do not declare a delegate type. AGENTS.md
 PARROT0003 | Parrot.Design | Warning | Do not suppress a nullable warning with '!'. Strict nullable.
 PARROT0004 | Parrot.Design | Warning | Do not give a parameter a default value.
 PARROT1001 | Parrot.Generation | Error | Tool input model must be partial.
-PARROT1002 | Parrot.Generation | Error | Tool input model must be top-level and non-generic.
+PARROT1002 | Parrot.Generation | Error | Tool input model must be non-generic and nested only in non-generic partial types.
 PARROT1003 | Parrot.Generation | Error | Tool input property type is unsupported.
 PARROT1004 | Parrot.Generation | Error | Nested tool input model must be marked.
 PARROT1005 | Parrot.Generation | Error | Tool input constraint is invalid.

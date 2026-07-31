@@ -1,11 +1,14 @@
+using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Permissions;
 using Parrot.Security;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class WriteTool(
+internal sealed partial class WriteTool(
     ToolWorkspace workspace,
     SecurityProfile securityProfile,
     SandboxWriteGrants writeGrants) : ITool
@@ -18,7 +21,7 @@ internal sealed class WriteTool(
         "Create or replace a file with exact UTF-8 content. Relative paths resolve within the workspace; "
         + "absolute paths require explicit write authorization.";
 
-    public string ParametersJson => WriteToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -70,5 +73,20 @@ internal sealed class WriteTool(
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input
+    {
+        [JsonPropertyName("path")]
+        [Description("Path of the file to create or replace.")]
+        [ToolRequired]
+        [ToolMinLength(1)]
+        public string? Path { get; init; }
+
+        [JsonPropertyName("content")]
+        [Description("Exact UTF-8 content to write.")]
+        [ToolRequired]
+        public string? Content { get; init; }
     }
 }

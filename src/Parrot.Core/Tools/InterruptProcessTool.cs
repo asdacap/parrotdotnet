@@ -1,15 +1,18 @@
+using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Process;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
+internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) : ITool
 {
     public string Name => "interrupt_process";
 
     public string Description => "Interrupt a running shell process owned by this agent session and its process tree.";
 
-    public string ParametersJson => InterruptProcessToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -34,5 +37,14 @@ internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Omitted)]
+    internal sealed partial class Input
+    {
+        [Description("Reserved shell process name")]
+        [JsonPropertyName("name")]
+        [ToolRequired]
+        public string? Name { get; init; }
     }
 }

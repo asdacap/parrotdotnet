@@ -1,9 +1,12 @@
+using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentSendTool(
+internal sealed partial class AgentSendTool(
     AgentRegistry agents,
     AgentSession session,
     AgentTurnSelection caller) : ITool
@@ -14,7 +17,7 @@ internal sealed class AgentSendTool(
         "Send a message to an agent session. Exact canonical spawned-agent session IDs resolve globally first. For an agent with a registered direct parent, the case-sensitive literal 'parent', actual parent ID, or actual parent friendly name resolves next and takes precedence over a colliding direct-child friendly name. Direct-child friendly names resolve last. Running agents are steered; "
         + "idle agents start a follow-up turn.";
 
-    public string ParametersJson => AgentSendToolInput.Descriptor;
+    public string ParametersJson => Input.Descriptor;
 
     public async Task<string> Execute(string argumentsJson, CancellationToken cancellationToken)
     {
@@ -49,5 +52,21 @@ internal sealed class AgentSendTool(
         {
             return $"error: {failure.Message}";
         }
+    }
+
+    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
+    internal sealed partial class Input
+    {
+        [Description("Exact canonical spawned-agent session ID; or, for an agent with a registered direct parent, the case-sensitive literal 'parent', actual parent ID, or actual parent friendly name; or a direct-child friendly name. Resolution follows that precedence.")]
+        [JsonPropertyName("session_id")]
+        [ToolMinLength(1)]
+        [ToolRequired]
+        public string? SessionId { get; init; }
+
+        [Description("Message to send.")]
+        [JsonPropertyName("message")]
+        [ToolMinLength(1)]
+        [ToolRequired]
+        public string? Message { get; init; }
     }
 }
