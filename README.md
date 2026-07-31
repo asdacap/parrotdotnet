@@ -358,10 +358,11 @@ providers have model alias defaults`.
 
 Choosing a provider-default entry is server-authoritative: the server validates
 and writes all four ordinary alias targets as one atomic operation, so it never
-leaves a partially applied provider set. On success it reports `Model aliases
-configured from PROVIDER defaults`. A remote CLI queries and updates that
-authoritative server configuration; it does not modify its own local
-configuration instead.
+leaves a partially applied provider set. On success it first reports `Model
+aliases configured from PROVIDER defaults:`, then lists every returned mapping
+as an indented `NAME = MODEL_STRING` line, ordered ordinally by alias name. A
+remote CLI queries and updates that authoritative server configuration; it does
+not modify its own local configuration instead.
 
 Aliases can also tailor the system prompt. For a matched alias, a non-null
 `augment_system_prompt` wins, including an explicit empty string, which
