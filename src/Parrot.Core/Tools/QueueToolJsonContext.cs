@@ -4,6 +4,7 @@ namespace Parrot.Tools;
 
 [JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(QueueCreateTool.Input), TypeInfoPropertyName = "QueueCreateToolInput")]
+[JsonSerializable(typeof(QueueCloseTool.Input), TypeInfoPropertyName = "QueueCloseToolInput")]
 [JsonSerializable(typeof(QueueInfoTool.Input), TypeInfoPropertyName = "QueueInfoToolInput")]
 [JsonSerializable(typeof(QueueListenTool.Input), TypeInfoPropertyName = "QueueListenToolInput")]
 [JsonSerializable(typeof(QueuePushTool.Input), TypeInfoPropertyName = "QueuePushToolInput")]

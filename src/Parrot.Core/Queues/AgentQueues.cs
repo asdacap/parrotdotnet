@@ -36,6 +36,12 @@ internal sealed class AgentQueues(
         return store.Get(name, SessionId);
     }
 
+    public QueueInfo Close(string name)
+    {
+        var store = Resolve(name);
+        return WithListeningState(store, name, store.Close(name));
+    }
+
     public IReadOnlyList<QueueInfo> List()
     {
         var own = Local.List(SessionId);

@@ -26,4 +26,8 @@ internal sealed record QueueMetadata
     [JsonPropertyName("delivery_listener_session_id")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string? DeliveryListenerSessionId { get; init; }
+
+    [JsonPropertyName("closed")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Closed { get; init; }
 }

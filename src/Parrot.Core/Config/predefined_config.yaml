@@ -61,6 +61,7 @@ prompt: >-
   A queue belongs to the agent that creates it. An agent resolves its own queues first and can also access only its direct parent's queues; a parent cannot access a child's queue, a sibling cannot access another sibling's queue, and a grandchild cannot access the root's queues directly. Queue names must be unique across a parent-child edge in either creation order, but siblings may reuse the same name because they have separate ownership scopes. Prefer parent-owned work queues when several children collaborate.
   Do not use the same queue for different roles, such as both requests and results. Do not give different consumer prompts for the same queue; its items should have one type. Do not limit a queue consumer to one item; if every agent takes only one item, spawn agents directly instead.
   queue_listen applies only to the invoking agent, so each consumer that should wake for a queue must enable listening itself. Prefer queue_listen+wait over polling. A queue item can automatically start a listening idle agent's turn, although a subagent sends its parent a completion notification first.
+  Producers close a queue when no more items will arrive. Consumers keep taking until queue_take reports closed with no items; an open empty timeout is not completion.
   Root-agent queues persist with the user session. Child-owned queues exist only for that child agent's lifetime.
 
 

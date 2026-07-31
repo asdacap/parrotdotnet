@@ -49,6 +49,33 @@ internal sealed class AgentQueueTests : IDisposable
     }
 
     [Test]
+    public async Task A_direct_child_can_close_and_drain_its_parents_queue(CancellationToken cancellationToken)
+    {
+        using var catalog = new AgentQueueCatalog(Resources("child-close"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
+        _ = root.Create("parent-work", "shared");
+        _ = await root.Push("parent-work", ["final-item"], QueueDirection.Back, cancellationToken);
+        _ = await child.Listen("parent-work", true, cancellationToken);
+
+        var closed = child.Close("parent-work");
+        var taken = child.TryTake("parent-work", 1, QueueDirection.Front);
+        var completed = child.TryTake("parent-work", 1, QueueDirection.Front);
+
+        _ = await Assert.That(closed.Closed).IsTrue();
+        _ = await Assert.That(closed.Monitored).IsTrue();
+        _ = await Assert.That(root.Get("parent-work").Closed).IsTrue();
+        _ = await Assert.That(root.Push("parent-work", ["late"], QueueDirection.Back, cancellationToken))
+            .Throws<QueueClosedException>()
+            .WithMessage("queue: 'parent-work' is closed");
+        _ = await Assert.That(string.Join(',', taken.Items)).IsEqualTo("final-item");
+        _ = await Assert.That(taken.Info?.Closed).IsTrue();
+        _ = await Assert.That(completed.Acquired).IsTrue();
+        _ = await Assert.That(completed.Items).IsEmpty();
+        _ = await Assert.That(completed.Info?.Monitored).IsTrue();
+    }
+
+    [Test]
     public async Task Reverse_child_sibling_and_grandparent_access_is_denied_without_leaking_ownership()
     {
         using var catalog = new AgentQueueCatalog(Resources("denied-access"));

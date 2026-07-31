@@ -14,7 +14,7 @@ internal static class QueueToolExecution
 
     public static QueueDirection ParseDirection(string? direction) => direction switch { null => QueueDirection.Unspecified, "front" => QueueDirection.Front, "back" => QueueDirection.Back, _ => throw new FormatException("Tool argument 'direction' must be 'front' or 'back'.") };
 
-    public static string Serialize(QueueInfo info) => JsonSerializer.Serialize(new QueueToolInfo { Path = info.Path, Name = info.Name, Description = info.Description.Length == 0 ? null : info.Description, Size = info.Size, Monitored = info.Monitored ? true : null }, QueueToolJsonContext.Default.QueueToolInfo);
+    public static string Serialize(QueueInfo info) => JsonSerializer.Serialize(new QueueToolInfo { Path = info.Path, Name = info.Name, Description = info.Description.Length == 0 ? null : info.Description, Size = info.Size, Closed = info.Closed ? true : null, Monitored = info.Monitored ? true : null }, QueueToolJsonContext.Default.QueueToolInfo);
 
     public static string Serialize(QueueInfo info, IReadOnlyList<string> items) => JsonSerializer.Serialize(
         new QueueTakeToolResult
@@ -23,6 +23,7 @@ internal static class QueueToolExecution
             Name = info.Name,
             Description = info.Description.Length == 0 ? null : info.Description,
             Size = info.Size,
+            Closed = info.Closed,
             Monitored = info.Monitored ? true : null,
             Items = [.. items],
         },

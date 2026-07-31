@@ -149,6 +149,65 @@ internal sealed class QueueStoreTests : IDisposable
     }
 
     [Test]
+    public async Task Close_is_persistent_idempotent_and_preserves_items_and_listeners(
+        CancellationToken cancellationToken)
+    {
+        using (var store = new QueueStore(_directory))
+        {
+            _ = store.Create("closing-work", "finish it");
+            _ = store.Push("closing-work", ["one", "two"], QueueDirection.Back);
+            _ = store.Monitor("closing-work", "agent-a", true);
+
+            var closed = store.Close("closing-work");
+            var closedAgain = store.Close("closing-work");
+
+            _ = await Assert.That(closed.Closed).IsTrue();
+            _ = await Assert.That(closed.Size).IsEqualTo(2);
+            _ = await Assert.That(closedAgain).IsEqualTo(closed);
+            _ = await Assert.That(store.Get("closing-work", "agent-a").Monitored).IsTrue();
+            var persisted = await File.ReadAllTextAsync(closed.Path, cancellationToken);
+            _ = await Assert.That(() => store.Push("closing-work", ["late"], QueueDirection.Back))
+                .Throws<QueueClosedException>()
+                .WithMessage("queue: 'closing-work' is closed");
+            _ = await Assert.That(() => store.Push("closing-work", [], QueueDirection.Back))
+                .Throws<QueueClosedException>()
+                .WithMessage("queue: 'closing-work' is closed");
+            _ = await Assert.That(await File.ReadAllTextAsync(closed.Path, cancellationToken)).IsEqualTo(persisted);
+        }
+
+        using var restored = new QueueStore(_directory);
+        var info = restored.Get("closing-work", "agent-a");
+        var taken = await restored.Take("closing-work", 5, QueueDirection.Front, cancellationToken);
+        var completed = restored.TryTake("closing-work", 1, QueueDirection.Front);
+
+        _ = await Assert.That(info.Closed).IsTrue();
+        _ = await Assert.That(info.Monitored).IsTrue();
+        _ = await Assert.That(string.Join(',', taken.Items)).IsEqualTo("one,two");
+        _ = await Assert.That(taken.Info.Closed).IsTrue();
+        _ = await Assert.That(completed.Acquired).IsTrue();
+        _ = await Assert.That(completed.Items).IsEmpty();
+        _ = await Assert.That(completed.Info?.Closed).IsTrue();
+    }
+
+    [Test]
+    public async Task Metadata_without_closed_field_remains_open(CancellationToken cancellationToken)
+    {
+        _ = Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "legacy-work.jsonl");
+        await File.WriteAllTextAsync(
+            path,
+            "{\"name\":\"legacy-work\",\"description\":\"legacy\"}\n",
+            cancellationToken);
+        using var store = new QueueStore(_directory);
+
+        var info = store.Get("legacy-work", "agent-a");
+        _ = store.Push("legacy-work", ["accepted"], QueueDirection.Back);
+
+        _ = await Assert.That(info.Closed).IsFalse();
+        _ = await Assert.That(store.Get("legacy-work", "agent-a").Size).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Disposed_store_rejects_operations()
     {
         var store = new QueueStore(_directory);

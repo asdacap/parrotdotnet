@@ -333,15 +333,21 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   stores of child agents, including metadata, lock discipline, and monitored
   delivery state. Listening registrations are per invoking agent, not queue
   metadata shared among consumers.
-- **Inbound** explicitly create, inspect, list, push, take, listen, and offer one
-  item to an idle listener. A tool invocation resolves its own queue first and
+- **Inbound** explicitly create, inspect, list, push, take, close, listen, and
+  offer one item to an idle listener. A tool invocation resolves its own queue
+  first and
   then its direct parent's queue. It cannot resolve a child's, sibling's, or
   grandparent's queue. Queue names are canonical lowercase ASCII words joined
   by hyphens; empty root queues remain durable.
 - **Outbound** the user session's private root queue directory and the owning
   `AgentSession` for idle notification admission.
-- **Boundary** no. Concrete and scoped to an agent owner; the five queue tools
+- **Boundary** no. Concrete and scoped to an agent owner; the six queue tools
   are its adapters.
+- **Note** closing is an idempotent producer completion signal. It rejects later
+  pushes, preserves buffered items for draining, and allows polling `queue_take`
+  calls to finish promptly without waking `queue_listen` or `wait`.
+  Every `queue_take` result includes the closed state, including an open empty
+  timeout, so consumers terminate only after observing a closed drained queue.
 - **Note** a queue name must be unique across a direct parent-child edge in both
   creation orders, so own-first lookup cannot make a collision ambiguous.
   Siblings may reuse a name because neither can access the other's queues.

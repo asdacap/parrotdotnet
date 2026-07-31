@@ -246,6 +246,12 @@ internal sealed class CompactorAndContextTests : IDisposable
         var enabled = prompt.Build(Selection(Profile(
             allowedTools: null,
             new HashSet<string>(StringComparer.Ordinal))));
+        var withoutClose = prompt.Build(Selection(Profile(
+            ["queue_create", "queue_push", "queue_take"],
+            new HashSet<string>(StringComparer.Ordinal))));
+        var withClose = prompt.Build(Selection(Profile(
+            ["queue_create", "queue_close", "queue_push", "queue_take"],
+            new HashSet<string>(StringComparer.Ordinal))));
         var disallowed = prompt.Build(Selection(Profile(
             ["read"],
             new HashSet<string>(StringComparer.Ordinal))));
@@ -254,6 +260,9 @@ internal sealed class CompactorAndContextTests : IDisposable
             new HashSet<string>(["queue_create"], StringComparer.Ordinal))));
 
         _ = await Assert.That(enabled).Contains("use a parent-owned queue");
+        _ = await Assert.That(enabled).Contains("queue_take reports closed with no items");
+        _ = await Assert.That(withoutClose).DoesNotContain("queue_take reports closed with no items");
+        _ = await Assert.That(withClose).Contains("queue_take reports closed with no items");
         _ = await Assert.That(disallowed).IsEmpty();
         _ = await Assert.That(disabled).IsEmpty();
     }

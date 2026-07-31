@@ -142,6 +142,36 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
     }
 
+    public QueueInfo Close(string name)
+    {
+        var path = ResolvePath(name);
+        _gate.Wait();
+
+        try
+        {
+            ThrowIfDisposedLocked();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
+            using var held = AcquireFileLockSynchronously(path, timeout.Token);
+            var (current, items) = Read(path, name);
+            if (current.Closed)
+            {
+                return ToInfo(path, current, items.Count);
+            }
+
+            var metadata = current with { Closed = true };
+            Write(path, metadata, items);
+            return ToInfo(path, metadata, items.Count);
+        }
+        catch (OperationCanceledException failure)
+        {
+            throw new QueueException("queue: timed out acquiring lock", failure);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public QueueInfo Push(string name, IReadOnlyList<string> items, QueueDirection direction)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -156,6 +186,10 @@ internal sealed class QueueStore(string directory) : IDisposable
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
             using var held = AcquireFileLockSynchronously(path, timeout.Token);
             var (metadata, stored) = Read(path, name);
+            if (metadata.Closed)
+            {
+                throw new QueueClosedException($"queue: '{name}' is closed");
+            }
 
             if (direction == QueueDirection.Front && items.Count > 0)
             {
@@ -700,6 +734,11 @@ internal sealed class QueueStore(string directory) : IDisposable
 
         if (items.Count == 0)
         {
+            if (current.Closed)
+            {
+                return new QueueTakeResult([], ToInfo(path, current, 0));
+            }
+
             throw new QueueEmptyException(ToInfo(path, current, 0));
         }
 
@@ -933,7 +972,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, $".{Path.GetFileName(path)}-{Guid.NewGuid():n}");
 
     private static QueueInfo ToInfo(string path, QueueMetadata metadata, int size) =>
-        new(path, metadata.Name, metadata.Description ?? string.Empty, size, false);
+        new(path, metadata.Name, metadata.Description ?? string.Empty, size, false, metadata.Closed);
 
     private static QueueInfo ToInfo(
         string path,
@@ -945,7 +984,8 @@ internal sealed class QueueStore(string directory) : IDisposable
             metadata.Name,
             metadata.Description ?? string.Empty,
             size,
-            metadata.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) == true);
+            metadata.ListenerSessionIds?.Contains(listenerSessionId, StringComparer.Ordinal) == true,
+            metadata.Closed);
 
     private static QueueFileLock AcquireFileLockSynchronously(
         string path,

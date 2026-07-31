@@ -11,7 +11,7 @@ internal sealed partial class QueuePushTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_push";
 
-    public string Description => "Push strings onto an accessible queue owned by the invoking agent or its direct parent. Direction defaults to back.";
+    public string Description => "Push strings onto an open accessible queue owned by the invoking agent or its direct parent. Pushing to a closed queue fails. Direction defaults to back.";
 
     public string ParametersJson => Input.Descriptor;
 

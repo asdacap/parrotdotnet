@@ -18,6 +18,10 @@ internal sealed class QueueToolInfo
     public required int Size { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("closed")]
+    public bool? Closed { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("monitored")]
     public bool? Monitored { get; init; }
 }
