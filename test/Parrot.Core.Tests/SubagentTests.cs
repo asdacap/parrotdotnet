@@ -152,7 +152,7 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
-    public async Task Canonical_ids_resolve_globally_while_names_stay_local(CancellationToken cancellationToken)
+    public async Task Canonical_child_lookup_stays_global_while_send_rejects_unrelated_agents(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
         await using var registry = TestModels.Registry(
@@ -171,7 +171,9 @@ internal sealed class SubagentTests : IDisposable
             "helper");
 
         _ = await Assert.That(registry.GetChild(secondParent, target.SessionId)).IsSameReferenceAs(target);
-        _ = await Assert.That(registry.GetRecipient(secondParent, target.SessionId)).IsSameReferenceAs(target);
+        var unrelated = await Assert.That(() => registry.GetRecipient(secondParent, target.SessionId))
+            .Throws<AgentRegistryException>();
+        _ = await Assert.That(unrelated?.Message).IsEqualTo("only parent/child may be sent");
         _ = await Assert.That(() => registry.GetChild(secondParent, "helper")).Throws<AgentRegistryException>();
         _ = await Assert.That(() => registry.GetRecipient(secondParent, "helper")).Throws<AgentRegistryException>();
     }
@@ -217,6 +219,51 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(canonicalCollision.Name).IsEqualTo(parentNameCollision.SessionId);
         _ = await Assert.That(registry.GetRecipient(caller, canonicalCollision.Name))
             .IsSameReferenceAs(parentNameCollision);
+    }
+
+    [Test]
+    public async Task Send_rejects_a_spawned_grandparent_without_exposing_its_id(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var root = Session(provider, 0, "root-id", cancellationToken);
+        var grandparent = registry.Spawn(
+            root,
+            Turn(root, Router(provider)),
+            "worker",
+            root.Selection().RequestedModel,
+            "grandparent");
+        var parent = registry.Spawn(
+            grandparent,
+            Turn(grandparent, Router(provider)),
+            "worker",
+            grandparent.Selection().RequestedModel,
+            "parent-agent");
+        var sender = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "sender");
+        var send = new AgentSendTool(registry, sender);
+
+        var result = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{grandparent.SessionId}}","message":"skip parent"}"""),
+            Turn(sender, Router(provider)),
+            cancellationToken)).Text;
+
+        _ = await Assert.That(result).IsEqualTo("error: only parent/child may be sent");
+        _ = await Assert.That(result).DoesNotContain(grandparent.SessionId);
+        _ = await Assert.That(grandparent.IsActive()).IsFalse();
+        _ = await Assert.That(provider.Requests).IsEmpty();
     }
 
     [Test]
@@ -331,11 +378,12 @@ internal sealed class SubagentTests : IDisposable
         var sessionIdDescription = schema.RootElement.GetProperty("properties").GetProperty("session_id")
             .GetProperty("description").GetString();
 
+        _ = await Assert.That(send.Description).Contains("direct parent or direct child");
         _ = await Assert.That(send.Description).Contains("literal 'parent'");
-        _ = await Assert.That(send.Description).Contains("canonical spawned-agent session IDs");
+        _ = await Assert.That(send.Description).Contains("Exact canonical session IDs for those recipients");
         _ = await Assert.That(send.Description).Contains("Direct-child friendly names");
+        _ = await Assert.That(sessionIdDescription).Contains("direct parent or direct child");
         _ = await Assert.That(sessionIdDescription).Contains("literal 'parent'");
-        _ = await Assert.That(sessionIdDescription).Contains("canonical spawned-agent session ID");
         _ = await Assert.That(sessionIdDescription).Contains("direct-child friendly name");
     }
 
@@ -708,7 +756,7 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
-    public async Task Send_validates_arguments_size_and_allows_any_agent(
+    public async Task Send_validates_arguments_size_and_rejects_unrelated_agents(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
@@ -749,7 +797,8 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(malformed).StartsWith("error:");
         _ = await Assert.That(blank).IsEqualTo("error: no message given");
         _ = await Assert.That(missing).IsEqualTo("error: child agent not found: missing");
-        _ = await Assert.That(invisible).Contains($"\"session_id\":\"{spawned.SessionId}\"");
+        _ = await Assert.That(invisible).IsEqualTo("error: only parent/child may be sent");
+        _ = await Assert.That(invisible).DoesNotContain(spawned.SessionId);
         _ = await Assert.That(oversized).IsEqualTo("error: agent message exceeds 1048576 bytes");
         provider.Release();
     }

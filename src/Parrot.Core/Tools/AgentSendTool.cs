@@ -13,7 +13,7 @@ internal sealed partial class AgentSendTool(
     public string Name => "agent_send";
 
     public string Description =>
-        "Send a message to an agent session. Exact canonical spawned-agent session IDs resolve globally first. For an agent with a registered direct parent, the case-sensitive literal 'parent', actual parent ID, or actual parent friendly name resolves next and takes precedence over a colliding direct-child friendly name. Direct-child friendly names resolve last. Running agents are steered; "
+        "Send a message to this agent's direct parent or direct child. Exact canonical session IDs for those recipients resolve first. The case-sensitive literal 'parent', actual parent ID, or actual parent friendly name resolves next and takes precedence over a colliding direct-child friendly name. Direct-child friendly names resolve last. Running agents are steered; "
         + "idle agents start a follow-up turn.";
 
     public string ParametersJson => Input.Descriptor;
@@ -59,7 +59,7 @@ internal sealed partial class AgentSendTool(
     [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
     internal sealed partial class Input
     {
-        [Description("Exact canonical spawned-agent session ID; or, for an agent with a registered direct parent, the case-sensitive literal 'parent', actual parent ID, or actual parent friendly name; or a direct-child friendly name. Resolution follows that precedence.")]
+        [Description("Exact canonical session ID for this agent's direct parent or direct child; or the case-sensitive literal 'parent', actual parent ID, actual parent friendly name, or a direct-child friendly name. Resolution follows that precedence.")]
         [JsonPropertyName("session_id")]
         [ToolMinLength(1)]
         [ToolRequired]

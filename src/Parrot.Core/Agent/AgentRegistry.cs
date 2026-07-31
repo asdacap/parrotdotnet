@@ -118,7 +118,13 @@ internal sealed class AgentRegistry(
         {
             if (_entries.TryGetValue(sessionIdOrName, out var canonical))
             {
-                return canonical.Session;
+                if (string.Equals(canonical.Session.SessionId, sender.ParentSessionId, StringComparison.Ordinal)
+                    || string.Equals(canonical.Session.ParentSessionId, sender.SessionId, StringComparison.Ordinal))
+                {
+                    return canonical.Session;
+                }
+
+                throw new AgentRegistryException("only parent/child may be sent");
             }
 
             if (_parents.TryGetValue(sender.ParentSessionId, out var parent)
