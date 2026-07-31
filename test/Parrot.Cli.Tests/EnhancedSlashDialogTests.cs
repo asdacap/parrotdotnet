@@ -71,6 +71,34 @@ internal sealed class EnhancedSlashDialogTests
     }
 
     [Test]
+    public async Task Picker_does_not_interpret_a_key_returned_during_cancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var host = new CancellingLiveInputHost(cancellation, new TerminalKey(TerminalKeyKind.Submit));
+        var dialog = new EnhancedSlashDialog(host);
+
+        _ = await Assert.That(async () => await dialog.Select(
+            "Pick: ",
+            [new SlashDialogOption("one", "One", string.Empty)],
+            cancellation.Token)).Throws<OperationCanceledException>();
+
+        _ = await Assert.That(host.ReplaceCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Text_does_not_interpret_a_key_returned_during_cancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var host = new CancellingLiveInputHost(cancellation, new TerminalKey(TerminalKeyKind.Character, "x"));
+        var dialog = new EnhancedSlashDialog(host);
+
+        _ = await Assert.That(async () => await dialog.ReadText("Name: ", cancellation.Token))
+            .Throws<OperationCanceledException>();
+
+        _ = await Assert.That(host.ReplaceCount).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Confirmation_reports_escape_as_cancellation(CancellationToken cancellationToken)
     {
         var dialog = new EnhancedSlashDialog(new ScriptedLiveInputHost("\u001b", string.Empty));
@@ -105,5 +133,28 @@ internal sealed class EnhancedSlashDialogTests
         _ = await Assert.That(secretHost.Frames[0][1]).IsEqualTo(new PromptValue("> ", string.Empty, 0));
         _ = await Assert.That(secretHost.Frames[^2][0]).IsEqualTo(new DialogMessageValue("first\nsecond", false));
         _ = await Assert.That(secretHost.Frames[^1][0]).IsEqualTo(new DialogMessageValue("failed", true));
+    }
+
+    private sealed class CancellingLiveInputHost(
+        CancellationTokenSource cancellation,
+        TerminalKey key) : ILiveInputHost
+    {
+        public int ReplaceCount { get; private set; }
+
+        public async ValueTask<TerminalKey> ReadKey(CancellationToken cancellationToken)
+        {
+            await cancellation.CancelAsync();
+            return key;
+        }
+
+        public Task ReplaceInput(IReadOnlyList<ILiveBufferItem> items, CancellationToken cancellationToken)
+        {
+            ReplaceCount++;
+            return Task.CompletedTask;
+        }
+
+        public void ResetInput()
+        {
+        }
     }
 }

@@ -10,20 +10,55 @@ internal sealed class EnhancedLiveInputHost(
 
     public async ValueTask<TerminalKey> ReadKey(CancellationToken cancellationToken)
     {
-        TerminalKey key;
-        while (!_keys.TryDequeue(out key))
+        try
         {
-            var count = await terminal.Read(_buffer, cancellationToken).ConfigureAwait(false);
-            var decoded = count == 0 ? _decoder.Flush() : _decoder.Feed(_buffer.AsSpan(0, count));
-            foreach (var item in decoded)
+            TerminalKey key;
+            while (true)
             {
-                _keys.Enqueue(item);
-            }
-        }
+                ThrowIfCancellationRequested(cancellationToken);
+                if (_keys.TryDequeue(out key))
+                {
+                    break;
+                }
 
-        return key;
+                var count = await terminal.Read(_buffer, cancellationToken).ConfigureAwait(false);
+                ThrowIfCancellationRequested(cancellationToken);
+                var decoded = count == 0 ? _decoder.Flush() : _decoder.Feed(_buffer.AsSpan(0, count));
+                foreach (var item in decoded)
+                {
+                    _keys.Enqueue(item);
+                }
+            }
+
+            ThrowIfCancellationRequested(cancellationToken);
+            return key;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Reset();
+            throw;
+        }
     }
 
     public Task ReplaceInput(IReadOnlyList<ILiveBufferItem> items, CancellationToken cancellationToken) =>
         replace(items, cancellationToken);
+
+    public void ResetInput() => Reset();
+
+    private void ThrowIfCancellationRequested(CancellationToken cancellationToken)
+    {
+        if (!cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        Reset();
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private void Reset()
+    {
+        _keys.Clear();
+        _decoder.Reset();
+    }
 }

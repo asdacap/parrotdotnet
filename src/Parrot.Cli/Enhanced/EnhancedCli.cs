@@ -28,6 +28,7 @@ internal sealed class EnhancedCli(
     private const string EnableKeyboardEnhancement = "\u001b[>1u";
     private const int MaximumVisibleCompletions = 8;
     private const string Prompt = TerminalIcons.UserPrompt + " ";
+    private static readonly TimeSpan QuestionReconciliationInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan SubmitDelay = TimeSpan.FromMilliseconds(100);
 
     private readonly Channel<bool> _interrupts =
@@ -616,63 +617,120 @@ internal sealed class EnhancedCli(
         EnhancedSlashDialog dialog,
         CancellationToken cancellationToken)
     {
+        using var lifetime = new PendingQuestionLifetime(
+            client,
+            userSessionId,
+            pending.Id,
+            QuestionReconciliationInterval);
+        using var monitoring = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var interaction = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            lifetime.ClosedToken);
+        var reconciling = lifetime.Run(monitoring.Token);
         var reply = new ReplyQuestionRequest
         {
             UserSessionId = userSessionId,
             QuestionRequestId = pending.Id,
         };
 
-        foreach (var question in pending.Questions)
+        try
         {
-            var choices = question.Options
-                .Select(option => new SlashDialogOption(option.Id, option.Label, option.Id))
-                .ToList();
-            const string customId = "__custom__";
-            if (question.Custom)
+            foreach (var question in pending.Questions)
             {
-                choices.Add(new SlashDialogOption(customId, "Custom answer", "Write an answer"));
-            }
-
-            var selected = await dialog.Select(
-                $"{question.Header} {question.Prompt}".Trim(),
-                choices,
-                cancellationToken).ConfigureAwait(false);
-            if (selected is null)
-            {
-                await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            var answer = new QuestionAnswer { QuestionId = question.Id };
-            if (selected.Id == customId)
-            {
-                var custom = await dialog.ReadText(question.Prompt, cancellationToken).ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(custom))
+                var choices = question.Options
+                    .Select(option => new SlashDialogOption(option.Id, option.Label, option.Id))
+                    .ToList();
+                const string customId = "__custom__";
+                if (question.Custom)
                 {
-                    await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
+                    choices.Add(new SlashDialogOption(customId, "Custom answer", "Write an answer"));
+                }
+
+                var selected = await dialog.Select(
+                    $"{question.Header} {question.Prompt}".Trim(),
+                    choices,
+                    interaction.Token).ConfigureAwait(false);
+                if (lifetime.IsClosed)
+                {
                     return;
                 }
 
-                answer.Custom = custom.Trim();
+                if (selected is null)
+                {
+                    await StopReconciling().ConfigureAwait(false);
+                    if (!lifetime.IsClosed)
+                    {
+                        await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    return;
+                }
+
+                var answer = new QuestionAnswer { QuestionId = question.Id };
+                if (selected.Id == customId)
+                {
+                    var custom = await dialog.ReadText(question.Prompt, interaction.Token).ConfigureAwait(false);
+                    if (lifetime.IsClosed)
+                    {
+                        return;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(custom))
+                    {
+                        await StopReconciling().ConfigureAwait(false);
+                        if (!lifetime.IsClosed)
+                        {
+                            await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
+                        }
+
+                        return;
+                    }
+
+                    answer.Custom = custom.Trim();
+                }
+                else
+                {
+                    answer.OptionIds.Add(selected.Id);
+                }
+
+                if (lifetime.IsClosed)
+                {
+                    return;
+                }
+
+                reply.Answers.Add(answer);
             }
-            else
+
+            await StopReconciling().ConfigureAwait(false);
+            if (lifetime.IsClosed)
             {
-                answer.OptionIds.Add(selected.Id);
+                return;
             }
 
-            reply.Answers.Add(answer);
+            try
+            {
+                _ = await client.ReplyQuestionAsync(reply, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
+            {
+                await dialog.ShowError(failure.Status.Detail, cancellationToken).ConfigureAwait(false);
+            }
+            catch (RpcException failure) when (failure.StatusCode == StatusCode.NotFound)
+            {
+            }
+        }
+        catch (OperationCanceledException) when (lifetime.IsClosed && !cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            await StopReconciling().ConfigureAwait(false);
         }
 
-        try
+        async Task StopReconciling()
         {
-            _ = await client.ReplyQuestionAsync(reply, cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
-        {
-            await dialog.ShowError(failure.Status.Detail, cancellationToken).ConfigureAwait(false);
-        }
-        catch (RpcException failure) when (failure.StatusCode == StatusCode.NotFound)
-        {
+            await monitoring.CancelAsync().ConfigureAwait(false);
+            await reconciling.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
 
