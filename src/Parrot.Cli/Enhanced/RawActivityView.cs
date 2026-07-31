@@ -336,21 +336,27 @@ internal sealed class RawActivityView(
                 case Event.PayloadOneofCase.ToolError:
                     await FinishTool(published, cancellationToken).ConfigureAwait(false);
                     break;
-                case Event.PayloadOneofCase.ReasoningChunk when _hierarchy.IsRoot(published.AgentSessionId):
+                case Event.PayloadOneofCase.ReasoningChunk:
                 {
                     var fragment = TerminalText.Sanitize(published.ReasoningChunk.Fragment);
                     if (published.ReasoningChunk.Kind == ReasoningKind.Summary)
                     {
-                        _ = _reasoning.Clear();
+                        var isRoot = _hierarchy.IsRoot(published.AgentSessionId);
+                        if (isRoot)
+                        {
+                            _ = _reasoning.Clear();
+                        }
+
                         if (fragment.Length > 0)
                         {
+                            var summary = new ReasoningSummaryScrollbackValue(fragment);
                             await commit(
-                                new ReasoningSummaryScrollbackValue(fragment),
+                                isRoot ? summary : Wrap(GetNamedAgentSession(published.AgentSessionId), summary, null),
                                 Snapshot(),
                                 cancellationToken).ConfigureAwait(false);
                         }
                     }
-                    else
+                    else if (_hierarchy.IsRoot(published.AgentSessionId))
                     {
                         _ = _reasoning.Append(fragment);
                         await replace(Snapshot(), cancellationToken).ConfigureAwait(false);

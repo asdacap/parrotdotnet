@@ -549,6 +549,98 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Child_reasoning_summaries_keep_hierarchy_and_root_reasoning_state(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new List<string>();
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(Render(items, liveContext));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            drawn.Add(Render(items, liveContext));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "child" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "grandchild",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "child", Name = "grandchild" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "grandchild", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                ReasoningChunk = new ReasoningChunk { Fragment = "private reasoning", Kind = ReasoningKind.Raw },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ReasoningChunk = new ReasoningChunk
+                {
+                    Fragment = "# Findings\n- **bold**",
+                    Kind = ReasoningKind.Summary,
+                },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "grandchild",
+                ReasoningChunk = new ReasoningChunk { Fragment = "Deep result", Kind = ReasoningKind.Summary },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ReasoningChunk = new ReasoningChunk { Fragment = string.Empty, Kind = ReasoningKind.Summary },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(committed).Count().IsEqualTo(2);
+        _ = await Assert.That(committed[0]).IsEqualTo("  ✦ [child] Findings|    [child] • bold");
+        _ = await Assert.That(committed[1]).IsEqualTo("    ✦ [grandchild] Deep result");
+        _ = await Assert.That(drawn[^1]).Contains("Thinking…");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("• [child] ✦");
+    }
+
+    [Test]
     public async Task Child_model_alias_icon_follows_only_its_current_agent_activity(
         CancellationToken cancellationToken)
     {

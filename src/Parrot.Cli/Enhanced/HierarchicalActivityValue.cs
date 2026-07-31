@@ -41,7 +41,7 @@ internal static class HierarchicalActivityValue
 
     private static (string Icon, string Content) SplitIcon(string value, string? successfulIcon)
     {
-        foreach (var icon in new[] { "●", "$", "○", "◐", "✓", "✗", "■", "♟", "•" })
+        foreach (var icon in new[] { "●", "$", "○", "◐", "✓", "✗", "■", "♟", "✦", "•" })
         {
             if (value.StartsWith(icon + " ", StringComparison.Ordinal))
             {
