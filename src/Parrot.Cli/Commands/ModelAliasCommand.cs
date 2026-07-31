@@ -64,11 +64,17 @@ internal sealed class ModelAliasCommand(
                     return;
                 }
 
-                _ = await client.ApplyProviderModelAliasDefaultsAsync(
+                var applied = await client.ApplyProviderModelAliasDefaultsAsync(
                     new ApplyProviderModelAliasDefaultsRequest { ProviderId = provider.Id },
                     cancellationToken: cancellationToken);
-                await dialog.Show(
-                    [$"Model aliases configured from {provider.Id} defaults"], cancellationToken).ConfigureAwait(false);
+                var lines = new List<string>
+                {
+                    $"Model aliases configured from {provider.Id} defaults:",
+                };
+                lines.AddRange(applied.Aliases
+                    .OrderBy(alias => alias.Name, StringComparer.Ordinal)
+                    .Select(alias => $"  {alias.Name} = {alias.ModelString}"));
+                await dialog.Show(lines, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
