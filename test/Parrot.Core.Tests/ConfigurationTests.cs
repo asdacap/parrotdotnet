@@ -34,7 +34,9 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Prompt).Contains("# Common subagent spawn strategy");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
-        _ = await Assert.That(configuration.DisabledTools).IsEmpty();
+        _ = await Assert.That(configuration.DisabledTools.Count).IsEqualTo(2);
+        _ = await Assert.That(configuration.DisabledTools["wait_agent"]).IsTrue();
+        _ = await Assert.That(configuration.DisabledTools["wait_process"]).IsTrue();
         _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
         _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(7);
         foreach (var profile in configuration.Profiles.Values)
@@ -54,7 +56,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
             .Contains("Predefined configuration reference.");
         var predefinedContent = await File.ReadAllTextAsync(predefined, cancellationToken);
-        _ = await Assert.That(predefinedContent).Contains("disabled_tools: {}");
+        _ = await Assert.That(predefinedContent).Contains("disabled_tools:\n  wait_agent: true\n  wait_process: true");
         _ = await Assert.That(predefinedContent).DoesNotContain("hard_rules:");
         _ = await Assert.That(predefinedContent).DoesNotContain("tool_blacklist");
     }
