@@ -135,6 +135,8 @@ internal sealed class AgentSession(
         }
     }
 
+    public AgentSelection ResolveSelection() => registry?.ResolveSelection(this) ?? Selection();
+
     public void UpdateSelection(ModelSelector selectedModel, IAgentProfile? profile)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
@@ -809,7 +811,7 @@ internal sealed class AgentSession(
 
                 if (!turnOpen)
                 {
-                    var captured = Selection();
+                    var captured = ResolveSelection();
                     (captured.Profile as IMode)?.Prepare();
                     var resolved = router.Resolve(captured.RequestedModel.Value);
                     activeSelection = new AgentTurnSelection(
@@ -1248,9 +1250,11 @@ internal sealed class AgentSession(
 
         try
         {
+            var effective = ResolveSelection();
+            var invocationSelection = selection with { SecurityProfile = effective.SecurityProfile };
             var result = await tool.Execute(
                 new ToolInvocation(call.Id, call.ArgumentsJson),
-                selection,
+                invocationSelection,
                 cancellationToken).ConfigureAwait(false);
             var text = result.Text;
             if (ToolOutputBlobStore.IsOversized(text))

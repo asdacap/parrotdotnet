@@ -119,6 +119,7 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
         AddProtectedRoots(arguments, resources);
         AddPrivateRuntime(arguments, resources);
         AddRuntimeCapabilities(arguments, securityProfile, resources);
+        AddRuntimeRestrictions(arguments, securityProfile, resources);
 
         if (pseudoTerminalHelperPath.Length > 0)
         {
@@ -171,6 +172,42 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
             if (resources.Owns(path) && Path.Exists(path))
             {
                 AddSyntheticMount(arguments, resources, path, rule.Action == SandboxRuleAction.AllowWrite);
+            }
+        }
+    }
+
+    private static void AddRuntimeRestrictions(
+        List<string> arguments,
+        SecurityProfile securityProfile,
+        UserSessionResources resources)
+    {
+        var mountRoots = securityProfile.RuntimeCapabilities
+            .Select(rule => rule.Path)
+            .Append(resources.RuntimeHomeDirectory)
+            .Append(resources.CacheDirectory)
+            .Append(resources.TemporaryDirectory)
+            .ToArray();
+        var applied = new List<SandboxRule>();
+
+        foreach (var rule in securityProfile.Rules)
+        {
+            applied.Add(rule);
+            var paths = mountRoots
+                .Where(root => Contains(root, rule.Path) || Contains(rule.Path, root))
+                .Select(root => Contains(rule.Path, root) ? root : rule.Path)
+                .Distinct(StringComparer.Ordinal);
+
+            foreach (var path in paths)
+            {
+                var (read, write) = EvaluateAccess(path, securityProfile.ReadOnly, applied);
+                if (!read)
+                {
+                    AddReadMask(arguments, path);
+                }
+                else
+                {
+                    arguments.AddRange([write ? "--bind" : "--ro-bind", path, path]);
+                }
             }
         }
     }
@@ -261,6 +298,13 @@ internal sealed partial class ProcessRunner(string bubblewrapPath)
     {
         var profile = SecurityProfile.Compose(readOnly, rules, [], []);
         return (profile.AllowsRead(path), profile.AllowsWrite(path));
+    }
+
+    private static bool Contains(string root, string path)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
+            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
     }
 
     private static void AddReadMask(List<string> arguments, string path)

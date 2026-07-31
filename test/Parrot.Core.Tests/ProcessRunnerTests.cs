@@ -283,6 +283,74 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Effective_rules_narrow_private_runtime_mounts(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var resources = Resources(_workspace);
+        var profile = SecurityProfile.Compose(
+            false,
+            [new SandboxRule(resources.RuntimeDirectory, SandboxRuleAction.DenyWrite)],
+            [],
+            []);
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            profile,
+            SandboxWriteGrantSnapshot.Empty,
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        var mounts = FindMounts(arguments, resources.CacheDirectory);
+        _ = await Assert.That(mounts).Contains("--bind");
+        _ = await Assert.That(mounts[^1]).IsEqualTo("--ro-bind");
+    }
+
+    [Test]
+    public async Task Inherited_runtime_capabilities_are_mounted_before_child_restrictions(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var resources = Resources(_workspace);
+        var restricted = Directory.CreateDirectory(Path.Combine(resources.PlanDirectory, "restricted")).FullName;
+        var parent = SecurityProfile.Compose(true, [], [], [])
+            .WithRuntimeCapability(resources.PlanDirectory);
+        var child = SecurityProfile.Compose(
+            false,
+            [new SandboxRule(restricted, SandboxRuleAction.DenyWrite)],
+            [],
+            []);
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            parent.RestrictWith(child),
+            SandboxWriteGrantSnapshot.Empty,
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(FindMounts(arguments, resources.PlanDirectory)).Contains("--bind");
+        _ = await Assert.That(FindMounts(arguments, restricted)[^1]).IsEqualTo("--ro-bind");
+        _ = await Assert.That(Array.LastIndexOf(arguments, restricted))
+            .IsGreaterThan(Array.LastIndexOf(arguments, resources.PlanDirectory));
+    }
+
+    [Test]
     public async Task Security_profile_controls_baseline_and_applies_rules_in_order(
         CancellationToken cancellationToken)
     {

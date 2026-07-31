@@ -70,11 +70,7 @@ internal sealed class AgentRegistry(
             }
 
             _parents[parent.SessionId] = parent;
-
-            if (!selection.SecurityProfile.AllowsDelegationTo(profile.SecurityProfile))
-            {
-                throw new AgentRegistryException("the selected child profile exceeds the caller's security policy");
-            }
+            var securityProfile = ResolveSecurityProfile(parent).RestrictWith(profile.SecurityProfile);
 
             if (ProfileOccurrences(parent, profile.Id) >= profile.RecursionLimit)
             {
@@ -91,7 +87,7 @@ internal sealed class AgentRegistry(
                 eventBroker,
                 eventRepository,
                 profile,
-                profile.SecurityProfile.WithoutRuntimeCapabilities(),
+                securityProfile,
                 _status,
                 this,
                 _lifetime.Token);
@@ -132,6 +128,19 @@ internal sealed class AgentRegistry(
             }
 
             return ResolveChild(sender.SessionId, sessionIdOrName);
+        }
+    }
+
+    public AgentSelection ResolveSelection(AgentSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        lock (_gate)
+        {
+            var selected = session.Selection();
+            return selected.Profile is null
+                ? selected
+                : selected with { SecurityProfile = ResolveSecurityProfile(session) };
         }
     }
 
@@ -263,6 +272,17 @@ internal sealed class AgentRegistry(
                 ActiveWorkKind.Agent,
                 ActiveWorkState.Running))
             .OrderBy(item => item.Id, StringComparer.Ordinal)];
+
+    private Security.SecurityProfile ResolveSecurityProfile(AgentSession session)
+    {
+        var selected = session.Selection();
+        if (selected.Profile is null || !_parents.TryGetValue(session.ParentSessionId, out var parent))
+        {
+            return selected.SecurityProfile;
+        }
+
+        return ResolveSecurityProfile(parent).RestrictWith(selected.Profile.SecurityProfile);
+    }
 
     private int ProfileOccurrences(AgentSession parent, string profileId)
     {

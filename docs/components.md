@@ -556,6 +556,11 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   idle drains, interruptions, and tool rounds do not duplicate it. Before a
   foreground turn completes while direct child agents or shell processes remain
   active, a distinct reminder is likewise appended as durable `system` history.
+- **Security selection.** Model, profile metadata, and tool filtering remain
+  captured at the turn boundary. Effective security is compiled separately for
+  each security-sensitive tool invocation, so an ancestor profile update is
+  visible to a later tool call in the same turn while one invocation still uses
+  one coherent immutable profile.
 
 ### `AgentSession` — todos (ported 2026-07-24)
 
@@ -626,6 +631,14 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   resolution without a parent alias.
 - **Outbound** `Configuration`, `AgentSession`.
 - **Boundary** no.
+- **Security inheritance.** A spawned child wraps its runtime parent's current
+  effective `SecurityProfile` with the configured child profile. Composition is
+  monotonic: child rules may further restrict access but cannot reopen an
+  ancestor denial. The relationship stays live through nested descendants and
+  is branch-local. Trusted runtime capabilities follow the same chain so the
+  sandbox can expose parent-owned private paths, but child read-only settings or
+  explicit denies may narrow them. Interactive `SandboxWriteGrant` values remain
+  separate, agent-session-owned state and never transfer to a child or sibling.
 - **Note** mutually dependent with `AgentSession`; both rank 9. The registry
   creates, names, retains, observes, and owns the lifetime of background child
   sessions. It does not admit input or wait for turns: those operations belong
@@ -781,8 +794,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   with it.
 - **Note** a session's tool instances are fixed once built, so there is no
   mutable side and no registry. Each turn filters an immutable `ToolSnapshot`
-  view over those instances, and each invocation receives that turn's captured
-  selection, which is what principle 4 asks for.
+  view over those instances. Profile/model metadata stays captured for the turn,
+  while each security-sensitive invocation compiles one effective security
+  snapshot from the live parent chain before executing.
 
 ### `ProcessRunner` — rank 6, M3
 
