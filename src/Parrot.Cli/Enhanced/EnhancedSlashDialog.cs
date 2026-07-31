@@ -18,52 +18,64 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
         var editor = new IncrementalEditor(title, MaximumInputRunes);
         var selected = 0;
 
-        while (true)
+        try
         {
-            var matches = Matches(options, editor.Prompt.Text);
-            selected = matches.Count == 0 ? 0 : Math.Clamp(selected, 0, matches.Count - 1);
-            await input.ReplaceInput(PickerItems(editor.Prompt, matches, selected), cancellationToken)
-                .ConfigureAwait(false);
-
-            var key = await input.ReadKey(cancellationToken).ConfigureAwait(false);
-            if (IsCancellation(key))
+            while (true)
             {
-                return null;
-            }
+                var matches = Matches(options, editor.Prompt.Text);
+                selected = matches.Count == 0 ? 0 : Math.Clamp(selected, 0, matches.Count - 1);
+                cancellationToken.ThrowIfCancellationRequested();
+                await input.ReplaceInput(PickerItems(editor.Prompt, matches, selected), cancellationToken)
+                    .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
 
-            if (key.Kind == TerminalKeyKind.Submit)
-            {
-                matches = Matches(options, editor.Prompt.Text);
-                if (matches.Count > 0)
+                var key = await input.ReadKey(cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (IsCancellation(key))
                 {
-                    var choice = matches[Math.Clamp(selected, 0, matches.Count - 1)];
-                    await input.ReplaceInput(
-                        [new LiveTextValue(title), new PromptValue("> ", choice.Label, choice.Label.EnumerateRunes().Count())],
-                        cancellationToken).ConfigureAwait(false);
-                    return choice;
+                    return null;
                 }
 
-                continue;
-            }
-
-            if (key.Kind is TerminalKeyKind.Up or TerminalKeyKind.Down)
-            {
-                matches = Matches(options, editor.Prompt.Text);
-                if (matches.Count > 0)
+                if (key.Kind == TerminalKeyKind.Submit)
                 {
-                    selected = key.Kind == TerminalKeyKind.Up
-                        ? (selected - 1 + matches.Count) % matches.Count
-                        : (selected + 1) % matches.Count;
+                    matches = Matches(options, editor.Prompt.Text);
+                    if (matches.Count > 0)
+                    {
+                        var choice = matches[Math.Clamp(selected, 0, matches.Count - 1)];
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await input.ReplaceInput(
+                            [new LiveTextValue(title), new PromptValue("> ", choice.Label, choice.Label.EnumerateRunes().Count())],
+                            cancellationToken).ConfigureAwait(false);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return choice;
+                    }
+
+                    continue;
                 }
 
-                continue;
-            }
+                if (key.Kind is TerminalKeyKind.Up or TerminalKeyKind.Down)
+                {
+                    matches = Matches(options, editor.Prompt.Text);
+                    if (matches.Count > 0)
+                    {
+                        selected = key.Kind == TerminalKeyKind.Up
+                            ? (selected - 1 + matches.Count) % matches.Count
+                            : (selected + 1) % matches.Count;
+                    }
 
-            if (key.Kind != TerminalKeyKind.Paste || !key.Text.Contains('\n', StringComparison.Ordinal))
-            {
-                _ = editor.Apply(key);
-                selected = 0;
+                    continue;
+                }
+
+                if (key.Kind != TerminalKeyKind.Paste || !key.Text.Contains('\n', StringComparison.Ordinal))
+                {
+                    _ = editor.Apply(key);
+                    selected = 0;
+                }
             }
+        }
+        finally
+        {
+            input.ResetInput();
         }
     }
 
@@ -154,28 +166,40 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
     {
         var editor = new IncrementalEditor(prompt, MaximumInputRunes);
 
-        while (true)
+        try
         {
-            await input.ReplaceInput(
-                [new LiveTextValue(prompt), InputItem(editor.Prompt, secret)],
-                cancellationToken).ConfigureAwait(false);
-            var key = await input.ReadKey(cancellationToken).ConfigureAwait(false);
-            if (IsCancellation(key))
+            while (true)
             {
-                return null;
-            }
-
-            if (key.Kind == TerminalKeyKind.Submit)
-            {
-                var submitted = editor.Prompt.Text;
-                var completed = new PromptValue(prompt, submitted, submitted.EnumerateRunes().Count());
+                cancellationToken.ThrowIfCancellationRequested();
                 await input.ReplaceInput(
-                    [new LiveTextValue(prompt), InputItem(completed, secret)],
+                    [new LiveTextValue(prompt), InputItem(editor.Prompt, secret)],
                     cancellationToken).ConfigureAwait(false);
-                return submitted;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                var key = await input.ReadKey(cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (IsCancellation(key))
+                {
+                    return null;
+                }
 
-            _ = editor.Apply(key);
+                if (key.Kind == TerminalKeyKind.Submit)
+                {
+                    var submitted = editor.Prompt.Text;
+                    var completed = new PromptValue(prompt, submitted, submitted.EnumerateRunes().Count());
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await input.ReplaceInput(
+                        [new LiveTextValue(prompt), InputItem(completed, secret)],
+                        cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return submitted;
+                }
+
+                _ = editor.Apply(key);
+            }
+        }
+        finally
+        {
+            input.ResetInput();
         }
     }
 }

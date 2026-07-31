@@ -302,6 +302,125 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Settled_question_closes_picker_without_local_answer(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask me");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+        await WaitForQuestionList(driver, 1, cancellationToken);
+        driver.Invoker.AddPendingQuestion(Question("question-request", "Pick a colour"));
+
+        await driver.OutputContains("Pick a colour", cancellationToken);
+        var listedBeforeSettlement = driver.Invoker.PendingQuestionLists;
+        var outputBeforeSettlement = driver.Output.Length;
+        driver.Invoker.RemovePendingQuestion("question-request");
+
+        await WaitForQuestionList(driver, listedBeforeSettlement + 1, cancellationToken);
+        await driver.OutputContainsAfter(outputBeforeSettlement, "\u001b[2K❯ ", cancellationToken);
+        driver.Input.Type("after question");
+        await driver.Sent(2, cancellationToken);
+
+        _ = await Assert.That(driver.Invoker.QuestionReplies).IsEmpty();
+        _ = await Assert.That(driver.Invoker.QuestionRejections).IsEmpty();
+        _ = await Assert.That(driver.Invoker.Sent[1]).IsEqualTo("after question");
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    public async Task Settled_multi_part_question_discards_collected_answers(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask twice");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+        await WaitForQuestionList(driver, 1, cancellationToken);
+        var pending = Question("question-request", "First choice");
+        pending.Questions.Add(new QuestionDefinition
+        {
+            Id = "second",
+            Header = "Question",
+            Prompt = "Second choice",
+            Options = { new QuestionOption { Id = "two", Label = "Two" } },
+        });
+        driver.Invoker.AddPendingQuestion(pending);
+
+        await driver.OutputContains("First choice", cancellationToken);
+        driver.Input.Type(string.Empty);
+        await driver.OutputContains("Second choice", cancellationToken);
+        driver.Invoker.RemovePendingQuestion("question-request");
+        var outputBeforeSettlement = driver.Output.Length;
+
+        await driver.OutputContainsAfter(outputBeforeSettlement, "\u001b[2K❯ ", cancellationToken);
+        _ = await Assert.That(driver.Invoker.QuestionReplies).IsEmpty();
+        _ = await Assert.That(driver.Invoker.QuestionRejections).IsEmpty();
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    public async Task Settling_another_request_does_not_close_the_active_question(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Invoker.AddPendingQuestion(Question("question-a", "Active question"));
+        driver.Invoker.AddPendingQuestion(Question("question-b", "Queued question"));
+        driver.Input.Type("ask me");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+
+        await driver.OutputContains("Active question", cancellationToken);
+        var listedBeforeSettlement = driver.Invoker.PendingQuestionLists;
+        driver.Invoker.RemovePendingQuestion("question-b");
+        await WaitForQuestionList(driver, listedBeforeSettlement + 1, cancellationToken);
+        var outputBeforeQueuedQuestion = driver.Output.Length;
+        driver.Input.Type(string.Empty);
+        while (driver.Invoker.QuestionReplies.Count < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        await driver.OutputContainsAfter(outputBeforeQueuedQuestion, "\u001b[2K❯ ", cancellationToken);
+        _ = await Assert.That(driver.Invoker.QuestionReplies).HasSingleItem();
+        _ = await Assert.That(driver.Invoker.QuestionReplies[0].QuestionRequestId).IsEqualTo("question-a");
+        _ = await Assert.That(driver.Invoker.QuestionRejections).IsEmpty();
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    public async Task User_cancellation_rejects_a_pending_question(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask me");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+        await WaitForQuestionList(driver, 1, cancellationToken);
+        driver.Invoker.AddPendingQuestion(Question("question-request", "Pick a colour"));
+
+        await driver.OutputContains("Pick a colour", cancellationToken);
+        driver.Input.Type("\u001b");
+        while (driver.Invoker.QuestionRejections.Count < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        _ = await Assert.That(driver.Invoker.QuestionRejections).HasSingleItem();
+        _ = await Assert.That(driver.Invoker.QuestionRejections[0].QuestionRequestId).IsEqualTo("question-request");
+        _ = await Assert.That(driver.Invoker.QuestionReplies).IsEmpty();
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
     public async Task Finished_shell_tool_flushes_its_command_to_scrollback(CancellationToken cancellationToken)
     {
         using var output = new StringWriter();
@@ -920,7 +1039,45 @@ internal sealed class EnhancedCliTests
     private static Func<TimeSpan, CancellationToken, Task> ImmediateDelay() =>
         static (_, cancellationToken) => Task.Delay(1, cancellationToken);
 
+    private static async Task PublishQuestionStart(CliLifecycleDriver driver)
+    {
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnStarted = new TurnStarted { Model = "model" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            ToolStarted = new ToolStarted { ToolCallId = "call-question", ToolName = "question" },
+        });
+    }
+
+    private static PendingQuestion Question(string requestId, string prompt)
+    {
+        var pending = new PendingQuestion { Id = requestId };
+        pending.Questions.Add(new QuestionDefinition
+        {
+            Id = "first",
+            Header = "Question",
+            Prompt = prompt,
+            Options = { new QuestionOption { Id = "one", Label = "One" } },
+        });
+        return pending;
+    }
+
     private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
+
+    private static async Task WaitForQuestionList(
+        CliLifecycleDriver driver,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        while (driver.Invoker.PendingQuestionLists < count)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+    }
 
     private static async Task OutputContains(
         ScriptedTerminal terminal, string text, CancellationToken cancellationToken)

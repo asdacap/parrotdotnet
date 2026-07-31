@@ -22,6 +22,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<UpdateSessionRequest> _updated = [];
     private readonly List<ConfigureModelAliasRequest> _configuredAliases = [];
     private readonly List<ReplyQuestionRequest> _questionReplies = [];
+    private readonly List<RejectQuestionRequest> _questionRejections = [];
     private readonly List<ReplyPermissionRequest> _permissionReplies = [];
     private readonly Lock _gate = new();
     private int _pendingQuestionLists;
@@ -127,6 +128,17 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public IReadOnlyList<RejectQuestionRequest> QuestionRejections
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _questionRejections.Select(rejection => rejection.Clone())];
+            }
+        }
+    }
+
     public IReadOnlyList<ReplyPermissionRequest> PermissionReplies
     {
         get
@@ -179,6 +191,15 @@ internal sealed class ScriptedInvoker : CallInvoker
         lock (_gate)
         {
             GetPendingQuestions("session-1").Add(question.Clone());
+        }
+    }
+
+    public void RemovePendingQuestion(string requestId)
+    {
+        lock (_gate)
+        {
+            _ = GetPendingQuestions("session-1").RemoveAll(question =>
+                string.Equals(question.Id, requestId, StringComparison.Ordinal));
         }
     }
 
@@ -348,6 +369,7 @@ internal sealed class ScriptedInvoker : CallInvoker
             case RejectQuestionRequest reject:
                 lock (_gate)
                 {
+                    _questionRejections.Add(reject.Clone());
                     _ = GetPendingQuestions(reject.UserSessionId).RemoveAll(question => string.Equals(question.Id, reject.QuestionRequestId, StringComparison.Ordinal));
                 }
 

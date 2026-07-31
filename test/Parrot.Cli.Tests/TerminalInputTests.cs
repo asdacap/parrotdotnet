@@ -76,6 +76,78 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    public async Task Decoder_reset_discards_partial_escape_and_paste_state()
+    {
+        var decoder = new TerminalKeyDecoder();
+
+        _ = decoder.Feed([0x1b]);
+        decoder.Reset();
+        var textAfterEscape = decoder.Feed(Encoding.ASCII.GetBytes("[A"));
+
+        _ = decoder.Feed(Encoding.ASCII.GetBytes("\u001b[200~discarded"));
+        decoder.Reset();
+        var pasteAfterReset = decoder.Feed(Encoding.ASCII.GetBytes("\u001b[200~fresh\u001b[201~"));
+
+        _ = await Assert.That(textAfterEscape.Count).IsEqualTo(2);
+        _ = await Assert.That(textAfterEscape[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.Character, "["));
+        _ = await Assert.That(textAfterEscape[1]).IsEqualTo(new TerminalKey(TerminalKeyKind.Character, "A"));
+        _ = await Assert.That(pasteAfterReset).HasSingleItem();
+        _ = await Assert.That(pasteAfterReset[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.Paste, "fresh"));
+    }
+
+    [Test]
+    public async Task Live_input_cancellation_discards_buffered_keys(CancellationToken cancellationToken)
+    {
+        using var terminal = new ScriptedTerminal(80);
+        var host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
+        terminal.Type("ab");
+        var first = await host.ReadKey(cancellationToken);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        _ = await Assert.That(async () => await host.ReadKey(cancelled.Token)).Throws<OperationCanceledException>();
+        terminal.Type("c");
+        var afterCancellation = await host.ReadKey(cancellationToken);
+
+        _ = await Assert.That(first).IsEqualTo(new TerminalKey(TerminalKeyKind.Character, "a"));
+        _ = await Assert.That(afterCancellation).IsEqualTo(new TerminalKey(TerminalKeyKind.Character, "c"));
+    }
+
+    [Test]
+    public async Task Live_input_reset_discards_keys_buffered_for_the_previous_owner(CancellationToken cancellationToken)
+    {
+        using var terminal = new ScriptedTerminal(80);
+        var host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
+        terminal.Type("ab");
+        var first = await host.ReadKey(cancellationToken);
+
+        host.ResetInput();
+        terminal.Type("c");
+        var afterReset = await host.ReadKey(cancellationToken);
+
+        _ = await Assert.That(first).IsEqualTo(new TerminalKey(TerminalKeyKind.Character, "a"));
+        _ = await Assert.That(afterReset).IsEqualTo(new TerminalKey(TerminalKeyKind.Character, "c"));
+    }
+
+    [Test]
+    public async Task Live_input_cancellation_discards_partial_decoder_state(CancellationToken cancellationToken)
+    {
+        using var terminal = new ScriptedTerminal(80);
+        var host = new EnhancedLiveInputHost(terminal, static (_, _) => Task.CompletedTask);
+        using var cancelled = new CancellationTokenSource();
+        terminal.Type("\u001b");
+        var pending = host.ReadKey(cancelled.Token).AsTask();
+        await cancelled.CancelAsync();
+
+        _ = await Assert.That(async () => await pending.WaitAsync(CancellationToken.None))
+            .Throws<OperationCanceledException>();
+        terminal.Type("[A");
+        var afterCancellation = await host.ReadKey(cancellationToken);
+
+        _ = await Assert.That(afterCancellation).IsEqualTo(new TerminalKey(TerminalKeyKind.Character, "["));
+    }
+
+    [Test]
     public async Task Decoder_maps_tab_to_completion()
     {
         var decoded = new TerminalKeyDecoder().Feed([0x09]);

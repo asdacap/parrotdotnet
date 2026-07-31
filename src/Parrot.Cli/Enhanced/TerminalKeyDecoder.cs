@@ -17,6 +17,13 @@ internal sealed class TerminalKeyDecoder
         return DecodeAvailable();
     }
 
+    public void Reset()
+    {
+        _bytes.Clear();
+        _paste.Clear();
+        _pasting = false;
+    }
+
     public IReadOnlyList<TerminalKey> Flush()
     {
         if (_bytes.Count == 1 && _bytes[0] == 0x1b)

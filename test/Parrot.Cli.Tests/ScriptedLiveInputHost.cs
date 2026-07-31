@@ -42,4 +42,8 @@ internal sealed class ScriptedLiveInputHost(params string[] input) : ILiveInputH
         Frames.Add([.. items]);
         return Task.CompletedTask;
     }
+
+    public void ResetInput()
+    {
+    }
 }
