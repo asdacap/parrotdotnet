@@ -106,6 +106,12 @@ provider_model_alias_defaults:
     high_llm: opencode-go/glm-5.2/high
     xhigh_llm: opencode-go/kimi-k3/high
 
+  openrouter:
+    low_llm: openrouter/deepseek/deepseek-v4-flash-0731/high
+    medium_llm: openrouter/deepseek/deepseek-v4-pro/high
+    high_llm: openrouter/z-ai/glm-5.2/high
+    xhigh_llm: openrouter/moonshotai/kimi-k3/high
+
 # System-prompt augmentations keyed by exact provider/model[/variant] selector.
 # Entries merge by selector. An explicit empty value clears an inherited prompt.
 model_augment_system_prompts: {}
