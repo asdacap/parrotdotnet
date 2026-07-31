@@ -10,6 +10,7 @@ namespace Parrot.Config;
 internal sealed class Configuration(string path)
 {
     private const string ModelAliasesKey = "model_aliases";
+    private const string ProviderModelAliasDefaultsKey = "provider_model_alias_defaults";
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
     private const string PromptKey = "prompt";
@@ -37,6 +38,9 @@ internal sealed class Configuration(string path)
 
     public IReadOnlyDictionary<string, ModelAliasConfig> ModelAliases { get; private set; } =
         new SortedDictionary<string, ModelAliasConfig>(StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, ProviderModelAliasDefaults> ProviderModelAliasDefaults { get; private set; } =
+        new SortedDictionary<string, ProviderModelAliasDefaults>(StringComparer.Ordinal);
 
     public IReadOnlyDictionary<string, string> ModelAugmentSystemPrompts { get; private set; } =
         new SortedDictionary<string, string>(StringComparer.Ordinal);
@@ -68,6 +72,7 @@ internal sealed class Configuration(string path)
             Prompt = NonEmptyScalar(root, PromptKey, PromptKey),
             InlineDiff = ReadInlineDiff(root),
             ModelAliases = ReadModelAliases(root),
+            ProviderModelAliasDefaults = ReadProviderModelAliasDefaults(root),
             ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
@@ -117,6 +122,44 @@ internal sealed class Configuration(string path)
             {
                 [name] = existing with { ModelString = target },
             };
+            ModelAliases = updated;
+        }
+    }
+
+    public void SetModelAliases(ProviderModelAliasDefaults defaults)
+    {
+        ArgumentNullException.ThrowIfNull(defaults);
+
+        var targets = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["low_llm"] = defaults.LowModelString,
+            ["medium_llm"] = defaults.MediumModelString,
+            ["high_llm"] = defaults.HighModelString,
+            ["xhigh_llm"] = defaults.XHighModelString,
+        };
+        ValidateProviderModelAliasDefaults(defaults.ProviderId, targets);
+
+        lock (_writeLock)
+        {
+            var updated = new SortedDictionary<string, ModelAliasConfig>(
+                ModelAliases.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal),
+                StringComparer.Ordinal);
+            var root = LoadRoot(path);
+            var aliases = Mapping(root, ModelAliasesKey);
+
+            foreach (var target in targets)
+            {
+                if (!updated.TryGetValue(target.Key, out var existing))
+                {
+                    throw new InvalidDataException($"model alias \"{target.Key}\" is not defined");
+                }
+
+                var alias = Mapping(aliases, target.Key);
+                alias.Children[new YamlScalarNode("model_string")] = new YamlScalarNode(target.Value);
+                updated[target.Key] = existing with { ModelString = target.Value };
+            }
+
+            Write(root);
             ModelAliases = updated;
         }
     }
@@ -280,6 +323,95 @@ internal sealed class Configuration(string path)
         }
 
         return aliases;
+    }
+
+    private static SortedDictionary<string, ProviderModelAliasDefaults> ReadProviderModelAliasDefaults(
+        YamlMappingNode root)
+    {
+        var result = new SortedDictionary<string, ProviderModelAliasDefaults>(StringComparer.Ordinal);
+        if (!Child(root, ProviderModelAliasDefaultsKey, out var node) || node is not YamlMappingNode providers)
+        {
+            throw new InvalidDataException($"{ProviderModelAliasDefaultsKey} must be a mapping");
+        }
+
+        foreach (var entry in providers.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { } providerId } ||
+                entry.Value is not YamlMappingNode defaults)
+            {
+                throw new InvalidDataException($"{ProviderModelAliasDefaultsKey} must contain named mappings");
+            }
+
+            var targets = ReadProviderModelAliasDefaultTargets(providerId, defaults);
+            result[providerId] = new ProviderModelAliasDefaults(
+                providerId,
+                targets["low_llm"],
+                targets["medium_llm"],
+                targets["high_llm"],
+                targets["xhigh_llm"]);
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, string> ReadProviderModelAliasDefaultTargets(
+        string providerId,
+        YamlMappingNode defaults)
+    {
+        var targets = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entry in defaults.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { } alias } ||
+                alias is not ("low_llm" or "medium_llm" or "high_llm" or "xhigh_llm"))
+            {
+                throw new InvalidDataException(
+                    $"{ProviderModelAliasDefaultsKey}.{providerId} contains an unsupported key");
+            }
+
+            if (entry.Value is not YamlScalarNode { Value: { } target })
+            {
+                throw new InvalidDataException(
+                    $"{ProviderModelAliasDefaultsKey}.{providerId}.{alias} must be a string");
+            }
+
+            if (!targets.TryAdd(alias, target))
+            {
+                throw new InvalidDataException(
+                    $"{ProviderModelAliasDefaultsKey}.{providerId}.{alias} must be defined once");
+            }
+        }
+
+        ValidateProviderModelAliasDefaults(providerId, targets);
+        return targets;
+    }
+
+    private static void ValidateProviderModelAliasDefaults(
+        string providerId,
+        Dictionary<string, string> targets)
+    {
+        if (providerId.Length == 0 || !string.Equals(providerId.Trim(), providerId, StringComparison.Ordinal) ||
+            providerId.Contains('/', StringComparison.Ordinal) || providerId.Any(char.IsControl))
+        {
+            throw new InvalidDataException($"{ProviderModelAliasDefaultsKey} provider id must be a non-empty path segment");
+        }
+
+        var aliases = new[] { "low_llm", "medium_llm", "high_llm", "xhigh_llm" };
+        if (targets.Count != aliases.Length || aliases.Any(alias => !targets.ContainsKey(alias)))
+        {
+            throw new InvalidDataException(
+                $"{ProviderModelAliasDefaultsKey}.{providerId} must define exactly low_llm, medium_llm, high_llm, and xhigh_llm");
+        }
+
+        foreach (var alias in aliases)
+        {
+            var field = $"{ProviderModelAliasDefaultsKey}.{providerId}.{alias}";
+            var target = targets[alias];
+            ValidateModelSelector(field, target, allowEmpty: false);
+            if (!string.Equals(target.Split('/')[0], providerId, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"{field} must select provider {providerId}");
+            }
+        }
     }
 
     private static SortedDictionary<string, string> ReadModelAugmentSystemPrompts(YamlMappingNode root)

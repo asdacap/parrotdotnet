@@ -235,8 +235,28 @@ Their predefined `usage` values are:
 - `high_llm`: `General purpose, agent spawner, tactical decision making and planning, debugging, colaborator`
 - `xhigh_llm`: `Strategic work spanning multiple modules or parties, ambiguous or open-ended requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.`
 
+The ordinary predefined `model_aliases` targets remain empty. Consequently each
+unconfigured alias produces this startup warning until it is configured:
+`warning: model alias "NAME" is not configured. Use /model-alias to configure.`
+
+Provider defaults are a separate, opt-in complete set of targets. They are
+configured under `provider_model_alias_defaults`; every provider entry must map
+**all four** predefined aliases (`low_llm`, `medium_llm`, `high_llm`, and
+`xhigh_llm`). A partial provider mapping is invalid. The shipped ChatGPT
+mapping is:
+
+```yaml
+provider_model_alias_defaults:
+  chatgpt:
+    low_llm: chatgpt/gpt-5.6-terra/medium
+    medium_llm: chatgpt/gpt-5.6-sol/medium
+    high_llm: chatgpt/gpt-5.6-sol/high
+    xhigh_llm: chatgpt/gpt-5.6-sol/xhigh
+```
+
 A configured entry can override any predefined field without losing its default
-metadata, and can add another alias.
+metadata, and can add another alias. Provider defaults do not implicitly set
+ordinary aliases: they are applied only when chosen through `/model-alias`.
 
 ```yaml
 model_aliases:
@@ -315,9 +335,21 @@ usage and target (or `not configured`), and lets the user choose a provider,
 model, and, where applicable, effort. It configures only the alias; it does not
 change the active session or model selection.
 
-Alias listing and configuration belong to the server that executes turns. A
-remote CLI queries and updates that authoritative server configuration; it does
-not modify its own local configuration instead.
+Its alias picker also has a **Use provider defaults** entry, described as
+**Configure all four model aliases**. Selecting it opens **Select provider
+defaults**. That picker lists only provider IDs that both have a complete
+four-alias mapping and are currently available through the executing server's
+`ListModels` result. Thus a configured provider-default mapping is not offered
+merely because it exists in configuration; the server must currently make that
+provider available. If none qualify, the command reports `no available
+providers have model alias defaults`.
+
+Choosing a provider-default entry is server-authoritative: the server validates
+and writes all four ordinary alias targets as one atomic operation, so it never
+leaves a partially applied provider set. On success it reports `Model aliases
+configured from PROVIDER defaults`. A remote CLI queries and updates that
+authoritative server configuration; it does not modify its own local
+configuration instead.
 
 Aliases can also tailor the system prompt. For a matched alias, a non-null
 `augment_system_prompt` wins, including an explicit empty string, which

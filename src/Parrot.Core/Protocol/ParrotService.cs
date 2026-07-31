@@ -85,6 +85,55 @@ internal sealed class ParrotService(
         }
     }
 
+    public override async Task<ListProviderModelAliasDefaultsResponse> ListProviderModelAliasDefaults(
+        ListProviderModelAliasDefaultsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var available = await registry.AvailableModels(context.CancellationToken).ConfigureAwait(false);
+        var response = new ListProviderModelAliasDefaultsResponse();
+        response.Providers.AddRange(aliases.ListProviderDefaults(
+            available.Select(model => model.Provider.Id)).Select(defaults =>
+                new ProviderModelAliasDefaults { ProviderId = defaults.ProviderId }));
+        return response;
+    }
+
+    public override async Task<ApplyProviderModelAliasDefaultsResponse> ApplyProviderModelAliasDefaults(
+        ApplyProviderModelAliasDefaultsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        try
+        {
+            var available = await registry.AvailableModels(context.CancellationToken).ConfigureAwait(false);
+            var providerIds = aliases.ListProviderDefaults(available.Select(model => model.Provider.Id))
+                .Select(defaults => defaults.ProviderId);
+            if (!providerIds.Contains(request.ProviderId, StringComparer.Ordinal))
+            {
+                throw new LLMProviderException(
+                    $"model alias defaults: provider \"{request.ProviderId}\" is not available");
+            }
+
+            var response = new ApplyProviderModelAliasDefaultsResponse();
+            response.Aliases.AddRange(aliases.ApplyProviderDefaults(request.ProviderId).Select(ToProtocol));
+            return response;
+        }
+        catch (Exception failure) when (failure is LLMProviderException or InvalidDataException)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new RpcException(new Status(
+                StatusCode.Internal,
+                $"failed to persist model aliases: {failure.Message}"));
+        }
+    }
+
     public override Task<ListModesResponse> ListModes(ListModesRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);

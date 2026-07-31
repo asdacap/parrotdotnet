@@ -14,6 +14,8 @@ service Parrot {
   rpc ListModels (ListModelsRequest) returns (ListModelsResponse);
   rpc ListModelAliases (ListModelAliasesRequest) returns (ListModelAliasesResponse);
   rpc ConfigureModelAlias (ConfigureModelAliasRequest) returns (ConfigureModelAliasResponse);
+  rpc ListProviderModelAliasDefaults (ListProviderModelAliasDefaultsRequest) returns (ListProviderModelAliasDefaultsResponse);
+  rpc ApplyProviderModelAliasDefaults (ApplyProviderModelAliasDefaultsRequest) returns (ApplyProviderModelAliasDefaultsResponse);
   rpc ListModes (ListModesRequest) returns (ListModesResponse);
   rpc ListSessions (ListSessionsRequest) returns (ListSessionsResponse);
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
@@ -93,6 +95,24 @@ message ConfigureModelAliasRequest {
 
 message ConfigureModelAliasResponse {
   ModelAlias alias = 1;
+}
+
+message ListProviderModelAliasDefaultsRequest {}
+
+message ListProviderModelAliasDefaultsResponse {
+  repeated ProviderModelAliasDefaults providers = 1;
+}
+
+message ProviderModelAliasDefaults {
+  string provider_id = 1;
+}
+
+message ApplyProviderModelAliasDefaultsRequest {
+  string provider_id = 1;
+}
+
+message ApplyProviderModelAliasDefaultsResponse {
+  repeated ModelAlias aliases = 1;
 }
 
 message ListModesRequest {}

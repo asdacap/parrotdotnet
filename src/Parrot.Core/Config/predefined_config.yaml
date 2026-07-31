@@ -91,6 +91,15 @@ model_aliases:
       glyph: ◆
       color: red
 
+# Recommended standard alias targets for each provider. Every provider entry must
+# define all four aliases, and each target must select that provider.
+provider_model_alias_defaults:
+  chatgpt:
+    low_llm: chatgpt/gpt-5.6-terra/medium
+    medium_llm: chatgpt/gpt-5.6-sol/medium
+    high_llm: chatgpt/gpt-5.6-sol/high
+    xhigh_llm: chatgpt/gpt-5.6-sol/xhigh
+
 # System-prompt augmentations keyed by exact provider/model[/variant] selector.
 # Entries merge by selector. An explicit empty value clears an inherited prompt.
 model_augment_system_prompts: {}

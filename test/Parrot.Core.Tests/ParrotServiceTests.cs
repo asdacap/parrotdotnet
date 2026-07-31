@@ -28,6 +28,17 @@ internal sealed class ParrotServiceTests : IDisposable
     public ParrotServiceTests()
     {
         _registry = Registry();
+        _ = Directory.CreateDirectory(_root);
+        var configPath = Path.Combine(_root, "config.yaml");
+        var configContent = """
+            provider_model_alias_defaults:
+              scripted:
+                low_llm: scripted/low
+                medium_llm: scripted/medium
+                high_llm: scripted/high
+                xhigh_llm: scripted/xhigh
+            """;
+        File.WriteAllText(configPath, configContent);
         _configuration = Configuration.Load(Path.Combine(_root, "config.yaml"), Path.Combine(_root, "predefined_config.yaml"));
         _catalog = new ModelAliasCatalog(_registry, _configuration.ModelAliases.Select(alias =>
             new ModelAliasDefinition(
@@ -348,6 +359,37 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(await File.ReadAllTextAsync(Path.Combine(_root, "config.yaml"), cancellationToken))
             .Contains("model_string: scripted/model");
+    }
+
+    [Test]
+    public async Task Provider_model_alias_defaults_are_listed_applied_and_reject_unknown_providers(
+        CancellationToken cancellationToken)
+    {
+        var store = Store();
+        await using var service = Service(store);
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+
+        var listed = await client.ListProviderModelAliasDefaultsAsync(
+            new ListProviderModelAliasDefaultsRequest(), cancellationToken: cancellationToken);
+        var applied = await client.ApplyProviderModelAliasDefaultsAsync(
+            new ApplyProviderModelAliasDefaultsRequest { ProviderId = "scripted" },
+            cancellationToken: cancellationToken);
+        var aliases = await client.ListModelAliasesAsync(
+            new ListModelAliasesRequest(), cancellationToken: cancellationToken);
+        var refused = await Assert.That(async () => await client.ApplyProviderModelAliasDefaultsAsync(
+            new ApplyProviderModelAliasDefaultsRequest { ProviderId = "missing" },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+
+        _ = await Assert.That(string.Join(",", listed.Providers.Select(provider => provider.ProviderId)))
+            .IsEqualTo("scripted");
+        _ = await Assert.That(string.Join(",", applied.Aliases.Select(alias => $"{alias.Name}={alias.ModelString}")))
+            .IsEqualTo("high_llm=scripted/high,low_llm=scripted/low,medium_llm=scripted/medium,xhigh_llm=scripted/xhigh");
+        _ = await Assert.That(aliases.Aliases.Single(alias => alias.Name == "medium_llm").ModelString)
+            .IsEqualTo("scripted/medium");
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        var persisted = await File.ReadAllTextAsync(Path.Combine(_root, "config.yaml"), cancellationToken);
+        _ = await Assert.That(persisted).Contains("model_string: scripted/low");
+        _ = await Assert.That(persisted).Contains("model_string: scripted/xhigh");
     }
 
     [Test]

@@ -17,7 +17,7 @@ internal static class ModelAliasWarnings
             return [.. listed.Aliases
                 .Where(alias => alias.ModelString.Length == 0)
                 .OrderBy(alias => alias.Name, StringComparer.Ordinal)
-                .Select(alias => $"warning: model alias \"{alias.Name}\" is not configured")];
+                .Select(alias => $"warning: model alias \"{alias.Name}\" is not configured. Use /model-alias to configure.")];
         }
         catch (RpcException)
         {
