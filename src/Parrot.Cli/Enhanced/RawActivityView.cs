@@ -9,8 +9,7 @@ internal sealed class RawActivityView(
     Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
     Func<CancellationToken, Task> delay,
     ToolPresenterRegistry presenters,
-    Func<string, CancellationToken, Task> updateMainAgentActivity,
-    Func<bool> invalidate) : IDisposable
+    Func<string, CancellationToken, Task> updateMainAgentActivity) : IDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
 
@@ -29,33 +28,12 @@ internal sealed class RawActivityView(
         Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
         ToolPresenterRegistry presenters,
         Func<string, CancellationToken, Task> updateMainAgentActivity)
-        : this(replace, commit, presenters, updateMainAgentActivity, static () => false)
-    {
-    }
-
-    public RawActivityView(
-        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
-        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
-        ToolPresenterRegistry presenters,
-        Func<string, CancellationToken, Task> updateMainAgentActivity,
-        Func<bool> invalidate)
         : this(
             replace,
             commit,
             static cancellationToken => Task.Delay(SpinnerIntervalMilliseconds, cancellationToken),
             presenters,
-            updateMainAgentActivity,
-            invalidate)
-    {
-    }
-
-    internal RawActivityView(
-        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
-        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
-        Func<CancellationToken, Task> delay,
-        ToolPresenterRegistry presenters,
-        Func<string, CancellationToken, Task> updateMainAgentActivity)
-        : this(replace, commit, delay, presenters, updateMainAgentActivity, static () => false)
+            updateMainAgentActivity)
     {
     }
 
@@ -75,7 +53,6 @@ internal sealed class RawActivityView(
                     if (_activities.Count > 0)
                     {
                         await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
-                        _ = invalidate();
                     }
                 }
                 finally

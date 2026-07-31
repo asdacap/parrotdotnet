@@ -151,35 +151,10 @@ internal sealed class EnhancedCli(
         var rendering = Task.CompletedTask;
         var interrupting = Interrupting(session, listening.Token);
         var editor = new IncrementalEditor(Prompt, 64 * 1024);
-        var currentInput = (IReadOnlyList<ILiveBufferItem>)[editor.Prompt];
-        var currentBody = (IReadOnlyList<ILiveBufferItem>)[];
-        var currentQueueRows = (IReadOnlyList<ILiveBufferItem>)[];
-        var usage = new RuntimeUsageTracker();
-        var foregroundForModeline = new ForegroundTurn();
-        var mainAgentActivity = string.Empty;
-        var modelineActivity = string.Empty;
-        var modelineFrame = 0;
-        var modelineTools = new HashSet<string>(StringComparer.Ordinal);
-        var currentModeline = CreateModeline();
-        using var composing = new SemaphoreSlim(1, 1);
-        var palette = new TerminalPalette(terminal.Color);
-        var renderer = new TerminalFrameRenderer(
-            output,
-            terminal.GetColumns,
-            palette,
-            TerminalFrameRenderer.DefaultLiveRows,
-            TerminalFrameRenderer.DefaultInputRows,
-            configuration.InlineDiff);
-        var updates = new LiveUpdateScheduler(DrawScheduled);
-        var updating = updates.Run(listening.Token);
-        var spinner = new TerminalSpinner(DrawInitialBody);
         var exiting = false;
         var firstTurnCompleted = !exitOnFirstCompletion;
         var pendingSubmit = (PendingSubmit?)null;
         var binding = (EnhancedListenBinding?)null;
-        using var spinnerLifecycle = new SemaphoreSlim(1, 1);
-        var spinnerRendering = Task.CompletedTask;
-        var spinnerStop = (TaskCompletionSource?)null;
         var planRequests = Channel.CreateUnbounded<PlanCompletionRequest>();
         var questionRequests = Channel.CreateUnbounded<(string UserSessionId, PendingQuestion Pending)>();
         var discoveredQuestionRequests = new HashSet<string>(StringComparer.Ordinal);
@@ -187,295 +162,10 @@ internal sealed class EnhancedCli(
         PermissionInteractionPresenter.Session? permissionSession = null;
         var reconcilingPermissions = Task.CompletedTask;
 
-        IReadOnlyList<ILiveBufferItem> Snapshot() =>
-            [.. currentBody, .. currentQueueRows, currentModeline, .. currentInput];
-
-        ModelineValue CreateModeline()
-        {
-            var runtime = usage.Current;
-            var right = new[]
-            {
-                runtime.FormatContext() is { Length: > 0 } context
-                    ? $"{session.Model} ({context})"
-                    : session.Model,
-                runtime.FormatTokens(),
-                runtime.FormatCost(),
-            };
-            var activityLabel = modelineTools.Count > 0
-                ? modelineActivity
-                : mainAgentActivity.Length > 0
-                    ? mainAgentActivity
-                    : modelineActivity;
-            var activity = activityLabel.Length == 0
-                ? string.Empty
-                : $"{TerminalIcons.SpinnerFrames[modelineFrame % TerminalIcons.SpinnerFrames.Length]} {activityLabel}";
-            return new ModelineValue(
-                session.Mode,
-                activity,
-                string.Join(" · ", right.Where(value => value.Length > 0)));
-        }
-
-        void ObserveModelineActivity(Event published)
-        {
-            if (foregroundForModeline.IsTerminal(published)
-                || (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
-                    && foregroundForModeline.IsMain(published.AgentSessionId)))
-            {
-                modelineTools.Clear();
-                modelineActivity = string.Empty;
-            }
-            else if (published.PayloadCase == Event.PayloadOneofCase.ToolStarted
-                && foregroundForModeline.IsMain(published.AgentSessionId)
-                && toolPresenters.Describe(published.ToolStarted.ToolName).Modeline)
-            {
-                _ = modelineTools.Add(published.ToolStarted.ToolCallId);
-                modelineActivity = $"Working: {published.ToolStarted.ToolName}";
-            }
-            else if (published.PayloadCase is Event.PayloadOneofCase.ToolFinished
-                     or Event.PayloadOneofCase.ToolCancelled
-                     or Event.PayloadOneofCase.ToolError)
-            {
-                var toolCallId = published.PayloadCase switch
-                {
-                    Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
-                    Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
-                    _ => published.ToolError.ToolCallId,
-                };
-                if (modelineTools.Remove(toolCallId) && modelineTools.Count == 0)
-                {
-                    modelineActivity = string.Empty;
-                }
-            }
-        }
-
-        async Task ReplaceQueueRows(IReadOnlyList<QueueState> queues, CancellationToken token)
-        {
-            var rows = queues
-                .Where(queue => queue.Name.Length > 0 && queue.ItemCount > 0)
-                .GroupBy(queue => queue.Name, StringComparer.Ordinal)
-                .Select(group => group.Last())
-                .OrderBy(queue => queue.Name, StringComparer.Ordinal)
-                .Select(queue => (ILiveBufferItem)new QueueLiveBufferItem(
-                    queue.Name,
-                    queue.Description,
-                    queue.ItemCount))
-                .ToArray();
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                currentQueueRows = rows;
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-
-            _ = updates.Invalidate();
-        }
-
-        async Task UpdateMainAgentActivity(string activity, CancellationToken token)
-        {
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                mainAgentActivity = activity;
-                currentModeline = CreateModeline();
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-        }
-
-        async Task ReplaceBody(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                currentBody = [.. items];
-                modelineFrame++;
-                currentModeline = CreateModeline();
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-        }
-
-        async Task DrawInitialBody(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                currentBody = [.. items];
-                modelineFrame++;
-                currentModeline = CreateModeline();
-                await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-        }
-
-        async Task DrawScheduled(CancellationToken token)
-        {
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-        }
-
-        async Task CommitBody(
-            IScrollbackItem scrollback,
-            IReadOnlyList<ILiveBufferItem> items,
-            CancellationToken token)
-        {
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                currentBody = [.. items];
-                currentModeline = CreateModeline();
-                await renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-        }
-
-        async Task ReplaceInput(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
-        {
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                currentInput = [.. items];
-                await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-        }
-
-        async Task DrawState(ModelineValue modeline, CancellationToken token)
-        {
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                currentBody = [];
-                currentModeline = modeline;
-                await renderer.Draw(Snapshot(), CancellationToken.None).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-        }
-
-        async Task Clear(CancellationToken token)
-        {
-            await composing.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                await renderer.Clear(CancellationToken.None).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-        }
-
-        async Task StopSpinner()
-        {
-            await spinnerLifecycle.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-            try
-            {
-                _ = spinnerStop?.TrySetResult();
-                await spinnerRendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-                spinnerStop = null;
-                spinnerRendering = Task.CompletedTask;
-            }
-            finally
-            {
-                _ = spinnerLifecycle.Release();
-            }
-        }
-
-        async Task StartSpinner(CancellationToken token)
-        {
-            await spinnerLifecycle.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                _ = spinnerStop?.TrySetResult();
-                await spinnerRendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-                spinnerStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                var stop = spinnerStop;
-                spinnerRendering = spinner.Run(
-                    index => new SpinnerValue("thinking", index),
-                    async (preserve, lifetimeToken) =>
-                    {
-                        await stop.Task.WaitAsync(lifetimeToken).ConfigureAwait(false);
-                        await preserve().ConfigureAwait(false);
-                    },
-                    token);
-            }
-            finally
-            {
-                _ = spinnerLifecycle.Release();
-            }
-        }
-
-        async Task StartTurn(string entered)
-        {
-            _busy = true;
-            var committed = ImmediateScrollbackValue.User(entered);
-            await composing.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                modelineActivity = "Thinking…";
-                currentModeline = CreateModeline();
-                currentInput = [editor.Prompt];
-                await renderer.Commit(committed, Snapshot(), CancellationToken.None).ConfigureAwait(false);
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-
-            await StartSpinner(binding?.Token ?? cancellationToken).ConfigureAwait(false);
-            _ = await client.SendMessageAsync(
-                Message(session.Id, entered), cancellationToken: cancellationToken);
-        }
-
         async Task ObserveRenderingEvent(Event published, CancellationToken eventToken)
         {
             var discoverQuestions = published.PayloadCase == Event.PayloadOneofCase.ToolStarted
                 && string.Equals(published.ToolStarted.ToolName, "question", StringComparison.Ordinal);
-            foregroundForModeline.Observe(published);
-            if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
-                && foregroundForModeline.IsMain(published.AgentSessionId))
-            {
-                _busy = true;
-            }
-
-            await composing.WaitAsync(eventToken).ConfigureAwait(false);
-            try
-            {
-                usage.Observe(published);
-                ObserveModelineActivity(published);
-                currentModeline = CreateModeline();
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-
             if (discoverQuestions)
             {
                 await DiscoverQuestions(
@@ -492,34 +182,19 @@ internal sealed class EnhancedCli(
             }
         }
 
+        Task StartRenderingTurn(CancellationToken eventToken)
+        {
+            eventToken.ThrowIfCancellationRequested();
+            _busy = true;
+            return Task.CompletedTask;
+        }
+
         Task FinishRenderingTurn(CancellationToken eventToken)
         {
             eventToken.ThrowIfCancellationRequested();
             _busy = false;
             _interruptRequested = false;
             return Task.CompletedTask;
-        }
-
-        async Task BecomeReady(CancellationToken readyToken)
-        {
-            if (_busy)
-            {
-                return;
-            }
-
-            await composing.WaitAsync(readyToken).ConfigureAwait(false);
-            try
-            {
-                mainAgentActivity = string.Empty;
-                modelineActivity = string.Empty;
-                currentModeline = CreateModeline();
-            }
-            finally
-            {
-                _ = composing.Release();
-            }
-
-            _ = updates.Invalidate();
         }
 
         async Task CompleteRenderingPlan(PlanCompleted completed, CancellationToken eventToken)
@@ -529,24 +204,42 @@ internal sealed class EnhancedCli(
             await pending.Answered.Task.WaitAsync(eventToken).ConfigureAwait(false);
         }
 
-        var renderingSession = new EnhancedRenderingSession(
+        using var renderingSession = new EnhancedRenderingSession(
             turnRenderer,
             toolPresenters,
-            ReplaceBody,
-            CommitBody,
-            UpdateMainAgentActivity,
+            new TerminalFrameRenderer(
+                output,
+                terminal.GetColumns,
+                new TerminalPalette(terminal.Color),
+                TerminalFrameRenderer.DefaultLiveRows,
+                TerminalFrameRenderer.DefaultInputRows,
+                configuration.InlineDiff),
+            session,
+            [editor.Prompt],
             ObserveRenderingEvent,
+            StartRenderingTurn,
             FinishRenderingTurn,
-            BecomeReady,
-            StopSpinner,
-            updates.Invalidate,
+            () => _busy,
             CompleteRenderingPlan,
             exitOnFirstCompletion);
+        var updating = renderingSession.RunUpdates(listening.Token);
+
+        async Task StartTurn(string entered)
+        {
+            _busy = true;
+            await renderingSession.BeginTurn(
+                ImmediateScrollbackValue.User(entered),
+                [editor.Prompt],
+                binding?.Token ?? cancellationToken,
+                cancellationToken).ConfigureAwait(false);
+            _ = await client.SendMessageAsync(
+                Message(session.Id, entered), cancellationToken: cancellationToken);
+        }
 
         async Task StartRendering(AsyncServerStreamingCall<Event> activeCall, CancellationToken streamToken)
         {
             firstTurnCompleted = await renderingSession.Run(
-                new QueueSnapshotStreamReader(activeCall.ResponseStream, ReplaceQueueRows),
+                activeCall.ResponseStream,
                 streamToken).ConfigureAwait(false);
         }
 
@@ -558,9 +251,9 @@ internal sealed class EnhancedCli(
                 throw new InvalidOperationException("the enhanced session stream is not running");
             }
 
-            await StopSpinner().ConfigureAwait(false);
+            await renderingSession.StopSpinner().ConfigureAwait(false);
             await binding.DisposeAsync().ConfigureAwait(false);
-            await ReplaceQueueRows([], CancellationToken.None).ConfigureAwait(false);
+            await renderingSession.ResetForSession(CancellationToken.None).ConfigureAwait(false);
             discoveredQuestionRequests.Clear();
             while (questionRequests.Reader.TryRead(out _))
             {
@@ -570,18 +263,12 @@ internal sealed class EnhancedCli(
             permissionSession = permissions.Attach(replacement.Id);
             binding = EnhancedListenBinding.Open(client, replacement.Id, StartRendering, listening.Token);
             rendering = binding.Rendering;
-            usage.Reset();
-            foregroundForModeline.Reset();
-            modelineTools.Clear();
-            mainAgentActivity = string.Empty;
-            modelineActivity = string.Empty;
-            currentModeline = CreateModeline();
             _busy = false;
             _interruptRequested = false;
         }
 
         _replaceSession = ReplaceSession;
-        var liveInput = new EnhancedLiveInputHost(terminal, ReplaceInput);
+        var liveInput = new EnhancedLiveInputHost(terminal, renderingSession.ReplaceInput);
         var dialog = new EnhancedSlashDialog(liveInput);
         var commands = SlashCommands.Create(
             client,
@@ -610,7 +297,7 @@ internal sealed class EnhancedCli(
                     start + index == completion.Selected))
                 .Append(editor.Prompt)
                 .ToList();
-            return ReplaceInput(items, token);
+            return renderingSession.ReplaceInput(items, token);
         }
 
         void DeferSubmit() => pendingSubmit = new PendingSubmit(delaySubmit, SubmitDelay, cancellationToken);
@@ -704,20 +391,19 @@ internal sealed class EnhancedCli(
             rendering = binding.Rendering;
             if (initialSession.Loaded && !exitOnFirstCompletion)
             {
-                await renderer.Commit(
+                await renderingSession.Commit(
                     ImmediateScrollbackValue.Muted([$"Loaded session {session.Id}"]),
-                    Snapshot(),
                     cancellationToken).ConfigureAwait(false);
             }
 
             var aliasWarnings = await ModelAliasWarnings.List(client, cancellationToken).ConfigureAwait(false);
             if (aliasWarnings.Count > 0)
             {
-                await renderer.Commit(
-                    ImmediateScrollbackValue.Muted(aliasWarnings), Snapshot(), cancellationToken).ConfigureAwait(false);
+                await renderingSession.Commit(
+                    ImmediateScrollbackValue.Muted(aliasWarnings), cancellationToken).ConfigureAwait(false);
             }
 
-            await DrawState(CreateModeline(), cancellationToken).ConfigureAwait(false);
+            await renderingSession.RefreshReady(cancellationToken).ConfigureAwait(false);
             await DrawPrompt(cancellationToken).ConfigureAwait(false);
             if (initialPrompt.Length > 0)
             {
@@ -843,8 +529,7 @@ internal sealed class EnhancedCli(
 
                 if (!_busy && !exiting)
                 {
-                    modelineActivity = string.Empty;
-                    await DrawState(CreateModeline(), cancellationToken).ConfigureAwait(false);
+                    await renderingSession.RefreshReady(cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -860,7 +545,7 @@ internal sealed class EnhancedCli(
                 _replaceSession = null;
                 interrupts.Remove();
                 _ = _interrupts.Writer.TryComplete();
-                await StopSpinner().ConfigureAwait(false);
+                await renderingSession.StopSpinner().ConfigureAwait(false);
                 await listening.CancelAsync().ConfigureAwait(false);
                 try
                 {
@@ -870,7 +555,7 @@ internal sealed class EnhancedCli(
                 {
                     try
                     {
-                        await Clear(CancellationToken.None).ConfigureAwait(false);
+                        await renderingSession.Clear(CancellationToken.None).ConfigureAwait(false);
                     }
                     finally
                     {
