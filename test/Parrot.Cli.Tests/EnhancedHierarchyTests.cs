@@ -1017,6 +1017,62 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Compaction_lifecycle_renders_live_activity_and_terminal_status(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new List<string>();
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(Render(items, liveContext));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = items;
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "root", CompactionStarted = new CompactionStarted() },
+            cancellationToken);
+
+        _ = await Assert.That(drawn[^1]).Contains("Compacting…");
+
+        await view.Render(
+            new Event { AgentSessionId = "root", CompactionFinished = new CompactionFinished() },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "root", CompactionStarted = new CompactionStarted() },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "root",
+                CompactionFailed = new CompactionFailed { Message = "boom\u001b[2J" },
+            },
+            cancellationToken);
+
+        _ = await Assert.That(string.Join('|', committed))
+            .IsEqualTo("✓ compaction finished|✗ compaction failed: boom[2J");
+    }
+
+    [Test]
     public async Task Hierarchy_resolves_depth_orphans_cycles_and_post_order()
     {
         var hierarchy = new AgentSessionHierarchy();

@@ -173,6 +173,10 @@ internal sealed class BasicCliTests
             new Event { AgentFinished = new AgentFinished { Name = "explorer" } }, cancellationToken);
         await stream.WriteAsync(
             new Event { AgentFailed = new AgentFailed { Name = "reviewer", Message = "boom" } }, cancellationToken);
+        await stream.WriteAsync(new Event { CompactionStarted = new CompactionStarted() }, cancellationToken);
+        await stream.WriteAsync(new Event { CompactionFinished = new CompactionFinished() }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { CompactionFailed = new CompactionFailed { Message = "boom" } }, cancellationToken);
         stream.Complete();
 
         using var output = new StringWriter();
@@ -187,7 +191,10 @@ internal sealed class BasicCliTests
             $"  tool error: shell: denied{Environment.NewLine}" +
             $"  agent started: explorer{Environment.NewLine}" +
             $"  agent finished: explorer{Environment.NewLine}" +
-            $"  agent failed: reviewer: boom{Environment.NewLine}");
+            $"  agent failed: reviewer: boom{Environment.NewLine}" +
+            $"  compaction started{Environment.NewLine}" +
+            $"  compaction finished{Environment.NewLine}" +
+            $"  compaction failed: boom{Environment.NewLine}");
         _ = await Assert.That(output.ToString()).DoesNotContain("enhanced-only result");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }

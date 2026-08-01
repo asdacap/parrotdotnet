@@ -8,6 +8,7 @@ namespace Parrot.Cli.Enhanced;
 internal sealed class AgentSessionState(string agentSessionId)
 {
     private const string AgentActivity = "agent";
+    private const string CompactionActivity = "compaction";
     private const int MaximumResponseLines = 10;
     private const string ToolActivityPrefix = "tool:";
 
@@ -59,6 +60,21 @@ internal sealed class AgentSessionState(string agentSessionId)
         _responseComplete = false;
         _responseLineBreaks = 0;
         return AgentActivity;
+    }
+
+    public string? StartCompaction() => _activities.Add(CompactionActivity) ? CompactionActivity : null;
+
+    public (string ActivityId, string Line)? FinishCompaction(Event published)
+    {
+        if (!_activities.Remove(CompactionActivity))
+        {
+            return null;
+        }
+
+        var line = published.PayloadCase == Event.PayloadOneofCase.CompactionFailed
+            ? $"! compaction failed: {TerminalText.Sanitize(published.CompactionFailed.Message)}"
+            : "+ compaction finished";
+        return (CompactionActivity, line);
     }
 
     public void CollectResponse(string fragment)
@@ -238,6 +254,11 @@ internal sealed class AgentSessionState(string agentSessionId)
             return _response.Length == 0
                 ? new SpinnerValue(AgentLabel, frame)
                 : new StreamedResponseValue("● ", _response.ToString());
+        }
+
+        if (string.Equals(activityId, CompactionActivity, StringComparison.Ordinal))
+        {
+            return new SpinnerValue("Compacting…", frame);
         }
 
         var toolCallId = activityId[ToolActivityPrefix.Length..];

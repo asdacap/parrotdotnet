@@ -72,6 +72,10 @@ internal sealed class EnhancedActivity(ToolPresenterRegistry presenters)
         Event.PayloadOneofCase.AgentFailed =>
             $"! agent {TerminalText.Sanitize(published.AgentFailed.Name)}: " +
             TerminalText.Sanitize(published.AgentFailed.Message),
+        Event.PayloadOneofCase.CompactionStarted => "* compaction started",
+        Event.PayloadOneofCase.CompactionFinished => "+ compaction finished",
+        Event.PayloadOneofCase.CompactionFailed =>
+            $"! compaction failed: {TerminalText.Sanitize(published.CompactionFailed.Message)}",
         _ => string.Empty,
     };
 

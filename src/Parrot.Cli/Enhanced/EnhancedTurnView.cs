@@ -77,6 +77,9 @@ internal sealed class EnhancedTurnView(
             case Event.PayloadOneofCase.AgentStarted:
             case Event.PayloadOneofCase.AgentFinished:
             case Event.PayloadOneofCase.AgentFailed:
+            case Event.PayloadOneofCase.CompactionStarted:
+            case Event.PayloadOneofCase.CompactionFinished:
+            case Event.PayloadOneofCase.CompactionFailed:
                 if (renderActivityEvents)
                 {
                     await RenderActivity(published, cancellationToken).ConfigureAwait(false);
@@ -190,11 +193,14 @@ internal sealed class EnhancedTurnView(
         var style = published.PayloadCase switch
         {
             Event.PayloadOneofCase.ToolStarted or
-            Event.PayloadOneofCase.AgentStarted => Cyan,
+            Event.PayloadOneofCase.AgentStarted or
+            Event.PayloadOneofCase.CompactionStarted => Cyan,
             Event.PayloadOneofCase.ToolFinished or
-            Event.PayloadOneofCase.AgentFinished => Green,
+            Event.PayloadOneofCase.AgentFinished or
+            Event.PayloadOneofCase.CompactionFinished => Green,
             Event.PayloadOneofCase.ToolError or
-            Event.PayloadOneofCase.AgentFailed => Red,
+            Event.PayloadOneofCase.AgentFailed or
+            Event.PayloadOneofCase.CompactionFailed => Red,
             _ => Dim,
         };
         return Commit(

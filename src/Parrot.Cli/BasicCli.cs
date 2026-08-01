@@ -130,6 +130,9 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.AgentStarted or
                 Event.PayloadOneofCase.AgentFinished or
                 Event.PayloadOneofCase.AgentFailed or
+                Event.PayloadOneofCase.CompactionStarted or
+                Event.PayloadOneofCase.CompactionFinished or
+                Event.PayloadOneofCase.CompactionFailed or
                 Event.PayloadOneofCase.ActiveWorkReminderInjected)
             {
                 await output.WriteLineAsync().ConfigureAwait(false);
@@ -205,6 +208,22 @@ internal sealed class BasicCli(
                     await output.WriteLineAsync(
                         $"  agent failed: {published.AgentFailed.Name}: {published.AgentFailed.Message}".AsMemory(),
                         cancellationToken).ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.CompactionStarted:
+                    await output.WriteLineAsync("  compaction started".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.CompactionFinished:
+                    await output.WriteLineAsync("  compaction finished".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.CompactionFailed:
+                    await output.WriteLineAsync(
+                        $"  compaction failed: {published.CompactionFailed.Message}".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.TurnEnded:

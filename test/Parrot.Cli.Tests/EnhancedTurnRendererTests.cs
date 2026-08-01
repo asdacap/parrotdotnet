@@ -84,6 +84,13 @@ internal sealed class EnhancedTurnRendererTests
                     Id = "agent-failed",
                     AgentFailed = new AgentFailed { Name = "reviewer\u001b[31m", Message = "boom\u001b[2J" },
                 },
+                new Event { Id = "compaction-started", CompactionStarted = new CompactionStarted() },
+                new Event { Id = "compaction-finished", CompactionFinished = new CompactionFinished() },
+                new Event
+                {
+                    Id = "compaction-failed",
+                    CompactionFailed = new CompactionFailed { Message = "boom\u001b[2J" },
+                },
                 new Event { Id = "text-3", TextChunk = new TextChunk { Fragment = "tail" } },
                 new Event
                 {
@@ -112,6 +119,9 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(output).Contains("  * agent explorer[31m started");
         _ = await Assert.That(output).Contains("  + agent explorer[31m finished");
         _ = await Assert.That(output).Contains("  ! agent reviewer[31m: boom[2J");
+        _ = await Assert.That(output).Contains("  * compaction started");
+        _ = await Assert.That(output).Contains("  + compaction finished");
+        _ = await Assert.That(output).Contains("  ! compaction failed: boom[2J");
         _ = await Assert.That(output).Contains("● tail\r\n");
         _ = await Assert.That(output).Contains("  stop[2J - 3 total in / 4 total out");
         _ = await Assert.That(Count(output, "● abcdef\r\n")).IsEqualTo(1);

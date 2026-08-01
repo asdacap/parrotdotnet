@@ -394,6 +394,15 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         var snapshot = repository.Compaction("agent")
             ?? throw new InvalidOperationException("Expected a durable compaction snapshot.");
+        var lifecycle = repository.Replay()
+            .Where(published => published.PayloadCase is Event.PayloadOneofCase.CompactionStarted
+                or Event.PayloadOneofCase.CompactionFinished
+                or Event.PayloadOneofCase.CompactionFailed)
+            .Select(published => published.PayloadCase)
+            .ToArray();
+        _ = await Assert.That(string.Join(',', lifecycle))
+            .IsEqualTo("CompactionStarted,CompactionFinished,CompactionStarted,CompactionFinished,"
+                + "CompactionStarted,CompactionFinished");
         _ = await Assert.That(snapshot.Summary).Contains("Summary of the earlier conversation:");
         _ = await Assert.That(repository.ConversationAfter("agent", snapshot.Watermark))
             .DoesNotContain(item => item.Parts.Any(part => part.Text == "old prompt"));
@@ -410,6 +419,56 @@ internal sealed class CompactorAndContextTests : IDisposable
             .DoesNotContain(message => message.Content == "old prompt");
         _ = await Assert.That(restoredRequest.Messages)
             .Contains(message => message.Role == LLMRole.User && message.Content == "after restart");
+    }
+
+    [Test]
+    public async Task Agent_session_reports_compaction_failure_before_the_turn_failure(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new FailingCompactionProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var identity = AgentIdentity.Main("agent", string.Empty);
+        var repository = new EventRepository(database);
+        var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        var session = new AgentSession(
+            identity,
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
+            broker,
+            repository,
+            [],
+            TestModels.MaterializePrompt(identity, _workspace, _workspace),
+            new TodoCollection("agent", repository, broker),
+            new ToolOutputBlobStore(_workspace),
+            new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024),
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
+            cancellationToken);
+
+        foreach (var prompt in new[] { "first", "second", "third" })
+        {
+            _ = await session.Send(prompt, Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            _ = await session.ResultSettled();
+        }
+
+        var lifecycle = repository.Replay()
+            .Where(published => published.PayloadCase is Event.PayloadOneofCase.CompactionStarted
+                or Event.PayloadOneofCase.CompactionFinished
+                or Event.PayloadOneofCase.CompactionFailed
+                or Event.PayloadOneofCase.TurnFailed)
+            .ToArray();
+        _ = await Assert.That(string.Join(',', lifecycle.Select(published => published.PayloadCase)))
+            .IsEqualTo("CompactionStarted,CompactionFinished,CompactionStarted,CompactionFinished,"
+                + "CompactionStarted,CompactionFailed,TurnFailed");
+        _ = await Assert.That(lifecycle[^2].CompactionFailed.Message)
+            .IsEqualTo("The compaction provider did not complete with a summary.");
+        _ = await Assert.That(lifecycle[^1].TurnFailed.Message).IsEqualTo(lifecycle[^2].CompactionFailed.Message);
     }
 
     [Test]
@@ -594,6 +653,32 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new SessionIdentityProvider(),
                 new SubagentsProvider(TestModels.ProfileRegistry()),
             ]);
+
+    private sealed class FailingCompactionProvider : ILLMProvider
+    {
+        public string Id => "failing-compaction";
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LLMModel>>([]);
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            if (request.Messages.Any(message => message.Role == LLMRole.System
+                && message.Content.StartsWith("Summarise the following conversation", StringComparison.Ordinal)))
+            {
+                yield return LLMEvent.TextDelta("incomplete summary");
+                yield break;
+            }
+
+            yield return LLMEvent.TextDelta("reply");
+            yield return LLMEvent.Completed("stop", 1, 0, 1, "reply", []);
+        }
+    }
 
     private sealed class IncompleteProvider : ILLMProvider
     {

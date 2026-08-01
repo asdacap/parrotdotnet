@@ -392,6 +392,9 @@ message Event {
     ShellProcessSnapshot   shell_process_snapshot  = 25;
     ActiveWorkReminderInjected active_work_reminder_injected = 26;
     SessionUsageSnapshot session_usage_snapshot = 27;
+    CompactionStarted compaction_started = 28;
+    CompactionFinished compaction_finished = 29;
+    CompactionFailed compaction_failed = 30;
   }
 }
 
@@ -471,6 +474,14 @@ message StatusInjected {}
 // Transient notification that a durable system reminder about direct active
 // work was added to model history. Its text remains in history, not on the wire.
 message ActiveWorkReminderInjected {}
+
+message CompactionStarted {}
+
+message CompactionFinished {}
+
+message CompactionFailed {
+  string message = 1;
+}
 
 message AgentStatisticsUpdatedEvent {
   int64  input_tokens        = 1;

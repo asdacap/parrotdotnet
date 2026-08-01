@@ -1203,35 +1203,62 @@ internal sealed class AgentSession(
 
         var selectedModel = selection?.ResolvedModel.CanonicalModel
             ?? throw new AgentRegistryException("turn selection is unavailable");
-        var priorWatermark = eventRepository.Compaction(SessionId)?.Watermark ?? 0;
-        var durableMessages = eventRepository.ConversationAfter(SessionId, priorWatermark);
-        var compacted = await compactor.Compact(
-            selectedModel,
-            _history,
-            cancellationToken).ConfigureAwait(false);
-        if (compacted is null)
+        var started = new Event
         {
-            return;
-        }
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            CompactionStarted = new CompactionStarted(),
+        };
+        await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
 
-        if (compacted.RetainedDurableMessageCount > durableMessages.Count)
+        try
         {
-            throw new InvalidOperationException("compaction retained more messages than durable conversation history");
-        }
+            var priorWatermark = eventRepository.Compaction(SessionId)?.Watermark ?? 0;
+            var durableMessages = eventRepository.ConversationAfter(SessionId, priorWatermark);
+            var compacted = await compactor.Compact(
+                selectedModel,
+                _history,
+                cancellationToken).ConfigureAwait(false);
+            if (compacted is not null)
+            {
+                if (compacted.RetainedDurableMessageCount > durableMessages.Count)
+                {
+                    throw new InvalidOperationException(
+                        "compaction retained more messages than durable conversation history");
+                }
 
-        var summarisedCount = durableMessages.Count - compacted.RetainedDurableMessageCount;
-        if (summarisedCount == 0)
+                var summarisedCount = durableMessages.Count - compacted.RetainedDurableMessageCount;
+                if (summarisedCount > 0)
+                {
+                    var watermark = durableMessages[summarisedCount - 1].Sequence;
+                    eventRepository.SaveCompaction(
+                        SessionId,
+                        new CompactionSnapshot(compacted.Summary.Content, watermark));
+                    _history.Clear();
+                    _history.AddRange(compacted.History);
+                    _systemPrompt.RenewEpoch();
+                }
+            }
+
+            var finished = new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                CompactionFinished = new CompactionFinished(),
+            };
+            await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception failure)
         {
-            return;
+            var failed = new Event
+            {
+                Id = Identifier.EventId(),
+                AgentSessionId = SessionId,
+                CompactionFailed = new CompactionFailed { Message = failure.Message },
+            };
+            await EmitEvent(failed, null, null, CancellationToken.None).ConfigureAwait(false);
+            throw;
         }
-
-        var watermark = durableMessages[summarisedCount - 1].Sequence;
-        eventRepository.SaveCompaction(
-            SessionId,
-            new CompactionSnapshot(compacted.Summary.Content, watermark));
-        _history.Clear();
-        _history.AddRange(compacted.History);
-        _systemPrompt.RenewEpoch();
     }
 
     private async Task<AgentTurnSelection> InjectStatus(

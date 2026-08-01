@@ -271,6 +271,34 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Compaction_lifecycle_roundtrips_as_protobuf_payloads()
+    {
+        var started = Event.Parser.ParseFrom(new Event
+        {
+            Id = "compaction-started",
+            AgentSessionId = "session",
+            CompactionStarted = new CompactionStarted(),
+        }.ToByteArray());
+        var finished = Event.Parser.ParseFrom(new Event
+        {
+            Id = "compaction-finished",
+            AgentSessionId = "session",
+            CompactionFinished = new CompactionFinished(),
+        }.ToByteArray());
+        var failed = Event.Parser.ParseFrom(new Event
+        {
+            Id = "compaction-failed",
+            AgentSessionId = "session",
+            CompactionFailed = new CompactionFailed { Message = "summary failed" },
+        }.ToByteArray());
+
+        _ = await Assert.That(started.PayloadCase).IsEqualTo(Event.PayloadOneofCase.CompactionStarted);
+        _ = await Assert.That(finished.PayloadCase).IsEqualTo(Event.PayloadOneofCase.CompactionFinished);
+        _ = await Assert.That(failed.PayloadCase).IsEqualTo(Event.PayloadOneofCase.CompactionFailed);
+        _ = await Assert.That(failed.CompactionFailed.Message).IsEqualTo("summary failed");
+    }
+
+    [Test]
     public async Task Active_work_reminder_injected_roundtrips_as_a_distinct_protobuf_payload()
     {
         var source = new Event

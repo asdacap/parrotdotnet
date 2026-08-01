@@ -320,6 +320,14 @@ internal sealed class RawActivityView(
                 case Event.PayloadOneofCase.TurnFailed:
                     await FinishTurn(published, failed: true, cancellationToken).ConfigureAwait(false);
                     break;
+                case Event.PayloadOneofCase.CompactionStarted:
+                    StartCompaction(published.AgentSessionId);
+                    await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+                    break;
+                case Event.PayloadOneofCase.CompactionFinished:
+                case Event.PayloadOneofCase.CompactionFailed:
+                    await FinishCompaction(published, cancellationToken).ConfigureAwait(false);
+                    break;
                 case Event.PayloadOneofCase.ToolCallChunk:
                     ToolCall(published.AgentSessionId, published.ToolCallChunk);
                     break;
@@ -572,6 +580,30 @@ internal sealed class RawActivityView(
                 await updateMainAgentActivity(state.ModelineLabel, cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    private void StartCompaction(string agentSessionId)
+    {
+        var state = GetNamedAgentSession(agentSessionId);
+        if (state.StartCompaction() is { } activityId)
+        {
+            _activities.Add((state, activityId));
+        }
+    }
+
+    private async Task FinishCompaction(Event published, CancellationToken cancellationToken)
+    {
+        var state = GetNamedAgentSession(published.AgentSessionId);
+        if (state.FinishCompaction(published) is not { } completion)
+        {
+            return;
+        }
+
+        _ = _activities.Remove((state, completion.ActivityId));
+        await commit(
+            Wrap(state, ImmediateScrollbackValue.Muted([completion.Line]), "✓"),
+            Snapshot(),
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async Task FinishTurn(Event published, bool failed, CancellationToken cancellationToken)
