@@ -352,7 +352,7 @@ internal sealed class EventPayloadTests
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("session", repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),
-            new Compactor(120_000),
+            new Compactor(120_000, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),

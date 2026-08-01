@@ -514,8 +514,10 @@ internal sealed class ScriptedInvoker : CallInvoker
                 throw new InvalidOperationException("the scripted stream rejected its initial queue snapshot");
             }
 
-            if (_initialUsage.TryGetValue(listen.UserSessionId, out var usage)
-                && !events.TryWrite(new Event { SessionUsageSnapshot = usage.Clone() }))
+            var usage = _initialUsage.TryGetValue(listen.UserSessionId, out var initialUsage)
+                ? initialUsage.Clone()
+                : new SessionUsageSnapshot();
+            if (!events.TryWrite(new Event { SessionUsageSnapshot = usage }))
             {
                 throw new InvalidOperationException("the scripted stream rejected its initial usage snapshot");
             }

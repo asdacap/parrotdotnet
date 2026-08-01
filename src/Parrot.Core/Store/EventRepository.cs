@@ -16,9 +16,7 @@ namespace Parrot.Store;
 // One connection carries all of it, and a SQLite connection holds one
 // transaction at a time -- so the second writer is not slower, it is a
 // corrupted connection. Admitting happens on whichever thread took the request
-// and the drain writes on its own, so every method here takes _gate. That gate
-// is the whole of this component's synchronisation, and this component is the
-// only thing that writes to the session database.
+// and the drain writes on its own, so every method here takes the database gate.
 internal sealed class EventRepository
 {
     private const string UsageProjection = "agent-usage";
@@ -30,7 +28,6 @@ internal sealed class EventRepository
 
     private readonly SessionDatabase _database;
     private readonly ImageArtifactStore? _imageStore;
-    private readonly Lock _gate = new();
 
     public EventRepository(SessionDatabase database) => _database = database;
 
@@ -50,7 +47,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(published);
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             if (published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
@@ -88,7 +85,7 @@ internal sealed class EventRepository
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(parts);
         ArgumentNullException.ThrowIfNull(toolCalls);
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             _ = Record(transaction, published);
@@ -104,7 +101,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(terminal);
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             if (HasToolResult(transaction, published.AgentSessionId, assistantSequence, terminal.ToolCallId))
@@ -122,7 +119,7 @@ internal sealed class EventRepository
 
     public bool HasToolSynthetic(long assistantSequence, string agentSessionId)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             var exists = HasToolSynthetic(transaction, agentSessionId, assistantSequence);
@@ -143,7 +140,7 @@ internal sealed class EventRepository
             throw new ArgumentException("A tool synthetic message requires image artifact parts.", nameof(imageParts));
         }
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             if (HasToolSynthetic(transaction, published.AgentSessionId, assistantSequence))
@@ -202,7 +199,7 @@ internal sealed class EventRepository
         ArgumentNullException.ThrowIfNull(parts);
         ArgumentNullException.ThrowIfNull(compose);
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
 
@@ -250,7 +247,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(compose);
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
 
@@ -317,7 +314,7 @@ internal sealed class EventRepository
     // so that stopping a turn does not also discard what was queued behind it.
     public bool HasPendingInputs(string agentSessionId)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var read = _database.Connection.CreateCommand();
             read.CommandText =
@@ -332,7 +329,7 @@ internal sealed class EventRepository
     {
         var items = new List<TodoItem>();
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var read = _database.Connection.CreateCommand();
@@ -364,7 +361,7 @@ internal sealed class EventRepository
         Event published,
         CancellationToken cancellationToken)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var transaction = _database.Begin();
@@ -404,7 +401,7 @@ internal sealed class EventRepository
     {
         var events = new List<Event>();
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var read = _database.Connection.CreateCommand();
             read.CommandText = "SELECT payload FROM event ORDER BY sequence;";
@@ -422,7 +419,7 @@ internal sealed class EventRepository
 
     public SessionUsage Usage()
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             EnsureUsageProjection(transaction);
@@ -434,7 +431,7 @@ internal sealed class EventRepository
 
     public AgentStatistics? LatestStatistics(string agentSessionId)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var read = _database.Connection.CreateCommand();
             read.CommandText =
@@ -460,7 +457,7 @@ internal sealed class EventRepository
 
     public IReadOnlyList<LLMMessage> ModelHistory(string agentSessionId)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             EnsureConversationProjection(transaction);
@@ -501,7 +498,7 @@ internal sealed class EventRepository
     public IReadOnlyList<ConversationItem> ConversationAfter(string agentSessionId, long watermark)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(watermark);
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             EnsureConversationProjection(transaction);
@@ -515,7 +512,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(terminal);
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             var existing = ReadToolTerminal(transaction, published.AgentSessionId, terminal.ToolCallId);
@@ -544,7 +541,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(terminal);
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             var existing = ReadToolTerminal(transaction, published.AgentSessionId, terminal.ToolCallId);
@@ -570,7 +567,7 @@ internal sealed class EventRepository
 
     public IReadOnlyList<ToolExecutionTerminal> ToolTerminals(string agentSessionId)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             var terminals = new List<ToolExecutionTerminal>();
@@ -599,7 +596,7 @@ internal sealed class EventRepository
 
     public void SaveCompaction(string agentSessionId, CompactionSnapshot snapshot)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var command = _database.Connection.CreateCommand();
             command.CommandText =
@@ -617,7 +614,7 @@ internal sealed class EventRepository
 
     public CompactionSnapshot? Compaction(string agentSessionId)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var command = _database.Connection.CreateCommand();
             command.CommandText =
@@ -634,7 +631,7 @@ internal sealed class EventRepository
 
     public (string AgentSessionId, string Mode) SessionState(string userSessionId, string requestedMode)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             using var insert = _database.Connection.CreateCommand();
@@ -660,7 +657,7 @@ internal sealed class EventRepository
 
     public void UpdateMode(string userSessionId, string agentSessionId, string mode)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             using var update = _database.Connection.CreateCommand();
@@ -686,7 +683,7 @@ internal sealed class EventRepository
 
     public PendingStatus? PendingStatus(string agentSessionId)
     {
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var read = _database.Connection.CreateCommand();
             read.CommandText =
@@ -717,7 +714,7 @@ internal sealed class EventRepository
 
         published.StatusInjected = new StatusInjected();
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             using var pending = _database.Connection.CreateCommand();
@@ -773,7 +770,7 @@ internal sealed class EventRepository
 
         published.StatusInjected = new StatusInjected();
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             Project(transaction, published.AgentSessionId, "system", content);
@@ -787,7 +784,7 @@ internal sealed class EventRepository
 
         published.ActiveWorkReminderInjected = new ActiveWorkReminderInjected();
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             Project(transaction, published.AgentSessionId, "system", content);
@@ -800,7 +797,7 @@ internal sealed class EventRepository
         ArgumentNullException.ThrowIfNull(artifact);
         ArgumentException.ThrowIfNullOrWhiteSpace(uploadId);
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             var existing = ImageUpload(transaction, uploadId);
@@ -878,7 +875,7 @@ internal sealed class EventRepository
     public ImageArtifactMetadata? ResolveImageArtifact(string artifactId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(artifactId);
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var read = _database.Connection.CreateCommand();
             read.CommandText = ImageArtifactSelect + " WHERE artifact.artifact_id = $artifact_id;";
@@ -907,7 +904,7 @@ internal sealed class EventRepository
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(artifactId);
         ArgumentException.ThrowIfNullOrWhiteSpace(referenceId);
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             using var claim = _database.Connection.CreateCommand();
@@ -929,7 +926,7 @@ internal sealed class EventRepository
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(artifactId);
         ArgumentException.ThrowIfNullOrWhiteSpace(referenceId);
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var remove = _database.Connection.CreateCommand();
             remove.CommandText = "DELETE FROM image_artifact_reference WHERE artifact_id = $artifact_id AND reference_id = $reference_id;";
@@ -942,7 +939,7 @@ internal sealed class EventRepository
     public IReadOnlyList<ImageArtifactMetadata> RemoveStaleUnreferencedImageArtifacts(DateTimeOffset before)
     {
         var artifacts = new List<ImageArtifactMetadata>();
-        lock (_gate)
+        lock (_database.Gate)
         {
             using var transaction = _database.Begin();
             using (var read = _database.Connection.CreateCommand())
@@ -1259,7 +1256,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(compose);
 
-        lock (_gate)
+        lock (_database.Gate)
         {
             // Read before the transaction: the drain asks at every turn
             // boundary and almost always finds nothing, and BeginTransaction
@@ -1292,7 +1289,7 @@ internal sealed class EventRepository
                     _ = settle.Parameters.AddWithValue("$id", input.Id);
 
                     // Nobody else may promote: every promotion runs behind
-                    // _gate, so a row that moved under one is the store
+                    // the database gate, so a row that moved under one is the store
                     // disagreeing with itself, not a caller's mistake.
                     if (settle.ExecuteNonQuery() != 1)
                     {

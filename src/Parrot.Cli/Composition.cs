@@ -80,7 +80,14 @@ internal partial class Composition
                 DateTimeOffset.UtcNow.ToString(
                     "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))
 
-            .Bind().As(Lifetime.Singleton).To(_ => new Compactor(CompactionTokenBudget))
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<Configuration>(out var configuration);
+                return new Compactor(
+                    CompactionTokenBudget,
+                    configuration.Compaction.MaximumInputTokens,
+                    configuration.Compaction.SummaryOutputTokens);
+            })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<ProviderRegistry>(out var registry);

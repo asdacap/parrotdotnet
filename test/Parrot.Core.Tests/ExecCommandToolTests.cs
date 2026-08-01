@@ -50,7 +50,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("session", repository, events),
             new ToolOutputBlobStore(Path.Combine(_workspace, "blob")),
-            new Compactor(120_000),
+            new Compactor(120_000, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),

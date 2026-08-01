@@ -269,13 +269,21 @@ internal sealed class WaitToolTests : IAsyncDisposable
             secondQueues.Deliver(cancellationToken));
 
         _ = await Assert.That(firstWaiting.IsCompleted ^ secondWaiting.IsCompleted).IsTrue();
+        if (firstWaiting.IsCompleted)
+        {
+            await firstProvider.Arrived(cancellationToken);
+        }
+        else
+        {
+            await secondProvider.Arrived(cancellationToken);
+        }
+
         _ = await Assert.That(firstProvider.Requests.Count + secondProvider.Requests.Count).IsEqualTo(1);
         _ = await Assert.That(parentQueues.Get("shared-work").Size).IsEqualTo(0);
 
         if (firstWaiting.IsCompleted)
         {
             _ = await Assert.That(await firstWaiting).IsTrue();
-            await firstProvider.Arrived(cancellationToken);
             await secondWaitCancellation.CancelAsync();
             _ = await Assert.That(secondWaiting).Throws<OperationCanceledException>();
             firstProvider.Release();
@@ -284,7 +292,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
         else
         {
             _ = await Assert.That(await secondWaiting).IsTrue();
-            await secondProvider.Arrived(cancellationToken);
             await firstWaitCancellation.CancelAsync();
             _ = await Assert.That(firstWaiting).Throws<OperationCanceledException>();
             secondProvider.Release();
@@ -454,7 +461,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             TestModels.MaterializePrompt(identity, _root, _root),
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(Path.Combine(_root, "blobs")),
-            new Compactor(120_000),
+            new Compactor(120_000, 60_000, 1024),
             new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner),
             TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -644,7 +651,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                     TestModels.MaterializePrompt(identity, root, root),
                     new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                     new ToolOutputBlobStore(Path.Combine(root, "blobs")),
-                    new Compactor(120_000),
+                    new Compactor(120_000, 60_000, 1024),
                     new ActiveWorkCompletionReminder(identity.SessionId, registry, processes),
                     profile,
                     securityProfile,

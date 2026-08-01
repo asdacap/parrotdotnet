@@ -244,6 +244,61 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
+    public async Task Compaction_configuration_defaults_are_written_to_the_generated_reference(
+        CancellationToken cancellationToken)
+    {
+        var predefined = Path.Combine(_directory, "predefined_config.yaml");
+        var configuration = Load(Path.Combine(_directory, "config.yaml"));
+
+        _ = await Assert.That(configuration.Compaction.MaximumInputTokens).IsEqualTo(60_000);
+        _ = await Assert.That(configuration.Compaction.SummaryOutputTokens).IsEqualTo(1_024);
+        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken)).Contains(
+            "compaction:\n  maximum_input_tokens: 60000\n  summary_output_tokens: 1024");
+    }
+
+    [Test]
+    public async Task Compaction_fields_partially_override_predefined_definitions()
+    {
+        var maximum = Load(Write("compaction:\n  maximum_input_tokens: 2048\n")).Compaction;
+        var summary = Load(Write("compaction:\n  summary_output_tokens: 512\n")).Compaction;
+
+        _ = await Assert.That(maximum.MaximumInputTokens).IsEqualTo(2_048);
+        _ = await Assert.That(maximum.SummaryOutputTokens).IsEqualTo(1_024);
+        _ = await Assert.That(summary.MaximumInputTokens).IsEqualTo(60_000);
+        _ = await Assert.That(summary.SummaryOutputTokens).IsEqualTo(512);
+    }
+
+    [Test]
+    [Arguments("compaction: null\n")]
+    [Arguments("compaction: 60000\n")]
+    [Arguments("compaction: []\n")]
+    public async Task Compaction_configuration_must_be_a_mapping(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
+
+    [Test]
+    [Arguments("compaction:\n  maximum_input_tokens: 60000\n  unsupported: 1\n")]
+    [Arguments("compaction:\n  summary_output_tokens: 1024\n  maximum_tokens: 1\n")]
+    public async Task Compaction_configuration_rejects_unknown_keys(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
+
+    [Test]
+    [Arguments("maximum_input_tokens", "0")]
+    [Arguments("maximum_input_tokens", "-1")]
+    [Arguments("maximum_input_tokens", "1.5")]
+    [Arguments("maximum_input_tokens", "true")]
+    [Arguments("maximum_input_tokens", "null")]
+    [Arguments("maximum_input_tokens", "2147483648")]
+    [Arguments("summary_output_tokens", "0")]
+    [Arguments("summary_output_tokens", "-1")]
+    [Arguments("summary_output_tokens", "1.5")]
+    [Arguments("summary_output_tokens", "true")]
+    [Arguments("summary_output_tokens", "null")]
+    [Arguments("summary_output_tokens", "2147483648")]
+    public async Task Compaction_configuration_requires_positive_integer_fields(string key, string value) =>
+        _ = await Assert.That(() => Load(Write($"compaction:\n  {key}: {value}\n")))
+            .Throws<InvalidDataException>();
+
+    [Test]
     public async Task Cli_utility_candidates_have_exact_defaults()
     {
         var candidates = Load(Path.Combine(_directory, "config.yaml")).CliUtilities;

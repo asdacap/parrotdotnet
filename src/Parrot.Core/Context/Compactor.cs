@@ -2,10 +2,8 @@ using Parrot.Llm;
 
 namespace Parrot.Context;
 
-internal sealed class Compactor(int tokenBudget)
+internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int summaryOutputTokens)
 {
-    private const int MaximumCompactionInputTokens = 60_000;
-    private const int SummaryOutputTokens = 1024;
     private const string SummaryInstructions = "Summarise the following conversation so it can continue. Keep decisions, "
         + "file paths, open tasks, and relevant evidence from images. Be terse.";
 
@@ -110,7 +108,29 @@ internal sealed class Compactor(int tokenBudget)
         return EstimateTokens(messages);
     }
 
-    private static async Task<string> Summarise(
+    private static IEnumerable<IReadOnlyList<LLMMessage>> Groups(List<LLMMessage> messages)
+    {
+        for (var index = 0; index < messages.Count; index++)
+        {
+            var group = new List<LLMMessage> { messages[index] };
+            if (messages[index].Role == LLMRole.Assistant && messages[index].ToolCalls.Any())
+            {
+                while (index + 1 < messages.Count && messages[index + 1].Role == LLMRole.Tool)
+                {
+                    group.Add(messages[++index]);
+                }
+            }
+
+            yield return group;
+        }
+    }
+
+    private static int EstimateStringTokens(string value) => (value.Length + 3) / 4;
+
+    private static int EstimateImageTokens(int byteLength) =>
+        Math.Max(1024, checked((byteLength + 2) / 3));
+
+    private async Task<string> Summarise(
         ProviderModel selectedModel,
         string precedingSummary,
         IReadOnlyList<LLMMessage> chunk,
@@ -129,7 +149,7 @@ internal sealed class Compactor(int tokenBudget)
         var request = new LLMRequest
         {
             Model = selectedModel.ModelId,
-            MaxTokens = SummaryOutputTokens,
+            MaxTokens = summaryOutputTokens,
             Messages = messages,
         };
 
@@ -155,33 +175,11 @@ internal sealed class Compactor(int tokenBudget)
         return summary;
     }
 
-    private static IEnumerable<IReadOnlyList<LLMMessage>> Groups(List<LLMMessage> messages)
-    {
-        for (var index = 0; index < messages.Count; index++)
-        {
-            var group = new List<LLMMessage> { messages[index] };
-            if (messages[index].Role == LLMRole.Assistant && messages[index].ToolCalls.Any())
-            {
-                while (index + 1 < messages.Count && messages[index + 1].Role == LLMRole.Tool)
-                {
-                    group.Add(messages[++index]);
-                }
-            }
-
-            yield return group;
-        }
-    }
-
-    private static int EstimateStringTokens(string value) => (value.Length + 3) / 4;
-
-    private static int EstimateImageTokens(int byteLength) =>
-        Math.Max(1024, checked((byteLength + 2) / 3));
-
     private int InputBudget(int contextWindow)
     {
         var budget = tokenBudget > 0
-            ? Math.Min(MaximumCompactionInputTokens, tokenBudget)
-            : MaximumCompactionInputTokens;
+            ? Math.Min(maximumInputTokens, tokenBudget)
+            : maximumInputTokens;
         return contextWindow > 0 ? Math.Min(budget, contextWindow / 4) : budget;
     }
 }

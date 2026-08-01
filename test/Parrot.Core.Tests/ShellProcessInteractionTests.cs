@@ -324,7 +324,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("agent", repository, events),
             new ToolOutputBlobStore(blobDirectory),
-            new Compactor(120_000),
+            new Compactor(120_000, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),

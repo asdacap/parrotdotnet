@@ -330,7 +330,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("agent", new EventRepository(database), broker),
             new ToolOutputBlobStore(_workspace),
-            new Compactor(tokenBudget: 0),
+            new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -360,7 +360,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("SUMMARY OF EARLIER");
 
         // A budget of zero forces compaction; the four newest messages survive.
-        var compactor = new Compactor(tokenBudget: 0);
+        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
 
         var history = new List<LLMMessage>();
 
@@ -412,7 +412,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         };
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"tail {index}")));
         var provider = new ScriptedProvider("SUMMARY");
-        var compactor = new Compactor(tokenBudget: 0);
+        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
 
         _ = await Assert.That(Compactor.EstimateTokens([LLMMessage.User([image])])).IsGreaterThan(1000);
         _ = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
@@ -425,8 +425,8 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_folds_bounded_complete_groups(CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var model = CompactionModel(provider, contextWindow: 2_000);
-        var compactor = new Compactor(tokenBudget: 0);
+        var model = CompactionModel(provider, contextWindow: 0);
+        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 500, summaryOutputTokens: 137);
         var history = new List<LLMMessage>();
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"old {index} {new string('x', 1_000)}")));
         history.Add(LLMMessage.Assistant(string.Empty, [new LLMToolCall("call", "read", "{}")]));
@@ -436,6 +436,8 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await compactor.Compact(model, history, cancellationToken);
 
         _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
+        _ = await Assert.That(provider.Requests)
+            .All(request => request.MaxTokens == 137);
         _ = await Assert.That(provider.Requests)
             .All(request => Compactor.EstimateTokens(request.Messages) <= 500);
         _ = await Assert.That(provider.Requests[1].Messages)
@@ -448,7 +450,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_rejects_an_oversized_recent_tail(CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var compactor = new Compactor(tokenBudget: 0);
+        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
         var history = new List<LLMMessage>
         {
             LLMMessage.User("old"),
@@ -466,7 +468,7 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_rejects_a_provider_without_a_terminal_summary(CancellationToken cancellationToken)
     {
         var provider = new IncompleteProvider();
-        var compactor = new Compactor(tokenBudget: 0);
+        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
         var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
 
         _ = await Assert.That(async () => await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken))

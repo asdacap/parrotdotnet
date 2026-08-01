@@ -547,19 +547,14 @@ internal sealed class ParrotServiceTests : IDisposable
     [Test]
     public async Task Listener_receives_the_current_queue_inventory_first(CancellationToken cancellationToken)
     {
-        var store = Store();
+        var sessions = new DirectAgentSessions();
+        var store = Store(sessions);
         await using var service = Service(store);
         var context = new InProcessServerCallContext(cancellationToken);
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
-        var resources = new UserSessionResources(
-            new StatePaths(_root, _root, _root),
-            UserSessionId.Parse(session.Id),
-            ProjectWorkspace.FromLaunchDirectory(Path.Combine(_root, "work")));
-        using (var queues = new QueueStore(resources.QueueDirectory))
-        {
-            _ = queues.Create("release", "release tasks");
-            _ = queues.Push("release", ["one", "two"], QueueDirection.Back);
-        }
+        var queues = sessions.Sessions.Single().Queues;
+        _ = queues.Create("release", "release tasks");
+        _ = await queues.Push("release", ["one", "two"], QueueDirection.Back, cancellationToken);
 
         var stream = new ChannelStreamWriter<Event>();
         var listening = service.Listen(new ListenRequest { UserSessionId = session.Id }, stream, context);

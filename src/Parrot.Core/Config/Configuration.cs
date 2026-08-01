@@ -19,6 +19,7 @@ internal sealed class Configuration(string path)
     private const string CliUtilitiesKey = "cli_utilities";
     private const string UserInputTimeoutKey = "user_input_timeout_ms";
     private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
+    private const string CompactionKey = "compaction";
 
     private readonly Lock _writeLock = new();
 
@@ -60,6 +61,8 @@ internal sealed class Configuration(string path)
 
     public TimeSpan UserInputTimeout { get; private set; }
 
+    public CompactionConfig Compaction { get; private set; } = new(60_000, 1_024);
+
     public static Configuration Load(string path, string predefinedPath)
     {
         CopyPredefined(predefinedPath);
@@ -82,6 +85,7 @@ internal sealed class Configuration(string path)
             DefaultProfile = ReadDefaultProfile(root),
             CliUtilities = ReadCliUtilities(root),
             UserInputTimeout = ReadUserInputTimeout(root, userRoot),
+            Compaction = ReadCompaction(root),
         };
     }
 
@@ -825,6 +829,19 @@ internal sealed class Configuration(string path)
         }
 
         return value;
+    }
+
+    private static CompactionConfig ReadCompaction(YamlMappingNode root)
+    {
+        if (!Child(root, CompactionKey, out var node) || node is not YamlMappingNode compaction)
+        {
+            throw new InvalidDataException($"{CompactionKey} must be a mapping");
+        }
+
+        ValidateKeys(compaction, CompactionKey, "maximum_input_tokens", "summary_output_tokens");
+        return new(
+            PositiveInteger(compaction, "maximum_input_tokens", $"{CompactionKey}.maximum_input_tokens"),
+            PositiveInteger(compaction, "summary_output_tokens", $"{CompactionKey}.summary_output_tokens"));
     }
 
     private static TimeSpan ReadUserInputTimeout(YamlMappingNode root, YamlMappingNode userRoot)

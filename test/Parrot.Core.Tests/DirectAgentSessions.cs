@@ -73,7 +73,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 TestModels.MaterializePrompt(identity, ".", "."),
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),
-                new Compactor(120_000),
+                new Compactor(120_000, 60_000, 1024),
                 new ActiveWorkCompletionReminder(identity.SessionId, registry, processes),
                 profile,
                 securityProfile,

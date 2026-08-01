@@ -817,14 +817,29 @@ internal sealed class EnhancedCliTests
         using var driver = new CliLifecycleDriver(enhanced: true);
         var driving = driver.Drive(cancellationToken);
 
+        while (driver.Input.Reads < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
         driver.Input.Type("\u001b[Z");
         while (driver.Invoker.Updated.Count < 1)
         {
             await Task.Delay(5, cancellationToken);
         }
 
+        while (driver.Input.Reads < 2)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
         driver.Input.Type("\u001b[Z");
         while (driver.Invoker.Updated.Count < 2)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        while (driver.Input.Reads < 3)
         {
             await Task.Delay(5, cancellationToken);
         }

@@ -16,6 +16,8 @@ internal sealed class SessionDatabase : IDisposable
     // is what lets CA2100 see that no query is built from input.
     public SqliteConnection Connection { get; }
 
+    public Lock Gate { get; } = new();
+
     public static SessionDatabase Open(string path)
     {
         // An in-memory database has no directory, and neither does a bare

@@ -158,7 +158,6 @@ internal sealed class EnhancedRenderingSession : IDisposable
                 return;
             }
 
-            _body = [];
             _mainAgentActivity = string.Empty;
             _modelineActivity = string.Empty;
             await DrawFrame(CancellationToken.None).ConfigureAwait(false);

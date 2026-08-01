@@ -8,6 +8,9 @@ namespace Parrot.Cli.Tests;
 internal sealed class ScriptedInput : TextReader
 {
     private readonly Channel<string> _typed = Channel.CreateUnbounded<string>();
+    private int _reads;
+
+    public int Reads => Volatile.Read(ref _reads);
 
     public void Type(string line) => _typed.Writer.TryWrite(line);
 
@@ -16,6 +19,7 @@ internal sealed class ScriptedInput : TextReader
 
     public override async ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken)
     {
+        _ = Interlocked.Increment(ref _reads);
         while (await _typed.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
         {
             if (_typed.Reader.TryRead(out var line))

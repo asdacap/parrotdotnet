@@ -191,6 +191,11 @@ inline_diff: true
 # Milliseconds to wait for interactive user input. Set to -1 to wait indefinitely.
 user_input_timeout_ms: 1200000
 
+# Limits for each compaction request.
+compaction:
+  maximum_input_tokens: 60000
+  summary_output_tokens: 1024
+
 # Default foreground profile when no mode is selected explicitly.
 default_profile: build
 

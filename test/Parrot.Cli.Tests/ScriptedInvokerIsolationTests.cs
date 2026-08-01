@@ -38,9 +38,15 @@ internal sealed class ScriptedInvokerIsolationTests
         _ = await Assert.That(await first.ResponseStream.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(first.ResponseStream.Current.PayloadCase)
             .IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        _ = await Assert.That(await first.ResponseStream.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(first.ResponseStream.Current.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
         _ = await Assert.That(await second.ResponseStream.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(second.ResponseStream.Current.PayloadCase)
             .IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        _ = await Assert.That(await second.ResponseStream.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(second.ResponseStream.Current.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
 
         await invoker.Publish("first", new Event { Id = "first-event" });
 
@@ -60,10 +66,16 @@ internal sealed class ScriptedInvokerIsolationTests
         _ = await Assert.That(await first.ResponseStream.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(first.ResponseStream.Current.PayloadCase)
             .IsEqualTo(Event.PayloadOneofCase.QueueSnapshot);
+        _ = await Assert.That(await first.ResponseStream.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(first.ResponseStream.Current.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
 
         using var replacement = client.Listen(new ListenRequest { UserSessionId = "session" }, cancellationToken: cancellationToken);
         _ = await Assert.That(await replacement.ResponseStream.MoveNext(cancellationToken)).IsTrue();
         _ = await Assert.That(replacement.ResponseStream.Current.QueueSnapshot.FinalChunk).IsTrue();
+        _ = await Assert.That(await replacement.ResponseStream.MoveNext(cancellationToken)).IsTrue();
+        _ = await Assert.That(replacement.ResponseStream.Current.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.SessionUsageSnapshot);
 
         await invoker.Publish("session", new Event { Id = "replacement-event" });
 
