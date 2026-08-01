@@ -67,7 +67,8 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);
         RequireToken(access);
 
-        var body = ResponsesAdapter.Encode(request);
+        // ChatGPT does not support the max_output_tokens parameter.
+        var body = ResponsesAdapter.Encode(request with { MaxTokens = 0 });
         var headers = Headers(access);
         headers["session-id"] = _sessionId;
 

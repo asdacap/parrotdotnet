@@ -226,7 +226,7 @@ internal sealed class ProviderRegistryTests
     }
 
     [Test]
-    public async Task Chatgpt_call_preserves_max_output_tokens(CancellationToken cancellationToken)
+    public async Task Chatgpt_call_omits_max_output_tokens(CancellationToken cancellationToken)
     {
         using var handler = new ChatGptCallHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
@@ -245,7 +245,7 @@ internal sealed class ProviderRegistryTests
 
         using var document = JsonDocument.Parse(handler.Body);
 
-        _ = await Assert.That(document.RootElement.GetProperty("max_output_tokens").GetInt32()).IsEqualTo(request.MaxTokens);
+        _ = await Assert.That(document.RootElement.TryGetProperty("max_output_tokens", out _)).IsFalse();
     }
 
     [Test]
