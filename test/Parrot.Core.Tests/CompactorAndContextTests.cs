@@ -371,7 +371,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         _ = await Assert.That(compactor.ShouldCompact(history)).IsTrue();
 
-        var compacted = await Compactor.Compact(provider, "model", history, cancellationToken);
+        var compacted = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
 
         _ = await Assert.That(compacted.Count).IsLessThan(history.Count);
         _ = await Assert.That(compacted[0].Role).IsEqualTo(LLMRole.System);
@@ -394,7 +394,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMMessage.User("latest"),
         ];
 
-        compacted = await Compactor.Compact(provider, "model", history, cancellationToken);
+        compacted = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
 
         _ = await Assert.That(compacted[1].ToolCalls).Count().IsEqualTo(2);
         _ = await Assert.That(compacted[1].ToolCalls[0].Id).IsEqualTo("call-1");
@@ -412,13 +412,79 @@ internal sealed class CompactorAndContextTests : IDisposable
         };
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"tail {index}")));
         var provider = new ScriptedProvider("SUMMARY");
+        var compactor = new Compactor(tokenBudget: 0);
 
         _ = await Assert.That(Compactor.EstimateTokens([LLMMessage.User([image])])).IsGreaterThan(1000);
-        _ = await Compactor.Compact(provider, "model", history, cancellationToken);
+        _ = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
 
         var request = provider.Requests.Single();
         _ = await Assert.That(request.Messages[1].Contents.Any(content => content.Kind == LLMContentKind.Image)).IsTrue();
     }
+
+    [Test]
+    public async Task Compaction_folds_bounded_complete_groups(CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var model = CompactionModel(provider, contextWindow: 2_000);
+        var compactor = new Compactor(tokenBudget: 0);
+        var history = new List<LLMMessage>();
+        history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"old {index} {new string('x', 1_000)}")));
+        history.Add(LLMMessage.Assistant(string.Empty, [new LLMToolCall("call", "read", "{}")]));
+        history.Add(LLMMessage.ToolResult("call", new string('r', 500)));
+        history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"tail {index}")));
+
+        _ = await compactor.Compact(model, history, cancellationToken);
+
+        _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
+        _ = await Assert.That(provider.Requests)
+            .All(request => Compactor.EstimateTokens(request.Messages) <= 500);
+        _ = await Assert.That(provider.Requests[1].Messages)
+            .Contains(message => message.Content.Contains("summary", StringComparison.Ordinal));
+        var toolRequest = provider.Requests.Single(request => request.Messages.Any(message => message.ToolCallId == "call"));
+        _ = await Assert.That(toolRequest.Messages).Contains(message => message.ToolCalls.Any(call => call.Id == "call"));
+    }
+
+    [Test]
+    public async Task Compaction_rejects_an_oversized_recent_tail(CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var compactor = new Compactor(tokenBudget: 0);
+        var history = new List<LLMMessage>
+        {
+            LLMMessage.User("old"),
+            LLMMessage.User(new string('x', 4_000)),
+            LLMMessage.User("tail 1"),
+            LLMMessage.User("tail 2"),
+            LLMMessage.User("tail 3"),
+        };
+
+        _ = await Assert.That(async () => await compactor.Compact(
+            CompactionModel(provider, 2_000), history, cancellationToken)).Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Compaction_rejects_a_provider_without_a_terminal_summary(CancellationToken cancellationToken)
+    {
+        var provider = new IncompleteProvider();
+        var compactor = new Compactor(tokenBudget: 0);
+        var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
+
+        _ = await Assert.That(async () => await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken))
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task Compaction_counts_tool_call_payloads()
+    {
+        var withoutToolCall = Compactor.EstimateTokens([LLMMessage.Assistant(string.Empty, [])]);
+        var withToolCall = Compactor.EstimateTokens(
+            [LLMMessage.Assistant(string.Empty, [new LLMToolCall("identifier", "tool-name", new string('x', 400))])]);
+
+        _ = await Assert.That(withToolCall).IsGreaterThan(withoutToolCall + 100);
+    }
+
+    private static ProviderModel CompactionModel(ILLMProvider provider, int contextWindow) =>
+        new(provider, new LLMModel("model", provider.Id) { ContextWindow = contextWindow });
 
     private static Parrot.Process.CliUtilityAvailability EmptyCliUtilities() =>
         Parrot.Process.CliUtilityAvailability.Inspect(
@@ -466,6 +532,24 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new SessionIdentityProvider(),
                 new SubagentsProvider(TestModels.ProfileRegistry()),
             ]);
+
+    private sealed class IncompleteProvider : ILLMProvider
+    {
+        public string Id => "incomplete";
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LLMModel>>([]);
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            yield return LLMEvent.TextDelta("not durable");
+        }
+    }
 
     private sealed class PromptTestProvider(string key, string text) : ISystemPromptProvider
     {

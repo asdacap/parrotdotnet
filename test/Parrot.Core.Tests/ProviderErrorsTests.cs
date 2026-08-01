@@ -21,6 +21,22 @@ internal sealed class ProviderErrorsTests
     }
 
     [Test]
+    [Arguments(" CONTEXT_LENGTH_EXCEEDED ", "", true)]
+    [Arguments("", " context_window_exceeded ", true)]
+    [Arguments("", "", false)]
+    public async Task Context_length_is_classified_only_from_normalized_structured_fields(
+        string type,
+        string code,
+        bool expected)
+    {
+        var http = new ProviderHttpException(429, type, code, "context length exceeded");
+        var response = new ProviderResponseException(type, code, "context length exceeded");
+
+        _ = await Assert.That(ProviderErrors.IsContextLengthExceeded(http)).IsEqualTo(expected);
+        _ = await Assert.That(ProviderErrors.IsContextLengthExceeded(response)).IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task A_status_alone_is_not_a_usage_limit()
     {
         var failure = new ProviderHttpException(429, string.Empty, string.Empty, "Too Many Requests");

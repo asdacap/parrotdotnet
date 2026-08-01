@@ -105,6 +105,19 @@ internal sealed class RetryingProviderTests
         _ = await Assert.That(scripted.Calls).IsEqualTo(1);
     }
 
+    [Test]
+    public async Task A_structured_stream_context_error_is_not_retried(CancellationToken cancellationToken)
+    {
+        var scripted = new ReplayProvider(
+            () => ThrowImmediately(new ProviderResponseException(string.Empty, "context_window_exceeded", "too long")));
+
+        var provider = new RetryingProvider(scripted);
+
+        _ = await Assert.That(async () => await Drain(provider, cancellationToken))
+            .Throws<ProviderResponseException>();
+        _ = await Assert.That(scripted.Calls).IsEqualTo(1);
+    }
+
     private static async Task<List<LLMEvent>> Drain(RetryingProvider provider, CancellationToken cancellationToken)
     {
         var events = new List<LLMEvent>();

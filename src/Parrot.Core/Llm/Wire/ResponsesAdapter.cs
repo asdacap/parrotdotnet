@@ -97,6 +97,7 @@ internal static class ResponsesAdapter
             Store = false,
             Reasoning = reasoning,
             Provider = WirePreferences.Normalize(request.ProviderPreferences),
+            MaxOutputTokens = request.MaxTokens > 0 ? request.MaxTokens : null,
         };
 
         return JsonSerializer.SerializeToUtf8Bytes(body, WireJsonContext.Default.ResponsesBody);
@@ -391,6 +392,9 @@ internal static class ResponsesAdapter
 
         [JsonPropertyName("provider")]
         public JsonElement? Provider { get; init; }
+
+        [JsonPropertyName("max_output_tokens")]
+        public int? MaxOutputTokens { get; init; }
     }
 
     // One input entry: a message, a function_call, or a function_call_output.

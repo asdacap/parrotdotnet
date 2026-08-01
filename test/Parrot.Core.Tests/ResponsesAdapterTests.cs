@@ -88,6 +88,32 @@ internal sealed class ResponsesAdapterTests
     }
 
     [Test]
+    [Arguments(256, true)]
+    [Arguments(0, false)]
+    public async Task Encode_writes_or_omits_max_output_tokens(
+        int maxTokens, bool hasMaxOutputTokens, CancellationToken cancellationToken)
+    {
+        var request = new LLMRequest
+        {
+            Model = "gpt-5.6-sol",
+            MaxTokens = maxTokens,
+            Messages = [LLMMessage.User("hello")],
+        };
+        using var document = JsonDocument.Parse(ResponsesAdapter.Encode(request));
+        var root = document.RootElement;
+
+        _ = await Assert.That(root.TryGetProperty("max_output_tokens", out var maxOutputTokens))
+            .IsEqualTo(hasMaxOutputTokens);
+
+        if (hasMaxOutputTokens)
+        {
+            _ = await Assert.That(maxOutputTokens.GetInt32()).IsEqualTo(maxTokens);
+        }
+
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    [Test]
     public async Task Text_and_reasoning_deltas_fold_and_complete_with_usage(CancellationToken cancellationToken)
     {
         const string stream = """

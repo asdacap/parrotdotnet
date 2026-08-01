@@ -1202,9 +1202,8 @@ internal sealed class AgentSession(
         // back the very list being emptied.
         var selectedModel = selection?.ResolvedModel.CanonicalModel
             ?? throw new AgentRegistryException("turn selection is unavailable");
-        var compacted = (await Compactor.Compact(
-            selectedModel.Provider,
-            selectedModel.ModelId,
+        var compacted = (await compactor.Compact(
+            selectedModel,
             _history,
             cancellationToken)
             .ConfigureAwait(false)).ToList();

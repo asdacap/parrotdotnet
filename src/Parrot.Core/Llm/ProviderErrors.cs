@@ -19,6 +19,14 @@ internal static class ProviderErrors
             _ => false,
         };
 
+    public static bool IsContextLengthExceeded(Exception failure) =>
+        failure switch
+        {
+            ProviderHttpException http => ContextLengthValue(http.ErrorType) || ContextLengthValue(http.ErrorCode),
+            ProviderResponseException response => ContextLengthValue(response.ErrorType) || ContextLengthValue(response.ErrorCode),
+            _ => false,
+        };
+
     public static bool IsEngineOverloaded(string type, string code, string message) =>
         OverloadValue(type) || OverloadValue(code) || RetryableProviderMessage(message);
 
@@ -34,6 +42,9 @@ internal static class ProviderErrors
     private static bool UsageLimitValue(string value) =>
         Normalize(value) is "usage_limit_reached" or "usage_limit_exceeded"
             or "insufficient_quota" or "billing_hard_limit_reached";
+
+    private static bool ContextLengthValue(string value) =>
+        Normalize(value) is "context_length_exceeded" or "context_window_exceeded";
 
     private static bool OverloadValue(string value) =>
         Normalize(value) is "engine_overloaded_error" or "service_unavailable_error" or "server_is_overloaded";

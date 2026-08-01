@@ -134,6 +134,7 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                 throw failure;
 
             case ProviderHttpException or ProviderResponseException when ProviderErrors.IsUsageLimit(failure):
+            case ProviderHttpException or ProviderResponseException when ProviderErrors.IsContextLengthExceeded(failure):
                 throw failure;
 
             case ProviderResponseException when ProviderErrors.IsEngineOverloaded(failure):
