@@ -58,6 +58,45 @@ internal sealed class InputAdmissionTests : IDisposable
     }
 
     [Test]
+    public async Task Structured_input_promotion_preserves_parts_and_retries_idempotently()
+    {
+        var parts = new[]
+        {
+            ConversationPart.TextPart("before"),
+            ConversationPart.ImageArtifact("artifact-1", "image/png", "pixel.png"),
+            ConversationPart.TextPart("after"),
+        };
+
+        var admitted = _repository.Admit(
+            Session,
+            "msg-structured",
+            parts,
+            Delivery.Steer,
+            static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+        var retried = _repository.Admit(
+            Session,
+            "msg-structured",
+            parts,
+            Delivery.Steer,
+            static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+
+        _ = await Assert.That(admitted.Created).IsTrue();
+        _ = await Assert.That(retried.Created).IsFalse();
+        _ = await Assert.That(retried.Input.Id).IsEqualTo(admitted.Input.Id);
+        _ = await Assert.That(Promote(Delivery.Steer)).IsEqualTo(1);
+
+        var conversation = _repository.Conversation(Session).Single();
+        _ = await Assert.That(conversation.Origin).IsEqualTo(ConversationOrigin.UserInput);
+        _ = await Assert.That(string.Join(',', conversation.Parts.Select(part => part.Kind)))
+            .IsEqualTo("Text,ImageArtifact,Text");
+        _ = await Assert.That(conversation.Parts[0].Text).IsEqualTo("before");
+        _ = await Assert.That(conversation.Parts[1].ArtifactId).IsEqualTo("artifact-1");
+        _ = await Assert.That(conversation.Parts[1].MediaType).IsEqualTo("image/png");
+        _ = await Assert.That(conversation.Parts[1].DisplayName).IsEqualTo("pixel.png");
+        _ = await Assert.That(conversation.Parts[2].Text).IsEqualTo("after");
+    }
+
+    [Test]
     public async Task Conditional_steer_yields_to_pending_input_and_retries_idempotently()
     {
         _ = _repository.Admit(

@@ -13,7 +13,7 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
         return messages.Sum(EstimateTokens);
     }
 
-    public async Task<IReadOnlyList<LLMMessage>> Compact(
+    public async Task<CompactionResult?> Compact(
         ProviderModel selectedModel,
         IReadOnlyList<LLMMessage> history,
         CancellationToken cancellationToken)
@@ -30,7 +30,7 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
         var toSummarise = history.Take(keepFrom).ToList();
         if (toSummarise.Count == 0)
         {
-            return history;
+            return null;
         }
 
         var inputBudget = InputBudget(selectedModel.Model.ContextWindow);
@@ -61,17 +61,18 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
         }
 
         summary = await Summarise(selectedModel, summary, chunk, cancellationToken).ConfigureAwait(false);
-        var compacted = new List<LLMMessage>
-        {
-            LLMMessage.System($"Summary of the earlier conversation:\n{summary}"),
-        };
-        compacted.AddRange(history.Skip(keepFrom));
+        var summaryMessage = LLMMessage.System($"Summary of the earlier conversation:\n{summary}");
+        IReadOnlyList<LLMMessage> compacted =
+        [
+            summaryMessage,
+            .. history.Skip(keepFrom),
+        ];
         if (EstimateTokens(compacted) > inputBudget)
         {
             throw new InvalidOperationException("The recent conversation exceeds the compaction input budget.");
         }
 
-        return compacted;
+        return new CompactionResult(compacted, summaryMessage, history.Count - keepFrom);
     }
 
     public bool ShouldCompact(IReadOnlyList<LLMMessage> history) =>

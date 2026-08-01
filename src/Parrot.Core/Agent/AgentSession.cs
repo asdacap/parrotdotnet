@@ -1201,18 +1201,36 @@ internal sealed class AgentSession(
             return;
         }
 
-        // Copied before the clear: a compaction with nothing to summarise hands
-        // back the very list being emptied.
         var selectedModel = selection?.ResolvedModel.CanonicalModel
             ?? throw new AgentRegistryException("turn selection is unavailable");
-        var compacted = (await compactor.Compact(
+        var priorWatermark = eventRepository.Compaction(SessionId)?.Watermark ?? 0;
+        var durableMessages = eventRepository.ConversationAfter(SessionId, priorWatermark);
+        var compacted = await compactor.Compact(
             selectedModel,
             _history,
-            cancellationToken)
-            .ConfigureAwait(false)).ToList();
+            cancellationToken).ConfigureAwait(false);
+        if (compacted is null)
+        {
+            return;
+        }
 
+        if (compacted.RetainedDurableMessageCount > durableMessages.Count)
+        {
+            throw new InvalidOperationException("compaction retained more messages than durable conversation history");
+        }
+
+        var summarisedCount = durableMessages.Count - compacted.RetainedDurableMessageCount;
+        if (summarisedCount == 0)
+        {
+            return;
+        }
+
+        var watermark = durableMessages[summarisedCount - 1].Sequence;
+        eventRepository.SaveCompaction(
+            SessionId,
+            new CompactionSnapshot(compacted.Summary.Content, watermark));
         _history.Clear();
-        _history.AddRange(compacted);
+        _history.AddRange(compacted.History);
         _systemPrompt.RenewEpoch();
     }
 

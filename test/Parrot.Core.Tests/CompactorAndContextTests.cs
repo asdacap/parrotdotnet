@@ -355,6 +355,64 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_session_compaction_is_saved_and_restored_without_compacted_prefix(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new ScriptedProvider("reply");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var identity = AgentIdentity.Main("agent", string.Empty);
+        var repository = new EventRepository(database);
+        var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+
+        AgentSession Build(int budget) => new(
+            identity,
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
+            broker,
+            repository,
+            [],
+            TestModels.MaterializePrompt(identity, _workspace, _workspace),
+            new TodoCollection("agent", repository, broker),
+            new ToolOutputBlobStore(_workspace),
+            new Compactor(budget, maximumInputTokens: 60_000, summaryOutputTokens: 1024),
+            dependencies.ActiveWorkReminder,
+            dependencies.Profile,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            dependencies.Status,
+            dependencies.Registry,
+            dependencies.Queues,
+            cancellationToken);
+
+        var session = Build(0);
+        foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
+        {
+            _ = await session.Send(prompt, Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            _ = await session.ResultSettled();
+        }
+
+        var snapshot = repository.Compaction("agent")
+            ?? throw new InvalidOperationException("Expected a durable compaction snapshot.");
+        _ = await Assert.That(snapshot.Summary).Contains("Summary of the earlier conversation:");
+        _ = await Assert.That(repository.ConversationAfter("agent", snapshot.Watermark))
+            .DoesNotContain(item => item.Parts.Any(part => part.Text == "old prompt"));
+
+        var requestsBeforeRestart = provider.Requests.Count;
+        var restarted = Build(int.MaxValue);
+        _ = await restarted.Send("after restart", Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        _ = await restarted.ResultSettled();
+
+        var restoredRequest = provider.Requests.Skip(requestsBeforeRestart).Single();
+        _ = await Assert.That(restoredRequest.Messages)
+            .Contains(message => message.Role == LLMRole.System && message.Content == snapshot.Summary);
+        _ = await Assert.That(restoredRequest.Messages)
+            .DoesNotContain(message => message.Content == "old prompt");
+        _ = await Assert.That(restoredRequest.Messages)
+            .Contains(message => message.Role == LLMRole.User && message.Content == "after restart");
+    }
+
+    [Test]
     public async Task Compaction_shrinks_history_and_keeps_the_recent_tail(CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("SUMMARY OF EARLIER");
@@ -371,7 +429,8 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         _ = await Assert.That(compactor.ShouldCompact(history)).IsTrue();
 
-        var compacted = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
+        var result = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
+        var compacted = result?.History ?? throw new InvalidOperationException("Expected compaction.");
 
         _ = await Assert.That(compacted.Count).IsLessThan(history.Count);
         _ = await Assert.That(compacted[0].Role).IsEqualTo(LLMRole.System);
@@ -394,7 +453,8 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMMessage.User("latest"),
         ];
 
-        compacted = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
+        result = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
+        compacted = result?.History ?? throw new InvalidOperationException("Expected compaction.");
 
         _ = await Assert.That(compacted[1].ToolCalls).Count().IsEqualTo(2);
         _ = await Assert.That(compacted[1].ToolCalls[0].Id).IsEqualTo("call-1");

@@ -1297,7 +1297,14 @@ internal sealed class EventRepository
                     }
                 }
 
-                Project(transaction, agentSessionId, "user", input.Content);
+                _ = Project(
+                    transaction,
+                    agentSessionId,
+                    ConversationOrigin.UserInput,
+                    LLMRole.User,
+                    input.Parts,
+                    [],
+                    string.Empty);
                 _ = Record(transaction, published);
                 promoted.Add(new Promotion(input, published));
             }
