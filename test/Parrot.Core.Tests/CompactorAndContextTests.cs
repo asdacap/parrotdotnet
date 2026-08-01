@@ -541,6 +541,25 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Compaction_propagates_selected_variant_reasoning(CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(
+            provider,
+            new LLMModel("model", provider.Id),
+            new Parrot.Llm.ModelVariant("high", "xhigh"));
+        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
+        var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
+
+        _ = await compactor.Compact(model, history, cancellationToken);
+
+        var reasoning = provider.Requests.Single().Reasoning
+            ?? throw new InvalidOperationException("Expected reasoning options.");
+        _ = await Assert.That(reasoning.Effort).IsEqualTo("xhigh");
+        _ = await Assert.That(reasoning.Summary).IsEqualTo("auto");
+    }
+
+    [Test]
     public async Task Compaction_folds_bounded_complete_groups(CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");

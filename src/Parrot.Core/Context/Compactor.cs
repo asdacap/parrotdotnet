@@ -152,6 +152,7 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
             Model = selectedModel.ModelId,
             MaxTokens = summaryOutputTokens,
             Messages = messages,
+            Reasoning = selectedModel.Reasoning,
         };
 
         string? summary = null;

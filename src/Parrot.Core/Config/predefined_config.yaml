@@ -194,7 +194,7 @@ user_input_timeout_ms: 1200000
 # Limits for each compaction request.
 compaction:
   maximum_input_tokens: 60000
-  summary_output_tokens: 1024
+  summary_output_tokens: 12000
 
 # Default foreground profile when no mode is selected explicitly.
 default_profile: build

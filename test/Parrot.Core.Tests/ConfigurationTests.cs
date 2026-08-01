@@ -251,9 +251,9 @@ internal sealed class ConfigurationTests : IDisposable
         var configuration = Load(Path.Combine(_directory, "config.yaml"));
 
         _ = await Assert.That(configuration.Compaction.MaximumInputTokens).IsEqualTo(60_000);
-        _ = await Assert.That(configuration.Compaction.SummaryOutputTokens).IsEqualTo(1_024);
+        _ = await Assert.That(configuration.Compaction.SummaryOutputTokens).IsEqualTo(12_000);
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken)).Contains(
-            "compaction:\n  maximum_input_tokens: 60000\n  summary_output_tokens: 1024");
+            "compaction:\n  maximum_input_tokens: 60000\n  summary_output_tokens: 12000");
     }
 
     [Test]
@@ -263,7 +263,7 @@ internal sealed class ConfigurationTests : IDisposable
         var summary = Load(Write("compaction:\n  summary_output_tokens: 512\n")).Compaction;
 
         _ = await Assert.That(maximum.MaximumInputTokens).IsEqualTo(2_048);
-        _ = await Assert.That(maximum.SummaryOutputTokens).IsEqualTo(1_024);
+        _ = await Assert.That(maximum.SummaryOutputTokens).IsEqualTo(12_000);
         _ = await Assert.That(summary.MaximumInputTokens).IsEqualTo(60_000);
         _ = await Assert.That(summary.SummaryOutputTokens).IsEqualTo(512);
     }
@@ -277,7 +277,7 @@ internal sealed class ConfigurationTests : IDisposable
 
     [Test]
     [Arguments("compaction:\n  maximum_input_tokens: 60000\n  unsupported: 1\n")]
-    [Arguments("compaction:\n  summary_output_tokens: 1024\n  maximum_tokens: 1\n")]
+    [Arguments("compaction:\n  summary_output_tokens: 12000\n  maximum_tokens: 1\n")]
     public async Task Compaction_configuration_rejects_unknown_keys(string content) =>
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 

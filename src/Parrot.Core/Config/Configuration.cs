@@ -61,7 +61,7 @@ internal sealed class Configuration(string path)
 
     public TimeSpan UserInputTimeout { get; private set; }
 
-    public CompactionConfig Compaction { get; private set; } = new(60_000, 1_024);
+    public CompactionConfig Compaction { get; private set; } = new(60_000, 12_000);
 
     public static Configuration Load(string path, string predefinedPath)
     {
