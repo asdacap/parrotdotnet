@@ -49,6 +49,9 @@ internal sealed class ToolInputDescriptorGeneratorTests
         {
         """;
 
+    private static readonly ImmutableArray<MetadataReference> PlatformReferences =
+        LoadPlatformReferences();
+
     [Test]
     public async Task A_top_level_model_still_compiles_and_generates_its_schema()
     {
@@ -369,14 +372,10 @@ internal sealed class ToolInputDescriptorGeneratorTests
         ImmutableArray<KeyValuePair<string, string>> GeneratedSources) RunGeneration(string model)
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(Preamble + model + "\n}");
-        var trustedAssemblies = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string
-            ?? throw new InvalidOperationException("Trusted platform assemblies are unavailable.");
-        var references = trustedAssemblies.Split(Path.PathSeparator)
-            .Select(path => MetadataReference.CreateFromFile(path));
         var compilation = CSharpCompilation.Create(
             "GeneratorTest",
             [syntaxTree],
-            references,
+            PlatformReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         var driver = CSharpGeneratorDriver.Create(new ToolInputDescriptorGenerator().AsSourceGenerator());
 
@@ -388,6 +387,14 @@ internal sealed class ToolInputDescriptorGeneratorTests
             .Select(source => new KeyValuePair<string, string>(source.HintName, source.SourceText.ToString()))
             .ToImmutableArray();
         return (generatorDiagnostics, outputCompilation.GetDiagnostics(), generatedSources);
+    }
+
+    private static ImmutableArray<MetadataReference> LoadPlatformReferences()
+    {
+        var trustedAssemblies = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string
+            ?? throw new InvalidOperationException("Trusted platform assemblies are unavailable.");
+        return [.. trustedAssemblies.Split(Path.PathSeparator)
+            .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))];
     }
 
     private static string ExtractDescriptor(string generatedSource)
