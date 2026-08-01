@@ -55,4 +55,27 @@ internal sealed class ProviderErrorsTests
 
         _ = await Assert.That(ProviderErrors.IsEngineOverloaded(failure)).IsTrue();
     }
+
+    [Test]
+    public async Task Response_bodies_are_bounded_without_splitting_utf8()
+    {
+        var body = new string('界', 30_000);
+
+        var bounded = ProviderErrors.BoundResponseBody(body);
+
+        _ = await Assert.That(System.Text.Encoding.UTF8.GetByteCount(bounded)).IsLessThanOrEqualTo(64 << 10);
+        _ = await Assert.That(bounded).EndsWith("… [truncated]");
+        _ = await Assert.That(bounded).DoesNotContain("�");
+    }
+
+    [Test]
+    public async Task Structured_provider_failures_expose_their_response_body()
+    {
+        var http = new ProviderHttpException(400, "type", "code", "detail", "http body");
+        var response = new ProviderResponseException("type", "code", "detail", "stream body");
+
+        _ = await Assert.That(ProviderErrors.ReadResponseBody(http)).IsEqualTo("http body");
+        _ = await Assert.That(ProviderErrors.ReadResponseBody(response)).IsEqualTo("stream body");
+        _ = await Assert.That(ProviderErrors.ReadResponseBody(new IOException("network"))).IsEmpty();
+    }
 }

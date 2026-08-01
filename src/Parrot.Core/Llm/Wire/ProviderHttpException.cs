@@ -6,12 +6,23 @@ namespace Parrot.Llm.Wire;
 public sealed class ProviderHttpException : Exception
 {
     public ProviderHttpException(int statusCode, string errorType, string errorCode, string detail)
+        : this(statusCode, errorType, errorCode, detail, string.Empty)
+    {
+    }
+
+    public ProviderHttpException(
+        int statusCode,
+        string errorType,
+        string errorCode,
+        string detail,
+        string responseBody)
         : base(Compose(statusCode, errorType, errorCode, detail))
     {
         StatusCode = statusCode;
         ErrorType = errorType;
         ErrorCode = errorCode;
         Detail = detail;
+        ResponseBody = responseBody;
     }
 
     public ProviderHttpException(string message)
@@ -35,6 +46,8 @@ public sealed class ProviderHttpException : Exception
     public string ErrorCode { get; } = string.Empty;
 
     public string Detail { get; } = string.Empty;
+
+    public string ResponseBody { get; } = string.Empty;
 
     private static string Compose(int statusCode, string errorType, string errorCode, string detail)
     {

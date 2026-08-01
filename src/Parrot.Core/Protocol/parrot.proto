@@ -637,4 +637,5 @@ message ChoiceAction {
 
 message TurnFailed {
   string message = 1;
+  string provider_response_body = 2;
 }

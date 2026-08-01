@@ -340,7 +340,11 @@ internal sealed class EnhancedTurnRendererTests
                 new Event
                 {
                     Id = "failed",
-                    TurnFailed = new TurnFailed { Message = "bad\u001b[2J\trequest" },
+                    TurnFailed = new TurnFailed
+                    {
+                        Message = "bad\u001b[2J\trequest",
+                        ProviderResponseBody = "{\"error\":\"broken\u001b[2J\"}\nsecond line",
+                    },
                 },
             ],
             cancellationToken);
@@ -348,7 +352,56 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(completed).IsFalse();
         _ = await Assert.That(output).Contains("● partia\r\n  l\r\n");
         _ = await Assert.That(error).Contains("  bad[2J    request");
+        _ = await Assert.That(error).Contains("  provider response:");
+        _ = await Assert.That(error).Contains("{\"error\":\"broken[2J\"}\nsecond line");
         _ = await Assert.That(error).DoesNotContain("\u001b[2J");
+    }
+
+    [Test]
+    public async Task Child_provider_failure_reports_its_response_body(CancellationToken cancellationToken)
+    {
+        var (completed, _, error) = await Render(
+            [
+                new Event
+                {
+                    Id = "main-start",
+                    AgentSessionId = "main",
+                    TurnStarted = new TurnStarted { Model = "model" },
+                },
+                new Event
+                {
+                    Id = "child-agent",
+                    AgentSessionId = "child",
+                    AgentStarted = new AgentStarted { ParentAgentSessionId = "main", Name = "worker" },
+                },
+                new Event
+                {
+                    Id = "child-start",
+                    AgentSessionId = "child",
+                    TurnStarted = new TurnStarted { Model = "model" },
+                },
+                new Event
+                {
+                    Id = "child-failed",
+                    AgentSessionId = "child",
+                    TurnFailed = new TurnFailed
+                    {
+                        Message = "child failed",
+                        ProviderResponseBody = "{\"child\":true}",
+                    },
+                },
+                new Event
+                {
+                    Id = "main-ended",
+                    AgentSessionId = "main",
+                    TurnEnded = new TurnEnded { FinishReason = "stop" },
+                },
+            ],
+            cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(error).Contains("  provider response:");
+        _ = await Assert.That(error).Contains("{\"child\":true}");
     }
 
     private static async Task<(bool Completed, string Output, string Error)> Render(

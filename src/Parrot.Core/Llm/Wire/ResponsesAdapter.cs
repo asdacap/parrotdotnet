@@ -260,7 +260,10 @@ internal static class ResponsesAdapter
                         : root;
 
                 throw new ProviderResponseException(
-                    ReadString(failure, "type"), ReadString(failure, "code"), ReadString(failure, "message"));
+                    ReadString(failure, "type"),
+                    ReadString(failure, "code"),
+                    ReadString(failure, "message"),
+                    ProviderErrors.BoundResponseBody(data));
             }
 
             default:

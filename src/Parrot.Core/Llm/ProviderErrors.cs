@@ -1,3 +1,4 @@
+using System.Text;
 using Parrot.Llm.Wire;
 
 namespace Parrot.Llm;
@@ -8,6 +9,40 @@ namespace Parrot.Llm;
 // work. Port of the classification half of Go's provider.go.
 internal static class ProviderErrors
 {
+    private const int MaximumResponseBodyBytes = 64 << 10;
+    private const string TruncationMarker = "\n… [truncated]";
+
+    public static string BoundResponseBody(string body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        if (Encoding.UTF8.GetByteCount(body) <= MaximumResponseBodyBytes)
+        {
+            return body;
+        }
+
+        var remaining = MaximumResponseBodyBytes - Encoding.UTF8.GetByteCount(TruncationMarker);
+        var bounded = new StringBuilder();
+        foreach (var rune in body.EnumerateRunes())
+        {
+            if (rune.Utf8SequenceLength > remaining)
+            {
+                break;
+            }
+
+            _ = bounded.Append(rune);
+            remaining -= rune.Utf8SequenceLength;
+        }
+
+        return bounded.Append(TruncationMarker).ToString();
+    }
+
+    public static string ReadResponseBody(Exception failure) => failure switch
+    {
+        ProviderHttpException http => http.ResponseBody,
+        ProviderResponseException response => response.ResponseBody,
+        _ => string.Empty,
+    };
+
     public static bool IsUsageLimit(string type, string code) =>
         UsageLimitValue(type) || UsageLimitValue(code);
 

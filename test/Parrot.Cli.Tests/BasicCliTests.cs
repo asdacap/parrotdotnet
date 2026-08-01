@@ -214,6 +214,31 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    public async Task Turn_failure_does_not_render_the_enhanced_provider_body(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event
+            {
+                TurnFailed = new TurnFailed
+                {
+                    Message = "request failed",
+                    ProviderResponseBody = "provider body",
+                },
+            },
+            cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        _ = await Assert.That(completed).IsFalse();
+        _ = await Assert.That(error.ToString()).Contains("request failed");
+        _ = await Assert.That(error.ToString()).DoesNotContain("provider body");
+    }
+
+    [Test]
     public async Task Length_completion_reports_cumulative_token_totals(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();

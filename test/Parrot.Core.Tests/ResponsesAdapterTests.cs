@@ -196,9 +196,26 @@ internal sealed class ResponsesAdapterTests
     [Test]
     [Arguments("""data: {"type":"response.failed","response":{"error":{"type":"server_error","message":"boom"}}}""")]
     [Arguments("""data: {"type":"error","code":"bad","message":"nope"}""")]
-    public async Task A_structured_stream_error_is_raised(string line, CancellationToken cancellationToken) =>
-        _ = await Assert.That(async () => await Drain(line + "\n\n", cancellationToken))
-            .Throws<ProviderResponseException>();
+    public async Task A_structured_stream_error_preserves_its_body(string line, CancellationToken cancellationToken)
+    {
+        ProviderResponseException? failure = null;
+        try
+        {
+            _ = await Drain(line + "\n\n", cancellationToken);
+        }
+        catch (ProviderResponseException caught)
+        {
+            failure = caught;
+        }
+
+        _ = await Assert.That(failure).IsNotNull();
+        if (failure is null)
+        {
+            throw new InvalidOperationException("The provider failure was not raised.");
+        }
+
+        _ = await Assert.That(failure.ResponseBody).IsEqualTo(line["data: ".Length..]);
+    }
 
     [Test]
     public async Task A_stream_without_a_terminal_event_is_an_error(CancellationToken cancellationToken)

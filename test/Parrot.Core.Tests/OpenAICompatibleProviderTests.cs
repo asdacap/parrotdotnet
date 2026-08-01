@@ -177,6 +177,34 @@ internal sealed class OpenAICompatibleProviderTests
     }
 
     [Test]
+    public async Task Structured_stream_errors_preserve_their_body(CancellationToken cancellationToken)
+    {
+        const string body = """{"error":{"type":"server_error","code":"bad","message":"boom"}}""";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes($"data: {body}\n\n"));
+        ProviderResponseException? failure = null;
+
+        try
+        {
+            await foreach (var published in ChatCompletionsAdapter.Parse(stream, 4096, cancellationToken))
+            {
+                _ = published;
+            }
+        }
+        catch (ProviderResponseException caught)
+        {
+            failure = caught;
+        }
+
+        _ = await Assert.That(failure).IsNotNull();
+        if (failure is null)
+        {
+            throw new InvalidOperationException("The provider failure was not raised.");
+        }
+
+        _ = await Assert.That(failure.ResponseBody).IsEqualTo(body);
+    }
+
+    [Test]
     public async Task Factories_never_produce_a_null_field(CancellationToken cancellationToken)
     {
         _ = await Assert.That(LLMEvent.TextDelta("x").ToolName).IsEmpty();

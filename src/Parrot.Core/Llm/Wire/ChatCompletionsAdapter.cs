@@ -120,7 +120,10 @@ internal static class ChatCompletionsAdapter
         if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
         {
             throw new ProviderResponseException(
-                ReadString(error, "type"), ReadScalar(error, "code"), ReadString(error, "message"));
+                ReadString(error, "type"),
+                ReadScalar(error, "code"),
+                ReadString(error, "message"),
+                ProviderErrors.BoundResponseBody(data));
         }
 
         if (root.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array)

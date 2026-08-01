@@ -1,11 +1,52 @@
 using System.Net;
 using System.Text;
 using Parrot.Llm;
+using Parrot.Llm.Wire;
 
 namespace Parrot.Core.Tests;
 
 internal sealed class OpenAICompatibleProviderAuthTests
 {
+    [Test]
+    public async Task Non_success_responses_preserve_their_body(CancellationToken cancellationToken)
+    {
+        const string body = """{"error":{"type":"invalid_request","code":"bad","message":"broken"},"trace":"abc"}""";
+        using var handler = new RecordingHandler(
+            new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        using var client = new HttpClient(handler, disposeHandler: false);
+        var provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                ApiKeySource = new RecordingApiKeySource(["key"]),
+            },
+            client);
+        var request = new LLMRequest { Model = "model-a", Messages = [LLMMessage.User("hello")] };
+        ProviderHttpException? failure = null;
+
+        try
+        {
+            _ = await Drain(provider.Call(request, cancellationToken));
+        }
+        catch (ProviderHttpException caught)
+        {
+            failure = caught;
+        }
+
+        _ = await Assert.That(failure).IsNotNull();
+        if (failure is null)
+        {
+            throw new InvalidOperationException("The provider failure was not raised.");
+        }
+
+        _ = await Assert.That(failure.ResponseBody).IsEqualTo(body);
+        _ = await Assert.That(failure.Detail).IsEqualTo("broken");
+    }
+
     [Test]
     public async Task Api_key_is_resolved_for_each_request_and_missing_keys_fail_before_http(CancellationToken cancellationToken)
     {

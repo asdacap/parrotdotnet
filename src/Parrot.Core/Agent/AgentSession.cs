@@ -921,7 +921,7 @@ internal sealed class AgentSession(
                 var maxTurns = activeSelection.Profile.MaxTurns;
                 if (providerRequests >= maxTurns)
                 {
-                    await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
+                    await Fail(RunawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
                     return AgentExecution.Failed(RunawayMessage);
                 }
 
@@ -959,7 +959,7 @@ internal sealed class AgentSession(
 
                     if (providerRequests == maxTurns)
                     {
-                        await Fail(RunawayMessage, cancellationToken).ConfigureAwait(false);
+                        await Fail(RunawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
                         return AgentExecution.Failed(RunawayMessage);
                     }
 
@@ -1047,7 +1047,10 @@ internal sealed class AgentSession(
             // A provider or tool boundary is a deliberate containment point, and
             // this one is total: the drain is nobody's awaited task, so an
             // escaping exception would be unobserved rather than reported.
-            await Fail(failure.Message, CancellationToken.None).ConfigureAwait(false);
+            await Fail(
+                failure.Message,
+                ProviderErrors.ReadResponseBody(failure),
+                CancellationToken.None).ConfigureAwait(false);
             return AgentExecution.Failed(failure.Message);
         }
     }
@@ -1434,13 +1437,17 @@ internal sealed class AgentSession(
             result));
     }
 
-    private async Task Fail(string message, CancellationToken cancellationToken)
+    private async Task Fail(string message, string providerResponseBody, CancellationToken cancellationToken)
     {
         var failed = new Event
         {
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
-            TurnFailed = new TurnFailed { Message = message },
+            TurnFailed = new TurnFailed
+            {
+                Message = message,
+                ProviderResponseBody = providerResponseBody,
+            },
         };
         await EmitEvent(failed, null, null, cancellationToken).ConfigureAwait(false);
     }

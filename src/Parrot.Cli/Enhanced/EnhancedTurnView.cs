@@ -138,10 +138,18 @@ internal sealed class EnhancedTurnView(
                     await error.WriteLineAsync(
                         $"{Red}  {TerminalText.Sanitize(published.TurnFailed.Message)}{Reset}".AsMemory(),
                         cancellationToken).ConfigureAwait(false);
-                    return false;
                 }
 
-                return null;
+                if (published.TurnFailed.ProviderResponseBody.Length > 0)
+                {
+                    await error.WriteLineAsync(
+                        $"{Red}  provider response:{Reset}".AsMemory(), cancellationToken).ConfigureAwait(false);
+                    await error.WriteLineAsync(
+                        TerminalText.Sanitize(published.TurnFailed.ProviderResponseBody).AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                return foreground.IsTerminal(published) ? false : null;
 
             default:
                 break;

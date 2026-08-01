@@ -3,6 +3,7 @@ using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Llm.Wire;
 using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.Store;
@@ -458,6 +459,22 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Terminal_provider_failures_publish_the_response_body(CancellationToken cancellationToken)
+    {
+        var provider = new FailingProvider();
+        var repository = new EventRepository(_database);
+        var session = Session(provider, repository, [], cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await session.Settled();
+
+        var failure = repository.Replay().Last(published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed;
+        _ = await Assert.That(failure.Message).Contains("HTTP 400");
+        _ = await Assert.That(failure.ProviderResponseBody).IsEqualTo("provider body");
+    }
+
+    [Test]
     public async Task An_unknown_tool_emits_an_error_before_the_turn_continues(
         CancellationToken cancellationToken)
     {
@@ -617,14 +634,14 @@ internal sealed class DrainTests : IDisposable
         $"{selection.Profile?.Id}:{selection.SecurityProfile.ReadOnly}";
 
     private AgentSession Session(
-        SteppedProvider provider,
+        ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         CancellationToken lifetime) =>
         Session(provider, repository, toolFactories, 0, 0, 0, 0, lifetime);
 
     private AgentSession Session(
-        SteppedProvider provider,
+        ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         IAgentProfile profile,
@@ -632,7 +649,7 @@ internal sealed class DrainTests : IDisposable
         Session(provider, repository, toolFactories, profile, 0, 0, 0, 0, lifetime);
 
     private AgentSession Session(
-        SteppedProvider provider,
+        ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         int contextWindow,
@@ -643,7 +660,7 @@ internal sealed class DrainTests : IDisposable
         Session(provider, repository, toolFactories, profile: null, contextWindow, inputPrice, cachedInputPrice, outputPrice, lifetime);
 
     private AgentSession Session(
-        SteppedProvider provider,
+        ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
         IAgentProfile? profile,
@@ -695,6 +712,30 @@ internal sealed class DrainTests : IDisposable
         {
             CreateCount++;
             return _tool;
+        }
+    }
+
+    private sealed class FailingProvider : ILLMProvider
+    {
+        public string Id => "failing";
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LLMModel>>([]);
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (request.Model.Length > 0)
+            {
+                throw new ProviderHttpException(400, "invalid_request", "bad", "broken", "provider body");
+            }
+
+            yield return LLMEvent.Completed("stop", 0, 0, 0, string.Empty, []);
         }
     }
 

@@ -247,7 +247,7 @@ internal static class HttpStreaming
             var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             await using (stream.ConfigureAwait(false))
             {
-                body = await ReadBounded(stream, MaxErrorBytes, cancellationToken).ConfigureAwait(false);
+                body = await ReadErrorBody(stream, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception failure) when (failure is not ProviderHttpException)
@@ -267,7 +267,30 @@ internal static class HttpStreaming
             detail = response.ReasonPhrase ?? string.Empty;
         }
 
-        return new ProviderHttpException(status, Sanitize(type, 128), Sanitize(code, 128), detail);
+        return new ProviderHttpException(
+            status,
+            Sanitize(type, 128),
+            Sanitize(code, 128),
+            detail,
+            ProviderErrors.BoundResponseBody(body));
+    }
+
+    private static async Task<string> ReadErrorBody(Stream stream, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[MaxErrorBytes + 4];
+        var total = 0;
+        while (total < buffer.Length)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                break;
+            }
+
+            total += read;
+        }
+
+        return Encoding.UTF8.GetString(buffer, 0, total);
     }
 
     private static (string Type, string Code, string Detail) ExtractError(string body)
