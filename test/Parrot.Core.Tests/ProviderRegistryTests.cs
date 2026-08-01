@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Parrot.Auth;
 using Parrot.Config;
 using Parrot.Llm;
@@ -225,6 +226,29 @@ internal sealed class ProviderRegistryTests
     }
 
     [Test]
+    public async Task Chatgpt_call_omits_unsupported_max_output_tokens(CancellationToken cancellationToken)
+    {
+        using var handler = new ChatGptCallHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        var provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], []);
+        var request = new LLMRequest
+        {
+            Model = "gpt-5.6-sol",
+            MaxTokens = 4096,
+            Messages = [LLMMessage.User("hello")],
+        };
+
+        await foreach (var item in provider.Call(request, cancellationToken))
+        {
+            _ = item;
+        }
+
+        using var document = JsonDocument.Parse(handler.Body);
+
+        _ = await Assert.That(document.RootElement.TryGetProperty("max_output_tokens", out _)).IsFalse();
+    }
+
+    [Test]
     public async Task Duplicate_ids_are_rejected_at_construction() =>
         _ = await Assert.That(() => Build([("p", []), ("p", [])], string.Empty)).Throws<LLMProviderException>();
 
@@ -378,6 +402,25 @@ internal sealed class ProviderRegistryTests
 
         public Task<OAuthAccess> Token(CancellationToken cancellationToken) =>
             Task.FromResult(new OAuthAccess("token", "account"));
+    }
+
+    private sealed class ChatGptCallHandler : HttpMessageHandler
+    {
+        public string Body { get; private set; } = string.Empty;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var content = request.Content ?? throw new InvalidOperationException("ChatGPT request content is missing");
+            Body = await content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+                    Encoding.UTF8,
+                    "text/event-stream"),
+            };
+        }
     }
 
     private sealed class ModelsHandler : HttpMessageHandler
