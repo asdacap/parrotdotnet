@@ -44,6 +44,7 @@ prompt: >-
      - Agent A compile all their reports to a scratch file, word-by-word without any alteration.
      - Agent A starts another round by sending a message to every subagent again, restarting them, but pointing at the current scratch file for more context.
   - Agent A then compile the final subagent reports and form a conclusion.
+  - Use different scratch file for different round.
   - Use for very-very delicate reasoning.
 
   ## Work Queue
