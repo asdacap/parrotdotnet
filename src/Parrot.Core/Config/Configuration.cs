@@ -984,7 +984,7 @@ internal sealed class Configuration(string path)
     }
 
     private static bool ReadOptionalBoolean(YamlMappingNode parent, string key, string path) =>
-        Child(parent, key, out var node) ? ParseBoolean(node, path) : false;
+        Child(parent, key, out var node) && ParseBoolean(node, path);
 
     private static bool ParseBoolean(YamlNode? node, string path) => node switch
     {
