@@ -219,7 +219,7 @@ profiles:
       - Keep tool side effects within the authorized workspace.
     usage: Select for implementing and verifying requested changes.
     max_turns: 1024
-    recursion_limit: 3
+    recursion_limit: 5
     read_only: false
     enforce_active_work_completion: true
   plan:
@@ -238,7 +238,7 @@ profiles:
       - Read-only mode is enforced by the runtime except for the designated plan-artifact directory. Writes outside that directory are prohibited.
     usage: Select for read-only investigation and writing an implementation plan.
     max_turns: 1024
-    recursion_limit: 3
+    recursion_limit: 5
     read_only: true
     enforce_active_work_completion: true
   query:
@@ -249,7 +249,7 @@ profiles:
       - Read-only mode is enforced by the runtime.
     usage: Select for read-only questions about the project.
     max_turns: 8
-    recursion_limit: 1
+    recursion_limit: 2
     read_only: true
     enforce_active_work_completion: true
   explorer:
@@ -277,7 +277,7 @@ profiles:
       Hard rules:
       - Read-only mode is enforced by the runtime.
     max_turns: 32
-    recursion_limit: 3
+    recursion_limit: 5
     read_only: true
     enforce_active_work_completion: true
   worker:
@@ -288,7 +288,7 @@ profiles:
       Typical tasks include implementing part of a feature, fixing tests or bugs, and completing an independently assigned portion of a refactor. Respect the ownership boundaries in the task. You are not alone in the codebase: do not revert other agents' edits, and accommodate concurrent changes made by others.
       If this is a continuation of a plan, refer the plan or subplan to subagent.
     max_turns: 128
-    recursion_limit: 3
+    recursion_limit: 4
     read_only: false
     enforce_active_work_completion: true
   thinker:
