@@ -18,7 +18,6 @@ internal sealed class ToolInputDescriptorTests
             ("grep", GrepTool.Input.Descriptor, false),
             ("interrupt_process", InterruptProcessTool.Input.Descriptor, true),
             ("question", QuestionTool.Input.Descriptor, false),
-            ("queue_close", QueueCloseTool.Input.Descriptor, false),
             ("queue_create", QueueCreateTool.Input.Descriptor, false),
             ("queue_info", QueueInfoTool.Input.Descriptor, false),
             ("queue_listen", QueueListenTool.Input.Descriptor, false),
@@ -36,9 +35,9 @@ internal sealed class ToolInputDescriptorTests
             ("write", WriteTool.Input.Descriptor, false),
         };
 
-        _ = await Assert.That(descriptors.Length).IsEqualTo(24);
+        _ = await Assert.That(descriptors.Length).IsEqualTo(23);
         _ = await Assert.That(string.Join(",", descriptors.Select(descriptor => descriptor.Name)))
-            .IsEqualTo("agent_send,agent_spawn,edit,exec_command,glob,grep,interrupt_process,question,queue_close,queue_create,queue_info,queue_listen,queue_push,queue_take,read,read_image,status,todoread,todowrite,wait_agent,wait_process,web_fetch,write_stdin,write");
+            .IsEqualTo("agent_send,agent_spawn,edit,exec_command,glob,grep,interrupt_process,question,queue_create,queue_info,queue_listen,queue_push,queue_take,read,read_image,status,todoread,todowrite,wait_agent,wait_process,web_fetch,write_stdin,write");
 
         using (var agentSpawn = JsonDocument.Parse(AgentSpawnTool.Input.Descriptor))
         {

@@ -10,7 +10,7 @@ internal sealed class QueueGuidancePrompt : ISystemPrompt
         + "Queue listening is configured independently for each invoking agent. Root queues persist with the user session, but child-owned queues last only for that child's lifetime.";
 
     private const string CloseGuidance =
-        " Producers close a queue when no more items will arrive; consumers drain until queue_take reports closed with no items rather than guessing from an empty timeout.";
+        " Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers drain until queue_take reports closed with no items rather than guessing from an empty timeout.";
 
     public void RenewEpoch()
     {
@@ -27,9 +27,9 @@ internal sealed class QueueGuidancePrompt : ISystemPrompt
             return string.Empty;
         }
 
-        return (allowedTools is null || (allowedTools.Contains("queue_close", StringComparer.Ordinal)
+        return (allowedTools is null || (allowedTools.Contains("queue_push", StringComparer.Ordinal)
                 && allowedTools.Contains("queue_take", StringComparer.Ordinal)))
-            && !disabledTools.Contains("queue_close", StringComparer.Ordinal)
+            && !disabledTools.Contains("queue_push", StringComparer.Ordinal)
             && !disabledTools.Contains("queue_take", StringComparer.Ordinal)
             ? Guidance + CloseGuidance
             : Guidance;

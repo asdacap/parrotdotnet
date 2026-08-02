@@ -270,11 +270,13 @@ the root's queues directly. Queue names must be unique across each direct
 parent-child edge regardless of which endpoint creates the queue first. Siblings
 may reuse a name because their ownership scopes do not overlap. Root-agent
 queues persist with the user session, while a child-owned queue is removed when
-that child session ends. A producer closes a queue to declare that no more items
-will arrive. Closing is idempotent, rejects later pushes, retains existing items
-for draining, and allows polling `queue_take` calls to finish promptly without
-waking `queue_listen` or `wait`. `queue_take` always reports whether the queue is
-closed, so an open empty timeout is distinguishable from completion. Live
+that child session ends. A producer declares that no more items will arrive by
+calling `queue_push(close:true)`; `items` may be empty when closing. A repeated
+empty closing push is idempotent; any other later push is rejected. Closing
+retains existing items for draining and allows polling `queue_take` calls to
+finish promptly without waking `queue_listen` or `wait`. `queue_take` always
+reports whether the queue is closed,
+so an open empty timeout is distinguishable from completion. Live
 clients receive a complete non-empty queue
 inventory for the whole user session; each row carries its owner session id so
 hierarchical interfaces can place it with that agent without broadening queue

@@ -240,31 +240,40 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Queue_guidance_is_omitted_when_queue_creation_is_globally_disabled()
+    public async Task Queue_guidance_requires_queue_creation_pushing_and_taking()
     {
         var prompt = new QueueGuidancePrompt();
         var enabled = prompt.Build(Selection(Profile(
             allowedTools: null,
             new HashSet<string>(StringComparer.Ordinal))));
-        var withoutClose = prompt.Build(Selection(Profile(
+        var permitted = prompt.Build(Selection(Profile(
             ["queue_create", "queue_push", "queue_take"],
             new HashSet<string>(StringComparer.Ordinal))));
-        var withClose = prompt.Build(Selection(Profile(
-            ["queue_create", "queue_close", "queue_push", "queue_take"],
+        var withoutPush = prompt.Build(Selection(Profile(
+            ["queue_create", "queue_take"],
             new HashSet<string>(StringComparer.Ordinal))));
-        var disallowed = prompt.Build(Selection(Profile(
-            ["read"],
+        var withoutTake = prompt.Build(Selection(Profile(
+            ["queue_create", "queue_push"],
+            new HashSet<string>(StringComparer.Ordinal))));
+        var withoutCreate = prompt.Build(Selection(Profile(
+            ["queue_push", "queue_take"],
             new HashSet<string>(StringComparer.Ordinal))));
         var disabled = prompt.Build(Selection(Profile(
-            ["queue_create"],
-            new HashSet<string>(["queue_create"], StringComparer.Ordinal))));
+            ["queue_create", "queue_push", "queue_take"],
+            new HashSet<string>(["queue_push"], StringComparer.Ordinal))));
 
         _ = await Assert.That(enabled).Contains("use a parent-owned queue");
+        _ = await Assert.That(enabled).Contains("queue_push(close:true)");
+        _ = await Assert.That(enabled).Contains("items may be empty when closing");
         _ = await Assert.That(enabled).Contains("queue_take reports closed with no items");
-        _ = await Assert.That(withoutClose).DoesNotContain("queue_take reports closed with no items");
-        _ = await Assert.That(withClose).Contains("queue_take reports closed with no items");
-        _ = await Assert.That(disallowed).IsEmpty();
-        _ = await Assert.That(disabled).IsEmpty();
+        _ = await Assert.That(permitted).IsEqualTo(enabled);
+        _ = await Assert.That(withoutPush).Contains("use a parent-owned queue");
+        _ = await Assert.That(withoutPush).DoesNotContain("queue_push(close:true)");
+        _ = await Assert.That(withoutTake).Contains("use a parent-owned queue");
+        _ = await Assert.That(withoutTake).DoesNotContain("queue_push(close:true)");
+        _ = await Assert.That(withoutCreate).IsEmpty();
+        _ = await Assert.That(disabled).Contains("use a parent-owned queue");
+        _ = await Assert.That(disabled).DoesNotContain("queue_push(close:true)");
     }
 
     [Test]

@@ -30,6 +30,12 @@ internal readonly record struct ToolBlock(
     public static ToolBlock FromTodos(string text) =>
         new(ToolBlockKind.Todos, text, string.Empty, string.Empty, 0);
 
+    public static ToolBlock FromQueue(IEnumerable<string> items) =>
+        FromQueue(string.Join('\n', items));
+
+    public static ToolBlock FromQueue(string text) =>
+        text.Length == 0 ? Empty : new(ToolBlockKind.Queue, text, string.Empty, string.Empty, 0);
+
     public static ToolBlock FromCompletedInput(string text) =>
         new(ToolBlockKind.CompletedInput, text, "yaml", string.Empty, 0);
 
