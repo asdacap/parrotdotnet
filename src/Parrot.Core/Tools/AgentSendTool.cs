@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
@@ -10,6 +11,8 @@ internal sealed partial class AgentSendTool(
     AgentRegistry agents,
     AgentSession session) : ITool
 {
+    private const int MaximumMessageBytes = 32 * 1024;
+
     public string Name => "agent_send";
 
     public string Description =>
@@ -32,6 +35,11 @@ internal sealed partial class AgentSendTool(
                 ?? throw new FormatException("Tool arguments must be an object.");
             sessionId = input.SessionId ?? throw new FormatException("Tool arguments require a string 'session_id'.");
             message = input.Message ?? throw new FormatException("Tool arguments require a string 'message'.");
+
+            if (Encoding.UTF8.GetByteCount(message) > MaximumMessageBytes)
+            {
+                return $"error: agent message exceeds {MaximumMessageBytes} UTF-8 bytes; split it into smaller messages";
+            }
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -66,7 +74,7 @@ internal sealed partial class AgentSendTool(
         [ToolRequired]
         public string? SessionId { get; init; }
 
-        [Description("Message to send.")]
+        [Description("Message to send. At most 32768 UTF-8 bytes; split larger content into smaller messages.")]
         [JsonPropertyName("message")]
         [ToolMinLength(1)]
         [ToolRequired]

@@ -924,6 +924,44 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Send_accepts_a_message_at_the_32_kib_utf8_boundary(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "first", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "second", []));
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
+        var parent = Session(provider, 0, "parent", cancellationToken);
+        var spawned = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty);
+        _ = await spawned.Send("initial", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var boundary = new string('x', 32 * 1024);
+
+        var sentJson = (await new AgentSendTool(registry, parent).Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"{{boundary}}"}"""),
+            Turn(parent, Router(provider)),
+            cancellationToken)).Text;
+
+        using var sent = JsonDocument.Parse(sentJson);
+        _ = await Assert.That(sent.RootElement.GetProperty("message_id").GetString()).StartsWith("msg-");
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[1].Messages.Select(message => message.Content)).Contains(boundary);
+        provider.Release();
+        var completed = await spawned.Wait(0, cancellationToken);
+        _ = await Assert.That(completed.Output).IsEqualTo("second");
+    }
+
+    [Test]
     public async Task Send_validates_arguments_size_and_rejects_unrelated_agents(
         CancellationToken cancellationToken)
     {
@@ -964,7 +1002,13 @@ internal sealed class SubagentTests : IDisposable
         var oversized = (await send.Execute(
             new ToolInvocation(
                 "test-call",
-                $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (1024 * 1024) + 1)}}"}"""),
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('x', (32 * 1024) + 1)}}"}"""),
+            Turn(parent, Router(provider)),
+            cancellationToken)).Text;
+        var oversizedUnicode = (await send.Execute(
+            new ToolInvocation(
+                "test-call",
+                $$"""{"session_id":"{{spawned.SessionId}}","message":"{{new string('界', 10_923)}}"}"""),
             Turn(parent, Router(provider)),
             cancellationToken)).Text;
 
@@ -973,7 +1017,9 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(missing).IsEqualTo("error: child agent not found: missing");
         _ = await Assert.That(invisible).IsEqualTo("error: only parent/child may be sent");
         _ = await Assert.That(invisible).DoesNotContain(spawned.SessionId);
-        _ = await Assert.That(oversized).IsEqualTo("error: agent message exceeds 1048576 bytes");
+        _ = await Assert.That(oversized)
+            .IsEqualTo("error: agent message exceeds 32768 UTF-8 bytes; split it into smaller messages");
+        _ = await Assert.That(oversizedUnicode).IsEqualTo(oversized);
         provider.Release();
     }
 
