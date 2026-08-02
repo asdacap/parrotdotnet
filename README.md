@@ -371,10 +371,10 @@ combines these four predefined aliases with the `model_aliases` map in the
 configuration file: `low_llm`, `medium_llm`, `high_llm`, and `xhigh_llm`.
 Their predefined `usage` values are:
 
-- `low_llm`: `mechanical, single file task, text or code processing when no suitable cli tool available.`
-- `medium_llm`: `Decently capable, specific clear task, component level task, two or three file window`
-- `high_llm`: `General purpose, agent spawner, tactical decision making and planning, debugging, colaborator`
-- `xhigh_llm`: `Strategic work spanning multiple modules or parties, ambiguous or open-ended requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.`
+- `low_llm`: `Explicit reversible mechanical or evidence work with failure-specific validation; never judgmental review.`
+- `medium_llm`: `Settled component work requiring local judgment.`
+- `high_llm`: `Tactical ambiguity, debugging, coordination, integration, or substantive review.`
+- `xhigh_llm`: `Strategic, architectural, open-ended, tightly coupled, difficult-to-verify, or consequential work with hard-to-detect errors.`
 
 The ordinary predefined `model_aliases` targets remain empty. Consequently each
 unconfigured alias produces this startup warning until it is configured:

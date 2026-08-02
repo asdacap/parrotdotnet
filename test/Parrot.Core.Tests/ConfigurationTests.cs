@@ -30,7 +30,8 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(basePrompt).StartsWith(
             "You are parrot, a coding agent. You work in the user's project directory.\n"
             + "Filesystem access is determined by the active security policy.");
-        _ = await Assert.That(basePrompt).Contains("# Common subagent spawn strategy");
+        _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:02-delegation"])
+            .StartsWith("## Delegation and orchestration");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configuration.DisabledTools.Count).IsEqualTo(2);
@@ -176,8 +177,10 @@ internal sealed class ConfigurationTests : IDisposable
               custom:guidance: Additional guidance.
             """)).SystemPrompts;
 
-        _ = await Assert.That(prompts).Count().IsEqualTo(2);
+        _ = await Assert.That(prompts).Count().IsEqualTo(3);
         _ = await Assert.That(prompts["runtime:system-context:01-base"]).IsEqualTo("Custom base prompt.");
+        _ = await Assert.That(prompts["runtime:system-context:02-delegation"])
+            .StartsWith("## Delegation and orchestration");
         _ = await Assert.That(prompts["custom:guidance"]).IsEqualTo("Additional guidance.");
     }
 
@@ -941,23 +944,23 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(aliases).Count().IsEqualTo(4);
         _ = await Assert.That(aliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
-            "mechanical, single file task, text or code processing when no suitable cli tool available. do not use for review.",
+            "Explicit reversible mechanical or evidence work with failure-specific validation; never judgmental review.",
             null,
             new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(aliases["medium_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
-            "Decently capable, specific clear task, component level task, two or three file window",
+            "Settled component work requiring local judgment.",
             null,
             new ModelAliasIconConfig("◆", "cyan")));
         _ = await Assert.That(aliases["high_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
-            "General purpose, agent spawner, tactical decision making and planning, debugging, colaborator",
+            "Tactical ambiguity, debugging, coordination, integration, or substantive review.",
             null,
             new ModelAliasIconConfig("◆", "yellow")));
         _ = await Assert.That(aliases["xhigh_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
-            "Strategic work spanning multiple modules or parties, ambiguous or open-ended requirements, hard debugging or optimization, and high-level planning where cheaper models are insufficient.",
-            "For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent.",
+            "Strategic, architectural, open-ended, tightly coupled, difficult-to-verify, or consequential work with hard-to-detect errors.",
+            null,
             new ModelAliasIconConfig("◆", "red")));
     }
 
@@ -1033,13 +1036,13 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(aliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             "openai/gpt-5",
-            "mechanical, single file task, text or code processing when no suitable cli tool available. do not use for review.",
+            "Explicit reversible mechanical or evidence work with failure-specific validation; never judgmental review.",
             null,
             new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(aliases["xhigh_llm"]).IsEqualTo(new ModelAliasConfig(
             string.Empty,
             "Specialized strategic work",
-            "For complex work, delegate focused exploration or implementation when the active profile permits it. Do not duplicate a task already handled by a running agent.",
+            null,
             new ModelAliasIconConfig("◆", "red")));
         _ = await Assert.That(aliases["local"]).IsEqualTo(new ModelAliasConfig(
             "ollama/qwen3", "Local implementation work", "Use local tools first.", null));
@@ -1233,7 +1236,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(configuration.ModelAliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
             "openai/gpt-5",
-            "mechanical, single file task, text or code processing when no suitable cli tool available. do not use for review.",
+            "Explicit reversible mechanical or evidence work with failure-specific validation; never judgmental review.",
             null,
             new ModelAliasIconConfig("◆", "gray")));
         _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
