@@ -1,4 +1,3 @@
-using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Security;
 using Parrot.State;
@@ -55,53 +54,53 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
     public async Task Writable_policy_limits_writes_and_preserves_protected_runtime_exceptions()
     {
         var resources = Resources();
-        var outside = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("n")));
-
-        try
-        {
-            var grant = Directory.CreateDirectory(Path.Combine(outside.FullName, "grant")).FullName;
-            var denied = Directory.CreateDirectory(Path.Combine(grant, "denied")).FullName;
-            var grants = new SandboxWriteGrants();
-            grants.Grant(SandboxWriteTarget.Resolve(grant));
-            var profile = SecurityProfile.Compose(
+        var denied = Directory.CreateDirectory(Path.Combine(_workspace, "denied")).FullName;
+        var scratch = Scratch(resources);
+        var profile = SecurityProfile.ForAgent(
+            SecurityProfile.Compose(
                 false,
                 [new SandboxRule(denied, SandboxRuleAction.DenyWrite)],
                 [],
-                []);
+                []),
+            resources.Workspace.WritableRoots,
+            scratch.Root,
+            []);
 
-            var policy = MacSeatbeltSandbox.CompilePolicy(resources, Scratch(resources), profile, grants.Capture()).Text;
+        var policy = MacSeatbeltSandbox.CompilePolicy(profile).Text;
 
-            _ = await Assert.That(policy).Contains("(allow default)");
-            _ = await Assert.That(policy).Contains("(deny file-write*");
-            _ = await Assert.That(policy).Contains(Escape(_workspace));
-            _ = await Assert.That(policy).Contains(Escape(grant));
-            _ = await Assert.That(policy).Contains(Escape(denied));
-            _ = await Assert.That(policy).Contains(Escape(Scratch(resources).Root));
-            _ = await Assert.That(policy).DoesNotContain("(allow file-write*");
-        }
-        finally
-        {
-            outside.Delete(recursive: true);
-        }
+        _ = await Assert.That(policy).Contains("(allow default)");
+        _ = await Assert.That(policy).Contains("(deny file-write*");
+        _ = await Assert.That(policy).Contains(Escape(_workspace));
+        _ = await Assert.That(policy).Contains(Escape(denied));
+        _ = await Assert.That(profile.AllowsWrite(scratch.Root)).IsTrue();
+        _ = await Assert.That(policy).DoesNotContain("(allow file-write*");
     }
 
     [Test]
-    public async Task Read_only_policy_ignores_workspace_and_grant_writes()
+    public async Task Read_only_policy_ignores_workspace_writes_but_allows_scratch()
     {
         var resources = Resources();
-        var granted = Directory.CreateDirectory(Path.Combine(_workspace, "granted")).FullName;
-        var grants = new SandboxWriteGrants();
-        grants.Grant(SandboxWriteTarget.Resolve(granted));
+        var ignoredWorkspace = Directory.CreateTempSubdirectory();
 
-        var policy = MacSeatbeltSandbox.CompilePolicy(
-            resources,
-            Scratch(resources),
-            SecurityProfile.Compose(true, [], [], []),
-            grants.Capture()).Text;
+        try
+        {
+            var scratch = Scratch(resources);
+            var profile = SecurityProfile.ForAgent(
+                SecurityProfile.Compose(true, [], [], []),
+                [ignoredWorkspace.FullName],
+                scratch.Root,
+                []);
 
-        _ = await Assert.That(policy).Contains("(deny file-write*");
-        _ = await Assert.That(policy).Contains(Escape(Scratch(resources).Root));
-        _ = await Assert.That(policy).DoesNotContain(Escape(granted));
+            var policy = MacSeatbeltSandbox.CompilePolicy(profile).Text;
+
+            _ = await Assert.That(policy).Contains("(deny file-write*");
+            _ = await Assert.That(policy).Contains(Escape(scratch.Root));
+            _ = await Assert.That(policy).DoesNotContain(Escape(ignoredWorkspace.FullName));
+        }
+        finally
+        {
+            ignoredWorkspace.Delete(recursive: true);
+        }
     }
 
     [Test]

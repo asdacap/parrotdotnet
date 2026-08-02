@@ -4,6 +4,7 @@ using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Questions;
+using Parrot.Security;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -633,7 +634,7 @@ internal sealed class ParrotService(
         };
         pending.Targets.AddRange(request.Targets.Select(target => new PermissionTarget
         {
-            Kind = target.Kind == SandboxWriteTargetKind.File
+            Kind = target.Kind == SecurityWriteTargetKind.File
                 ? PermissionTargetKind.File
                 : PermissionTargetKind.Directory,
             Scope = PermissionTargetScope.Write,

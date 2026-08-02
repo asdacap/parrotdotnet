@@ -574,29 +574,28 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 ### `PermissionBroker` — rank 5, M3
 
 - **Absorbs** `permission`.
-- **Owns** pending write-permission requests and the runtime grants accepted
-  for the requesting `AgentSession`.
+- **Owns** pending write-permission requests and applies accepted approvals to
+  the requesting `AgentSession`'s effective `SecurityProfile`.
 - **Inbound** `request_write_permission` requires one or more exact existing
   absolute paths and a nonblank reason. The broker resolves canonical physical
-  targets: a file grant is exact-file; a directory grant includes descendants.
-  It authorises a **canonical operation**, never a tool name (principle 7).
-  When the active security profile already permits every requested target, the
-  tool completes without broker mediation or a runtime grant. Only the
-  server-declared Grant, Reject, and Reject-with-reason replies are
-  accepted; cancelled selection or reason entry is Reject, and a blank required
-  rejection reason is invalid. Noninteractive sessions reject immediately and
-  pending requests time out. Authorisation stays separate from OS containment
+  targets: a file approval is exact-file; a directory approval includes
+  descendants. It authorises a **canonical operation**, never a tool name
+  (principle 7). When the effective security profile already permits every
+  requested target, the tool completes without broker mediation. Only the
+  server-declared Grant, Reject, and Reject-with-reason replies are accepted;
+  cancelled selection or reason entry is Reject, and a blank required rejection
+  reason is invalid. Noninteractive sessions reject immediately and pending
+  requests time out. Authorisation stays separate from OS containment
   (principle 8).
-- **Outbound** typed permission requests and replies through `EventBroker`,
-  `Configuration` for standing grants, and the requesting agent's sandbox for
-  accepted runtime grants.
-- **Boundary** no. A user-approved `SandboxWriteGrant` enables write, edit, and
-  shell access within its target, is runtime-only and nonpersistent, and does
-  not transfer to child or sibling agents or merge into `SecurityProfile`. A
-  read-only profile, explicit static deny, and mandatory protected roots
-  override it. Each agent's private scratch-directory exception is enforced by
-  the process sandbox rather than merged into `SecurityProfile`; neither
-  mechanism has network effect.
+- **Outbound** typed permission requests and replies through `EventBroker`; an
+  accepted reply updates the requesting agent session's effective security
+  profile.
+- **Boundary** no. A user-approved allow-write rule enables write, edit, and
+  shell access within its target, is runtime-only and nonpersistent, and cannot
+  override a read-only profile, explicit static deny, or mandatory protected
+  root. Each agent's private scratch-directory exception is enforced by the
+  process sandbox rather than merged into `SecurityProfile`; neither mechanism
+  has network effect.
 
 ### `QuestionBroker` — rank 5, M3
 
@@ -724,12 +723,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   friendly name, without a parent alias.
 - **Outbound** `Configuration`, `AgentSession`.
 - **Boundary** no.
-- **Security inheritance.** A spawned child wraps its runtime parent's current
-  effective `SecurityProfile` with the configured child profile. Composition is
+- **Security inheritance.** A spawned child restricts its configured profile
+  with its runtime parent's current effective `SecurityProfile`. Composition is
   monotonic: child rules may further restrict access but cannot reopen an
-  ancestor denial. The relationship stays live through nested descendants and
-  is branch-local. Interactive `SandboxWriteGrant` values remain
-  separate, agent-session-owned state and never transfer to a child or sibling.
+  ancestor denial. An approval made before the child is created is therefore in
+  that child profile; later parent approvals do not alter existing children or
+  siblings. The relationship stays live through nested descendants and is
+  branch-local.
 - **Note** mutually dependent with `AgentSession`; both rank 9. The registry
   creates, names, retains, observes, and owns the lifetime of background child
   sessions. It does not admit input or wait for turns: those operations belong
@@ -750,8 +750,8 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   The current batch is excluded, so a checkpoint made by a same-batch tool call
   cannot be forked until a later batch. Unknown, same-batch, and compacted-away
   checkpoint titles fail. A fork transfers history only: it never transfers
-  session ownership, security profile, write grants, queues, process control, or
-  other runtime authority.
+  session ownership, security profile, permission approvals, queues, process control,
+  or any other runtime authority.
 - **Completion delivery.** Absorbing the terminal notification path from
   `internal/agent`, `internal/tool`, and the former `internal/subagent`
   completion notifier, the registry resolves only a child's registered direct
@@ -916,11 +916,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   them at shutdown without exposing process lookup or control.
 - **Inbound** `Run(string command, ProcessEnvironmentOverrides environment,
   UserSessionResources resources, SecurityProfile securityProfile,
-  SandboxWriteGrantSnapshot writeGrants, CancellationToken cancellationToken)`.
-  An agent-session shell-process owner starts named runs through
-  `Start(string? requestedName, string command,
+  CancellationToken cancellationToken)`. An agent-session shell-process owner
+  starts named runs through `Start(string? requestedName, string command,
   ProcessEnvironmentOverrides environment, AgentSession agent,
-  SecurityProfile securityProfile, SandboxWriteGrantSnapshot writeGrants)`.
+  SecurityProfile securityProfile)`.
   By default the child inherits the complete
   launch environment. Explicit overrides replace inherited child variables and
   become deterministically sorted bubblewrap `--setenv` entries. No runtime

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Llm;
-using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Tools;
@@ -187,38 +186,11 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             [new SandboxRule(root, SandboxRuleAction.AllowWrite)],
             [],
             _mandatoryRules);
-        var tool = MutationTool(toolName, new SandboxWriteGrants());
+        var tool = MutationTool(toolName);
 
         var result = (await tool.Execute(
             new ToolInvocation("test-call", MutationArguments(toolName, Path.Combine(directory, "configured.txt"))),
             Turn(profile),
-            cancellationToken)).Text;
-
-        _ = await Assert.That(result).Contains("Write access denied");
-        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("old");
-    }
-
-    [Test]
-    [Arguments("write", "private-state")]
-    [Arguments("edit", "private-state")]
-    [Arguments("write", "private-config")]
-    [Arguments("edit", "private-config")]
-    [Arguments("write", "private-data")]
-    [Arguments("edit", "private-data")]
-    public async Task Write_grants_cannot_reopen_mandatory_application_data(
-        string toolName,
-        string directory,
-        CancellationToken cancellationToken)
-    {
-        var path = Path.Combine(_workspace, directory, "granted.txt");
-        await File.WriteAllTextAsync(path, "old", cancellationToken);
-        var grants = new SandboxWriteGrants();
-        grants.Grant(SandboxWriteTarget.Resolve(path));
-        var tool = MutationTool(toolName, grants);
-
-        var result = (await tool.Execute(
-            new ToolInvocation("test-call", MutationArguments(toolName, Path.Combine(directory, "granted.txt"))),
-            Turn(_permissive),
             cancellationToken)).Text;
 
         _ = await Assert.That(result).Contains("Write access denied");
@@ -341,11 +313,11 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             securityProfile);
     }
 
-    private ITool MutationTool(string toolName, SandboxWriteGrants grants) =>
+    private ITool MutationTool(string toolName) =>
         toolName switch
         {
-            "write" => new WriteTool(_toolWorkspace, grants),
-            "edit" => new EditTool(_toolWorkspace, grants),
+            "write" => new WriteTool(_toolWorkspace),
+            "edit" => new EditTool(_toolWorkspace),
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 }

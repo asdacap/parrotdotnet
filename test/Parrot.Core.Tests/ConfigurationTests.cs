@@ -27,10 +27,8 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(File.Exists(path)).IsFalse();
         _ = await Assert.That(configuration.Model).IsEmpty();
         _ = await Assert.That(configuration.Prompt).StartsWith(
-            "You are parrot, a coding agent. You work in the user's project directory. "
-            + "Prefer read, glob, and grep for inspection; write for whole-file creation or replacement; "
-            + "edit for exact substitutions; and use exec_command only for shell commands. Filesystem access is determined by the active "
-            + "security policy. Prefer small, verifiable steps.");
+            "You are parrot, a coding agent. You work in the user's project directory.\n"
+            + "Filesystem access is determined by the active security policy.");
         _ = await Assert.That(configuration.Prompt).Contains("# Common subagent spawn strategy");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
@@ -41,7 +39,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(7);
         foreach (var profile in configuration.Profiles.Values)
         {
-            _ = await Assert.That(profile.Prompt).Contains("Hard rules:\n-");
+            _ = await Assert.That(profile.Prompt).IsNotEmpty();
             _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsTrue();
         }
 

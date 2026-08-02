@@ -32,6 +32,37 @@ internal sealed class SecurityProfile
         return new(readOnly, rules);
     }
 
+    public static SecurityProfile ForAgent(
+        SecurityProfile policy,
+        IEnumerable<string> writableRoots,
+        string scratchRoot,
+        IEnumerable<SecurityWriteTarget> approvals)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(writableRoots);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scratchRoot);
+        ArgumentNullException.ThrowIfNull(approvals);
+
+        var approvalTargets = approvals.ToArray();
+        foreach (var target in approvalTargets)
+        {
+            target.Validate();
+        }
+
+        var root = Path.GetPathRoot(Path.GetFullPath(scratchRoot))
+            ?? throw new ArgumentException("The scratch root must have a filesystem root.", nameof(scratchRoot));
+        var rules = new List<SandboxRule> { new(root, SandboxRuleAction.DenyWrite) };
+        if (!policy.ReadOnly)
+        {
+            rules.AddRange(writableRoots.Select(path => new SandboxRule(path, SandboxRuleAction.AllowWrite)));
+            rules.AddRange(approvalTargets.Select(target => new SandboxRule(target.Path, SandboxRuleAction.AllowWrite)));
+        }
+
+        rules.AddRange(policy._rules);
+        rules.Add(new(scratchRoot, SandboxRuleAction.AllowWrite));
+        return new(policy.ReadOnly, rules.Select(Normalize));
+    }
+
     public bool AllowsRead(string path) => Evaluate(path).Read;
 
     public bool AllowsWrite(string path) => Evaluate(path).Write;

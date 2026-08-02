@@ -2,7 +2,6 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
-using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Security;
 using Parrot.State;
@@ -53,7 +52,6 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.PseudoTerminal);
 
         var initial = await process.Wait(TimeSpan.FromMilliseconds(500), cancellationToken);
@@ -104,7 +102,6 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.PseudoTerminal);
         var initial = await process.Wait(TimeSpan.FromMilliseconds(100), cancellationToken);
         var completed = await owner.Claim("spill").Wait(null, cancellationToken);
@@ -153,7 +150,6 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.PseudoTerminal);
 
         var initial = await process.Wait(TimeSpan.FromMilliseconds(100), cancellationToken);
@@ -199,18 +195,16 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             agent,
             security,
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.Pipe);
         await WaitUntilCompleted(first, cancellationToken);
 
         _ = await Assert.That(() => owner.Start(
-                "reusable",
-                "printf premature",
-                ProcessEnvironmentOverrides.Empty,
-                agent,
-                security,
-                SandboxWriteGrantSnapshot.Empty,
-                ShellProcessTerminalMode.Pipe))
+            "reusable",
+            "printf premature",
+            ProcessEnvironmentOverrides.Empty,
+            agent,
+            security,
+            ShellProcessTerminalMode.Pipe))
             .Throws<InvalidOperationException>();
 
         var consumed = await first.Wait(null, cancellationToken);
@@ -220,7 +214,6 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             agent,
             security,
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.Pipe);
         var replaced = await replacement.Wait(null, cancellationToken);
 
@@ -256,7 +249,6 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.Pipe);
         _ = await process.Wait(TimeSpan.Zero, cancellationToken);
         var claimed = owner.Claim("claimed");
@@ -332,7 +324,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,

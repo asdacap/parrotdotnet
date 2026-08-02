@@ -102,7 +102,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
             return $"error: {failure.Message}";
         }
 
-        if (!workspace.AllowsRead(resolved, selection.SecurityProfile))
+        if (!ToolWorkspace.AllowsRead(resolved, selection.SecurityProfile))
         {
             return "error: access denied";
         }
@@ -226,7 +226,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
                 continue;
             }
 
-            if (!workspace.AllowsRead(resolved, securityProfile))
+            if (!ToolWorkspace.AllowsRead(resolved, securityProfile))
             {
                 continue;
             }
@@ -269,7 +269,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
         SecurityProfile securityProfile,
         CancellationToken cancellationToken)
     {
-        if (!workspace.AllowsRead(workspace.ResolveRead(file), securityProfile) || IsBinary(file))
+        if (!ToolWorkspace.AllowsRead(workspace.ResolveRead(file), securityProfile) || IsBinary(file))
         {
             return;
         }

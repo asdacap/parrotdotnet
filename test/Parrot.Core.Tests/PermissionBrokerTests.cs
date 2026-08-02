@@ -20,7 +20,7 @@ internal sealed class PermissionBrokerTests : IDisposable
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
     [Test]
-    public async Task Grant_adds_every_target_only_to_requesting_agent_and_publishes_event(
+    public async Task Grant_approves_every_target_only_for_requesting_agent_and_publishes_event(
         CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -49,8 +49,10 @@ internal sealed class PermissionBrokerTests : IDisposable
         broker.Reply(pending.Id, "grant", string.Empty);
 
         _ = await Assert.That((await request).Decision).IsEqualTo(PermissionDecision.Grant);
-        _ = await Assert.That(requesting.WriteGrants.Capture().Targets).Count().IsEqualTo(2);
-        _ = await Assert.That(other.WriteGrants.Capture().Targets).IsEmpty();
+        _ = await Assert.That(requesting.ResolveSelection().SecurityProfile.AllowsWrite(first.Path)).IsTrue();
+        _ = await Assert.That(requesting.ResolveSelection().SecurityProfile.AllowsWrite(second.Path)).IsTrue();
+        _ = await Assert.That(other.ResolveSelection().SecurityProfile.AllowsWrite(first.Path)).IsFalse();
+        _ = await Assert.That(other.ResolveSelection().SecurityProfile.AllowsWrite(second.Path)).IsFalse();
         _ = await Assert.That(broker.Pending()).IsEmpty();
     }
 
@@ -293,7 +295,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
@@ -316,10 +318,10 @@ internal sealed class PermissionBrokerTests : IDisposable
         }
     }
 
-    private SandboxWriteTarget Target(string name)
+    private SecurityWriteTarget Target(string name)
     {
         var path = Path.Combine(_root, name);
         File.WriteAllText(path, name);
-        return SandboxWriteTarget.Resolve(path);
+        return SecurityWriteTarget.Resolve(path);
     }
 }

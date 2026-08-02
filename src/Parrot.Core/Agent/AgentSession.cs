@@ -3,10 +3,8 @@ using System.Text;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
-using Parrot.Permissions;
 using Parrot.Protocol;
 using Parrot.Queues;
-using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -38,7 +36,7 @@ internal sealed class AgentSession(
     Compactor compactor,
     ActiveWorkCompletionReminder activeWorkReminder,
     IAgentProfile profile,
-    SecurityProfile securityProfile,
+    AgentSessionSecurity security,
     RuntimeStatus status,
     AgentRegistry registry,
     AgentQueues queues,
@@ -75,7 +73,7 @@ internal sealed class AgentSession(
 
     private string _messageId = string.Empty;
 
-    private AgentSelection _selection = new(model, profile, securityProfile);
+    private AgentSelection _selection = new(model, profile, security.Policy());
     private ToolSnapshot? _tools;
 
     private bool _epochInitialized;
@@ -106,8 +104,6 @@ internal sealed class AgentSession(
 
     public AgentQueues Queues { get; } = queues;
 
-    public SandboxWriteGrants WriteGrants { get; } = new();
-
     // Selection is execution state supplied by the owning user session. One
     // immutable snapshot is used for a whole turn because a running
     // drain keeps its history and pending input while later updates wait for
@@ -131,7 +127,13 @@ internal sealed class AgentSession(
         }
     }
 
-    public AgentSelection ResolveSelection() => ResolvePolicySelection();
+    public AgentSelection ResolveSelection()
+    {
+        var selected = ResolvePolicySelection();
+        return selected with { SecurityProfile = security.Capture(selected.SecurityProfile) };
+    }
+
+    public void ApproveWrites(IReadOnlyList<Security.SecurityWriteTarget> targets) => security.Approve(targets);
 
     public void UpdateSelection(ModelSelector selectedModel, IAgentProfile? profile)
     {
@@ -1370,7 +1372,7 @@ internal sealed class AgentSession(
 
     private AgentTurnSelection RefreshSelection(AgentTurnSelection active)
     {
-        var selected = Selection();
+        var selected = ResolveSelection();
         return active with
         {
             Profile = selected.Profile,

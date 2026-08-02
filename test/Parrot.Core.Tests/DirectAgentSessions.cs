@@ -76,7 +76,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 new Compactor(90, 30, 60_000, 1024),
                 new ActiveWorkCompletionReminder(identity.SessionId, registry, processes),
                 profile,
-                securityProfile,
+                SecurityProfileTestFactory.Create(securityProfile),
                 status,
                 registry,
                 queues,

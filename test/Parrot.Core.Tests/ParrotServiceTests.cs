@@ -5,6 +5,7 @@ using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Protocol;
 using Parrot.Queues;
+using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -291,7 +292,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var request = sessions.Owners.Single().Permissions.Request(
             sessions.Sessions.Single(),
             "update generated files",
-            [SandboxWriteTarget.Resolve(directory), SandboxWriteTarget.Resolve(file)],
+            [SecurityWriteTarget.Resolve(directory), SecurityWriteTarget.Resolve(file)],
             cancellationToken);
         await WaitForPermission(sessions.Owners.Single(), cancellationToken);
 
@@ -339,7 +340,8 @@ internal sealed class ParrotServiceTests : IDisposable
             .IsEqualTo(PermissionAction.Deny);
         _ = await Assert.That(invalid?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(missing?.StatusCode).IsEqualTo(StatusCode.NotFound);
-        _ = await Assert.That(sessions.Sessions.Single().WriteGrants.Capture().Targets).Count().IsEqualTo(1);
+        _ = await Assert.That(sessions.Sessions.Single().ResolveSelection().SecurityProfile.AllowsWrite(directory)).IsTrue();
+        _ = await Assert.That(sessions.Sessions.Single().ResolveSelection().SecurityProfile.AllowsWrite(file)).IsTrue();
     }
 
     [Test]
@@ -354,7 +356,7 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await client.SendMessageAsync(
             Send(created.Id, "initialize", "msg-noninteractive"),
             cancellationToken: cancellationToken);
-        var target = SandboxWriteTarget.Resolve(EnsureDirectory(Path.Combine(_root, "noninteractive-target")));
+        var target = SecurityWriteTarget.Resolve(EnsureDirectory(Path.Combine(_root, "noninteractive-target")));
 
         var reply = await sessions.Owners.Single().Permissions.Request(
             sessions.Sessions.Single(),
@@ -367,7 +369,7 @@ internal sealed class ParrotServiceTests : IDisposable
 
         _ = await Assert.That(reply.Decision).IsEqualTo(PermissionDecision.Reject);
         _ = await Assert.That(listed.Permissions).IsEmpty();
-        _ = await Assert.That(sessions.Sessions.Single().WriteGrants.Capture().Targets).IsEmpty();
+        _ = await Assert.That(sessions.Sessions.Single().ResolveSelection().SecurityProfile.AllowsWrite(target.Path)).IsFalse();
     }
 
     [Test]

@@ -1,28 +1,13 @@
-using Parrot.Permissions;
 using Parrot.Security;
-using Parrot.Store;
 
 namespace Parrot.Tools;
 
-internal sealed class ToolWorkspace
+internal sealed class ToolWorkspace(string workingDirectory)
 {
-    private readonly AgentScratchDirectory? _scratch;
+    public string Root { get; } = Canonicalize(workingDirectory);
 
-    public ToolWorkspace(string workingDirectory) => Root = Canonicalize(workingDirectory);
-
-    public ToolWorkspace(string workingDirectory, AgentScratchDirectory scratch)
-    {
-        Root = Canonicalize(workingDirectory);
-        _scratch = scratch;
-    }
-
-    public string Root { get; }
-
-    public bool AllowsRead((string Lexical, string Physical) path, SecurityProfile security) =>
-        (IsScratchPath(path.Lexical) && IsScratchPath(path.Physical))
-        || (security.AllowsRead(path.Lexical) && security.AllowsRead(path.Physical));
-
-    public bool IsScratchPath(string path) => _scratch?.Contains(path) is true;
+    public static bool AllowsRead((string Lexical, string Physical) path, SecurityProfile security) =>
+        security.AllowsRead(path.Lexical) && security.AllowsRead(path.Physical);
 
     public (string Lexical, string Physical) ResolveRead(string path)
     {
@@ -34,34 +19,21 @@ internal sealed class ToolWorkspace
         return (lexical, physical);
     }
 
-    public ToolMutationPath ResolveMutation(
-        string path,
-        bool create,
-        SecurityProfile security,
-        SandboxWriteGrantSnapshot writeGrants)
+    public ToolMutationPath ResolveMutation(string path, bool create, SecurityProfile security)
     {
         var lexical = Path.IsPathFullyQualified(path)
             ? Path.GetFullPath(path)
             : Path.GetFullPath(Path.Combine(Root, path));
-        var inWorkspace = Contained(lexical);
-        var inScratch = IsScratchPath(lexical);
-
         var physical = ResolveMutationPath(lexical, path, create);
-        writeGrants.Validate(lexical);
-        if (!string.Equals(physical, lexical, StringComparison.Ordinal))
-        {
-            writeGrants.Validate(physical);
-        }
 
-        if (!AllowsMutation(lexical, security, writeGrants, inWorkspace, inScratch)
-            || !AllowsMutation(physical, security, writeGrants, inWorkspace, inScratch))
+        if (!security.AllowsWrite(lexical) || !security.AllowsWrite(physical))
         {
             throw new InvalidOperationException($"Write access denied for '{path}'.");
         }
 
         if (create)
         {
-            RequireWritableMissingParents(physical, path, security, writeGrants, inWorkspace, inScratch);
+            RequireWritableMissingParents(physical, path, security);
         }
 
         return new ToolMutationPath(physical, DisplayPath(physical));
@@ -102,77 +74,15 @@ internal sealed class ToolWorkspace
         return full;
     }
 
-    private static void RequireWritableMissingParents(
-        string path,
-        string requested,
-        SecurityProfile security,
-        SandboxWriteGrantSnapshot writeGrants,
-        bool inWorkspace,
-        bool inScratch)
+    private static void RequireWritableMissingParents(string path, string requested, SecurityProfile security)
     {
         for (var parent = Path.GetDirectoryName(path); parent is not null && !Directory.Exists(parent); parent = Path.GetDirectoryName(parent))
         {
-            if (!AllowsMutation(parent, security, writeGrants, inWorkspace, inScratch))
+            if (!security.AllowsWrite(parent))
             {
                 throw new InvalidOperationException($"Write access denied for '{requested}'.");
             }
         }
-    }
-
-    private static bool AllowsMutation(
-        string path,
-        SecurityProfile security,
-        SandboxWriteGrantSnapshot writeGrants,
-        bool inWorkspace,
-        bool inScratch)
-    {
-        if (inScratch)
-        {
-            return true;
-        }
-
-        var staticallyAllowed = security.AllowsWrite(path)
-            && (inWorkspace || HasExternalCapability(path, security));
-        var granted = !security.ReadOnly
-            && security.AllowsWrite(path)
-            && AllowsGrant(path, writeGrants);
-        return staticallyAllowed || granted;
-    }
-
-    private static bool AllowsGrant(string path, SandboxWriteGrantSnapshot writeGrants) =>
-        writeGrants.Targets.Any(target => target.Kind == SandboxWriteTargetKind.Directory
-            ? PathContains(target.Path, path)
-            : string.Equals(target.Path, path, StringComparison.Ordinal));
-
-    private static bool HasExternalCapability(string path, SecurityProfile security)
-    {
-        var allowed = false;
-        foreach (var rule in security.Rules)
-        {
-            if (!PathContains(rule.Path, path))
-            {
-                continue;
-            }
-
-            if (rule.Action == SandboxRuleAction.DenyWrite)
-            {
-                allowed = false;
-            }
-            else if (rule.Action == SandboxRuleAction.AllowWrite
-                && (string.Equals(rule.Path, path, StringComparison.Ordinal) || Directory.Exists(rule.Path)))
-            {
-                allowed = true;
-            }
-        }
-
-        return allowed;
-    }
-
-    private static bool PathContains(string root, string path)
-    {
-        var relative = Path.GetRelativePath(root, path);
-        return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
-            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
     }
 
     private static string Canonicalize(string path)
@@ -213,12 +123,4 @@ internal sealed class ToolWorkspace
     }
 
     private string DisplayPath(string physical) => Path.GetRelativePath(Root, physical);
-
-    private bool Contained(string path)
-    {
-        var relative = Path.GetRelativePath(Root, path);
-        return relative != ".."
-            && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            && !Path.IsPathFullyQualified(relative);
-    }
 }

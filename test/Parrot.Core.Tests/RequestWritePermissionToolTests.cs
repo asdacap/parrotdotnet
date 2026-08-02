@@ -102,7 +102,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
 
         _ = await Assert.That(result).Contains("already allowed by the current security profile");
         _ = await Assert.That(broker.Pending()).IsEmpty();
-        _ = await Assert.That(session.WriteGrants.Capture().Targets).IsEmpty();
+        _ = await Assert.That(session.ResolveSelection().SecurityProfile.AllowsWrite(path)).IsTrue();
     }
 
     [Test]
@@ -217,7 +217,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
-            securityProfile,
+            SecurityProfileTestFactory.Create(securityProfile),
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,

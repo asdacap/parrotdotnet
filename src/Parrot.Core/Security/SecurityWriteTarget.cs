@@ -1,8 +1,8 @@
-namespace Parrot.Permissions;
+namespace Parrot.Security;
 
-internal sealed record SandboxWriteTarget
+internal sealed record SecurityWriteTarget
 {
-    private SandboxWriteTarget(string path, SandboxWriteTargetKind kind)
+    private SecurityWriteTarget(string path, SecurityWriteTargetKind kind)
     {
         Path = path;
         Kind = kind;
@@ -10,29 +10,29 @@ internal sealed record SandboxWriteTarget
 
     public string Path { get; }
 
-    public SandboxWriteTargetKind Kind { get; }
+    public SecurityWriteTargetKind Kind { get; }
 
-    public static SandboxWriteTarget Resolve(string path)
+    public static SecurityWriteTarget Resolve(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         if (!System.IO.Path.IsPathFullyQualified(path))
         {
-            throw new ArgumentException("The sandbox write target path must be absolute.", nameof(path));
+            throw new ArgumentException("The security write target path must be absolute.", nameof(path));
         }
 
         var canonical = ResolvePhysicalPath(path);
         var kind = Directory.Exists(canonical)
-            ? SandboxWriteTargetKind.Directory
+            ? SecurityWriteTargetKind.Directory
             : File.Exists(canonical)
-                ? SandboxWriteTargetKind.File
-                : throw new FileNotFoundException("The sandbox write target does not exist.", canonical);
-        return new SandboxWriteTarget(canonical, kind);
+                ? SecurityWriteTargetKind.File
+                : throw new FileNotFoundException("The security write target does not exist.", canonical);
+        return new SecurityWriteTarget(canonical, kind);
     }
 
     public void Validate()
     {
-        SandboxWriteTarget current;
+        SecurityWriteTarget current;
 
         try
         {
@@ -40,20 +40,20 @@ internal sealed record SandboxWriteTarget
         }
         catch (Exception failure) when (failure is ArgumentException or IOException or UnauthorizedAccessException)
         {
-            throw new InvalidOperationException("The sandbox write target changed after approval.", failure);
+            throw new InvalidOperationException("The security write target changed after approval.", failure);
         }
 
         if (current.Kind != Kind || !string.Equals(current.Path, Path, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException("The sandbox write target changed after approval.");
+            throw new InvalidOperationException("The security write target changed after approval.");
         }
     }
 
-    internal bool Contains(SandboxWriteTarget other) => Includes(other.Path);
+    internal bool Contains(SecurityWriteTarget other) => Includes(other.Path);
 
     internal bool Includes(string path)
     {
-        if (Kind != SandboxWriteTargetKind.Directory)
+        if (Kind != SecurityWriteTargetKind.Directory)
         {
             return string.Equals(Path, path, StringComparison.Ordinal);
         }
@@ -69,7 +69,7 @@ internal sealed record SandboxWriteTarget
     {
         var full = System.IO.Path.GetFullPath(path);
         var root = System.IO.Path.GetPathRoot(full)
-            ?? throw new ArgumentException("The sandbox write target must have a root.", nameof(path));
+            ?? throw new ArgumentException("The security write target must have a root.", nameof(path));
         var relative = System.IO.Path.GetRelativePath(root, full);
         var current = root;
 

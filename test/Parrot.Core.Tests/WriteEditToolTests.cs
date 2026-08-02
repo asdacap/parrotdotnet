@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Llm;
-using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.Tools;
 
@@ -339,8 +338,8 @@ internal sealed class WriteEditToolTests : IDisposable
         var alias = Path.Combine(_root, "workspace-link");
         _ = Directory.CreateSymbolicLink(alias, physical.FullName);
         var workspace = new ToolWorkspace(alias);
-        var write = new WriteTool(workspace, new SandboxWriteGrants());
-        var edit = new EditTool(workspace, new SandboxWriteGrants());
+        var write = new WriteTool(workspace);
+        var edit = new EditTool(workspace);
 
         var written = (await write.Execute(new ToolInvocation("test-call", WriteArguments("file.txt", "old")), Turn(WritableProfile()), cancellationToken)).Text;
         var edited = (await edit.Execute(new ToolInvocation("test-call", EditArguments("file.txt", "old", "new", false)), Turn(WritableProfile()), cancellationToken)).Text;
@@ -374,135 +373,46 @@ internal sealed class WriteEditToolTests : IDisposable
     [Test]
     [Arguments("write")]
     [Arguments("edit")]
-    public async Task Existing_file_grants_authorize_only_the_approved_file(
+    public async Task Profile_authorizes_only_the_approved_external_file(
         string toolName,
         CancellationToken cancellationToken)
     {
-        var externalDirectory = Directory.CreateDirectory(Path.Combine(_externalRoot, $"file-grant-{toolName}"));
-        var granted = Path.Combine(externalDirectory.FullName, "granted.txt");
+        var externalDirectory = Directory.CreateDirectory(Path.Combine(_externalRoot, $"profile-file-{toolName}"));
+        var allowed = Path.Combine(externalDirectory.FullName, "allowed.txt");
         var denied = Path.Combine(externalDirectory.FullName, "denied.txt");
-        await File.WriteAllTextAsync(granted, "old", cancellationToken);
+        await File.WriteAllTextAsync(allowed, "old", cancellationToken);
         await File.WriteAllTextAsync(denied, "old", cancellationToken);
-        var grants = new SandboxWriteGrants();
-        grants.Grant(SandboxWriteTarget.Resolve(granted));
-        var profile = SecurityProfile.Compose(
-            false,
-            [new SandboxRule(_root, SandboxRuleAction.AllowRead)],
-            [],
-            []);
-        var tool = Tool(toolName, grants);
+        var profile = SecurityProfile.Compose(true, [], [], [new SandboxRule(allowed, SandboxRuleAction.AllowWrite)]);
 
-        var allowedResult = (await tool.Execute(new ToolInvocation("test-call", Arguments(toolName, granted)), Turn(profile), cancellationToken)).Text;
-        var deniedResult = (await tool.Execute(new ToolInvocation("test-call", Arguments(toolName, denied)), Turn(profile), cancellationToken)).Text;
+        var allowedResult = (await Tool(toolName).Execute(new ToolInvocation("test-call", Arguments(toolName, allowed)), Turn(profile), cancellationToken)).Text;
+        var deniedResult = (await Tool(toolName).Execute(new ToolInvocation("test-call", Arguments(toolName, denied)), Turn(profile), cancellationToken)).Text;
 
         _ = await Assert.That(allowedResult).DoesNotStartWith("error: ");
         _ = await Assert.That(deniedResult).StartsWith("error: ");
-        _ = await Assert.That(await File.ReadAllTextAsync(granted, cancellationToken)).IsEqualTo("new");
+        _ = await Assert.That(await File.ReadAllTextAsync(allowed, cancellationToken)).IsEqualTo("new");
         _ = await Assert.That(await File.ReadAllTextAsync(denied, cancellationToken)).IsEqualTo("old");
-        File.Delete(granted);
+        File.Delete(allowed);
         File.Delete(denied);
     }
 
     [Test]
-    public async Task Directory_grants_authorize_descendant_edits_and_create_paths(CancellationToken cancellationToken)
+    public async Task Profile_authorizes_external_directory_descendants(CancellationToken cancellationToken)
     {
-        var externalDirectory = Directory.CreateDirectory(Path.Combine(_externalRoot, "directory-grant"));
-        var granted = externalDirectory.FullName;
-        var existing = Path.Combine(granted, "existing.txt");
+        var directory = Directory.CreateDirectory(Path.Combine(_externalRoot, "profile-directory"));
+        var existing = Path.Combine(directory.FullName, "existing.txt");
+        var created = Path.Combine(directory.FullName, "nested", "created.txt");
         await File.WriteAllTextAsync(existing, "old", cancellationToken);
-        var grants = new SandboxWriteGrants();
-        grants.Grant(SandboxWriteTarget.Resolve(granted));
-        var profile = SecurityProfile.Compose(
-            false,
-            [new SandboxRule(_root, SandboxRuleAction.AllowRead)],
-            [],
-            []);
+        var profile = SecurityProfile.Compose(true, [], [], [new SandboxRule(directory.FullName, SandboxRuleAction.AllowWrite)]);
 
-        var edited = (await Tool("edit", grants).Execute(
-            new ToolInvocation(
-                "test-call",
-                EditArguments(existing, "old", "new", false)),
-            Turn(profile),
-            cancellationToken)).Text;
-        var createdDirectory = Path.Combine(granted, "nested");
-        var createdPath = Path.Combine(createdDirectory, "created.txt");
-        var written = (await Tool("write", grants).Execute(
-            new ToolInvocation(
-                "test-call",
-                WriteArguments(createdPath, "created")),
-            Turn(profile),
-            cancellationToken)).Text;
+        var edited = (await Tool("edit").Execute(new ToolInvocation("test-call", EditArguments(existing, "old", "new", false)), Turn(profile), cancellationToken)).Text;
+        var written = (await Tool("write").Execute(new ToolInvocation("test-call", WriteArguments(created, "created")), Turn(profile), cancellationToken)).Text;
 
         _ = await Assert.That(edited).DoesNotStartWith("error: ");
         _ = await Assert.That(written).DoesNotStartWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(existing, cancellationToken)).IsEqualTo("new");
-        _ = await Assert.That(await File.ReadAllTextAsync(createdPath, cancellationToken)).IsEqualTo("created");
+        _ = await Assert.That(await File.ReadAllTextAsync(created, cancellationToken)).IsEqualTo("created");
         File.Delete(existing);
-        File.Delete(createdPath);
-    }
-
-    [Test]
-    [Arguments("write")]
-    [Arguments("edit")]
-    public async Task Stale_grants_do_not_block_unrelated_workspace_mutations(
-        string toolName,
-        CancellationToken cancellationToken)
-    {
-        var granted = Path.Combine(_root, "stale-grant.txt");
-        await File.WriteAllTextAsync(granted, "old", cancellationToken);
-        var grants = new SandboxWriteGrants();
-        grants.Grant(SandboxWriteTarget.Resolve(granted));
-        File.Delete(granted);
-        var workspacePath = Path.Combine(_root, "workspace.txt");
-        await File.WriteAllTextAsync(workspacePath, "old", cancellationToken);
-
-        var result = (await Tool(toolName, grants).Execute(
-            new ToolInvocation(
-                "test-call",
-                Arguments(toolName, workspacePath)),
-            Turn(WritableProfile()),
-            cancellationToken)).Text;
-
-        _ = await Assert.That(result).DoesNotStartWith("error: ");
-        _ = await Assert.That(await File.ReadAllTextAsync(workspacePath, cancellationToken)).IsEqualTo("new");
-    }
-
-    [Test]
-    [Arguments("write")]
-    [Arguments("edit")]
-    public async Task Read_only_and_static_explicit_deny_override_grants(
-        string toolName,
-        CancellationToken cancellationToken)
-    {
-        var externalDirectory = Directory.CreateDirectory(Path.Combine(_externalRoot, $"grant-overrides-{toolName}"));
-        var target = Path.Combine(externalDirectory.FullName, "target.txt");
-        await File.WriteAllTextAsync(target, "old", cancellationToken);
-        var grants = new SandboxWriteGrants();
-        grants.Grant(SandboxWriteTarget.Resolve(target));
-        var readOnly = SecurityProfile.Compose(true, [], [], []);
-        var explicitDeny = SecurityProfile.Compose(
-            false,
-            [new SandboxRule(target, SandboxRuleAction.DenyWrite)],
-            [],
-            []);
-
-        var readOnlyResult = (await Tool(toolName, grants).Execute(
-            new ToolInvocation(
-                "test-call",
-                Arguments(toolName, target)),
-            Turn(readOnly),
-            cancellationToken)).Text;
-        var deniedResult = (await Tool(toolName, grants).Execute(
-            new ToolInvocation(
-                "test-call",
-                Arguments(toolName, target)),
-            Turn(explicitDeny),
-            cancellationToken)).Text;
-
-        _ = await Assert.That(readOnlyResult).StartsWith("error: ");
-        _ = await Assert.That(deniedResult).StartsWith("error: ");
-        _ = await Assert.That(await File.ReadAllTextAsync(target, cancellationToken)).IsEqualTo("old");
-        File.Delete(target);
+        File.Delete(created);
     }
 
     [Test]
@@ -519,8 +429,6 @@ internal sealed class WriteEditToolTests : IDisposable
         await cancellation.CancelAsync();
         _ = await Assert.That(async () => (await Tool(toolName).Execute(new ToolInvocation("test-call", Arguments(toolName, "cancel.txt")), Turn(WritableProfile()), cancellation.Token)).Text).Throws<OperationCanceledException>();
     }
-
-    private static SecurityProfile WritableProfile() => SecurityProfile.Compose(false, [], [], []);
 
     private static void DeleteFiles(string root)
     {
@@ -581,20 +489,23 @@ internal sealed class WriteEditToolTests : IDisposable
             securityProfile);
     }
 
+    private SecurityProfile WritableProfile() => SecurityProfile.ForAgent(
+        SecurityProfile.Compose(false, [], [], []),
+        [_root],
+        _root,
+        []);
+
     private WriteTool WriteTool() =>
-        new(new ToolWorkspace(_root), new SandboxWriteGrants());
+        new(new ToolWorkspace(_root));
 
     private EditTool EditTool() =>
-        new(new ToolWorkspace(_root), new SandboxWriteGrants());
+        new(new ToolWorkspace(_root));
 
-    private ITool Tool(string name) =>
-        Tool(name, new SandboxWriteGrants());
-
-    private ITool Tool(string name, SandboxWriteGrants writeGrants)
+    private ITool Tool(string name)
     {
         var workspace = new ToolWorkspace(_root);
         return name == "write"
-            ? new WriteTool(workspace, writeGrants)
-            : new EditTool(workspace, writeGrants);
+            ? new WriteTool(workspace)
+            : new EditTool(workspace);
     }
 }

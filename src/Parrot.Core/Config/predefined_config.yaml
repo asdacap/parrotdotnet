@@ -718,7 +718,7 @@ providers:
 #   /proc                         sandbox procfs
 #   {agent scratch directory}     allow_write   (private writable)
 #   {workspace root}              allow_write   (always writable)
-#   {session grants}              allow_write   (from request_write_permission)
+#   {approved profile paths}      allow_write   (from request_write_permission)
 #   {linked git common dir}       allow_write   (worktree support)
 #   {workspace}/.parrot           deny_write    (protected metadata)
 #   {workspace}/parrot.yaml       deny_write    (protected metadata)

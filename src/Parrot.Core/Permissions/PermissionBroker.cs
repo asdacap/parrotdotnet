@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Events;
 using Parrot.Protocol;
+using Parrot.Security;
 using Parrot.Store;
 using ProtocolPermissionAction = Parrot.Protocol.PermissionAction;
 using ProtocolPermissionChoice = Parrot.Protocol.PermissionChoice;
@@ -52,7 +53,7 @@ internal sealed class PermissionBroker : IDisposable
     public async Task<PermissionReply> Request(
         AgentSession agentSession,
         string reason,
-        IReadOnlyList<SandboxWriteTarget> targets,
+        IReadOnlyList<SecurityWriteTarget> targets,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agentSession);
@@ -176,7 +177,7 @@ internal sealed class PermissionBroker : IDisposable
             {
                 try
                 {
-                    pending.AgentSession.WriteGrants.Grant(pending.Targets);
+                    pending.AgentSession.ApproveWrites(pending.Targets);
                 }
                 catch (InvalidOperationException failure)
                 {
@@ -221,7 +222,7 @@ internal sealed class PermissionBroker : IDisposable
         };
         pending.Targets.AddRange(request.Targets.Select(target => new ProtocolPermissionTarget
         {
-            Kind = target.Kind == SandboxWriteTargetKind.File
+            Kind = target.Kind == SecurityWriteTargetKind.File
                 ? ProtocolPermissionTargetKind.File
                 : ProtocolPermissionTargetKind.Directory,
             Scope = PermissionTargetScope.Write,
@@ -250,7 +251,7 @@ internal sealed class PermissionBroker : IDisposable
     private sealed class PendingRequest(
         AgentSession agentSession,
         string reason,
-        IReadOnlyList<SandboxWriteTarget> targets)
+        IReadOnlyList<SecurityWriteTarget> targets)
     {
         private PermissionException? _failure;
         private PermissionReply? _outcome;
@@ -259,7 +260,7 @@ internal sealed class PermissionBroker : IDisposable
 
         public string Reason { get; } = reason;
 
-        public IReadOnlyList<SandboxWriteTarget> Targets { get; } = Array.AsReadOnly(targets.ToArray());
+        public IReadOnlyList<SecurityWriteTarget> Targets { get; } = Array.AsReadOnly(targets.ToArray());
 
         public TaskCompletionSource<PermissionReply> Reply { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);

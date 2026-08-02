@@ -3,14 +3,12 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Permissions;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
 internal sealed partial class EditTool(
-    ToolWorkspace workspace,
-    SandboxWriteGrants writeGrants) : ITool
+    ToolWorkspace workspace) : ITool
 {
     private static readonly byte[] Utf8Preamble = [0xef, 0xbb, 0xbf];
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -30,8 +28,6 @@ internal sealed partial class EditTool(
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
-        var writeGrantSnapshot = writeGrants.Capture();
-
         try
         {
             var input = JsonSerializer.Deserialize(
@@ -62,7 +58,7 @@ internal sealed partial class EditTool(
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var resolved = workspace.ResolveMutation(path, create: false, selection.SecurityProfile, writeGrantSnapshot);
+            var resolved = workspace.ResolveMutation(path, create: false, selection.SecurityProfile);
             FileMutation.RequireRegularFile(resolved.Physical);
             var before = await File.ReadAllBytesAsync(resolved.Physical, cancellationToken).ConfigureAwait(false);
             var hasPreamble = before.AsSpan().StartsWith(Utf8Preamble);
@@ -94,7 +90,7 @@ internal sealed partial class EditTool(
                 return FileMutation.NoChanges;
             }
 
-            resolved = workspace.ResolveMutation(path, create: false, selection.SecurityProfile, writeGrantSnapshot);
+            resolved = workspace.ResolveMutation(path, create: false, selection.SecurityProfile);
             FileMutation.RequireRegularFile(resolved.Physical);
             await FileMutation.Write(
                 resolved.Physical,

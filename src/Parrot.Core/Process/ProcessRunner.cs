@@ -1,4 +1,3 @@
-using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.Store;
 
@@ -47,7 +46,6 @@ internal sealed class ProcessRunner
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode,
         CancellationToken cancellationToken) =>
         _sandbox.Start(
@@ -56,7 +54,6 @@ internal sealed class ProcessRunner
             resources,
             scratch,
             securityProfile,
-            writeGrants,
             terminalMode,
             cancellationToken);
 
@@ -66,7 +63,6 @@ internal sealed class ProcessRunner
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         CancellationToken cancellationToken)
     {
         await using var execution = Start(
@@ -75,7 +71,6 @@ internal sealed class ProcessRunner
             resources,
             scratch,
             securityProfile,
-            writeGrants,
             ShellProcessTerminalMode.Pipe,
             cancellationToken);
         return await execution.Result.ConfigureAwait(false);
