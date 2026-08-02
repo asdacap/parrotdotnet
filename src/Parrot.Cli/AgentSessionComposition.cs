@@ -78,7 +78,7 @@ internal partial class AgentSessionComposition
                     arguments.Compactor,
                     activeWorkReminder,
                     arguments.Profile,
-                    arguments.SecurityProfile,
+                    arguments.Security,
                     arguments.Status,
                     arguments.Registry,
                     arguments.Queues,

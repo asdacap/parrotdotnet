@@ -171,12 +171,12 @@ configuration. Global `allow_write` rules are ignored by read-only profiles.
 Sandbox configuration is not the complete filesystem boundary. Every effective
 security profile includes mandatory protection for Parrot's state,
 configuration, and data roots. Configured profile rules, workspace nesting,
-symlinks, and user-approved write grants cannot bypass that protection.
+symlinks, and user-approved security-profile approvals cannot bypass that protection.
 Filesystem access does not grant network access.
 
 Each agent receives a private scratch directory beneath its user session. Shell
 processes can write only their owning agent's scratch directory in addition to
-locations allowed by the security profile and runtime grants. This exception is
+locations allowed by the effective security profile. This exception is
 available even to a read-only profile, but only when that profile exposes a shell
 tool. Scratch contains that agent's history projection, process and tool output
 blobs, and private plan artifacts. Parrot does not override `HOME`,
@@ -215,13 +215,13 @@ provider-specific text.
 ## Write permission requests
 
 `request_write_permission` is the only way an agent can ask the user to extend
-its sandbox write access at runtime. A request contains one or more exact,
+its effective security profile at runtime. A request contains one or more exact,
 existing absolute paths and a nonblank reason. The server resolves each path to
-its canonical physical target: an existing-file grant applies only to that file,
-while an existing-directory grant applies to that directory and its descendants.
-A request does not authorise a tool name, a profile, or an unbounded part of the
-filesystem. If the active security profile already permits every requested target,
-the request completes immediately without a user prompt or a runtime grant.
+its canonical physical target: an existing-file approval applies only to that
+file, while an existing-directory approval applies to that directory and its
+descendants. A request does not authorise a tool name, a profile, or an unbounded
+part of the filesystem. If the effective security profile already permits every
+requested target, the request completes immediately without a user prompt.
 
 The CLI offers only the server-declared choices: **Grant**, **Reject**, and
 **Reject with reason**. Cancelling the picker or reason entry is a plain reject;
@@ -229,11 +229,13 @@ a blank required rejection reason is invalid. Noninteractive sessions reject
 requests immediately, and unanswered pending requests time out. A rejection
 leaves the sandbox unchanged.
 
-An approval creates a runtime-only grant for the requesting agent session. It
-allows writing through the filesystem tools, including write, edit, and shell,
-within the granted target; it is not written to configuration, does not survive
-the session, and is not inherited by child or sibling agent sessions. Grants
-are not merged into a `SecurityProfile`, and cannot override a read-only
+An approval adds an allow-write rule to the requesting agent session's effective
+security profile. It allows writing through the filesystem tools, including
+write, edit, and shell, within the approved target; it is not written to
+configuration and does not survive the session. A child security profile is
+restricted from its parent's current effective profile, so an approval made
+before the child is created is inherited, while later parent approvals do not
+change an existing child or sibling. An approval cannot override a read-only
 profile, an explicit static deny, or Parrot's protected state, configuration,
 and data roots. Filesystem permission still does not imply network permission.
 
@@ -297,7 +299,7 @@ same-batch checkpoints fail rather than silently selecting a different range.
 Compaction reshapes effective history. It preserves only the summary, applicable
 status, and retained tail, so a checkpoint compacted out of that material is no
 longer forkable. A fork copies conversation context only: it does not transfer the
-parent's session identity, security profile, write grants, queues, process control,
+parent's session identity, security profile, permission approvals, queues, process control,
 or any other runtime authority.
 
 Queues are agent-owned within this boundary rather than globally shared by all

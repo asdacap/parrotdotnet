@@ -3,7 +3,6 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Queues;
-using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -22,7 +21,7 @@ internal sealed record AgentSessionScopeArguments(
     AgentScratchDirectory Scratch,
     Compactor Compactor,
     IAgentProfile Profile,
-    SecurityProfile SecurityProfile,
+    AgentSessionSecurity Security,
     RuntimeStatus Status,
     AgentRegistry Registry,
     AgentQueues Queues,

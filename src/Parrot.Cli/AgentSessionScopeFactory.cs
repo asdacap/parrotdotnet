@@ -4,7 +4,6 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Queues;
-using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -25,7 +24,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         AgentScratchDirectory scratch,
         Compactor compactor,
         IAgentProfile profile,
-        SecurityProfile securityProfile,
+        AgentSessionSecurity security,
         RuntimeStatus status,
         AgentRegistry registry,
         AgentQueues queues,
@@ -44,7 +43,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             scratch,
             compactor,
             profile,
-            securityProfile,
+            security,
             status,
             registry,
             queues,

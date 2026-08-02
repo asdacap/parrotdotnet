@@ -148,7 +148,7 @@ internal sealed class TodoToolTests : IDisposable
             new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,

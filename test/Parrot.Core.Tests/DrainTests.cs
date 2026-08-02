@@ -765,7 +765,7 @@ internal sealed class DrainTests : IDisposable
             new Compactor(int.MaxValue, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             profile ?? dependencies.Profile,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,

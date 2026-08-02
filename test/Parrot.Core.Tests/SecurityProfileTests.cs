@@ -65,6 +65,61 @@ internal sealed class SecurityProfileTests
     }
 
     [Test]
+    public async Task Agent_profile_applies_ordered_roots_approvals_policy_and_scratch()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        try
+        {
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            var approved = Directory.CreateDirectory(Path.Combine(root.FullName, "approved")).FullName;
+            var scratch = Directory.CreateDirectory(Path.Combine(root.FullName, "scratch")).FullName;
+            var policy = SecurityProfile.Compose(
+                false,
+                [new SandboxRule(approved, SandboxRuleAction.DenyWrite), new SandboxRule(scratch, SandboxRuleAction.DenyWrite)],
+                [],
+                []);
+
+            var effective = SecurityProfile.ForAgent(
+                policy,
+                [workspace],
+                scratch,
+                [SecurityWriteTarget.Resolve(approved)]);
+
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(root.FullName, "ordinary"))).IsFalse();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(workspace, "file"))).IsTrue();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(approved, "file"))).IsFalse();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(scratch, "file"))).IsTrue();
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Agent_profile_keeps_workspace_read_only_but_always_allows_scratch()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        try
+        {
+            var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
+            var scratch = Directory.CreateDirectory(Path.Combine(root.FullName, "scratch")).FullName;
+            var effective = SecurityProfile.ForAgent(
+                SecurityProfile.Compose(true, [], [], []),
+                [workspace],
+                scratch,
+                []);
+
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(workspace, "file"))).IsFalse();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(scratch, "file"))).IsTrue();
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Delegation_allows_narrower_effective_profiles_and_rejects_escalation()
     {
         var rules = new[] { new SandboxRule("/secret", SandboxRuleAction.DenyRead) };

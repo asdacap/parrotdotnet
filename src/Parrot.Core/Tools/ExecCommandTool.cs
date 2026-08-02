@@ -12,8 +12,7 @@ namespace Parrot.Tools;
 // the fail-closed property, surfaced as a tool error the model can react to.
 internal sealed partial class ExecCommandTool(
     ShellProcessOwner processes,
-    AgentSession session,
-    Permissions.SandboxWriteGrants writeGrants) : ITool
+    AgentSession session) : ITool
 {
     public string Name => "exec_command";
 
@@ -78,7 +77,6 @@ internal sealed partial class ExecCommandTool(
                 environment,
                 session,
                 selection.SecurityProfile,
-                writeGrants.Capture(),
                 terminalMode);
             var outcome = await process.Wait(yieldAfter, cancellationToken).ConfigureAwait(false);
 

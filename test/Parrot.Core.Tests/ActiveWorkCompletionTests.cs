@@ -3,7 +3,6 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
-using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Queues;
@@ -260,8 +259,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             "call",
             ProcessEnvironmentOverrides.Empty,
             other,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
-            SandboxWriteGrantSnapshot.Empty);
+            SecurityProfile.Compose(readOnly: false, [], [], []));
         _ = await process.Wait(TimeSpan.Zero, cancellationToken);
         using var subscription = _broker.Subscribe();
 
@@ -451,7 +449,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             new Compactor(90, 30, 60_000, 1024),
             new ActiveWorkCompletionReminder(sessionId, registry, owner),
             profile,
-            profile.SecurityProfile,
+            SecurityProfileTestFactory.Create(profile.SecurityProfile),
             status,
             registry,
             queues,
@@ -487,7 +485,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             new Compactor(90, 30, 60_000, 1024),
             new ActiveWorkCompletionReminder(sessionId, registry, processes),
             profile,
-            profile.SecurityProfile,
+            SecurityProfileTestFactory.Create(profile.SecurityProfile),
             status,
             registry,
             queues,
@@ -607,7 +605,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 new Compactor(90, 30, 60_000, 1024),
                 new ActiveWorkCompletionReminder(identity.SessionId, registry, owner),
                 profile,
-                securityProfile,
+                SecurityProfileTestFactory.Create(securityProfile),
                 status,
                 TestModels.Registry(
                     new UnsupportedAgentSessionFactory(),

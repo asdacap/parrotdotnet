@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Parrot.Agent;
-using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -29,7 +28,6 @@ internal sealed class ShellProcessOwner(
         ProcessEnvironmentOverrides environment,
         AgentSession agent,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode) =>
         Start(
             requestedName,
@@ -38,7 +36,6 @@ internal sealed class ShellProcessOwner(
             environment,
             agent,
             securityProfile,
-            writeGrants,
             terminalMode);
 
     public ManagedShellProcess Start(
@@ -47,8 +44,7 @@ internal sealed class ShellProcessOwner(
         string originToolCallId,
         ProcessEnvironmentOverrides environment,
         AgentSession agent,
-        SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants) =>
+        SecurityProfile securityProfile) =>
         Start(
             requestedName,
             command,
@@ -56,7 +52,6 @@ internal sealed class ShellProcessOwner(
             environment,
             agent,
             securityProfile,
-            writeGrants,
             ShellProcessTerminalMode.Pipe);
 
     public ManagedShellProcess Start(
@@ -66,7 +61,6 @@ internal sealed class ShellProcessOwner(
         ProcessEnvironmentOverrides environment,
         AgentSession agent,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode)
     {
         lock (_gate)
@@ -89,7 +83,6 @@ internal sealed class ShellProcessOwner(
                 resources,
                 scratch,
                 securityProfile,
-                writeGrants,
                 terminalMode,
                 lifetime);
             var state = new ActiveShellProcessState(

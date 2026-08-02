@@ -2,7 +2,6 @@ using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
-using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
@@ -196,20 +195,21 @@ internal sealed class ModeRegistryTests : IDisposable
         var outside = Path.Combine(paths.State, "sessions", "other-session", "outside.md");
         var scratch = new AgentScratchDirectory(Path.GetDirectoryName(planDirectory)
             ?? throw new InvalidOperationException("Plan directory has no parent."));
-        var write = new WriteTool(new ToolWorkspace(workspace, scratch), new SandboxWriteGrants());
+        var security = SecurityProfile.ForAgent(plan.SecurityProfile, [], scratch.Root, []);
+        var write = new WriteTool(new ToolWorkspace(workspace));
 
         var supporting = Path.Combine(planDirectory, "supporting.md");
         var written = await write.Execute(
             new ToolInvocation("write-plan", WriteArguments(artifact, "# Plan")),
-            Turn(plan.SecurityProfile),
+            Turn(security),
             cancellationToken);
         var supported = await write.Execute(
             new ToolInvocation("write-supporting", WriteArguments(supporting, "details")),
-            Turn(plan.SecurityProfile),
+            Turn(security),
             cancellationToken);
         var denied = await write.Execute(
             new ToolInvocation("write-outside", WriteArguments(outside, "outside")),
-            Turn(plan.SecurityProfile),
+            Turn(security),
             cancellationToken);
 
         _ = await Assert.That(written.Text).DoesNotStartWith("error: ");

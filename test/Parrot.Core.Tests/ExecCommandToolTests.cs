@@ -61,7 +61,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
@@ -75,7 +75,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             inventory,
             CancellationToken.None);
         var securityProfile = SecurityProfile.Compose(readOnly: false, [], [], []);
-        var tool = new ExecCommandTool(processes, session, session.WriteGrants);
+        var tool = new ExecCommandTool(processes, session);
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),

@@ -1,4 +1,3 @@
-using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.Store;
 
@@ -14,7 +13,6 @@ internal interface IProcessSandbox
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode,
         CancellationToken cancellationToken);
 }

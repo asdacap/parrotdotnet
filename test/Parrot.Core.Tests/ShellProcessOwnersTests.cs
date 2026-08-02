@@ -2,7 +2,6 @@ using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
-using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Security;
 using Parrot.State;
@@ -59,7 +58,6 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
             security,
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.Pipe);
         var secondProcess = second.Start(
             "shared",
@@ -68,7 +66,6 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             secondAgent,
             security,
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.Pipe);
         var firstOnlyProcess = first.Start(
             "first-only",
@@ -77,7 +74,6 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             firstAgent,
             security,
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.Pipe);
         _ = await firstProcess.Wait(TimeSpan.Zero, cancellationToken);
         _ = await secondProcess.Wait(TimeSpan.Zero, cancellationToken);
@@ -126,7 +122,6 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             ProcessEnvironmentOverrides.Empty,
             agent,
             SecurityProfile.Compose(readOnly: false, [], [], []),
-            SandboxWriteGrantSnapshot.Empty,
             ShellProcessTerminalMode.Pipe);
 
         while (!process.Completed)
@@ -170,8 +165,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             "call-id",
             ProcessEnvironmentOverrides.Empty,
             agent,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
-            SandboxWriteGrantSnapshot.Empty);
+            SecurityProfile.Compose(readOnly: false, [], [], []));
 
         using var subscription = coordinator.SubscribeInventory();
         var initial = await subscription.Reader.ReadAsync(cancellationToken);
@@ -241,7 +235,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
-            SecurityProfile.Compose(readOnly: false, [], [], []),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,

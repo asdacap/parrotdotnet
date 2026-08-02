@@ -66,7 +66,7 @@ internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
             return $"error: {failure.Message}";
         }
 
-        if (!workspace.AllowsRead(resolved, selection.SecurityProfile))
+        if (!ToolWorkspace.AllowsRead(resolved, selection.SecurityProfile))
         {
             return "error: access denied";
         }
@@ -166,7 +166,7 @@ internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
                 continue;
             }
 
-            if (!workspace.AllowsRead(resolved, securityProfile))
+            if (!ToolWorkspace.AllowsRead(resolved, securityProfile))
             {
                 continue;
             }

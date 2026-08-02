@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.Store;
 
@@ -20,7 +19,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode,
         CancellationToken cancellationToken)
     {
@@ -38,7 +36,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                 resources,
                 scratch,
                 securityProfile,
-                writeGrants,
                 cancellationToken),
             ShellProcessTerminalMode.PseudoTerminal => StartPseudoTerminal(
                 command,
@@ -46,7 +43,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                 resources,
                 scratch,
                 securityProfile,
-                writeGrants,
                 cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(terminalMode)),
         };
@@ -58,7 +54,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         CancellationToken cancellationToken)
     {
         await using var execution = Start(
@@ -67,7 +62,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             resources,
             scratch,
             securityProfile,
-            writeGrants,
             ShellProcessTerminalMode.Pipe,
             cancellationToken);
         return await execution.Result.ConfigureAwait(false);
@@ -82,7 +76,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         string pseudoTerminalHelperPath)
     {
         scratch.Provision();
@@ -105,15 +98,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             arguments.AddRange(["--setenv", entry.Key, entry.Value]);
         }
 
-        if (!securityProfile.ReadOnly)
-        {
-            AddWritableWorkspace(arguments, resources.Workspace.LaunchDirectory);
-            AddWriteGrants(arguments, writeGrants);
-        }
-
-        AddSecurityRules(arguments, securityProfile);
-        AddProtectedRoots(arguments, resources);
-        AddScratch(arguments, resources, scratch);
+        AddSecurityRules(arguments, resources, securityProfile);
 
         if (pseudoTerminalHelperPath.Length > 0)
         {
@@ -129,34 +114,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
 
         arguments.AddRange(["/bin/sh", "-c", command]);
         return arguments;
-    }
-
-    private static void AddProtectedRoots(List<string> arguments, UserSessionResources resources)
-    {
-        foreach (var root in resources.ProtectedRoots
-                     .Select(Path.GetFullPath)
-                     .Distinct(StringComparer.Ordinal)
-                     .OrderBy(path => path.Length))
-        {
-            EnsurePrivateDirectory(root);
-            AddReadMask(arguments, root);
-        }
-    }
-
-    private static void AddScratch(
-        List<string> arguments,
-        UserSessionResources resources,
-        AgentScratchDirectory scratch)
-        => AddSyntheticMount(arguments, resources, scratch.Root, write: true);
-
-    private static void AddSyntheticMount(
-        List<string> arguments,
-        UserSessionResources resources,
-        string path,
-        bool write)
-    {
-        AddSyntheticParents(arguments, resources, path);
-        arguments.AddRange([write ? "--bind" : "--ro-bind", path, path]);
     }
 
     private static void AddSyntheticParents(
@@ -184,30 +141,10 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         }
     }
 
-    private static void AddWriteGrants(
+    private static void AddSecurityRules(
         List<string> arguments,
-        SandboxWriteGrantSnapshot writeGrants)
-    {
-        foreach (var target in writeGrants.CaptureValid())
-        {
-            arguments.AddRange(["--bind", target.Path, target.Path]);
-        }
-    }
-
-    private static void AddWritableWorkspace(List<string> arguments, string workingDirectory)
-    {
-        var repositoryRoot = FindGitRepositoryRoot(workingDirectory);
-
-        if (repositoryRoot is not null
-            && !string.Equals(repositoryRoot, workingDirectory, StringComparison.Ordinal))
-        {
-            arguments.AddRange(["--bind", repositoryRoot, repositoryRoot]);
-        }
-
-        arguments.AddRange(["--bind", workingDirectory, workingDirectory]);
-    }
-
-    private static void AddSecurityRules(List<string> arguments, SecurityProfile securityProfile)
+        UserSessionResources resources,
+        SecurityProfile securityProfile)
     {
         var applied = new List<SandboxRule>();
 
@@ -215,6 +152,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         {
             applied.Add(rule);
             var path = Path.GetFullPath(rule.Path);
+            AddSyntheticParents(arguments, resources, path);
             var (read, write) = EvaluateAccess(path, securityProfile.ReadOnly, applied);
 
             if (!read)
@@ -255,95 +193,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             arguments.AddRange(["--ro-bind", "/dev/null", path]);
         }
     }
-
-    private static void EnsurePrivateDirectory(string directory)
-    {
-        _ = Directory.CreateDirectory(directory);
-
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD())
-        {
-            File.SetUnixFileMode(
-                directory,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-    }
-
-    private static string? FindGitRepositoryRoot(string workingDirectory)
-    {
-        try
-        {
-            for (var directory = new DirectoryInfo(Path.GetFullPath(workingDirectory));
-                 directory is not null;
-                 directory = directory.Parent)
-            {
-                var gitPath = Path.Combine(directory.FullName, ".git");
-
-                if (Directory.Exists(gitPath))
-                {
-                    return directory.FullName;
-                }
-
-                if (File.Exists(gitPath))
-                {
-                    return FindLinkedRepositoryRoot(gitPath);
-                }
-            }
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-        }
-
-        return null;
-    }
-
-    private static string? FindLinkedRepositoryRoot(string gitPath)
-    {
-        var gitFile = File.ReadAllText(gitPath).Trim();
-
-        if (!gitFile.StartsWith("gitdir: ", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var worktreeRoot = Path.GetDirectoryName(gitPath);
-
-        if (worktreeRoot is null)
-        {
-            return null;
-        }
-
-        var gitDirectory = ResolvePath(worktreeRoot, gitFile[8..]);
-        var commonDirectoryPath = Path.Combine(gitDirectory, "commondir");
-        var backlinkPath = Path.Combine(gitDirectory, "gitdir");
-
-        if (!File.Exists(commonDirectoryPath) || !File.Exists(backlinkPath))
-        {
-            return null;
-        }
-
-        var backlink = ResolvePath(gitDirectory, File.ReadAllText(backlinkPath).Trim());
-
-        if (!string.Equals(backlink, Path.GetFullPath(gitPath), StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var commonDirectory = Path.TrimEndingDirectorySeparator(
-            ResolvePath(gitDirectory, File.ReadAllText(commonDirectoryPath).Trim()));
-        var worktreesDirectory = Path.Combine(commonDirectory, "worktrees");
-
-        if (!Directory.Exists(commonDirectory)
-            || !string.Equals(Path.GetFileName(commonDirectory), ".git", StringComparison.Ordinal)
-            || !string.Equals(Path.GetDirectoryName(gitDirectory), worktreesDirectory, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        return Path.GetDirectoryName(commonDirectory);
-    }
-
-    private static string ResolvePath(string baseDirectory, string path) =>
-        Path.GetFullPath(Path.IsPathFullyQualified(path) ? path : Path.Combine(baseDirectory, path));
 
     private static string ValidateBubblewrapPath(string path, bool requireTrustedPath)
     {
@@ -408,7 +257,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
@@ -425,7 +273,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                      resources,
                      scratch,
                      securityProfile,
-                     writeGrants,
                      string.Empty))
         {
             startInfo.ArgumentList.Add(argument);
@@ -462,7 +309,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
@@ -502,7 +348,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                          resources,
                          scratch,
                          securityProfile,
-                         writeGrants,
                          helperPath))
             {
                 startInfo.ArgumentList.Add(argument);

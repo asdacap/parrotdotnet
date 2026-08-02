@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.Store;
 
@@ -29,7 +28,6 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         UserSessionResources resources,
         AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode,
         CancellationToken cancellationToken)
     {
@@ -51,7 +49,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
 
         scratch.Provision();
         var profilePath = Path.Combine(resources.QueueDirectory, $"seatbelt-{Guid.NewGuid():n}.sb");
-        WriteProfile(profilePath, CompilePolicy(resources, scratch, securityProfile, writeGrants));
+        WriteProfile(profilePath, CompilePolicy(securityProfile));
         var startInfo = CreateStartInfo(_seatbeltPath, profilePath, command, environment, resources);
         var process = new System.Diagnostics.Process { StartInfo = startInfo };
         DarwinProcessSignalTarget? signalTarget = null;
@@ -89,39 +87,12 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         }
     }
 
-    internal static SeatbeltPolicySnapshot CompilePolicy(
-        UserSessionResources resources,
-        AgentScratchDirectory scratch,
-        SecurityProfile securityProfile,
-        SandboxWriteGrantSnapshot writeGrants)
+    internal static SeatbeltPolicySnapshot CompilePolicy(SecurityProfile securityProfile)
     {
         var profile = new SeatbeltPolicy();
         profile.AllowWrite("/dev/null");
 
-        if (!securityProfile.ReadOnly)
-        {
-            foreach (var path in WritableWorkspacePaths(resources.Workspace.LaunchDirectory))
-            {
-                profile.AllowWrite(path);
-            }
-
-            foreach (var target in writeGrants.CaptureValid())
-            {
-                profile.AllowWrite(target.Path);
-            }
-        }
-
         AddSecurityRules(profile, securityProfile);
-
-        foreach (var root in resources.ProtectedRoots
-                     .Select(Path.GetFullPath)
-                     .Distinct(StringComparer.Ordinal)
-                     .OrderBy(path => path.Length))
-        {
-            profile.DenyRead(root);
-        }
-
-        profile.AllowWrite(scratch.Root);
 
         return profile.Capture();
     }
@@ -205,102 +176,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         }
     }
 
-    private static IEnumerable<string> WritableWorkspacePaths(string workingDirectory)
-    {
-        var repositoryRoot = FindGitRepositoryRoot(workingDirectory);
-        if (repositoryRoot is not null
-            && !string.Equals(repositoryRoot, workingDirectory, StringComparison.Ordinal))
-        {
-            yield return repositoryRoot;
-        }
-
-        yield return workingDirectory;
-    }
-
-    private static string? FindGitRepositoryRoot(string workingDirectory)
-    {
-        try
-        {
-            for (var directory = new DirectoryInfo(Path.GetFullPath(workingDirectory));
-                 directory is not null;
-                 directory = directory.Parent)
-            {
-                var gitPath = Path.Combine(directory.FullName, ".git");
-                if (Directory.Exists(gitPath))
-                {
-                    return directory.FullName;
-                }
-
-                if (File.Exists(gitPath))
-                {
-                    return FindLinkedRepositoryRoot(gitPath);
-                }
-            }
-        }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
-        {
-        }
-
-        return null;
-    }
-
-    private static string? FindLinkedRepositoryRoot(string gitPath)
-    {
-        var gitFile = File.ReadAllText(gitPath).Trim();
-        if (!gitFile.StartsWith("gitdir: ", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var worktreeRoot = Path.GetDirectoryName(gitPath);
-        if (worktreeRoot is null)
-        {
-            return null;
-        }
-
-        var gitDirectory = ResolvePath(worktreeRoot, gitFile[8..]);
-        var commonDirectoryPath = Path.Combine(gitDirectory, "commondir");
-        var backlinkPath = Path.Combine(gitDirectory, "gitdir");
-        if (!File.Exists(commonDirectoryPath) || !File.Exists(backlinkPath))
-        {
-            return null;
-        }
-
-        var backlink = ResolvePath(gitDirectory, File.ReadAllText(backlinkPath).Trim());
-        if (!string.Equals(backlink, Path.GetFullPath(gitPath), StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var commonDirectory = Path.TrimEndingDirectorySeparator(
-            ResolvePath(gitDirectory, File.ReadAllText(commonDirectoryPath).Trim()));
-        var worktreesDirectory = Path.Combine(commonDirectory, "worktrees");
-        return Directory.Exists(commonDirectory)
-               && string.Equals(Path.GetFileName(commonDirectory), ".git", StringComparison.Ordinal)
-               && string.Equals(Path.GetDirectoryName(gitDirectory), worktreesDirectory, StringComparison.Ordinal)
-            ? Path.GetDirectoryName(commonDirectory)
-            : null;
-    }
-
-    private static string ResolvePath(string baseDirectory, string path) =>
-        Path.GetFullPath(Path.IsPathFullyQualified(path) ? path : Path.Combine(baseDirectory, path));
-
-    private static bool Contains(string root, string path)
-    {
-        var relative = Path.GetRelativePath(root, path);
-        return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
-            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
-    }
-
     [SupportedOSPlatform("macos")]
-    private static void EnsurePrivateDirectory(string directory)
-    {
-        _ = Directory.CreateDirectory(directory);
-        File.SetUnixFileMode(
-            directory,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-    }
-
     [SupportedOSPlatform("macos")]
     private static void WriteProfile(string path, SeatbeltPolicySnapshot profile)
     {
