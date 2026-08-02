@@ -11,7 +11,7 @@ internal sealed partial class StatusTool(
 {
     public string Name => "status";
 
-    public string Description => "Query current runtime, mode, and profile status without adding it to the system prompt.";
+    public string Description => "Query current runtime status without adding it to the system prompt.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -30,8 +30,8 @@ internal sealed partial class StatusTool(
             return $"error: {failure.Message}";
         }
 
-        var text = await status.Observe(session, selection, selection.Profile, cancellationToken).ConfigureAwait(false);
-        return string.IsNullOrWhiteSpace(text) ? "No status is currently available." : text;
+        var runtime = await status.ObserveRuntime(session, selection, cancellationToken).ConfigureAwait(false);
+        return string.IsNullOrWhiteSpace(runtime) ? "No runtime status is currently available." : runtime;
     }
 
     [ToolInputModel(AdditionalPropertiesPolicy.Closed)]

@@ -173,6 +173,14 @@ internal sealed class SessionDatabase : IDisposable
                     created_at    TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS compaction_status (
+                    agent_session               TEXT NOT NULL,
+                    watermark                   INTEGER NOT NULL CHECK (watermark >= 0),
+                    status_conversation_sequence INTEGER NOT NULL REFERENCES conversation_item(sequence) ON DELETE CASCADE,
+                    PRIMARY KEY (agent_session, watermark),
+                    UNIQUE (status_conversation_sequence)
+                );
+
                 CREATE TABLE IF NOT EXISTS agent_history (
                     sequence              INTEGER PRIMARY KEY AUTOINCREMENT,
                     agent_session         TEXT NOT NULL,

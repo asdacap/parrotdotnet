@@ -417,6 +417,14 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(snapshot.Summary).Contains("Summary of the earlier conversation:");
         _ = await Assert.That(repository.ConversationAfter("agent", snapshot.Watermark))
             .DoesNotContain(item => item.Parts.Any(part => part.Text == "old prompt"));
+        var compactionContext = repository.CompactionHistory("agent")
+            ?? throw new InvalidOperationException("Expected durable compaction context.");
+        var currentRequest = provider.Requests[^1];
+        _ = await Assert.That(currentRequest.Messages[0].Content).IsEqualTo(snapshot.Summary);
+        _ = await Assert.That(currentRequest.Messages[1].Content)
+            .IsEqualTo(compactionContext.Status?.Parts.Single().Text);
+        _ = await Assert.That(currentRequest.Messages.Skip(2))
+            .Contains(message => message.Role == LLMRole.User && message.Content == "latest prompt");
 
         var requestsBeforeRestart = provider.Requests.Count;
         var restarted = Build(compact: false);
@@ -424,8 +432,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await restarted.ResultSettled();
 
         var restoredRequest = provider.Requests.Skip(requestsBeforeRestart).Single();
-        _ = await Assert.That(restoredRequest.Messages)
-            .Contains(message => message.Role == LLMRole.System && message.Content == snapshot.Summary);
+        _ = await Assert.That(restoredRequest.Messages[0].Content).IsEqualTo(snapshot.Summary);
+        _ = await Assert.That(restoredRequest.Messages[1].Content)
+            .IsEqualTo(compactionContext.Status?.Parts.Single().Text);
         _ = await Assert.That(restoredRequest.Messages)
             .DoesNotContain(message => message.Content == "old prompt");
         _ = await Assert.That(restoredRequest.Messages)
@@ -505,12 +514,14 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         _ = await Assert.That(compactor.ShouldCompact(CompactionModel(provider, 100), string.Empty, [], history)).IsTrue();
 
-        var result = await compactor.Compact(CompactionModel(provider, 500), string.Empty, [], history, cancellationToken);
+        var result = await compactor.Compact(CompactionModel(provider, 500), string.Empty, [], history, LLMMessage.User("fixed"), cancellationToken);
         var compacted = result?.History ?? throw new InvalidOperationException("Expected compaction.");
 
         _ = await Assert.That(compacted.Count).IsLessThan(history.Count);
         _ = await Assert.That(compacted[0].Role).IsEqualTo(LLMRole.System);
         _ = await Assert.That(compacted[0].Content).Contains("SUMMARY OF EARLIER");
+        _ = await Assert.That(compacted[1].Content).IsEqualTo("fixed");
+        _ = await Assert.That(result.RetainedDurableMessageCount).IsEqualTo(compacted.Count - 2);
 
         // The tail is kept verbatim so the thread is not lost.
         _ = await Assert.That(compacted[^1].Content).IsEqualTo("message 19");
@@ -529,7 +540,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMMessage.User("latest"),
         ];
 
-        result = await compactor.Compact(CompactionModel(provider, 500), string.Empty, [], history, cancellationToken);
+        result = await compactor.Compact(CompactionModel(provider, 500), string.Empty, [], history, LLMMessage.User("fixed"), cancellationToken);
         compacted = result?.History ?? throw new InvalidOperationException("Expected compaction.");
 
         var assistant = compacted.Single(message => message.ToolCalls.Count > 0);
@@ -575,7 +586,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Select(index => LLMMessage.User($"message {index} {new string('x', 300)}"))
             .ToList();
 
-        var result = await compactor.Compact(model, "instructions", [], history, cancellationToken)
+        var result = await compactor.Compact(model, "instructions", [], history, LLMMessage.User("fixed"), cancellationToken)
             ?? throw new InvalidOperationException("Expected compaction.");
 
         _ = await Assert.That(Compactor.EstimateInputTokens("instructions", [], result.History))
@@ -587,8 +598,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         IReadOnlyList<LLMMessage> withOneMore =
         [
             result.History[0],
+            result.History[1],
             immediatelyPreceding,
-            .. result.History.Skip(1),
+            .. result.History.Skip(2),
         ];
         _ = await Assert.That(Compactor.EstimateInputTokens("instructions", [], withOneMore)).IsGreaterThan(300);
     }
@@ -606,7 +618,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var compactor = new Compactor(90, 30, 60_000, 1024);
 
         _ = await Assert.That(Compactor.EstimateTokens([LLMMessage.User([image])])).IsGreaterThan(1000);
-        _ = await compactor.Compact(CompactionModel(provider, 100_000), string.Empty, [], history, cancellationToken);
+        _ = await compactor.Compact(CompactionModel(provider, 100_000), string.Empty, [], history, LLMMessage.User("fixed"), cancellationToken);
 
         var request = provider.Requests.Single();
         _ = await Assert.That(request.Messages[1].Contents.Any(content => content.Kind == LLMContentKind.Image)).IsTrue();
@@ -623,7 +635,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var compactor = new Compactor(90, 30, 60_000, 1024);
         var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
 
-        _ = await compactor.Compact(model, string.Empty, [], history, cancellationToken);
+        _ = await compactor.Compact(model, string.Empty, [], history, LLMMessage.User("fixed"), cancellationToken);
 
         var reasoning = provider.Requests.Single().Reasoning
             ?? throw new InvalidOperationException("Expected reasoning options.");
@@ -643,7 +655,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         history.Add(LLMMessage.ToolResult("call", new string('r', 500)));
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"tail {index}")));
 
-        _ = await compactor.Compact(model, string.Empty, [], history, cancellationToken);
+        _ = await compactor.Compact(model, string.Empty, [], history, LLMMessage.User("fixed"), cancellationToken);
 
         _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
         _ = await Assert.That(provider.Requests)
@@ -669,7 +681,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         };
 
         var result = await compactor.Compact(
-            CompactionModel(provider, 2_000), string.Empty, [], history, cancellationToken);
+            CompactionModel(provider, 2_000), string.Empty, [], history, LLMMessage.User("fixed"), cancellationToken);
 
         _ = await Assert.That(result?.History[^1].Content).IsEqualTo("tail 3");
     }
@@ -681,7 +693,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var compactor = new Compactor(90, 30, 60_000, 1024);
         var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
 
-        _ = await Assert.That(async () => await compactor.Compact(CompactionModel(provider, 100_000), string.Empty, [], history, cancellationToken))
+        _ = await Assert.That(async () => await compactor.Compact(CompactionModel(provider, 100_000), string.Empty, [], history, LLMMessage.User("fixed"), cancellationToken))
             .Throws<InvalidOperationException>();
     }
 
