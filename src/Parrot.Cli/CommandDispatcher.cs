@@ -6,7 +6,6 @@ using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
-using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
 using Parrot.Tools;
@@ -483,7 +482,7 @@ internal sealed class CommandDispatcher(
         var attachmentProfiles = new ProfileRegistry(
             configuration.Profiles,
             configuration.SandboxRules,
-            new ApplicationDataSecurityRules(paths).Rules,
+            [],
             configuration.DisabledTools);
         var attachmentModes = new ModeRegistry(attachmentProfiles, configuration.DefaultProfile);
         var attachments = new PromptAttachmentUploader(new ToolWorkspace(Directory.GetCurrentDirectory()), attachmentModes);

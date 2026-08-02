@@ -97,6 +97,19 @@ internal sealed class SecurityProfileTests
     }
 
     [Test]
+    public async Task Read_only_profile_keeps_global_write_grants()
+    {
+        var profile = SecurityProfile.Compose(
+            readOnly: true,
+            modeRules: [],
+            globalRules: [new SandboxRule("/cache", SandboxRuleAction.AllowWrite)],
+            mandatoryRules: []);
+
+        _ = await Assert.That(profile.AllowsWrite("/cache/item")).IsTrue();
+        _ = await Assert.That(profile.AllowsWrite("/workspace/item")).IsFalse();
+    }
+
+    [Test]
     public async Task Agent_profile_keeps_workspace_read_only_but_always_allows_scratch()
     {
         var root = Directory.CreateTempSubdirectory();

@@ -155,8 +155,8 @@ internal sealed class Configuration(string path)
         var userRoot = LoadRoot(path);
         var root = Merge(LoadRoot(predefinedPath), userRoot);
         var environmentTemplates = new EnvironmentTemplateResolver(environment);
-
-        return new(path)
+        var directories = new List<(string Path, string Field)>();
+        var configuration = new Configuration(path)
         {
             Model = Scalar(root, ModelKey),
             Prompt = NonEmptyScalar(root, PromptKey, PromptKey),
@@ -166,14 +166,16 @@ internal sealed class Configuration(string path)
             ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
             Providers = ReadProviders(root),
             WebFetch = ReadWebFetch(root),
-            SandboxRules = ReadSandboxRules(root, "sandbox_rules", environmentTemplates),
+            SandboxRules = ReadSandboxRules(root, "sandbox_rules", environmentTemplates, directories),
             DisabledTools = ReadDisabledTools(root),
-            Profiles = ReadProfiles(root, environmentTemplates),
+            Profiles = ReadProfiles(root, environmentTemplates, directories),
             DefaultProfile = ReadDefaultProfile(root),
             CliUtilities = ReadCliUtilities(root),
             UserInputTimeout = ReadUserInputTimeout(root, userRoot),
             Compaction = ReadCompaction(root),
         };
+        ProvisionSandboxDirectories(directories);
+        return configuration;
     }
 
     private static void CopyPredefined(string destination)
@@ -584,7 +586,8 @@ internal sealed class Configuration(string path)
 
     private static Dictionary<string, ProfileConfig> ReadProfiles(
         YamlMappingNode root,
-        EnvironmentTemplateResolver environmentTemplates)
+        EnvironmentTemplateResolver environmentTemplates,
+        List<(string Path, string Field)> directories)
     {
         var result = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
         var ids = new[] { "build", "plan", "query", "explorer", "review", "worker", "thinker" };
@@ -639,7 +642,7 @@ internal sealed class Configuration(string path)
                     profile,
                     "enforce_active_work_completion",
                     $"profiles.{id}.enforce_active_work_completion"),
-                ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules", environmentTemplates));
+                ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules", environmentTemplates, directories));
         }
 
         return result;
@@ -762,7 +765,8 @@ internal sealed class Configuration(string path)
     private static List<SandboxRule> ReadSandboxRules(
         YamlMappingNode parent,
         string path,
-        EnvironmentTemplateResolver environmentTemplates)
+        EnvironmentTemplateResolver environmentTemplates,
+        List<(string Path, string Field)> directories)
     {
         if (!Child(parent, "sandbox_rules", out var node))
         {
@@ -782,7 +786,7 @@ internal sealed class Configuration(string path)
                 throw new InvalidDataException($"{path}.{index} requires scalar path and rule fields");
             }
 
-            ValidateKeys(item, $"{path}.{index}", "path", "rule");
+            ValidateKeys(item, $"{path}.{index}", "path", "rule", "create_if_not_exist");
 
             if (!Child(item, "path", out var pathNode) || pathNode is not YamlScalarNode { Value: { } rulePath } ||
                 !Child(item, "rule", out var actionNode) || actionNode is not YamlScalarNode { Value: { } action })
@@ -797,10 +801,44 @@ internal sealed class Configuration(string path)
                 throw new InvalidDataException($"{field} must resolve to a nonblank fully qualified path");
             }
 
-            result.Add(new(expandedPath, ParseAction(action, $"{path}.{index}.rule")));
+            var parsedAction = ParseAction(action, $"{path}.{index}.rule");
+            var create = ReadOptionalBoolean(item, "create_if_not_exist", $"{path}.{index}.create_if_not_exist");
+            if (create && parsedAction != SandboxRuleAction.AllowWrite)
+            {
+                throw new InvalidDataException(
+                    $"{path}.{index}.create_if_not_exist is supported only for allow_write rules");
+            }
+
+            if (!Path.Exists(expandedPath) && parsedAction == SandboxRuleAction.AllowWrite)
+            {
+                if (!create)
+                {
+                    continue;
+                }
+
+                directories.Add((expandedPath, field));
+            }
+
+            result.Add(new(expandedPath, parsedAction));
         }
 
         return result;
+    }
+
+    private static void ProvisionSandboxDirectories(IEnumerable<(string Path, string Field)> directories)
+    {
+        foreach (var (path, field) in directories)
+        {
+            try
+            {
+                _ = Directory.CreateDirectory(path);
+            }
+            catch (Exception failure) when (
+                failure is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                throw new InvalidDataException($"{field} could not be created as a directory", failure);
+            }
+        }
     }
 
     private static void ValidateKeys(YamlMappingNode mapping, string path, params string[] supportedKeys)
@@ -942,13 +980,18 @@ internal sealed class Configuration(string path)
             throw new InvalidDataException($"{path} must be true or false");
         }
 
-        return node switch
-        {
-            YamlScalarNode { Value: "true" } => true,
-            YamlScalarNode { Value: "false" } => false,
-            _ => throw new InvalidDataException($"{path} must be true or false"),
-        };
+        return ParseBoolean(node, path);
     }
+
+    private static bool ReadOptionalBoolean(YamlMappingNode parent, string key, string path) =>
+        Child(parent, key, out var node) ? ParseBoolean(node, path) : false;
+
+    private static bool ParseBoolean(YamlNode? node, string path) => node switch
+    {
+        YamlScalarNode { Value: "true" } => true,
+        YamlScalarNode { Value: "false" } => false,
+        _ => throw new InvalidDataException($"{path} must be true or false"),
+    };
 
     private static WebFetchConfig ReadWebFetch(YamlMappingNode root) =>
         Child(root, "web_fetch", out var node) && node is YamlMappingNode webFetch

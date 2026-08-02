@@ -116,7 +116,7 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    public async Task Default_cache_rule_grants_only_writable_profiles()
+    public async Task Default_cache_rule_grants_all_profiles()
     {
         var cache = Path.Combine(_root, "cache");
         var configuration = Configuration.Load(
@@ -124,6 +124,7 @@ internal sealed class ModeRegistryTests : IDisposable
             Path.Combine(_root, "predefined_config.yaml"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
+                ["HOME"] = Path.Combine(_root, "home"),
                 ["XDG_CACHE_HOME"] = cache,
             });
         var modes = new ModeRegistry(
@@ -135,8 +136,8 @@ internal sealed class ModeRegistryTests : IDisposable
             configuration.DefaultProfile);
 
         _ = await Assert.That(modes.Resolve(ModeRegistry.Build).SecurityProfile.AllowsWrite(cache)).IsTrue();
-        _ = await Assert.That(modes.Resolve(ModeRegistry.Plan).SecurityProfile.AllowsWrite(cache)).IsFalse();
-        _ = await Assert.That(modes.Resolve(ModeRegistry.Query).SecurityProfile.AllowsWrite(cache)).IsFalse();
+        _ = await Assert.That(modes.Resolve(ModeRegistry.Plan).SecurityProfile.AllowsWrite(cache)).IsTrue();
+        _ = await Assert.That(modes.Resolve(ModeRegistry.Query).SecurityProfile.AllowsWrite(cache)).IsTrue();
     }
 
     [Test]
@@ -187,7 +188,7 @@ internal sealed class ModeRegistryTests : IDisposable
             Path.Combine(_root, "state"),
             Path.Combine(_root, "config"),
             Path.Combine(_root, "data"));
-        var registry = Registry(new ApplicationDataSecurityRules(paths).Rules);
+        var registry = Registry();
         var planDirectory = Path.Combine(paths.State, "sessions", "session", "plan");
         var plan = new UserSessionModes(registry, planDirectory).Resolve(ModeRegistry.Plan);
         plan.Prepare();

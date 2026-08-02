@@ -734,26 +734,41 @@ providers:
 # Ordered sandbox rules applied after the built-in mounts below.
 # Each rule has a path and an action: allow_write, deny_read,
 # allow_read, or deny_write. More specific paths override broader paths; rules
-# for the same normalized path retain declaration order.
+# for the same normalized path retain declaration order. A missing allow_write
+# target is ignored unless create_if_not_exist is true, which creates it as a
+# directory with any missing parents. That option is invalid for other actions.
 # Paths must be absolute after environment expansion. Use ${NAME} for a required
 # nonempty environment variable or ${NAME:-fallback} when it is unset or empty;
 # fallbacks may contain nested expansions. Expansion does not invoke a shell and
 # an unavailable required variable rejects the configuration.
 #
-# Built-in rules (applied first, in order):
-#   /                             allow_read    (entire host filesystem)
-#   /dev                          sandbox tmpfs (empty /dev)
-#   /dev/null                     allow_write   (writable null)
-#   /dev/zero,random,urandom,...  allow_read    (host devices)
+# Built-in access (applied first):
+#   /                             read-only host filesystem
+#   /dev                          sandbox tmpfs
+#   /dev/null                     writable null device
 #   /proc                         sandbox procfs
-#   {agent scratch directory}     allow_write   (private writable)
-#   {workspace root}              allow_write   (always writable)
-#   {approved profile paths}      allow_write   (from request_write_permission)
-#   {linked git common dir}       allow_write   (worktree support)
-#   {workspace}/.parrot           deny_write    (protected metadata)
-#   {workspace}/parrot.yaml       deny_write    (protected metadata)
+#   {agent scratch directory}     private writable directory
+#   {workspace and repository}    writable for non-read-only profiles
+#   {approved profile paths}      writable for non-read-only profiles
 #
-sandbox_rules: []
+sandbox_rules:
+  - path: /dev/null
+    rule: allow_write
+  - path: /tmp
+    rule: allow_write
+    create_if_not_exist: true
+  - path: '${XDG_CACHE_HOME:-${HOME}/.cache}'
+    rule: allow_write
+    create_if_not_exist: true
+  - path: '${HOME}/.nuget/packages'
+    rule: allow_write
+    create_if_not_exist: true
+  - path: '${HOME}/.npm'
+    rule: allow_write
+    create_if_not_exist: true
+  - path: '${HOME}/.local/share/pnpm/store'
+    rule: allow_write
+    create_if_not_exist: true
 # Add broader rules before narrower overrides.
 #   - path: /absolute/path/to/dir
 #     rule: deny_read

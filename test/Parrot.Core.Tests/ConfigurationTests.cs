@@ -419,11 +419,15 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     public async Task Security_configuration_is_strict_and_ordered()
     {
-        var configuration = Load(Write("""
+        var workspace = Path.Combine(_directory, "workspace");
+        var privateWorkspace = Path.Combine(workspace, "private");
+        _ = Directory.CreateDirectory(workspace);
+        _ = Directory.CreateDirectory(privateWorkspace);
+        var configuration = Load(Write($"""
             sandbox_rules:
-              - path: /workspace
+              - path: {workspace}
                 rule: allow_write
-              - path: /workspace/private
+              - path: {privateWorkspace}
                 rule: deny_read
             profiles:
               build:
@@ -439,7 +443,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(2);
         _ = await Assert.That(configuration.SandboxRules[0])
-            .IsEqualTo(new SandboxRule("/workspace", SandboxRuleAction.AllowWrite));
+            .IsEqualTo(new SandboxRule(workspace, SandboxRuleAction.AllowWrite));
         _ = await Assert.That(configuration.SandboxRules[1].Action).IsEqualTo(SandboxRuleAction.DenyRead);
         _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules[0].Action)
@@ -463,6 +467,7 @@ internal sealed class ConfigurationTests : IDisposable
             sandbox_rules:
               - path: '${ROOT}/first/${CACHE_NAME:-cache}'
                 rule: allow_write
+                create_if_not_exist: true
               - path: '${CACHE:-${MISSING}/unused}'
                 rule: deny_write
             profiles:
@@ -484,27 +489,175 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Predefined_configuration_has_no_host_cache_write_rule()
+    public async Task Predefined_configuration_provisions_shared_write_directories()
     {
+        var home = Path.Combine(_directory, "home");
+        var cache = Path.Combine(_directory, "cache");
         var configuration = Load(
             Path.Combine(_directory, "config.yaml"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["HOME"] = Path.Combine(_directory, "home"),
-                ["XDG_CACHE_HOME"] = Path.Combine(_directory, "cache"),
+                ["HOME"] = home,
+                ["XDG_CACHE_HOME"] = cache,
             });
 
-        _ = await Assert.That(configuration.SandboxRules).IsEmpty();
+        var expected = new[]
+        {
+            "/dev/null",
+            "/tmp",
+            cache,
+            Path.Combine(home, ".nuget", "packages"),
+            Path.Combine(home, ".npm"),
+            Path.Combine(home, ".local", "share", "pnpm", "store"),
+        };
+        _ = await Assert.That(configuration.SandboxRules.Select(rule => rule.Path)).IsEquivalentTo(expected);
+        _ = await Assert.That(configuration.SandboxRules.All(rule => rule.Action == SandboxRuleAction.AllowWrite))
+            .IsTrue();
+        _ = await Assert.That(expected.All(Directory.Exists)).IsTrue();
     }
 
     [Test]
-    public async Task Empty_user_sandbox_rules_keep_predefined_rules_empty()
+    public async Task Predefined_configuration_uses_the_home_cache_fallback_when_xdg_cache_is_missing()
+    {
+        var home = Path.Combine(_directory, "home");
+        var configuration = Load(
+            Path.Combine(_directory, "config.yaml"),
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["HOME"] = home });
+
+        _ = await Assert.That(configuration.SandboxRules.Select(rule => rule.Path))
+            .Contains(Path.Combine(home, ".cache"));
+        _ = await Assert.That(Directory.Exists(Path.Combine(home, ".cache"))).IsTrue();
+    }
+
+    [Test]
+    public async Task Empty_user_sandbox_rules_replace_predefined_rules()
     {
         var configuration = Load(
             Write("sandbox_rules: []\n"),
             new Dictionary<string, string>(StringComparer.Ordinal));
 
         _ = await Assert.That(configuration.SandboxRules).IsEmpty();
+    }
+
+    [Test]
+    public async Task Missing_allow_write_rules_are_omitted_unless_creation_is_requested()
+    {
+        var missing = Path.Combine(_directory, "missing", "target");
+        var configuration = Load(Write($"""
+            sandbox_rules:
+              - path: {missing}
+                rule: allow_write
+            """));
+
+        _ = await Assert.That(configuration.SandboxRules).IsEmpty();
+        _ = await Assert.That(Directory.Exists(missing)).IsFalse();
+    }
+
+    [Test]
+    public async Task Requested_allow_write_rule_creates_missing_directories_recursively()
+    {
+        var missing = Path.Combine(_directory, "missing", "target");
+        var configuration = Load(Write($"""
+            sandbox_rules:
+              - path: {missing}
+                rule: allow_write
+                create_if_not_exist: true
+            """));
+
+        _ = await Assert.That(configuration.SandboxRules).Contains(
+            new SandboxRule(missing, SandboxRuleAction.AllowWrite));
+        _ = await Assert.That(Directory.Exists(missing)).IsTrue();
+    }
+
+    [Test]
+    public async Task Missing_non_write_rules_are_retained()
+    {
+        var missing = Path.Combine(_directory, "missing", "target");
+        var configuration = Load(Write($"""
+            sandbox_rules:
+              - path: {missing}
+                rule: deny_read
+            """));
+
+        _ = await Assert.That(configuration.SandboxRules).Contains(
+            new SandboxRule(missing, SandboxRuleAction.DenyRead));
+    }
+
+    [Test]
+    [Arguments("allow_read")]
+    [Arguments("deny_read")]
+    [Arguments("deny_write")]
+    public async Task Sandbox_rule_creation_is_allowed_only_for_allow_write(string action)
+    {
+        var path = Path.Combine(_directory, "missing");
+
+        _ = await Assert.That(() => Load(Write($"""
+            sandbox_rules:
+              - path: {path}
+                rule: {action}
+                create_if_not_exist: true
+            """))).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    [Arguments("yes")]
+    [Arguments("null")]
+    [Arguments("[]")]
+    public async Task Sandbox_rule_creation_requires_a_boolean(string value)
+    {
+        _ = await Assert.That(() => Load(Write($"""
+            sandbox_rules:
+              - path: /tmp
+                rule: allow_write
+                create_if_not_exist: {value}
+            """))).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task Sandbox_rule_creation_rejects_a_path_that_is_an_existing_file()
+    {
+        _ = Directory.CreateDirectory(_directory);
+        var file = Path.Combine(_directory, "file");
+        File.WriteAllText(file, string.Empty);
+        var impossibleDirectory = Path.Combine(file, "child");
+
+        _ = await Assert.That(() => Load(Write($"""
+            sandbox_rules:
+              - path: {impossibleDirectory}
+                rule: allow_write
+                create_if_not_exist: true
+            """))).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task Rejected_configuration_does_not_create_requested_sandbox_directories()
+    {
+        var directory = Path.Combine(_directory, "missing", "target");
+
+        _ = await Assert.That(() => Load(Write($"""
+            sandbox_rules:
+              - path: {directory}
+                rule: allow_write
+                create_if_not_exist: true
+            profiles:
+              query:
+                read_only: invalid
+            """))).Throws<InvalidDataException>();
+        _ = await Assert.That(Directory.Exists(directory)).IsFalse();
+    }
+
+    [Test]
+    public async Task Invalid_created_directory_path_is_reported_as_invalid_configuration()
+    {
+        var invalid = string.Concat(Path.DirectorySeparatorChar, new string('x', 5000));
+        var path = Write($"""
+            sandbox_rules:
+              - path: '{invalid}'
+                rule: allow_write
+                create_if_not_exist: true
+            """);
+
+        _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
     }
 
     [Test]
@@ -542,7 +695,7 @@ internal sealed class ConfigurationTests : IDisposable
     {
         var root = Path.Combine(_directory, "${OTHER}");
         var configuration = Load(
-            Write("sandbox_rules:\n  - path: '${ROOT}'\n    rule: allow_write\n"),
+            Write("sandbox_rules:\n  - path: '${ROOT}'\n    rule: allow_write\n    create_if_not_exist: true\n"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["ROOT"] = root,
@@ -955,15 +1108,17 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     public async Task User_configuration_recursively_overrides_predefined_mappings(CancellationToken cancellationToken)
     {
-        var path = Write("""
+        var workspace = Path.Combine(_directory, "workspace");
+        var path = Write($"""
             model_aliases:
               low_llm:
                 model_string: openai/gpt-5
             profiles:
               build:
                 sandbox_rules:
-                  - path: /workspace
+                  - path: {workspace}
                     rule: allow_write
+                    create_if_not_exist: true
             """);
         var configuration = Load(path);
 
@@ -975,7 +1130,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules.Count).IsEqualTo(1);
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules[0])
-            .IsEqualTo(new SandboxRule("/workspace", SandboxRuleAction.AllowWrite));
+            .IsEqualTo(new SandboxRule(workspace, SandboxRuleAction.AllowWrite));
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("model_string: openai/gpt-5");
     }
 

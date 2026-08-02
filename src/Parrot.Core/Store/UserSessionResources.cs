@@ -1,12 +1,9 @@
-using System.Collections.ObjectModel;
 using Parrot.State;
 
 namespace Parrot.Store;
 
 internal sealed class UserSessionResources
 {
-    private readonly ReadOnlyCollection<string> _protectedRoots;
-
     public UserSessionResources(StatePaths paths, UserSessionId id, ProjectWorkspace workspace)
     {
         ArgumentNullException.ThrowIfNull(paths);
@@ -23,16 +20,6 @@ internal sealed class UserSessionResources
         QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
         AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
         ScratchRootDirectory = RequireContained(Root, Path.Combine(Root, "scratch"));
-        _protectedRoots = Array.AsReadOnly(
-        [
-            Path.GetFullPath(paths.State),
-            SessionsDirectory,
-            Path.GetFullPath(Path.Combine(paths.State, "owners")),
-            Path.GetFullPath(paths.Control),
-            Path.GetFullPath(paths.Config),
-            Path.GetFullPath(paths.Data),
-            Root,
-        ]);
     }
 
     public UserSessionId Id { get; }
@@ -54,8 +41,6 @@ internal sealed class UserSessionResources
     public string AgentQueueRootDirectory { get; }
 
     public string ScratchRootDirectory { get; }
-
-    public IReadOnlyList<string> ProtectedRoots => _protectedRoots;
 
     public bool Owns(string path) => Contains(Root, Path.GetFullPath(path));
 
