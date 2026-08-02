@@ -13,7 +13,6 @@ internal sealed class ToolPresenterBatchCTests
     {
         yield return [new GlobToolPresenter(), "{\"pattern\":\"**/*.cs\",\"path\":\"src\"}", "main: glob \"**/*.cs\" in src"];
         yield return [new GrepToolPresenter(), "{\"pattern\":\"TODO\",\"path\":\"src\",\"include\":\"**/*.cs\"}", "main: grep \"TODO\" in src matching \"**/*.cs\""];
-        yield return [new ReadToolPresenter(), "{\"path\":\"README.md\"}", "main: read README.md"];
         yield return [new WebFetchToolPresenter(), "{\"url\":\"https://example.com/path\"}", "main: web fetch GET https://example.com/path"];
     }
 
@@ -62,22 +61,69 @@ internal sealed class ToolPresenterBatchCTests
     }
 
     [Test]
-    public async Task Successful_read_hides_result_lines()
+    [Arguments(ToolTerminalStatus.Succeeded, true, "error: no such file or directory", "")]
+    [Arguments(ToolTerminalStatus.Errored, false, "", "unexpected failure")]
+    public async Task Failed_read_shows_the_full_request_as_yaml(
+        ToolTerminalStatus status,
+        bool resultPresent,
+        string result,
+        string error)
     {
         var presenter = new ReadToolPresenter();
-        var call = new ToolCallPresentation("main", "read", "{\"path\":\"README.md\"}");
-        var terminal = new ToolTerminalPresentation(
-            ToolTerminalStatus.Succeeded,
-            true,
-            "1: heading\n2: body",
-            string.Empty);
+        const string arguments = "{\"path\":\"src/App.cs\",\"offset\":12,\"limit\":3}";
+        var call = new ToolCallPresentation("main", "read", arguments);
+        var terminal = new ToolTerminalPresentation(status, resultPresent, result, error);
+
+        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines[0].Text;
+        var item = presenter.PresentTerminal(call, terminal);
+        var report = ((IToolPresentationValue)item).Report;
+        var rendered = string.Join('\n', item.Render(ScrollbackContext));
+        var expectedError = resultPresent ? result : error;
+        var expectedStatus = resultPresent ? ToolTerminalStatus.ReportedFailure : ToolTerminalStatus.Errored;
+        var expectedBlock = $"path: \"src/App.cs\"\noffset: 12\nlimit: 3\n---\n{expectedError}";
+
+        _ = await Assert.That(live).IsEqualTo("⠋ main: read src/App.cs");
+        _ = await Assert.That(report.Label).IsEqualTo("main: read src/App.cs");
+        _ = await Assert.That(report.Status).IsEqualTo(expectedStatus);
+        _ = await Assert.That(report.Block.Kind).IsEqualTo(ToolBlockKind.Error);
+        _ = await Assert.That(report.Block.Text).IsEqualTo(expectedBlock);
+        _ = await Assert.That(rendered).Contains("✗ main: read src/App.cs");
+        _ = await Assert.That(rendered).Contains("  path: \"src/App.cs\"");
+        _ = await Assert.That(rendered).Contains("  offset: 12");
+        _ = await Assert.That(rendered).Contains("  limit: 3");
+        _ = await Assert.That(rendered).Contains("  ---");
+        _ = await Assert.That(rendered).Contains($"  {expectedError}");
+        _ = await Assert.That(rendered).DoesNotContain(arguments);
+    }
+
+    [Test]
+    [Arguments(ToolTerminalStatus.Succeeded, true, "1: heading\n2: body", "", "✓")]
+    [Arguments(ToolTerminalStatus.Cancelled, false, "", "", "■")]
+    public async Task Non_failed_read_stays_compact(
+        ToolTerminalStatus status,
+        bool resultPresent,
+        string result,
+        string error,
+        string expectedMarker)
+    {
+        var presenter = new ReadToolPresenter();
+        var call = new ToolCallPresentation(
+            "main",
+            "read",
+            "{\"path\":\"README.md\",\"offset\":2,\"limit\":4}");
+        var terminal = new ToolTerminalPresentation(status, resultPresent, result, error);
 
         var item = presenter.PresentTerminal(call, terminal);
-        var lines = item.Render(ScrollbackContext);
+        var report = ((IToolPresentationValue)item).Report;
+        var rendered = string.Join('\n', item.Render(ScrollbackContext));
 
-        _ = await Assert.That(string.Join('\n', lines)).IsEqualTo("✓ main: read README.md");
-        _ = await Assert.That(string.Join('\n', lines)).DoesNotContain("1: heading");
-        _ = await Assert.That(string.Join('\n', lines)).DoesNotContain("2: body");
+        _ = await Assert.That(rendered).IsEqualTo($"{expectedMarker} main: read README.md");
+        _ = await Assert.That(report.Block.Kind).IsEqualTo(ToolBlockKind.None);
+        _ = await Assert.That(rendered).DoesNotContain("path:");
+        _ = await Assert.That(rendered).DoesNotContain("offset:");
+        _ = await Assert.That(rendered).DoesNotContain("limit:");
+        _ = await Assert.That(rendered).DoesNotContain("---");
+        _ = await Assert.That(rendered).DoesNotContain("1: heading");
     }
 
     [Test]
