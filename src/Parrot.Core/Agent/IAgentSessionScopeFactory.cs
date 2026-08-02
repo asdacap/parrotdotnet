@@ -21,7 +21,7 @@ internal interface IAgentSessionScopeFactory
         IReadOnlyList<IToolFactory> toolFactories,
         ShellProcessOwners shellProcesses,
         ISystemPromptProvider systemPromptProvider,
-        string blobDirectory,
+        AgentScratchDirectory scratch,
         Compactor compactor,
         IAgentProfile profile,
         SecurityProfile securityProfile,

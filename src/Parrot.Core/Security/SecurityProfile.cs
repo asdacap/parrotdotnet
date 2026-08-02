@@ -3,100 +3,51 @@ namespace Parrot.Security;
 internal sealed class SecurityProfile
 {
     private readonly SandboxRule[] _rules;
-    private readonly SandboxRule[] _rulesWithoutRuntimeCapabilities;
-    private readonly SandboxRule[] _runtimeCapabilities;
 
-    private SecurityProfile(
-        bool readOnly,
-        IEnumerable<SandboxRule> rules,
-        IEnumerable<SandboxRule> rulesWithoutRuntimeCapabilities,
-        IEnumerable<SandboxRule> runtimeCapabilities)
+    private SecurityProfile(bool readOnly, IEnumerable<SandboxRule> rules)
     {
         ReadOnly = readOnly;
         _rules = [.. rules];
-        _rulesWithoutRuntimeCapabilities = [.. rulesWithoutRuntimeCapabilities];
-        _runtimeCapabilities = [.. runtimeCapabilities];
     }
 
     public bool ReadOnly { get; }
 
     public IReadOnlyList<SandboxRule> Rules => _rules;
 
-    public IReadOnlyList<SandboxRule> RuntimeCapabilities => _runtimeCapabilities;
-
     public static SecurityProfile Compose(
         bool readOnly,
         IEnumerable<SandboxRule> modeRules,
         IEnumerable<SandboxRule> globalRules,
-        IEnumerable<SandboxRule> runtimeCapabilities) =>
-        Compose(readOnly, modeRules, globalRules, [], runtimeCapabilities);
-
-    public static SecurityProfile Compose(
-        bool readOnly,
-        IEnumerable<SandboxRule> modeRules,
-        IEnumerable<SandboxRule> globalRules,
-        IEnumerable<SandboxRule> mandatoryRules,
-        IEnumerable<SandboxRule> runtimeCapabilities)
+        IEnumerable<SandboxRule> mandatoryRules)
     {
         var overrides = modeRules.Select(Normalize).ToArray();
         var mandatory = mandatoryRules.Select(Normalize).ToArray();
-        var capabilities = runtimeCapabilities.Select(Normalize).ToArray();
         var configured = globalRules.Select(Normalize)
-            .Where(rule => !readOnly || rule.Action != SandboxRuleAction.AllowWrite)
-            .Where(rule => !capabilities.Any(capability => Overlaps(rule.Path, capability.Path)));
-        var policyRules = configured.Concat(overrides)
+            .Where(rule => !readOnly || rule.Action != SandboxRuleAction.AllowWrite);
+        var rules = configured.Concat(overrides)
             .OrderBy(rule => rule.Path.Length)
             .Concat(mandatory)
             .ToArray();
 
-        return new(readOnly, policyRules.Concat(capabilities), policyRules, capabilities);
+        return new(readOnly, rules);
     }
 
     public bool AllowsRead(string path) => Evaluate(path).Read;
 
     public bool AllowsWrite(string path) => Evaluate(path).Write;
 
-    public SecurityProfile Add(SandboxRule runtimeCapability)
-    {
-        var capability = Normalize(runtimeCapability);
-        return new(
-            ReadOnly,
-            _rules.Append(capability),
-            _rulesWithoutRuntimeCapabilities,
-            _runtimeCapabilities.Append(capability));
-    }
-
-    public SecurityProfile WithRuntimeCapability(string path) =>
-        Add(new(path, SandboxRuleAction.AllowWrite));
-
-    public SecurityProfile WithoutRuntimeCapabilities() =>
-        new(ReadOnly, _rulesWithoutRuntimeCapabilities, _rulesWithoutRuntimeCapabilities, []);
-
     public SecurityProfile RestrictWith(SecurityProfile child)
     {
         ArgumentNullException.ThrowIfNull(child);
 
-        var childPolicy = child.WithoutRuntimeCapabilities();
-        var readOnly = ReadOnly || childPolicy.ReadOnly;
-        var policyPaths = _rulesWithoutRuntimeCapabilities
-            .Concat(childPolicy._rules)
-            .Select(rule => rule.Path);
-        var effectivePaths = _rules
-            .Concat(childPolicy._rules)
-            .Select(rule => rule.Path);
-        var rulesWithoutRuntimeCapabilities = CompileRules(
-            readOnly,
-            policyPaths,
-            path => Intersect(
-                Evaluate(path, ReadOnly, _rulesWithoutRuntimeCapabilities),
-                childPolicy.Evaluate(path)));
+        var readOnly = ReadOnly || child.ReadOnly;
+        var paths = _rules.Concat(child._rules).Select(rule => rule.Path);
         var rules = CompileRules(
             readOnly,
-            effectivePaths,
-            path => Intersect(Evaluate(path), childPolicy.Evaluate(path)));
-        var runtimeCapabilities = CompileRuntimeCapabilities(childPolicy);
+            paths,
+            path => Intersect(Evaluate(path), child.Evaluate(path)));
 
-        return new(readOnly, rules, rulesWithoutRuntimeCapabilities, runtimeCapabilities);
+        return new(readOnly, rules);
     }
 
     public bool AllowsDelegationTo(SecurityProfile target)
@@ -156,9 +107,6 @@ internal sealed class SecurityProfile
         (bool Read, bool Write) parent,
         (bool Read, bool Write) child) =>
         (parent.Read && child.Read, parent.Write && child.Write);
-
-    private static bool Overlaps(string first, string second) =>
-        Contains(first, second) || Contains(second, first);
 
     private static SandboxRule Normalize(SandboxRule rule)
     {
@@ -226,43 +174,4 @@ internal sealed class SecurityProfile
     }
 
     private (bool Read, bool Write) Evaluate(string path) => Evaluate(path, ReadOnly, _rules);
-
-    private SandboxRule[] CompileRuntimeCapabilities(SecurityProfile childPolicy)
-    {
-        var positiveCapabilities = _runtimeCapabilities
-            .Where(rule => rule.Action is SandboxRuleAction.AllowRead or SandboxRuleAction.AllowWrite)
-            .ToArray();
-        var paths = positiveCapabilities.Select(rule => rule.Path)
-            .Concat(_rules.Select(rule => rule.Path))
-            .Concat(childPolicy._rules.Select(rule => rule.Path))
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(path => path.Length);
-        var compiled = new List<SandboxRule>();
-
-        foreach (var path in paths)
-        {
-            if (!positiveCapabilities.Any(capability => Contains(capability.Path, path)))
-            {
-                continue;
-            }
-
-            var (read, write) = Intersect(Evaluate(path), childPolicy.Evaluate(path));
-            if (!read)
-            {
-                continue;
-            }
-
-            var covering = compiled.LastOrDefault(capability => Contains(capability.Path, path));
-            if (covering is not null && (covering.Action == SandboxRuleAction.AllowWrite || !write))
-            {
-                continue;
-            }
-
-            compiled.Add(new(
-                path,
-                write ? SandboxRuleAction.AllowWrite : SandboxRuleAction.AllowRead));
-        }
-
-        return [.. compiled];
-    }
 }

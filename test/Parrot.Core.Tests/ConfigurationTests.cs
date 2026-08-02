@@ -486,39 +486,21 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task Predefined_cache_rule_uses_home_fallback_when_xdg_cache_is_missing_or_empty(bool empty)
+    public async Task Predefined_configuration_has_no_host_cache_write_rule()
     {
-        var home = Path.Combine(_directory, "home");
-        var environment = new Dictionary<string, string>(StringComparer.Ordinal) { ["HOME"] = home };
-        if (empty)
-        {
-            environment["XDG_CACHE_HOME"] = string.Empty;
-        }
-
-        var configuration = Load(Path.Combine(_directory, "config.yaml"), environment);
-
-        _ = await Assert.That(configuration.SandboxRules).HasSingleItem();
-        _ = await Assert.That(configuration.SandboxRules[0]).IsEqualTo(
-            new SandboxRule(Path.Combine(home, ".cache"), SandboxRuleAction.AllowWrite));
-    }
-
-    [Test]
-    public async Task Predefined_cache_rule_prefers_nonempty_xdg_cache_without_evaluating_fallback()
-    {
-        var cache = Path.Combine(_directory, "cache");
         var configuration = Load(
             Path.Combine(_directory, "config.yaml"),
-            new Dictionary<string, string>(StringComparer.Ordinal) { ["XDG_CACHE_HOME"] = cache });
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["HOME"] = Path.Combine(_directory, "home"),
+                ["XDG_CACHE_HOME"] = Path.Combine(_directory, "cache"),
+            });
 
-        _ = await Assert.That(configuration.SandboxRules).HasSingleItem();
-        _ = await Assert.That(configuration.SandboxRules[0])
-            .IsEqualTo(new SandboxRule(cache, SandboxRuleAction.AllowWrite));
+        _ = await Assert.That(configuration.SandboxRules).IsEmpty();
     }
 
     [Test]
-    public async Task Empty_user_sandbox_rules_remove_the_predefined_cache_rule()
+    public async Task Empty_user_sandbox_rules_keep_predefined_rules_empty()
     {
         var configuration = Load(
             Write("sandbox_rules: []\n"),

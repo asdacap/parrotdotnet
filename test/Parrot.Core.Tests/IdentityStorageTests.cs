@@ -62,13 +62,17 @@ internal sealed class IdentityStorageTests : IDisposable
             paths, UserSessionId.Parse("session-two"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
 
         _ = await Assert.That(first.Owns(first.MetadataPath)).IsTrue();
-        _ = await Assert.That(first.Owns(first.RuntimeHomeDirectory)).IsTrue();
-        _ = await Assert.That(first.Owns(first.CacheDirectory)).IsTrue();
-        _ = await Assert.That(first.Owns(first.TemporaryDirectory)).IsTrue();
+        var firstScratch = first.AgentScratch("agent-one");
+        var secondScratch = second.AgentScratch("agent-two");
+        _ = await Assert.That(first.Owns(firstScratch.Root)).IsTrue();
+        _ = await Assert.That(firstScratch.Contains(firstScratch.HomeDirectory)).IsTrue();
+        _ = await Assert.That(firstScratch.Contains(firstScratch.CacheDirectory)).IsTrue();
+        _ = await Assert.That(firstScratch.Contains(firstScratch.PlanDirectory)).IsTrue();
+        _ = await Assert.That(firstScratch.Contains(secondScratch.Root)).IsFalse();
         _ = await Assert.That(first.Owns(second.Root)).IsFalse();
         _ = await Assert.That(second.Owns(first.Root)).IsFalse();
-        _ = await Assert.That(Path.GetDirectoryName(first.CacheDirectory)).IsEqualTo(first.RuntimeDirectory);
-        _ = await Assert.That(Path.GetDirectoryName(first.TemporaryDirectory)).IsEqualTo(first.RuntimeDirectory);
+        _ = await Assert.That(Path.GetDirectoryName(firstScratch.Root)).IsEqualTo(first.ScratchRootDirectory);
+        _ = await Assert.That(Path.GetDirectoryName(secondScratch.Root)).IsEqualTo(second.ScratchRootDirectory);
     }
 
     [Test]
@@ -121,10 +125,10 @@ internal sealed class IdentityStorageTests : IDisposable
         var history = files.PathFor("agent-session-child");
 
         _ = await Assert.That(history.Path)
-            .IsEqualTo(Path.Combine(resources.Root, "agents", "agent-session-child", "history.jsonl"));
+            .IsEqualTo(Path.Combine(resources.ScratchRootDirectory, "agent-session-child", "history.jsonl"));
         _ = await Assert.That(resources.Owns(history.Path)).IsTrue();
         _ = await Assert.That(Path.GetRelativePath(resources.Root, history.Path))
-            .IsEqualTo(Path.Combine("agents", "agent-session-child", "history.jsonl"));
+            .IsEqualTo(Path.Combine("scratch", "agent-session-child", "history.jsonl"));
     }
 
     [Test]

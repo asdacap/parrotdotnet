@@ -19,7 +19,7 @@ internal sealed record AgentSessionScopeArguments(
     IReadOnlyList<IToolFactory> ToolFactories,
     ShellProcessOwners ShellProcesses,
     ISystemPromptProvider SystemPromptProvider,
-    string BlobDirectory,
+    AgentScratchDirectory Scratch,
     Compactor Compactor,
     IAgentProfile Profile,
     SecurityProfile SecurityProfile,

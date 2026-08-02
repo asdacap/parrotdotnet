@@ -45,7 +45,7 @@ internal sealed partial class ReadImageTool(ToolWorkspace workspace, ImageArtifa
             return $"error: {failure.Message}";
         }
 
-        if (!selection.SecurityProfile.AllowsRead(resolved.Lexical) || !selection.SecurityProfile.AllowsRead(resolved.Physical))
+        if (!workspace.AllowsRead(resolved, selection.SecurityProfile))
         {
             return "error: access denied";
         }

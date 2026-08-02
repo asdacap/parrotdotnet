@@ -18,6 +18,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
+        AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode,
@@ -35,6 +36,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                 command,
                 environment,
                 resources,
+                scratch,
                 securityProfile,
                 writeGrants,
                 cancellationToken),
@@ -42,6 +44,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                 command,
                 environment,
                 resources,
+                scratch,
                 securityProfile,
                 writeGrants,
                 cancellationToken),
@@ -53,6 +56,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
+        AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants,
         CancellationToken cancellationToken)
@@ -61,6 +65,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             command,
             environment,
             resources,
+            scratch,
             securityProfile,
             writeGrants,
             ShellProcessTerminalMode.Pipe,
@@ -75,11 +80,12 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
+        AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants,
         string pseudoTerminalHelperPath)
     {
-        PreparePrivateRuntime(resources);
+        scratch.Provision();
         var arguments = new List<string>
         {
             "--die-with-parent",
@@ -94,12 +100,13 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             "--proc", "/proc",
         };
 
+        arguments.AddRange(["--setenv", "HOME", scratch.HomeDirectory]);
+        arguments.AddRange(["--setenv", "XDG_CACHE_HOME", scratch.CacheDirectory]);
+
         foreach (var entry in environment.Entries)
         {
             arguments.AddRange(["--setenv", entry.Key, entry.Value]);
         }
-
-        arguments.AddRange(["--bind", resources.TemporaryDirectory, "/tmp"]);
 
         if (!securityProfile.ReadOnly)
         {
@@ -109,9 +116,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
 
         AddSecurityRules(arguments, securityProfile);
         AddProtectedRoots(arguments, resources);
-        AddPrivateRuntime(arguments, resources);
-        AddRuntimeCapabilities(arguments, securityProfile, resources);
-        AddRuntimeRestrictions(arguments, securityProfile, resources);
+        AddScratch(arguments, resources, scratch);
 
         if (pseudoTerminalHelperPath.Length > 0)
         {
@@ -141,68 +146,11 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         }
     }
 
-    private static void AddPrivateRuntime(List<string> arguments, UserSessionResources resources)
-    {
-        arguments.AddRange(
-        [
-            "--bind", resources.RuntimeHomeDirectory, resources.RuntimeHomeDirectory,
-            "--bind", resources.CacheDirectory, resources.CacheDirectory,
-            "--bind", resources.TemporaryDirectory, resources.TemporaryDirectory,
-        ]);
-    }
-
-    private static void AddRuntimeCapabilities(
+    private static void AddScratch(
         List<string> arguments,
-        SecurityProfile securityProfile,
-        UserSessionResources resources)
-    {
-        AddSyntheticMount(arguments, resources, resources.BlobDirectory, write: false);
-
-        foreach (var rule in securityProfile.RuntimeCapabilities)
-        {
-            var path = Path.GetFullPath(rule.Path);
-            if (resources.Owns(path) && Path.Exists(path))
-            {
-                AddSyntheticMount(arguments, resources, path, rule.Action == SandboxRuleAction.AllowWrite);
-            }
-        }
-    }
-
-    private static void AddRuntimeRestrictions(
-        List<string> arguments,
-        SecurityProfile securityProfile,
-        UserSessionResources resources)
-    {
-        var mountRoots = securityProfile.RuntimeCapabilities
-            .Select(rule => rule.Path)
-            .Append(resources.RuntimeHomeDirectory)
-            .Append(resources.CacheDirectory)
-            .Append(resources.TemporaryDirectory)
-            .ToArray();
-        var applied = new List<SandboxRule>();
-
-        foreach (var rule in securityProfile.Rules)
-        {
-            applied.Add(rule);
-            var paths = mountRoots
-                .Where(root => Contains(root, rule.Path) || Contains(rule.Path, root))
-                .Select(root => Contains(rule.Path, root) ? root : rule.Path)
-                .Distinct(StringComparer.Ordinal);
-
-            foreach (var path in paths)
-            {
-                var (read, write) = EvaluateAccess(path, securityProfile.ReadOnly, applied);
-                if (!read)
-                {
-                    AddReadMask(arguments, path);
-                }
-                else
-                {
-                    arguments.AddRange([write ? "--bind" : "--ro-bind", path, path]);
-                }
-            }
-        }
-    }
+        UserSessionResources resources,
+        AgentScratchDirectory scratch)
+        => AddSyntheticMount(arguments, resources, scratch.Root, write: true);
 
     private static void AddSyntheticMount(
         List<string> arguments,
@@ -309,14 +257,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         {
             arguments.AddRange(["--ro-bind", "/dev/null", path]);
         }
-    }
-
-    private static void PreparePrivateRuntime(UserSessionResources resources)
-    {
-        EnsurePrivateDirectory(resources.RuntimeHomeDirectory);
-        EnsurePrivateDirectory(resources.CacheDirectory);
-        EnsurePrivateDirectory(resources.TemporaryDirectory);
-        EnsurePrivateDirectory(resources.BlobDirectory);
     }
 
     private static void EnsurePrivateDirectory(string directory)
@@ -469,6 +409,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
+        AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants,
         CancellationToken cancellationToken)
@@ -485,6 +426,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                      command,
                      environment,
                      resources,
+                     scratch,
                      securityProfile,
                      writeGrants,
                      string.Empty))
@@ -500,7 +442,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         {
             started = process.Start();
             signalTarget = OpenSignalTarget(process);
-            return new ShellProcessExecution(process, signalTarget, resources.BlobDirectory, cancellationToken);
+            return new ShellProcessExecution(process, signalTarget, scratch.BlobDirectory, cancellationToken);
         }
         catch
         {
@@ -521,6 +463,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
+        AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants,
         CancellationToken cancellationToken)
@@ -560,6 +503,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                          command,
                          environment,
                          resources,
+                         scratch,
                          securityProfile,
                          writeGrants,
                          helperPath))
@@ -575,7 +519,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                 signalTarget,
                 master,
                 slave,
-                resources.BlobDirectory,
+                scratch.BlobDirectory,
                 cancellationToken);
         }
         catch

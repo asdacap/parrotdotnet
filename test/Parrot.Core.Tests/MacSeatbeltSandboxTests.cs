@@ -28,7 +28,6 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
         var environment = new ProcessEnvironmentOverrides(
         [
             new KeyValuePair<string, string>("COMMAND_VALUE", "present"),
-            new KeyValuePair<string, string>("TMPDIR", "/command-temp"),
         ]);
 
         var startInfo = MacSeatbeltSandbox.CreateStartInfo(
@@ -36,7 +35,8 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
             "/private/profile.sb",
             "printf test",
             environment,
-            resources);
+            resources,
+            Scratch(resources));
 
         _ = await Assert.That(startInfo.FileName).IsEqualTo("/usr/bin/sandbox-exec");
         _ = await Assert.That(startInfo.WorkingDirectory).IsEqualTo(_workspace);
@@ -44,10 +44,10 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
         _ = await Assert.That(startInfo.RedirectStandardError).IsTrue();
         _ = await Assert.That(string.Join('|', startInfo.ArgumentList.Take(4)))
             .IsEqualTo("-f|/private/profile.sb|/usr/bin/env|-i");
-        _ = await Assert.That(startInfo.ArgumentList).Contains($"HOME={resources.RuntimeHomeDirectory}");
-        _ = await Assert.That(startInfo.ArgumentList).Contains($"XDG_CACHE_HOME={resources.CacheDirectory}");
-        _ = await Assert.That(startInfo.ArgumentList).Contains("TMPDIR=/command-temp");
+        _ = await Assert.That(startInfo.ArgumentList).Contains($"HOME={Scratch(resources).HomeDirectory}");
+        _ = await Assert.That(startInfo.ArgumentList).Contains($"XDG_CACHE_HOME={Scratch(resources).CacheDirectory}");
         _ = await Assert.That(startInfo.ArgumentList).Contains("COMMAND_VALUE=present");
+        _ = await Assert.That(startInfo.ArgumentList).DoesNotContain("TMPDIR=/command-temp");
         _ = await Assert.That(string.Join('|', startInfo.ArgumentList.TakeLast(3)))
             .IsEqualTo("/bin/sh|-c|printf test");
         _ = await Assert.That(startInfo.Environment.Count).IsEqualTo(1);
@@ -72,15 +72,14 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
                 [],
                 []);
 
-            var policy = MacSeatbeltSandbox.CompilePolicy(resources, profile, grants.Capture()).Text;
+            var policy = MacSeatbeltSandbox.CompilePolicy(resources, Scratch(resources), profile, grants.Capture()).Text;
 
             _ = await Assert.That(policy).Contains("(allow default)");
             _ = await Assert.That(policy).Contains("(deny file-write*");
             _ = await Assert.That(policy).Contains(Escape(_workspace));
             _ = await Assert.That(policy).Contains(Escape(grant));
             _ = await Assert.That(policy).Contains(Escape(denied));
-            _ = await Assert.That(policy).Contains(Escape(resources.RuntimeHomeDirectory));
-            _ = await Assert.That(policy).Contains(Escape(resources.BlobDirectory));
+            _ = await Assert.That(policy).Contains(Escape(Scratch(resources).Root));
             _ = await Assert.That(policy).DoesNotContain("(allow file-write*");
         }
         finally
@@ -99,11 +98,12 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
 
         var policy = MacSeatbeltSandbox.CompilePolicy(
             resources,
+            Scratch(resources),
             SecurityProfile.Compose(true, [], [], []),
             grants.Capture()).Text;
 
         _ = await Assert.That(policy).Contains("(deny file-write*");
-        _ = await Assert.That(policy).Contains(Escape(resources.RuntimeHomeDirectory));
+        _ = await Assert.That(policy).Contains(Escape(Scratch(resources).Root));
         _ = await Assert.That(policy).DoesNotContain(Escape(granted));
     }
 
@@ -120,6 +120,9 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
 
     private static string Escape(string path) => path.Replace("\\", "\\\\", StringComparison.Ordinal)
         .Replace("\"", "\\\"", StringComparison.Ordinal);
+
+    private static AgentScratchDirectory Scratch(UserSessionResources resources) =>
+        resources.AgentScratch("agent-session-test");
 
     private UserSessionResources Resources() =>
         new(

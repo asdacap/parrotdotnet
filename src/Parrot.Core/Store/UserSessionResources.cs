@@ -19,16 +19,10 @@ internal sealed class UserSessionResources
         Root = RequireContained(SessionsDirectory, Path.Combine(SessionsDirectory, id.Value));
         MetadataPath = RequireContained(Root, Path.Combine(Root, "meta.json"));
         DatabasePath = RequireContained(Root, Path.Combine(Root, "session.db"));
-        BlobDirectory = RequireContained(Root, Path.Combine(Root, "blob"));
         ArtifactDirectory = RequireContained(Root, Path.Combine(Root, "artifacts"));
         QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
         AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
-        AgentRootDirectory = RequireContained(Root, Path.Combine(Root, "agents"));
-        PlanDirectory = RequireContained(Root, Path.Combine(Root, "plan"));
-        RuntimeDirectory = RequireContained(Root, Path.Combine(Root, "runtime"));
-        RuntimeHomeDirectory = RequireContained(RuntimeDirectory, Path.Combine(RuntimeDirectory, "home"));
-        CacheDirectory = RequireContained(RuntimeDirectory, Path.Combine(RuntimeDirectory, "cache"));
-        TemporaryDirectory = RequireContained(RuntimeDirectory, Path.Combine(RuntimeDirectory, "tmp"));
+        ScratchRootDirectory = RequireContained(Root, Path.Combine(Root, "scratch"));
         _protectedRoots = Array.AsReadOnly(
         [
             Path.GetFullPath(paths.State),
@@ -53,25 +47,13 @@ internal sealed class UserSessionResources
 
     public string DatabasePath { get; }
 
-    public string BlobDirectory { get; }
-
     public string ArtifactDirectory { get; }
 
     public string QueueDirectory { get; }
 
     public string AgentQueueRootDirectory { get; }
 
-    public string AgentRootDirectory { get; }
-
-    public string PlanDirectory { get; }
-
-    public string RuntimeDirectory { get; }
-
-    public string RuntimeHomeDirectory { get; }
-
-    public string CacheDirectory { get; }
-
-    public string TemporaryDirectory { get; }
+    public string ScratchRootDirectory { get; }
 
     public IReadOnlyList<string> ProtectedRoots => _protectedRoots;
 
@@ -80,11 +62,10 @@ internal sealed class UserSessionResources
     public string AgentQueueDirectory(string sessionId) =>
         AgentPath(AgentQueueRootDirectory, sessionId);
 
-    public string AgentHistoryFile(string sessionId) =>
-        RequireContained(AgentDirectory(sessionId), Path.Combine(AgentDirectory(sessionId), "history.jsonl"));
+    public AgentScratchDirectory AgentScratch(string sessionId) =>
+        new(AgentPath(ScratchRootDirectory, sessionId));
 
-    public string AgentDirectory(string sessionId) =>
-        AgentPath(AgentRootDirectory, sessionId);
+    public string AgentHistoryFile(string sessionId) => AgentScratch(sessionId).HistoryPath;
 
     private static string AgentPath(string root, string sessionId)
     {

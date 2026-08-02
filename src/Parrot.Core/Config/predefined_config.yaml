@@ -717,17 +717,14 @@ providers:
 #   /dev/null                     allow_write   (writable null)
 #   /dev/zero,random,urandom,...  allow_read    (host devices)
 #   /proc                         sandbox procfs
-#   {session temp dir} -> /tmp    allow_write   (private writable)
+#   {agent scratch directory}     allow_write   (private writable)
 #   {workspace root}              allow_write   (always writable)
 #   {session grants}              allow_write   (from request_write_permission)
 #   {linked git common dir}       allow_write   (worktree support)
 #   {workspace}/.parrot           deny_write    (protected metadata)
 #   {workspace}/parrot.yaml       deny_write    (protected metadata)
 #
-sandbox_rules:
-  # Keep developer-tool caches outside the workspace writable by default.
-  - path: '${XDG_CACHE_HOME:-${HOME}/.cache}'
-    rule: allow_write
+sandbox_rules: []
 # Add broader rules before narrower overrides.
 #   - path: /absolute/path/to/dir
 #     rule: deny_read

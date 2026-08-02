@@ -1,11 +1,28 @@
 using Parrot.Permissions;
 using Parrot.Security;
+using Parrot.Store;
 
 namespace Parrot.Tools;
 
-internal sealed class ToolWorkspace(string workingDirectory)
+internal sealed class ToolWorkspace
 {
-    public string Root { get; } = Canonicalize(workingDirectory);
+    private readonly AgentScratchDirectory? _scratch;
+
+    public ToolWorkspace(string workingDirectory) => Root = Canonicalize(workingDirectory);
+
+    public ToolWorkspace(string workingDirectory, AgentScratchDirectory scratch)
+    {
+        Root = Canonicalize(workingDirectory);
+        _scratch = scratch;
+    }
+
+    public string Root { get; }
+
+    public bool AllowsRead((string Lexical, string Physical) path, SecurityProfile security) =>
+        (IsScratchPath(path.Lexical) && IsScratchPath(path.Physical))
+        || (security.AllowsRead(path.Lexical) && security.AllowsRead(path.Physical));
+
+    public bool IsScratchPath(string path) => _scratch?.Contains(path) is true;
 
     public (string Lexical, string Physical) ResolveRead(string path)
     {
@@ -27,6 +44,7 @@ internal sealed class ToolWorkspace(string workingDirectory)
             ? Path.GetFullPath(path)
             : Path.GetFullPath(Path.Combine(Root, path));
         var inWorkspace = Contained(lexical);
+        var inScratch = IsScratchPath(lexical);
 
         var physical = ResolveMutationPath(lexical, path, create);
         writeGrants.Validate(lexical);
@@ -35,15 +53,15 @@ internal sealed class ToolWorkspace(string workingDirectory)
             writeGrants.Validate(physical);
         }
 
-        if (!AllowsMutation(lexical, security, writeGrants, inWorkspace)
-            || !AllowsMutation(physical, security, writeGrants, inWorkspace))
+        if (!AllowsMutation(lexical, security, writeGrants, inWorkspace, inScratch)
+            || !AllowsMutation(physical, security, writeGrants, inWorkspace, inScratch))
         {
             throw new InvalidOperationException($"Write access denied for '{path}'.");
         }
 
         if (create)
         {
-            RequireWritableMissingParents(physical, path, security, writeGrants, inWorkspace);
+            RequireWritableMissingParents(physical, path, security, writeGrants, inWorkspace, inScratch);
         }
 
         return new ToolMutationPath(physical, DisplayPath(physical));
@@ -89,11 +107,12 @@ internal sealed class ToolWorkspace(string workingDirectory)
         string requested,
         SecurityProfile security,
         SandboxWriteGrantSnapshot writeGrants,
-        bool inWorkspace)
+        bool inWorkspace,
+        bool inScratch)
     {
         for (var parent = Path.GetDirectoryName(path); parent is not null && !Directory.Exists(parent); parent = Path.GetDirectoryName(parent))
         {
-            if (!AllowsMutation(parent, security, writeGrants, inWorkspace))
+            if (!AllowsMutation(parent, security, writeGrants, inWorkspace, inScratch))
             {
                 throw new InvalidOperationException($"Write access denied for '{requested}'.");
             }
@@ -104,12 +123,18 @@ internal sealed class ToolWorkspace(string workingDirectory)
         string path,
         SecurityProfile security,
         SandboxWriteGrantSnapshot writeGrants,
-        bool inWorkspace)
+        bool inWorkspace,
+        bool inScratch)
     {
+        if (inScratch)
+        {
+            return true;
+        }
+
         var staticallyAllowed = security.AllowsWrite(path)
             && (inWorkspace || HasExternalCapability(path, security));
         var granted = !security.ReadOnly
-            && security.WithoutRuntimeCapabilities().AllowsWrite(path)
+            && security.AllowsWrite(path)
             && AllowsGrant(path, writeGrants);
         return staticallyAllowed || granted;
     }

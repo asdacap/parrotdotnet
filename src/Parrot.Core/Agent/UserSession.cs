@@ -64,6 +64,7 @@ internal sealed class UserSession : IAsyncDisposable
         _modes = modes;
         var state = _eventRepository.SessionState(id, modes.Resolve(mode).Id);
         _mainSessionId = state.AgentSessionId;
+        _modes.Attach(resources.Resources.AgentScratch(_mainSessionId));
         Mode = modes.Resolve(state.Mode);
         Questions = new QuestionBroker(userInputTimeout, timeProvider);
         Permissions = new PermissionBroker(_eventBroker, _eventRepository, interactivePermissions, userInputTimeout, timeProvider);

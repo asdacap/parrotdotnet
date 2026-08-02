@@ -166,26 +166,26 @@ may use `${NAME}` to require a nonempty environment variable or
 fallbacks may themselves use expansions. Expansion happens when configuration
 is loaded, without shell evaluation, and the result must be a fully qualified
 path. An unavailable required variable or invalid result rejects the
-configuration. The default top-level rule makes
-`${XDG_CACHE_HOME:-${HOME}/.cache}` writable for writable profiles so sandboxed
-developer tools can persist caches outside the workspace; read-only profiles do
-not receive global `allow_write` rules.
+configuration. Global `allow_write` rules are ignored by read-only profiles.
 
 Sandbox configuration is not the complete filesystem boundary. Every effective
 security profile includes mandatory protection for Parrot's state,
 configuration, and data roots. Configured profile rules, workspace nesting,
-symlinks, and user-approved write grants cannot bypass that protection. Parrot
-may add a trusted, session-scoped runtime capability for a narrow private
-artifact subtree, such as the plan directory, without exposing the containing
-private root. Filesystem access does not grant network access.
+symlinks, and user-approved write grants cannot bypass that protection.
+Filesystem access does not grant network access.
 
-The plan foreground profile receives its private plan-artifact location and
-runtime-only write permission from Parrot. Trusted runtime capabilities are
-part of the effective profile inherited by descendants, but each child profile
-may narrow them: a read-only child or an explicit child denial cannot use an
-inherited write capability. Legacy `profiles.<id>.status` input is accepted and
-ignored for compatibility. It is not profile guidance and is never injected
-into a prompt.
+Each agent receives a private scratch directory beneath its user session. Shell
+processes can write only their owning agent's scratch directory in addition to
+locations allowed by the security profile and runtime grants. This exception is
+available even to a read-only profile, but only when that profile exposes a shell
+tool. Scratch contains that agent's history projection, process and tool output
+blobs, private plan artifacts, and isolated home and cache directories. Shells
+default `HOME` and `XDG_CACHE_HOME` to the scratch home and cache respectively;
+explicit command environment overrides win, and Parrot does not set `TMPDIR`.
+An agent cannot access a parent, child, or sibling's scratch directory.
+
+Legacy `profiles.<id>.status` input is accepted and ignored for compatibility.
+It is not profile guidance and is never injected into a prompt.
 
 ## Image attachments
 

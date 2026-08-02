@@ -36,8 +36,7 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             readOnly: false,
             [],
             [],
-            _mandatoryRules,
-            []);
+            _mandatoryRules);
     }
 
     public void Dispose()
@@ -136,8 +135,7 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             readOnly: false,
             [],
             [],
-            new ApplicationDataSecurityRules(paths).Rules,
-            []);
+            new ApplicationDataSecurityRules(paths).Rules);
 
         var configured = (await new ReadTool(_toolWorkspace).Execute(
             new ToolInvocation("test-call", FormatPathArguments(Path.Combine(stateAlias, "secret.txt"))),
@@ -188,8 +186,7 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             readOnly: true,
             [new SandboxRule(root, SandboxRuleAction.AllowWrite)],
             [],
-            _mandatoryRules,
-            []);
+            _mandatoryRules);
         var tool = MutationTool(toolName, new SandboxWriteGrants());
 
         var result = (await tool.Execute(
@@ -281,8 +278,7 @@ internal sealed class ProtectedFilesystemToolTests : IDisposable
             readOnly: false,
             [new SandboxRule(root, SandboxRuleAction.AllowRead)],
             [],
-            _mandatoryRules,
-            []);
+            _mandatoryRules);
         ITool tool = toolName switch
         {
             "read" => new ReadTool(_toolWorkspace),

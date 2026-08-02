@@ -54,7 +54,7 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ToolOutputBlobStore(arguments.BlobDirectory);
+                return new ToolOutputBlobStore(arguments.Scratch.BlobDirectory);
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {

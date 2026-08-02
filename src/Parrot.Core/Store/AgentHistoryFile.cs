@@ -69,14 +69,15 @@ internal sealed class AgentHistoryFile(string path, Lock gate)
             return;
         }
 
-        if (!File.Exists(path))
+        if (Directory.Exists(path))
         {
-            throw new InvalidOperationException("An agent history target is not a regular file.");
+            Directory.Delete(path, recursive: true);
+            return;
         }
 
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {
-            throw new InvalidOperationException("An agent history file cannot be a symbolic link.");
+            File.Delete(path);
         }
     }
 

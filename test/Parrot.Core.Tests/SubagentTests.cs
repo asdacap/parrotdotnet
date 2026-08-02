@@ -992,54 +992,6 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
-    public async Task Spawn_inherits_runtime_capabilities_and_existing_descendants_follow_parent_security(
-        CancellationToken cancellationToken)
-    {
-        using var provider = new SteppedProvider();
-        var sessions = new TestAgentSessions(Router(provider), deliversCompletions: true);
-        await using var registry = TestModels.Registry(
-            sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
-        var capability = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        var denied = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        var parent = Session(provider, 0, "parent", cancellationToken);
-        parent.UpdateSelection(
-            parent.Selection().RequestedModel,
-            Profile(
-                ModeRegistry.Build,
-                readOnly: false,
-                [new SandboxRule(capability, SandboxRuleAction.AllowWrite)]));
-
-        var child = registry.Spawn(
-            parent,
-            Turn(parent, Router(provider)),
-            "worker",
-            parent.Selection().RequestedModel,
-            "worker",
-            string.Empty);
-        var grandchild = registry.Spawn(
-            child,
-            Turn(child, Router(provider)),
-            "worker",
-            child.Selection().RequestedModel,
-            "grandchild",
-            string.Empty);
-
-        _ = await Assert.That(child.ResolveSelection().SecurityProfile.AllowsWrite(capability)).IsTrue();
-        _ = await Assert.That(grandchild.ResolveSelection().SecurityProfile.AllowsWrite(capability)).IsTrue();
-        _ = await Assert.That(child.ResolveSelection().SecurityProfile.RuntimeCapabilities).IsNotEmpty();
-        _ = await Assert.That(child.WriteGrants).IsNotSameReferenceAs(parent.WriteGrants);
-
-        parent.UpdateSelection(
-            parent.Selection().RequestedModel,
-            Profile(ModeRegistry.Plan, readOnly: true, []));
-
-        _ = await Assert.That(child.ResolveSelection().SecurityProfile.ReadOnly).IsTrue();
-        _ = await Assert.That(grandchild.ResolveSelection().SecurityProfile.ReadOnly).IsTrue();
-        _ = await Assert.That(child.ResolveSelection().SecurityProfile.AllowsWrite(capability)).IsFalse();
-        _ = await Assert.That(grandchild.ResolveSelection().SecurityProfile.AllowsWrite(denied)).IsFalse();
-    }
-
-    [Test]
     public async Task Registry_enforces_depth_limit(
         CancellationToken cancellationToken)
     {

@@ -594,9 +594,9 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   shell access within its target, is runtime-only and nonpersistent, and does
   not transfer to child or sibling agents or merge into `SecurityProfile`. A
   read-only profile, explicit static deny, and mandatory protected roots
-  override it. This grant is distinct from trusted runtime capabilities that
-  Parrot adds to `SecurityProfile` for narrow session-owned resources such as a
-  plan directory; neither mechanism has network effect.
+  override it. Each agent's private scratch-directory exception is enforced by
+  the process sandbox rather than merged into `SecurityProfile`; neither
+  mechanism has network effect.
 
 ### `QuestionBroker` — rank 5, M3
 
@@ -728,9 +728,7 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   effective `SecurityProfile` with the configured child profile. Composition is
   monotonic: child rules may further restrict access but cannot reopen an
   ancestor denial. The relationship stays live through nested descendants and
-  is branch-local. Trusted runtime capabilities follow the same chain so the
-  sandbox can expose parent-owned private paths, but child read-only settings or
-  explicit denies may narrow them. Interactive `SandboxWriteGrant` values remain
+  is branch-local. Interactive `SandboxWriteGrant` values remain
   separate, agent-session-owned state and never transfer to a child or sibling.
 - **Note** mutually dependent with `AgentSession`; both rank 9. The registry
   creates, names, retains, observes, and owns the lifetime of background child
@@ -931,17 +929,18 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   filesystem and process isolation; environment selection remains command
   execution configuration. The working directory and its Git repository root
   are writable; the latter is detected from linked-worktree metadata when the
-  worktree lives outside the repository. The cache directory selected by
-  `${XDG_CACHE_HOME:-${HOME}/.cache}` is also writable for writable profiles by
-  the default top-level sandbox rule so developer tools can persist their
-  caches. Read-only profiles do not receive that global write rule. The rest of
-  the host, including `~/.config`, remains read-only.
-  Stdout and stderr retain at most 65,536 characters
-  each in memory; if either exceeds that bound, the complete result is persisted
-  in the owning user session's private blob directory and the tool returns its
-  full absolute path. A narrow runtime capability permits access to that artifact
-  without opening the private root. Child agents share their owning user
-  session's private root.
+  worktree lives outside the repository. Each process additionally receives only
+  its owning agent's private scratch directory as a writable sandbox exception,
+  after protected masks and profile restrictions. This remains writable for a
+  read-only profile when its tool set includes a shell. `HOME` and
+  `XDG_CACHE_HOME` default to that scratch directory's home and cache; command
+  environment overrides win, and Parrot does not set `TMPDIR`. The rest of the
+  host, including `~/.config`, remains read-only. Stdout and stderr retain at
+  most 65,536 characters each in memory; if either exceeds that bound, the
+  complete result is persisted in the owning agent's scratch blob directory and
+  the tool returns its full absolute path. Tool-output blobs and private plan
+  artifacts use the same agent scratch boundary. Parent, child, and sibling
+  agents do not share scratch directories.
   Process names are ordinal and unique among running processes within their
   owning agent session: supplied duplicates fail before launch while the current
   binding is running, completed bindings can be replaced atomically, and omitted

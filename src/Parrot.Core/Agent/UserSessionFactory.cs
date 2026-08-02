@@ -24,7 +24,7 @@ internal sealed class UserSessionFactory(
             mode,
             resources,
             agentSessionFactories,
-            new UserSessionModes(modes, resources.Resources.PlanDirectory),
+            new UserSessionModes(modes),
             profiles,
             interactivePermissions,
             userInputTimeout,

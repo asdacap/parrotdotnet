@@ -70,7 +70,6 @@ internal sealed class AgentSession(
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
     private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
-    private readonly string _historyPath = eventRepository.PrepareAgentHistory(identity.SessionId);
 
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
@@ -139,17 +138,7 @@ internal sealed class AgentSession(
         }
     }
 
-    public AgentSelection ResolveSelection()
-    {
-        var selected = ResolvePolicySelection();
-        return _historyPath.Length == 0
-            ? selected
-            : selected with
-            {
-                SecurityProfile = selected.SecurityProfile.Add(
-                    new SandboxRule(_historyPath, SandboxRuleAction.AllowRead)),
-            };
-    }
+    public AgentSelection ResolveSelection() => ResolvePolicySelection();
 
     public void UpdateSelection(ModelSelector selectedModel, IAgentProfile? profile)
     {
