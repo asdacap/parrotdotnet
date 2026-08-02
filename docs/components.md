@@ -362,11 +362,16 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   `AgentSession` for idle notification admission.
 - **Boundary** no. Concrete and scoped to an agent owner; the five queue tools
   are its adapters.
-- **Note** `queue_push(close:true)` is a producer completion signal whose item
-  list may be empty. Repeating an empty closing push is idempotent; any other
-  later push is rejected. Closing preserves buffered items for draining and
-  allows polling `queue_take` calls to finish promptly without waking
-  `queue_listen` or `wait`.
+- **Note** `queue_push` requires exactly one item source: inline `items`, or a
+  workspace-relative or read-authorized absolute `source_file`. Source files are
+  UTF-8 text, contribute one item per nonblank line without trimming retained
+  text, and are rejected above 16 MiB; the final persisted queue has its own
+  separate 16 MiB limit. Direction and close apply to the complete loaded list.
+  `queue_push(close:true)` is a producer completion signal whose item list may be
+  empty, including after source-file filtering. Repeating an empty closing push
+  is idempotent; any other later push is rejected. Closing preserves buffered
+  items for draining and allows polling `queue_take` calls to finish promptly
+  without waking `queue_listen` or `wait`.
   Every `queue_take` result includes the closed state, including an open empty
   timeout, so consumers terminate only after observing a closed drained queue.
 - **Note** a queue name must be unique across a direct parent-child edge in both

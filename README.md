@@ -339,10 +339,16 @@ the root's queues directly. Queue names must be unique across each direct
 parent-child edge regardless of which endpoint creates the queue first. Siblings
 may reuse a name because their ownership scopes do not overlap. Root-agent
 queues persist with the user session, while a child-owned queue is removed when
-that child session ends. A producer declares that no more items will arrive by
-calling `queue_push(close:true)`; `items` may be empty when closing. A repeated
-empty closing push is idempotent; any other later push is rejected. Closing
-retains existing items for draining and allows polling `queue_take` calls to
+that child session ends. `queue_push` accepts exactly one item source: inline
+`items`, or `source_file`, a workspace-relative or read-authorized absolute UTF-8
+text file. File-backed pushes skip empty and whitespace-only lines, preserve all
+other line text as individual items, and reject source files larger than 16 MiB;
+the final persisted queue retains its separate 16 MiB limit. Direction and close
+apply to the complete loaded list. A producer declares that no more items will
+arrive by calling `queue_push(close:true)`; inline `items` may be empty when
+closing, and a source file may yield no items after filtering. A repeated empty
+closing push is idempotent; any other later push is rejected. Closing retains
+existing items for draining and allows polling `queue_take` calls to
 finish promptly without waking `queue_listen` or `wait`. `queue_take` always
 reports whether the queue is closed,
 so an open empty timeout is distinguishable from completion. Live

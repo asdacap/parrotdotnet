@@ -19,8 +19,8 @@ internal sealed class QueueToolTests
         await AssertDescriptor(QueueListenTool.Input.Descriptor, ["name", "enabled"], ["name"]);
         await AssertDescriptor(
             QueuePushTool.Input.Descriptor,
-            ["name", "items", "direction", "close"],
-            ["name", "items"]);
+            ["name", "items", "source_file", "direction", "close"],
+            ["name"]);
         await AssertDescriptor(
             QueueTakeTool.Input.Descriptor,
             ["name", "count", "direction", "yield_after_ms"],
@@ -30,8 +30,11 @@ internal sealed class QueueToolTests
         using var push = JsonDocument.Parse(QueuePushTool.Input.Descriptor);
         using var take = JsonDocument.Parse(QueueTakeTool.Input.Descriptor);
         _ = await Assert.That(listen.RootElement.GetProperty("properties").GetProperty("enabled").GetProperty("default").GetBoolean()).IsTrue();
-        _ = await Assert.That(push.RootElement.GetProperty("properties").GetProperty("direction").GetProperty("default").GetString()).IsEqualTo("back");
-        _ = await Assert.That(push.RootElement.GetProperty("properties").GetProperty("close").GetProperty("default").GetBoolean()).IsFalse();
+        var pushProperties = push.RootElement.GetProperty("properties");
+        _ = await Assert.That(pushProperties.GetProperty("items").GetProperty("description").GetString()).Contains("Exactly one");
+        _ = await Assert.That(pushProperties.GetProperty("source_file").GetProperty("description").GetString()).Contains("Exactly one");
+        _ = await Assert.That(pushProperties.GetProperty("direction").GetProperty("default").GetString()).IsEqualTo("back");
+        _ = await Assert.That(pushProperties.GetProperty("close").GetProperty("default").GetBoolean()).IsFalse();
         _ = await Assert.That(take.RootElement.GetProperty("properties").GetProperty("count").GetProperty("minimum").GetInt64()).IsEqualTo(1);
         _ = await Assert.That(take.RootElement.GetProperty("properties").GetProperty("yield_after_ms").GetProperty("minimum").GetInt64()).IsEqualTo(0);
     }
@@ -61,7 +64,7 @@ internal sealed class QueueToolTests
             Selection(),
             cancellationToken);
 
-        _ = await new QueuePushTool(queues).Execute(
+        _ = await new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory)).Execute(
             new ToolInvocation("close", "{\"name\":\"work\",\"items\":[],\"close\":true}"),
             Selection(),
             cancellationToken);
@@ -80,7 +83,7 @@ internal sealed class QueueToolTests
     {
         using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-final", "main"));
         _ = queues.Create("work", string.Empty);
-        var tool = new QueuePushTool(queues);
+        var tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
 
         var closed = await tool.Execute(
             new ToolInvocation("close", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
@@ -103,6 +106,31 @@ internal sealed class QueueToolTests
         _ = await Assert.That(closedAgainDocument.RootElement.GetProperty("closed").GetBoolean()).IsTrue();
         _ = await Assert.That(string.Join(',', taken.Items)).IsEqualTo("final");
         _ = await Assert.That(late.Text).IsEqualTo("error: queue: 'work' is closed");
+    }
+
+    [Test]
+    public async Task Queue_push_requires_exactly_one_item_source(CancellationToken cancellationToken)
+    {
+        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-sources", "main"));
+        _ = queues.Create("work", string.Empty);
+        var tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
+
+        var neither = await tool.Execute(
+            new ToolInvocation("neither", "{\"name\":\"work\"}"),
+            Selection(),
+            cancellationToken);
+        var both = await tool.Execute(
+            new ToolInvocation(
+                "both",
+                "{\"name\":\"work\",\"items\":[],\"source_file\":\"items.txt\"}"),
+            Selection(),
+            cancellationToken);
+
+        _ = await Assert.That(neither.Text)
+            .IsEqualTo("error: Tool arguments require exactly one of 'items' or 'source_file'.");
+        _ = await Assert.That(both.Text)
+            .IsEqualTo("error: Tool arguments require exactly one of 'items' or 'source_file'.");
+        _ = await Assert.That(queues.Get("work").Size).IsEqualTo(0);
     }
 
     [Test]

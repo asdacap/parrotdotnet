@@ -87,7 +87,7 @@ internal sealed class AgentSessionFactory(
         new QueueCreateToolFactory(),
         new QueueInfoToolFactory(),
         new QueueListenToolFactory(),
-        new QueuePushToolFactory(),
+        new QueuePushToolFactory(workspace),
         new QueueTakeToolFactory(),
         new QuestionToolFactory(owner.Questions),
         new RequestWritePermissionToolFactory(owner.Permissions),

@@ -31,6 +31,46 @@ internal sealed class QueuePushToolPresenterTests
     }
 
     [Test]
+    public async Task Queue_push_renders_source_file_path_without_loading_contents()
+    {
+        var presenter = new QueuePushToolPresenter();
+        const string arguments = "{\"name\":\"work\",\"source_file\":\"tasks/items.txt\",\"close\":true}";
+        var terminal = presenter.PresentTerminal(
+            new ToolCallPresentation("main", "queue_push", arguments),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty))
+            .Render(ScrollbackContext);
+        var live = presenter.PresentLive(
+            new ToolCallPresentation("main", "queue_push", arguments),
+            0).Render(LiveContext).Lines.Select(static line => line.Text).ToArray();
+
+        _ = await Assert.That(string.Join('|', terminal))
+            .IsEqualTo("✓ main: Push to queue work · closed|  source_file: tasks/items.txt");
+        _ = await Assert.That(string.Join('|', live))
+            .IsEqualTo("⠋ main: Push to queue work · closed|  source_file: tasks/items.txt");
+    }
+
+    [Test]
+    public async Task Queue_push_source_file_failure_renders_the_error_instead_of_success_details()
+    {
+        var presenter = new QueuePushToolPresenter();
+        var rendered = presenter.PresentTerminal(
+            new ToolCallPresentation(
+                "main",
+                "queue_push",
+                "{\"name\":\"work\",\"source_file\":\"private.txt\"}"),
+            new ToolTerminalPresentation(
+                ToolTerminalStatus.Succeeded,
+                true,
+                "error: access denied",
+                string.Empty))
+            .Render(ScrollbackContext);
+
+        _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: Push to queue work · open");
+        _ = await Assert.That(string.Join('|', rendered)).Contains("error: access denied");
+        _ = await Assert.That(string.Join('|', rendered)).DoesNotContain("private.txt");
+    }
+
+    [Test]
     public async Task Queue_push_closed_queue_failure_keeps_the_closed_state_in_its_header()
     {
         var presenter = new QueuePushToolPresenter();
@@ -74,11 +114,14 @@ internal sealed class QueuePushToolPresenterTests
     }
 
     [Test]
-    public async Task Queue_push_malformed_arguments_fall_back_safely_through_the_registry()
+    [Arguments("{\"name\":\"work\"}")]
+    [Arguments("{\"name\":\"work\",\"items\":[],\"source_file\":\"items.txt\"}")]
+    [Arguments("{\"name\":\"work\",\"source_file\":42}")]
+    public async Task Queue_push_malformed_arguments_fall_back_safely_through_the_registry(string arguments)
     {
         var registry = new ToolPresenterRegistry([new QueuePushToolPresenter()], new GenericToolPresenter());
         var rendered = (registry.PresentTerminal(
-            new ToolCallPresentation("main", "queue_push", "{\"name\":\"work\"}"),
+            new ToolCallPresentation("main", "queue_push", arguments),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, false, string.Empty, string.Empty))
             ?? throw new InvalidOperationException("Fallback presentation missing."))
             .Render(ScrollbackContext);
