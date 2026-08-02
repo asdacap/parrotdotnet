@@ -241,7 +241,7 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(emitted.Dialog.Prompt).IsEqualTo("Plan complete: ");
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Mode).IsEqualTo(ModeRegistry.Build);
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Prompt)
-            .IsEqualTo($"Implement the approved plan at {artifact}. Read it before changing the project.");
+            .IsEqualTo($"Implement the approved plan at {artifact}.");
         _ = await Assert.That(emitted.Dialog.EmptyMessage).IsEqualTo("enter yes, no, or feedback");
     }
 

@@ -153,7 +153,7 @@ internal sealed class UserSessionModes(ModeRegistry modes)
                             Action = new ChoiceAction
                             {
                                 Mode = ModeRegistry.Build,
-                                Prompt = $"Implement the approved plan at {artifact}. Read it before changing the project.",
+                                Prompt = $"Implement the approved plan at {artifact}.",
                             },
                         },
                         new DialogChoice { Value = "no", Description = "Stop after planning", Aliases = { "n" } },
