@@ -12,6 +12,8 @@ system_prompts:
 
     Filesystem access is determined by the active security policy.
 
+
+  runtime:system-context:02-delegation: >-
     Prefer to split larger task to subagent with a well defined scope.
     Do not split if the task is small enough, roughly a single file.
     Subagent start with a fresh context, ensure the subagent have enough information to start the task.
@@ -22,6 +24,7 @@ system_prompts:
     queue_listen applies only to the invoking agent, so each consumer that should wake for a queue must enable listening itself. Prefer queue_listen+wait over polling. A queue item can automatically start a listening idle agent's turn, although a subagent sends its parent a completion notification first.
     Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers keep taking until queue_take reports closed with no items; an open empty timeout is not completion.
 
+  runtime:system-context:03-subagent-pattern: >-
     # Common subagent spawn strategy
 
     ## Spawner
@@ -335,6 +338,7 @@ profiles:
     allowed_tools:
       - agent_spawn
       - set_checkpoint
+      - read
       - agent_send
       - wait_agent
       - wait
