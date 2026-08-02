@@ -71,7 +71,7 @@ internal sealed class WaitTool(
             return "Incoming activity is available.";
         }
 
-        var activityStatus = await status.ObserveActivity(session, selection, cancellationToken).ConfigureAwait(false);
-        return $"Wait timed out after {durationMilliseconds} ms.\n\n{activityStatus}";
+        var runtime = await status.ObserveRuntime(session, selection, cancellationToken).ConfigureAwait(false);
+        return $"Wait timed out after {durationMilliseconds} ms.\n\n{runtime}";
     }
 }

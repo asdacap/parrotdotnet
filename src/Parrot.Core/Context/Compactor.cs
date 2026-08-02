@@ -55,12 +55,14 @@ internal sealed class Compactor(
         string instructions,
         IReadOnlyList<LLMToolDefinition> tools,
         IReadOnlyList<LLMMessage> history,
+        LLMMessage fixedMessage,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
         ArgumentNullException.ThrowIfNull(instructions);
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(fixedMessage);
 
         var groups = Groups(history).ToList();
         if (groups.Count < 2)
@@ -76,7 +78,7 @@ internal sealed class Compactor(
         while (keepGroupFrom > 1)
         {
             var candidate = groups[keepGroupFrom - 1].Concat(retained).ToList();
-            if (EstimateWithSummary(instructions, tools, candidate) + 1 > targetBudget)
+            if (EstimateWithSummary(instructions, tools, fixedMessage, candidate) + 1 > targetBudget)
             {
                 break;
             }
@@ -85,7 +87,7 @@ internal sealed class Compactor(
             keepGroupFrom--;
         }
 
-        var summaryBaseTokens = EstimateWithSummary(instructions, tools, retained);
+        var summaryBaseTokens = EstimateWithSummary(instructions, tools, fixedMessage, retained);
         var targetExceededByRequiredContext = summaryBaseTokens + 1 > targetBudget;
         var summaryBudget = (targetExceededByRequiredContext ? contextWindow : targetBudget) - summaryBaseTokens;
         if (summaryBudget <= 0)
@@ -139,7 +141,7 @@ internal sealed class Compactor(
             summaryTokens,
             cancellationToken).ConfigureAwait(false);
         var summaryMessage = LLMMessage.System($"{SummaryPrefix}{summary}");
-        IReadOnlyList<LLMMessage> compacted = [summaryMessage, .. retained];
+        IReadOnlyList<LLMMessage> compacted = [summaryMessage, fixedMessage, .. retained];
         var compactedTokens = EstimateInputTokens(instructions, tools, compacted);
         if (compactedTokens > contextWindow)
         {
@@ -157,8 +159,9 @@ internal sealed class Compactor(
     private static long EstimateWithSummary(
         string instructions,
         IReadOnlyList<LLMToolDefinition> tools,
+        LLMMessage fixedMessage,
         IReadOnlyList<LLMMessage> retained) =>
-        EstimateInputTokens(instructions, tools, [LLMMessage.System(SummaryPrefix), .. retained]);
+        EstimateInputTokens(instructions, tools, [LLMMessage.System(SummaryPrefix), fixedMessage, .. retained]);
 
     private static long EstimateTokens(LLMMessage message) =>
         message.Contents.Sum(content => content.Kind switch

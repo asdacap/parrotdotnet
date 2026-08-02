@@ -785,6 +785,94 @@ internal sealed class EventRepository
         return saved;
     }
 
+    public bool AppendCompactionStatus(Event publishedStatus, CompactionSnapshot snapshot, string content)
+    {
+        ArgumentNullException.ThrowIfNull(publishedStatus);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(content);
+
+        publishedStatus.StatusInjected = new StatusInjected();
+        var appended = false;
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            EnsureAgentHistoryProjection(transaction);
+            using (var existing = _database.Connection.CreateCommand())
+            {
+                existing.Transaction = transaction;
+                existing.CommandText =
+                    "SELECT EXISTS (SELECT 1 FROM agent_history "
+                    + "WHERE agent_session = $session AND kind = 'compaction' AND watermark = $watermark);";
+                _ = existing.Parameters.AddWithValue("$session", publishedStatus.AgentSessionId);
+                _ = existing.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                appended = Convert.ToInt64(
+                    existing.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 0;
+            }
+
+            if (!appended)
+            {
+                transaction.Commit();
+                return false;
+            }
+
+            var createdAt = Timestamp();
+            using (var snapshotCommand = _database.Connection.CreateCommand())
+            {
+                snapshotCommand.Transaction = transaction;
+                snapshotCommand.CommandText =
+                    "INSERT INTO compaction_snapshot (agent_session, summary, watermark, created_at) "
+                    + "VALUES ($session, $summary, $watermark, $at) "
+                    + "ON CONFLICT (agent_session) DO UPDATE SET summary = excluded.summary, "
+                    + "watermark = excluded.watermark, created_at = excluded.created_at;";
+                _ = snapshotCommand.Parameters.AddWithValue("$session", publishedStatus.AgentSessionId);
+                _ = snapshotCommand.Parameters.AddWithValue("$summary", snapshot.Summary);
+                _ = snapshotCommand.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                _ = snapshotCommand.Parameters.AddWithValue("$at", createdAt);
+                _ = snapshotCommand.ExecuteNonQuery();
+            }
+
+            using (var history = _database.Connection.CreateCommand())
+            {
+                history.Transaction = transaction;
+                history.CommandText =
+                    "INSERT INTO agent_history "
+                    + "(agent_session, kind, conversation_sequence, summary, watermark, created_at) "
+                    + "VALUES ($session, 'compaction', NULL, $summary, $watermark, $at);";
+                _ = history.Parameters.AddWithValue("$session", publishedStatus.AgentSessionId);
+                _ = history.Parameters.AddWithValue("$summary", snapshot.Summary);
+                _ = history.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                _ = history.Parameters.AddWithValue("$at", createdAt);
+                _ = history.ExecuteNonQuery();
+            }
+
+            _ = Record(transaction, publishedStatus);
+            var statusSequence = Project(
+                transaction,
+                publishedStatus.AgentSessionId,
+                ConversationOrigin.System,
+                LLMRole.System,
+                [ConversationPart.TextPart(content)],
+                [],
+                string.Empty);
+            using (var association = _database.Connection.CreateCommand())
+            {
+                association.Transaction = transaction;
+                association.CommandText =
+                    "INSERT INTO compaction_status (agent_session, watermark, status_conversation_sequence) "
+                    + "VALUES ($session, $watermark, $status);";
+                _ = association.Parameters.AddWithValue("$session", publishedStatus.AgentSessionId);
+                _ = association.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                _ = association.Parameters.AddWithValue("$status", statusSequence);
+                _ = association.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+
+        RefreshAgentHistory(publishedStatus.AgentSessionId);
+        return true;
+    }
+
     public CompactionSnapshot? Compaction(string agentSessionId)
     {
         lock (_database.Gate)
@@ -799,6 +887,55 @@ internal sealed class EventRepository
                     (string)reader["summary"],
                     Convert.ToInt64(reader["watermark"], System.Globalization.CultureInfo.InvariantCulture))
                 : null;
+        }
+    }
+
+    public CompactionContext? CompactionHistory(string agentSessionId)
+    {
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            EnsureConversationProjection(transaction);
+            CompactionSnapshot? snapshot;
+            using (var read = _database.Connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText =
+                    "SELECT summary, watermark FROM compaction_snapshot WHERE agent_session = $session;";
+                _ = read.Parameters.AddWithValue("$session", agentSessionId);
+                using var reader = read.ExecuteReader();
+                snapshot = reader.Read()
+                    ? new CompactionSnapshot(
+                        (string)reader["summary"],
+                        Convert.ToInt64(reader["watermark"], System.Globalization.CultureInfo.InvariantCulture))
+                    : null;
+            }
+
+            if (snapshot is null)
+            {
+                transaction.Commit();
+                return null;
+            }
+
+            long? statusSequence;
+            using (var read = _database.Connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText =
+                    "SELECT status_conversation_sequence FROM compaction_status "
+                    + "WHERE agent_session = $session AND watermark = $watermark;";
+                _ = read.Parameters.AddWithValue("$session", agentSessionId);
+                _ = read.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                var value = read.ExecuteScalar();
+                statusSequence = value is null
+                    ? null
+                    : Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            var status = statusSequence is null ? null : ReadConversationItem(transaction, statusSequence.Value);
+            var tail = ReadCompactionTail(transaction, agentSessionId, snapshot.Watermark);
+            transaction.Commit();
+            return new CompactionContext(snapshot, status, tail);
         }
     }
 
@@ -1739,6 +1876,39 @@ internal sealed class EventRepository
         read.CommandText =
             "SELECT sequence, origin, role, tool_call_id FROM conversation_item "
             + "WHERE agent_session = $session AND sequence > $watermark ORDER BY sequence;";
+        _ = read.Parameters.AddWithValue("$session", agentSessionId);
+        _ = read.Parameters.AddWithValue("$watermark", watermark);
+        using var reader = read.ExecuteReader();
+        while (reader.Read())
+        {
+            var sequence = Convert.ToInt64(reader["sequence"], System.Globalization.CultureInfo.InvariantCulture);
+            items.Add(new ConversationItem(
+                sequence,
+                ParseOrigin((string)reader["origin"]),
+                ParseRole((string)reader["role"]),
+                ReadParts(transaction, sequence),
+                ReadToolCalls(transaction, sequence),
+                (string)reader["tool_call_id"]));
+        }
+
+        return items;
+    }
+
+    private List<ConversationItem> ReadCompactionTail(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        long watermark)
+    {
+        var items = new List<ConversationItem>();
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT item.sequence, item.origin, item.role, item.tool_call_id FROM conversation_item AS item "
+            + "WHERE item.agent_session = $session AND item.sequence > $watermark "
+            + "AND NOT EXISTS (SELECT 1 FROM compaction_status AS status "
+            + "WHERE status.agent_session = item.agent_session "
+            + "AND status.status_conversation_sequence = item.sequence) "
+            + "ORDER BY item.sequence;";
         _ = read.Parameters.AddWithValue("$session", agentSessionId);
         _ = read.Parameters.AddWithValue("$watermark", watermark);
         using var reader = read.ExecuteReader();

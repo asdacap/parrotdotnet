@@ -582,17 +582,19 @@ internal sealed class AgentSession(
 
     private static List<LLMMessage> RestoreHistory(EventRepository repository, string agentSessionId)
     {
-        var snapshot = repository.Compaction(agentSessionId);
-        var history = new List<LLMMessage>();
-        if (snapshot is not null)
+        var context = repository.CompactionHistory(agentSessionId);
+        if (context is null)
         {
-            history.Add(LLMMessage.System(snapshot.Summary));
+            return [.. repository.Conversation(agentSessionId).Select(item => RestoreMessage(repository, item))];
         }
 
-        var items = snapshot is null
-            ? repository.Conversation(agentSessionId)
-            : repository.ConversationAfter(agentSessionId, snapshot.Watermark);
-        history.AddRange(items.Select(item => RestoreMessage(repository, item)));
+        var history = new List<LLMMessage> { LLMMessage.System(context.Snapshot.Summary) };
+        if (context.Status is not null)
+        {
+            history.Add(RestoreMessage(repository, context.Status));
+        }
+
+        history.AddRange(context.Tail.Select(item => RestoreMessage(repository, item)));
         return history;
     }
 
@@ -1231,13 +1233,24 @@ internal sealed class AgentSession(
         {
             _systemPrompt.RenewEpoch();
             instructions = _systemPrompt.Build(selection);
-            var priorWatermark = eventRepository.Compaction(SessionId)?.Watermark ?? 0;
-            var durableMessages = eventRepository.ConversationAfter(SessionId, priorWatermark);
+            var prior = eventRepository.CompactionHistory(SessionId);
+            var durableMessages = prior?.Tail ?? eventRepository.Conversation(SessionId);
+            var compactionHistory = new List<LLMMessage>();
+            if (prior is not null)
+            {
+                compactionHistory.Add(LLMMessage.System(prior.Snapshot.Summary));
+            }
+
+            compactionHistory.AddRange(durableMessages.Select(item => RestoreMessage(eventRepository, item)));
+            var statusContent = await status.Observe(this, selection, selection.Profile, cancellationToken)
+                .ConfigureAwait(false);
+            var fixedStatus = LLMMessage.System(statusContent);
             var compacted = await compactor.Compact(
                 selectedModel,
                 instructions,
                 tools,
-                _history,
+                compactionHistory,
+                fixedStatus,
                 cancellationToken).ConfigureAwait(false);
             if (compacted is not null)
             {
@@ -1251,11 +1264,23 @@ internal sealed class AgentSession(
                 if (summarisedCount > 0)
                 {
                     var watermark = durableMessages[summarisedCount - 1].Sequence;
-                    _ = eventRepository.SaveCompaction(
-                        SessionId,
-                        new CompactionSnapshot(compacted.Summary.Content, watermark));
+                    var statusInjected = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        StatusInjected = new StatusInjected(),
+                    };
+                    if (!eventRepository.AppendCompactionStatus(
+                            statusInjected,
+                            new CompactionSnapshot(compacted.Summary.Content, watermark),
+                            statusContent))
+                    {
+                        throw new InvalidOperationException("compaction snapshot was already persisted");
+                    }
+
                     _history.Clear();
-                    _history.AddRange(compacted.History);
+                    _history.AddRange(RestoreHistory(eventRepository, SessionId));
+                    await eventBroker.Publish(statusInjected, CancellationToken.None).ConfigureAwait(false);
                 }
             }
 

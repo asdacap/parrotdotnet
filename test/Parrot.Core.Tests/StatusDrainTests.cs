@@ -145,7 +145,7 @@ internal sealed class StatusDrainTests : IDisposable
     }
 
     [Test]
-    public async Task Status_tool_reports_the_active_profile_prompt(CancellationToken cancellationToken)
+    public async Task Status_tool_reports_runtime_without_the_active_profile_prompt(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
         var modes = Modes();
@@ -160,9 +160,10 @@ internal sealed class StatusDrainTests : IDisposable
         await provider.Arrived(cancellationToken);
 
         var result = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.Tool).Content;
-        _ = await Assert.That(result).StartsWith($"{session.Mode.Prompt}\n\nRuntime:\n- agent: main-agent (");
-        _ = await Assert.That(CountOccurrences(result, session.Mode.Prompt)).IsEqualTo(1);
-        await AssertStatusOrder(result, "Active profile: build");
+        _ = await Assert.That(result).StartsWith("Runtime:\n- agent: main-agent (");
+        _ = await Assert.That(result).DoesNotContain(session.Mode.Prompt);
+        _ = await Assert.That(result).DoesNotContain("Active profile:");
+        _ = await Assert.That(result).DoesNotContain("Model:");
 
         provider.Release();
         await Settled(session);

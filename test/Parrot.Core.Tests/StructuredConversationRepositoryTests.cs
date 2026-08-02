@@ -97,6 +97,62 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
+    public async Task Compaction_status_is_atomic_and_canonical_history_excludes_associated_statuses()
+    {
+        var resources = Resources("compaction-status");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        repository.AppendConversation(
+            Published("before"),
+            ConversationOrigin.Model,
+            LLMRole.User,
+            [ConversationPart.TextPart("before")],
+            [],
+            string.Empty);
+        var firstStatus = Published("first-status");
+        _ = await Assert.That(repository.AppendCompactionStatus(
+            firstStatus,
+            new CompactionSnapshot("first summary", 0),
+            "first status")).IsTrue();
+        repository.AppendConversation(
+            Published("between"),
+            ConversationOrigin.Model,
+            LLMRole.User,
+            [ConversationPart.TextPart("between")],
+            [],
+            string.Empty);
+        var secondStatus = Published("second-status");
+        _ = await Assert.That(repository.AppendCompactionStatus(
+            secondStatus,
+            new CompactionSnapshot("second summary", 3),
+            "second status")).IsTrue();
+        repository.AppendConversation(
+            Published("after"),
+            ConversationOrigin.Model,
+            LLMRole.User,
+            [ConversationPart.TextPart("after")],
+            [],
+            string.Empty);
+
+        var context = repository.CompactionHistory("agent")
+            ?? throw new InvalidOperationException("Expected compaction history.");
+
+        _ = await Assert.That(firstStatus.PayloadCase).IsEqualTo(Event.PayloadOneofCase.StatusInjected);
+        _ = await Assert.That(secondStatus.PayloadCase).IsEqualTo(Event.PayloadOneofCase.StatusInjected);
+        _ = await Assert.That(context.Snapshot.Summary).IsEqualTo("second summary");
+        _ = await Assert.That(context.Status?.Parts.Single().Text).IsEqualTo("second status");
+        _ = await Assert.That(string.Join(',', context.Tail.Select(item => item.Parts.Single().Text)))
+            .IsEqualTo("after");
+        _ = await Assert.That(string.Join(',', repository.Replay().Select(published => published.Id)))
+            .Contains("first-status")
+            .And.Contains("second-status");
+        _ = await Assert.That(repository.AppendCompactionStatus(
+            Published("duplicate"),
+            new CompactionSnapshot("duplicate", 3),
+            "duplicate status")).IsFalse();
+    }
+
+    [Test]
     public async Task Tool_terminal_is_idempotent_and_recovers_structured_parts()
     {
         var resources = Resources("terminals");

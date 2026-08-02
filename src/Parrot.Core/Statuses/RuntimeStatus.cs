@@ -29,7 +29,7 @@ internal sealed class RuntimeStatus
             new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
             cancellationToken);
 
-    public Task<string> ObserveActivity(
+    public Task<string> ObserveRuntime(
         AgentSession session,
         AgentTurnSelection selection,
         CancellationToken cancellationToken) =>
