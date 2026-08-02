@@ -54,7 +54,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
         var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         _ = queues.Create("work", "queued work");
-        _ = await queues.Push("work", ["item"], QueueDirection.Back, cancellationToken);
+        _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
         var processes = new ProcessStatusSource(
             new ShellProcessStatusSnapshot("agent", "process", "process", ActiveWorkState.Running));
         var subagents = new AgentStatusSource(
@@ -213,7 +213,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var waiting = child.WaitForIncomingInput(TimeSpan.FromMinutes(1), TimeProvider.System, cancellationToken);
         await WaitUntil(child.IsWaitingForIncomingInput, cancellationToken);
 
-        _ = await parentQueues.Push("parent-work", ["from-parent"], QueueDirection.Back, cancellationToken);
+        _ = await parentQueues.Push("parent-work", ["from-parent"], QueueDirection.Back, false, cancellationToken);
 
         _ = await Assert.That(await waiting).IsTrue();
         await provider.Arrived(cancellationToken);
@@ -263,7 +263,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             () => first.IsWaitingForIncomingInput() && second.IsWaitingForIncomingInput(),
             cancellationToken);
 
-        _ = await parentQueues.Push("shared-work", ["single-item"], QueueDirection.Back, cancellationToken);
+        _ = await parentQueues.Push("shared-work", ["single-item"], QueueDirection.Back, false, cancellationToken);
         _ = await Task.WhenAll(
             firstQueues.Deliver(cancellationToken),
             secondQueues.Deliver(cancellationToken));
@@ -337,7 +337,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             () => disabled.IsWaitingForIncomingInput() && active.IsWaitingForIncomingInput(),
             cancellationToken);
 
-        _ = await parentQueues.Push("shared-work", ["active-item"], QueueDirection.Back, cancellationToken);
+        _ = await parentQueues.Push("shared-work", ["active-item"], QueueDirection.Back, false, cancellationToken);
         _ = await activeQueues.Deliver(cancellationToken);
 
         _ = await Assert.That(await activeWaiting).IsTrue();
@@ -381,10 +381,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await provider.Arrived(cancellationToken);
         var session = await sessions.WaitForSession(cancellationToken);
         _ = session.Queues.Create("ignored", string.Empty);
-        _ = await session.Queues.Push("ignored", ["no wake"], QueueDirection.Back, cancellationToken);
+        _ = await session.Queues.Push("ignored", ["no wake"], QueueDirection.Back, false, cancellationToken);
         _ = session.Queues.Create("work", string.Empty);
         _ = await session.Queues.Listen("work", true, cancellationToken);
-        _ = await session.Queues.Push("work", ["queued"], QueueDirection.Back, cancellationToken);
+        _ = await session.Queues.Push("work", ["queued"], QueueDirection.Back, false, cancellationToken);
         _ = await Assert.That(session.Queues.Get("work").Size).IsEqualTo(1);
 
         provider.Release();

@@ -34,9 +34,15 @@ internal static class ToolDisplayText
     public static IReadOnlyList<string> LayoutDetails(
         IEnumerable<string> details,
         int columns,
-        int maximumLines)
+        int maximumLines) => LayoutDetails(details, columns, maximumLines, MaximumDetailLines);
+
+    public static IReadOnlyList<string> LayoutDetails(
+        IEnumerable<string> details,
+        int columns,
+        int maximumLines,
+        int maximumDetailLines)
     {
-        var rendered = Details(details)
+        var rendered = Details(details, maximumDetailLines)
             .SelectMany(detail => TerminalText.Layout($"  {detail}", columns))
             .ToList();
         if (rendered.Count <= maximumLines)
@@ -54,11 +60,15 @@ internal static class ToolDisplayText
         return bounded;
     }
 
-    public static IReadOnlyList<string> Details(IEnumerable<string> values)
+    public static IReadOnlyList<string> Details(IEnumerable<string> values) => Details(values, MaximumDetailLines);
+
+    public static IReadOnlyList<string> Details(IEnumerable<string> values, int maximumLines)
     {
         ArgumentNullException.ThrowIfNull(values);
 
-        var lines = new List<string>(MaximumDetailLines);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumLines);
+
+        var lines = new List<string>(maximumLines);
         var line = new StringBuilder();
         var bytes = 0;
         var truncated = false;
@@ -70,7 +80,7 @@ internal static class ToolDisplayText
             var offset = 0;
             foreach (var rune in value.EnumerateRunes())
             {
-                if (lines.Count == MaximumDetailLines)
+                if (lines.Count == maximumLines)
                 {
                     truncated = true;
                     truncatedLines = CountLines(value.AsSpan(offset)) + CountRemainingLines(enumerator);
@@ -117,7 +127,7 @@ internal static class ToolDisplayText
                 break;
             }
 
-            if (lines.Count == MaximumDetailLines)
+            if (lines.Count == maximumLines)
             {
                 truncated = true;
                 truncatedLines = CountRemainingLines(enumerator);
@@ -130,12 +140,12 @@ internal static class ToolDisplayText
 
         if (truncated)
         {
-            if (line.Length > 0 && lines.Count < MaximumDetailLines)
+            if (line.Length > 0 && lines.Count < maximumLines)
             {
                 lines.Add(line.ToString());
             }
 
-            while (lines.Count >= MaximumDetailLines)
+            while (lines.Count >= maximumLines)
             {
                 bytes -= Encoding.UTF8.GetByteCount(lines[^1]);
                 lines.RemoveAt(lines.Count - 1);

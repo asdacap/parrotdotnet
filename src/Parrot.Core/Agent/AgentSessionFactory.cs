@@ -43,7 +43,6 @@ internal sealed class AgentSessionFactory(
             new TodoReadToolFactory(),
             new TodoWriteToolFactory(),
             new QueueCreateToolFactory(),
-            new QueueCloseToolFactory(),
             new QueueInfoToolFactory(),
             new QueueListenToolFactory(),
             new QueuePushToolFactory(),

@@ -47,6 +47,7 @@ internal sealed class ToolScrollbackValue(
         {
             ToolBlockKind.Diff => DiffScrollbackValue.MaximumRows + 2,
             ToolBlockKind.Code or ToolBlockKind.Todos or ToolBlockKind.CompletedInput => 100,
+            ToolBlockKind.Queue => 30,
             _ => 10,
         };
         lines.AddRange(RenderBlock(context, Math.Max(0, maximumLines - header.Length), style));
@@ -111,6 +112,8 @@ internal sealed class ToolScrollbackValue(
                 "… diff output truncated"),
             ToolBlockKind.Code => RenderCode(context, maximumLines),
             ToolBlockKind.Todos => RenderTodos(context, maximumLines),
+            ToolBlockKind.Queue => ToolDisplayText.LayoutDetails(
+                [Report.Block.Text], context.Columns, maximumLines, maximumLines),
             ToolBlockKind.CompletedInput => RenderCompletedInput(context, maximumLines),
             ToolBlockKind.Error => ToolDisplayText.LayoutDetails(
                 [Report.Block.Text], context.Columns, maximumLines).Select(statusStyle.Apply),

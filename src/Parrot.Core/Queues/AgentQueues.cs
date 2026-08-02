@@ -38,12 +38,6 @@ internal sealed class AgentQueues(
         return store.Get(name, SessionId);
     }
 
-    public QueueInfo Close(string name)
-    {
-        var store = Resolve(name);
-        return WithListeningState(store, name, store.Close(name));
-    }
-
     public IReadOnlyList<QueueInfo> List()
     {
         var own = Local.List(SessionId);
@@ -78,18 +72,22 @@ internal sealed class AgentQueues(
         string name,
         IReadOnlyList<string> items,
         QueueDirection direction,
+        bool close,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var store = Resolve(name);
-        var result = store.Push(name, items, direction);
+        var result = store.Push(name, items, direction, close);
 
-        try
+        if (items.Count > 0)
         {
-            await catalog.Notify(store, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception)
-        {
+            try
+            {
+                await catalog.Notify(store, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+            }
         }
 
         return result with { Monitored = store.ListenerSessionIds(name).Contains(SessionId, StringComparer.Ordinal) };

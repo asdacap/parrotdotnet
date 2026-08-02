@@ -8,6 +8,7 @@ internal enum ToolBlockKind
     Diff,
     Code,
     Todos,
+    Queue,
     CompletedInput,
     Error,
 }

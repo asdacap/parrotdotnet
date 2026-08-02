@@ -11,7 +11,7 @@ internal sealed partial class QueuePushTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_push";
 
-    public string Description => "Push strings onto an open accessible queue owned by the invoking agent or its direct parent. Pushing to a closed queue fails. Direction defaults to back.";
+    public string Description => "Push strings onto an accessible queue owned by the invoking agent or its direct parent, then optionally close it. Items may be empty to close without adding data. Pushing items to a closed queue fails. Direction defaults to back and close defaults to false.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -25,6 +25,7 @@ internal sealed partial class QueuePushTool(AgentQueues queues) : ITool
                 QueueToolExecution.RequireName(input.Name),
                 items,
                 QueueToolExecution.ParseDirection(input.Direction),
+                input.Close ?? false,
                 cancellationToken).ConfigureAwait(false);
             return QueueToolExecution.Serialize(info);
         }
@@ -53,5 +54,10 @@ internal sealed partial class QueuePushTool(AgentQueues queues) : ITool
         [ToolDefaultString("back")]
         [ToolStringEnum("front", "back")]
         public string? Direction { get; init; }
+
+        [Description("Whether to close the queue after pushing the items.")]
+        [JsonPropertyName("close")]
+        [ToolDefaultBool(false)]
+        public bool? Close { get; init; }
     }
 }

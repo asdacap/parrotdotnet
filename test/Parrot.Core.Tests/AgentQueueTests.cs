@@ -28,9 +28,9 @@ internal sealed class AgentQueueTests : IDisposable
         var parentQueue = root.Create("parent-work", "parent owned");
         var childQueue = child.Create("child-work", "child owned");
 
-        _ = await root.Push("parent-work", ["parent-item"], QueueDirection.Back, cancellationToken);
-        _ = await child.Push("child-work", ["child-item"], QueueDirection.Back, cancellationToken);
-        _ = await child.Push("parent-work", ["from-child"], QueueDirection.Back, cancellationToken);
+        _ = await root.Push("parent-work", ["parent-item"], QueueDirection.Back, false, cancellationToken);
+        _ = await child.Push("child-work", ["child-item"], QueueDirection.Back, false, cancellationToken);
+        _ = await child.Push("parent-work", ["from-child"], QueueDirection.Back, false, cancellationToken);
         _ = await child.Listen("parent-work", enabled: true, cancellationToken);
 
         _ = await Assert.That(child.Get("child-work").Path).IsEqualTo(childQueue.Path);
@@ -55,17 +55,17 @@ internal sealed class AgentQueueTests : IDisposable
         using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
         using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
         _ = root.Create("parent-work", "shared");
-        _ = await root.Push("parent-work", ["final-item"], QueueDirection.Back, cancellationToken);
+        _ = await root.Push("parent-work", ["final-item"], QueueDirection.Back, false, cancellationToken);
         _ = await child.Listen("parent-work", true, cancellationToken);
 
-        var closed = child.Close("parent-work");
+        var closed = await child.Push("parent-work", [], QueueDirection.Back, true, cancellationToken);
         var taken = child.TryTake("parent-work", 1, QueueDirection.Front);
         var completed = child.TryTake("parent-work", 1, QueueDirection.Front);
 
         _ = await Assert.That(closed.Closed).IsTrue();
         _ = await Assert.That(closed.Monitored).IsTrue();
         _ = await Assert.That(root.Get("parent-work").Closed).IsTrue();
-        _ = await Assert.That(root.Push("parent-work", ["late"], QueueDirection.Back, cancellationToken))
+        _ = await Assert.That(root.Push("parent-work", ["late"], QueueDirection.Back, false, cancellationToken))
             .Throws<QueueClosedException>()
             .WithMessage("queue: 'parent-work' is closed");
         _ = await Assert.That(string.Join(',', taken.Items)).IsEqualTo("final-item");
@@ -154,8 +154,8 @@ internal sealed class AgentQueueTests : IDisposable
         var leftInfo = left.Create("shared-name", "left queue");
         var rightInfo = right.Create("shared-name", "right queue");
 
-        _ = await left.Push("shared-name", ["left-item"], QueueDirection.Back, cancellationToken);
-        _ = await right.Push("shared-name", ["right-item"], QueueDirection.Back, cancellationToken);
+        _ = await left.Push("shared-name", ["left-item"], QueueDirection.Back, false, cancellationToken);
+        _ = await right.Push("shared-name", ["right-item"], QueueDirection.Back, false, cancellationToken);
         var leftTaken = left.TryTake("shared-name", 1, QueueDirection.Front);
         var rightTaken = right.TryTake("shared-name", 1, QueueDirection.Front);
 
@@ -218,7 +218,7 @@ internal sealed class AgentQueueTests : IDisposable
         {
             using var firstRoot = firstCatalog.Register(AgentIdentity.Main("first-root", "root"));
             _ = firstRoot.Create("persistent-work", "survives");
-            _ = await firstRoot.Push("persistent-work", ["item"], QueueDirection.Back, cancellationToken);
+            _ = await firstRoot.Push("persistent-work", ["item"], QueueDirection.Back, false, cancellationToken);
         }
 
         using var secondCatalog = new AgentQueueCatalog(resources);
@@ -257,7 +257,7 @@ internal sealed class AgentQueueTests : IDisposable
         _ = root.Create("parent-work", string.Empty);
         _ = root.Local.Monitor("parent-work", child.SessionId, true);
         _ = root.Local.Monitor("parent-work", "other-agent", true);
-        _ = root.Local.Push("parent-work", ["item"], QueueDirection.Back);
+        _ = root.Local.Push("parent-work", ["item"], QueueDirection.Back, false);
         var rejected = await root.Local.DeliverMonitored(
             child.SessionId,
             static (_, _) => Task.FromResult(false),
@@ -307,7 +307,7 @@ internal sealed class AgentQueueTests : IDisposable
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
 
-        _ = await Assert.That(root.Push("work", ["item"], QueueDirection.Back, canceled.Token))
+        _ = await Assert.That(root.Push("work", ["item"], QueueDirection.Back, false, canceled.Token))
             .Throws<OperationCanceledException>();
         _ = await Assert.That(root.Get("work").Size).IsEqualTo(0);
     }
@@ -325,9 +325,9 @@ internal sealed class AgentQueueTests : IDisposable
         using var subscription = catalog.SubscribeInventory();
         var initial = await subscription.Reader.ReadAsync(cancellationToken);
 
-        _ = await root.Push("root-work", ["root-item"], QueueDirection.Back, cancellationToken);
-        _ = await left.Push("shared-name", ["left-item"], QueueDirection.Back, cancellationToken);
-        _ = await right.Push("shared-name", ["right-item"], QueueDirection.Back, cancellationToken);
+        _ = await root.Push("root-work", ["root-item"], QueueDirection.Back, false, cancellationToken);
+        _ = await left.Push("shared-name", ["left-item"], QueueDirection.Back, false, cancellationToken);
+        _ = await right.Push("shared-name", ["right-item"], QueueDirection.Back, false, cancellationToken);
         var aggregated = await ReadInventory(subscription, 3, cancellationToken);
 
         _ = await Assert.That(aggregated.Queues).Count().IsEqualTo(3);

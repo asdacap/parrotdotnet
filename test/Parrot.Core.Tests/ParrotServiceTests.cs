@@ -554,7 +554,7 @@ internal sealed class ParrotServiceTests : IDisposable
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
         var queues = sessions.Sessions.Single().Queues;
         _ = queues.Create("release", "release tasks");
-        _ = await queues.Push("release", ["one", "two"], QueueDirection.Back, cancellationToken);
+        _ = await queues.Push("release", ["one", "two"], QueueDirection.Back, false, cancellationToken);
 
         var stream = new ChannelStreamWriter<Event>();
         var listening = service.Listen(new ListenRequest { UserSessionId = session.Id }, stream, context);

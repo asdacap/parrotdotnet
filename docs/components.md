@@ -341,11 +341,13 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   by hyphens; empty root queues remain durable.
 - **Outbound** the user session's private root queue directory and the owning
   `AgentSession` for idle notification admission.
-- **Boundary** no. Concrete and scoped to an agent owner; the six queue tools
+- **Boundary** no. Concrete and scoped to an agent owner; the five queue tools
   are its adapters.
-- **Note** closing is an idempotent producer completion signal. It rejects later
-  pushes, preserves buffered items for draining, and allows polling `queue_take`
-  calls to finish promptly without waking `queue_listen` or `wait`.
+- **Note** `queue_push(close:true)` is a producer completion signal whose item
+  list may be empty. Repeating an empty closing push is idempotent; any other
+  later push is rejected. Closing preserves buffered items for draining and
+  allows polling `queue_take` calls to finish promptly without waking
+  `queue_listen` or `wait`.
   Every `queue_take` result includes the closed state, including an open empty
   timeout, so consumers terminate only after observing a closed drained queue.
 - **Note** a queue name must be unique across a direct parent-child edge in both

@@ -24,8 +24,8 @@ internal sealed class QueueStoreTests : IDisposable
         _ = await Assert.That(await File.ReadAllTextAsync(created.Path, cancellationToken))
             .IsEqualTo("{\"name\":\"build-work-now\",\"description\":\"release tasks\"}\n");
 
-        _ = store.Push("build-work-now", ["one", "three"], QueueDirection.Unspecified);
-        _ = store.Push("build-work-now", ["zero", "two"], QueueDirection.Front);
+        _ = store.Push("build-work-now", ["one", "three"], QueueDirection.Unspecified, false);
+        _ = store.Push("build-work-now", ["zero", "two"], QueueDirection.Front, false);
         var back = await store.Take("build-work-now", 2, QueueDirection.Back, cancellationToken);
         var front = await store.Take("build-work-now", 5, QueueDirection.Unspecified, cancellationToken);
 
@@ -42,7 +42,7 @@ internal sealed class QueueStoreTests : IDisposable
     {
         using var store = new QueueStore(_directory);
         _ = store.Create("alpha-work", string.Empty);
-        _ = store.Push("alpha-work", ["first", "second"], QueueDirection.Back);
+        _ = store.Push("alpha-work", ["first", "second"], QueueDirection.Back, false);
         _ = store.Monitor("alpha-work", "agent-a", true);
         _ = store.Monitor("alpha-work", "agent-b", true);
         var ids = new List<string>();
@@ -107,9 +107,9 @@ internal sealed class QueueStoreTests : IDisposable
         using (var persisted = new QueueStore(_directory))
         {
             _ = persisted.Create("zeta", "later");
-            _ = persisted.Push("zeta", ["one", "two"], QueueDirection.Back);
+            _ = persisted.Push("zeta", ["one", "two"], QueueDirection.Back, false);
             _ = persisted.Create("alpha", "first");
-            _ = persisted.Push("alpha", ["one"], QueueDirection.Back);
+            _ = persisted.Push("alpha", ["one"], QueueDirection.Back, false);
             _ = persisted.Create("empty", "hidden");
         }
 
@@ -140,8 +140,8 @@ internal sealed class QueueStoreTests : IDisposable
         using var subscription = inventory.Subscribe();
         _ = await subscription.Reader.ReadAsync(cancellationToken);
 
-        _ = store.Push("work", ["one"], QueueDirection.Back);
-        _ = store.Push("work", ["two"], QueueDirection.Back);
+        _ = store.Push("work", ["one"], QueueDirection.Back, false);
+        _ = store.Push("work", ["two"], QueueDirection.Back, false);
         _ = await store.Take("work", 2, QueueDirection.Front, cancellationToken);
 
         var latest = await subscription.Reader.ReadAsync(cancellationToken);
@@ -155,21 +155,22 @@ internal sealed class QueueStoreTests : IDisposable
         using (var store = new QueueStore(_directory))
         {
             _ = store.Create("closing-work", "finish it");
-            _ = store.Push("closing-work", ["one", "two"], QueueDirection.Back);
             _ = store.Monitor("closing-work", "agent-a", true);
 
-            var closed = store.Close("closing-work");
-            var closedAgain = store.Close("closing-work");
+            var closed = store.Push("closing-work", ["one", "two"], QueueDirection.Back, true);
+            var closedAgain = store.Push("closing-work", [], QueueDirection.Back, true);
 
             _ = await Assert.That(closed.Closed).IsTrue();
             _ = await Assert.That(closed.Size).IsEqualTo(2);
             _ = await Assert.That(closedAgain).IsEqualTo(closed);
             _ = await Assert.That(store.Get("closing-work", "agent-a").Monitored).IsTrue();
             var persisted = await File.ReadAllTextAsync(closed.Path, cancellationToken);
-            _ = await Assert.That(() => store.Push("closing-work", ["late"], QueueDirection.Back))
+            _ = await Assert.That(() => store.Push("closing-work", ["late"], QueueDirection.Back, false))
                 .Throws<QueueClosedException>()
                 .WithMessage("queue: 'closing-work' is closed");
-            _ = await Assert.That(() => store.Push("closing-work", [], QueueDirection.Back))
+            var idempotent = store.Push("closing-work", [], QueueDirection.Back, true);
+            _ = await Assert.That(idempotent).IsEqualTo(closed);
+            _ = await Assert.That(() => store.Push("closing-work", [], QueueDirection.Back, false))
                 .Throws<QueueClosedException>()
                 .WithMessage("queue: 'closing-work' is closed");
             _ = await Assert.That(await File.ReadAllTextAsync(closed.Path, cancellationToken)).IsEqualTo(persisted);
@@ -201,7 +202,7 @@ internal sealed class QueueStoreTests : IDisposable
         using var store = new QueueStore(_directory);
 
         var info = store.Get("legacy-work", "agent-a");
-        _ = store.Push("legacy-work", ["accepted"], QueueDirection.Back);
+        _ = store.Push("legacy-work", ["accepted"], QueueDirection.Back, false);
 
         _ = await Assert.That(info.Closed).IsFalse();
         _ = await Assert.That(store.Get("legacy-work", "agent-a").Size).IsEqualTo(1);
@@ -214,7 +215,7 @@ internal sealed class QueueStoreTests : IDisposable
         _ = store.Create("work", "tasks");
         store.Dispose();
 
-        _ = await Assert.That(() => store.Push("work", ["late"], QueueDirection.Back))
+        _ = await Assert.That(() => store.Push("work", ["late"], QueueDirection.Back, false))
             .Throws<ObjectDisposedException>();
         _ = await Assert.That(() => store.List("agent-owner"))
             .Throws<ObjectDisposedException>();

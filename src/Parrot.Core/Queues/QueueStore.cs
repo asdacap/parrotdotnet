@@ -142,37 +142,7 @@ internal sealed class QueueStore(string directory) : IDisposable
         }
     }
 
-    public QueueInfo Close(string name)
-    {
-        var path = ResolvePath(name);
-        _gate.Wait();
-
-        try
-        {
-            ThrowIfDisposedLocked();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(LockTimeoutSeconds));
-            using var held = AcquireFileLockSynchronously(path, timeout.Token);
-            var (current, items) = Read(path, name);
-            if (current.Closed)
-            {
-                return ToInfo(path, current, items.Count);
-            }
-
-            var metadata = current with { Closed = true };
-            Write(path, metadata, items);
-            return ToInfo(path, metadata, items.Count);
-        }
-        catch (OperationCanceledException failure)
-        {
-            throw new QueueException("queue: timed out acquiring lock", failure);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
-    public QueueInfo Push(string name, IReadOnlyList<string> items, QueueDirection direction)
+    public QueueInfo Push(string name, IReadOnlyList<string> items, QueueDirection direction, bool close)
     {
         ArgumentNullException.ThrowIfNull(items);
         direction = ResolvePushDirection(direction);
@@ -188,6 +158,11 @@ internal sealed class QueueStore(string directory) : IDisposable
             var (metadata, stored) = Read(path, name);
             if (metadata.Closed)
             {
+                if (close && items.Count == 0)
+                {
+                    return ToInfo(path, metadata, stored.Count);
+                }
+
                 throw new QueueClosedException($"queue: '{name}' is closed");
             }
 
@@ -212,6 +187,7 @@ internal sealed class QueueStore(string directory) : IDisposable
                 }
             }
 
+            metadata = close ? metadata with { Closed = true } : metadata;
             Write(path, metadata, stored);
             PublishInventoryLocked(metadata, stored.Count);
             return ToInfo(path, metadata, stored.Count);

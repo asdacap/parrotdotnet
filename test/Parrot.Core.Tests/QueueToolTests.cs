@@ -15,12 +15,11 @@ internal sealed class QueueToolTests
             QueueCreateTool.Input.Descriptor,
             ["name", "description"],
             ["name"]);
-        await AssertDescriptor(QueueCloseTool.Input.Descriptor, ["name"], ["name"]);
         await AssertDescriptor(QueueInfoTool.Input.Descriptor, ["name"], ["name"]);
         await AssertDescriptor(QueueListenTool.Input.Descriptor, ["name", "enabled"], ["name"]);
         await AssertDescriptor(
             QueuePushTool.Input.Descriptor,
-            ["name", "items", "direction"],
+            ["name", "items", "direction", "close"],
             ["name", "items"]);
         await AssertDescriptor(
             QueueTakeTool.Input.Descriptor,
@@ -32,6 +31,7 @@ internal sealed class QueueToolTests
         using var take = JsonDocument.Parse(QueueTakeTool.Input.Descriptor);
         _ = await Assert.That(listen.RootElement.GetProperty("properties").GetProperty("enabled").GetProperty("default").GetBoolean()).IsTrue();
         _ = await Assert.That(push.RootElement.GetProperty("properties").GetProperty("direction").GetProperty("default").GetString()).IsEqualTo("back");
+        _ = await Assert.That(push.RootElement.GetProperty("properties").GetProperty("close").GetProperty("default").GetBoolean()).IsFalse();
         _ = await Assert.That(take.RootElement.GetProperty("properties").GetProperty("count").GetProperty("minimum").GetInt64()).IsEqualTo(1);
         _ = await Assert.That(take.RootElement.GetProperty("properties").GetProperty("yield_after_ms").GetProperty("minimum").GetInt64()).IsEqualTo(0);
     }
@@ -52,7 +52,7 @@ internal sealed class QueueToolTests
     }
 
     [Test]
-    public async Task Queue_close_allows_prompt_drain_completion(CancellationToken cancellationToken)
+    public async Task Queue_push_close_allows_prompt_drain_completion(CancellationToken cancellationToken)
     {
         using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-close", "main"));
         _ = queues.Create("work", string.Empty);
@@ -61,8 +61,8 @@ internal sealed class QueueToolTests
             Selection(),
             cancellationToken);
 
-        _ = await new QueueCloseTool(queues).Execute(
-            new ToolInvocation("close", "{\"name\":\"work\"}"),
+        _ = await new QueuePushTool(queues).Execute(
+            new ToolInvocation("close", "{\"name\":\"work\",\"items\":[],\"close\":true}"),
             Selection(),
             cancellationToken);
         var completed = await Task.WhenAny(waiting, Task.Delay(TimeSpan.FromSeconds(1), cancellationToken));
@@ -72,6 +72,37 @@ internal sealed class QueueToolTests
         using var document = JsonDocument.Parse(result.Text);
         _ = await Assert.That(document.RootElement.GetProperty("closed").GetBoolean()).IsTrue();
         _ = await Assert.That(document.RootElement.GetProperty("items").GetArrayLength()).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Queue_push_adds_final_items_closes_idempotently_and_rejects_late_items(
+        CancellationToken cancellationToken)
+    {
+        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-final", "main"));
+        _ = queues.Create("work", string.Empty);
+        var tool = new QueuePushTool(queues);
+
+        var closed = await tool.Execute(
+            new ToolInvocation("close", "{\"name\":\"work\",\"items\":[\"final\"],\"close\":true}"),
+            Selection(),
+            cancellationToken);
+        var closedAgain = await tool.Execute(
+            new ToolInvocation("close-again", "{\"name\":\"work\",\"items\":[],\"close\":true}"),
+            Selection(),
+            cancellationToken);
+        var late = await tool.Execute(
+            new ToolInvocation("late", "{\"name\":\"work\",\"items\":[\"late\"]}"),
+            Selection(),
+            cancellationToken);
+        var taken = queues.TryTake("work", 1, Parrot.Queues.QueueDirection.Front);
+
+        using var closedDocument = JsonDocument.Parse(closed.Text);
+        using var closedAgainDocument = JsonDocument.Parse(closedAgain.Text);
+        _ = await Assert.That(closedDocument.RootElement.GetProperty("closed").GetBoolean()).IsTrue();
+        _ = await Assert.That(closedDocument.RootElement.GetProperty("size").GetInt32()).IsEqualTo(1);
+        _ = await Assert.That(closedAgainDocument.RootElement.GetProperty("closed").GetBoolean()).IsTrue();
+        _ = await Assert.That(string.Join(',', taken.Items)).IsEqualTo("final");
+        _ = await Assert.That(late.Text).IsEqualTo("error: queue: 'work' is closed");
     }
 
     [Test]
@@ -86,8 +117,8 @@ internal sealed class QueueToolTests
                 QueueToolJsonContext.Default.QueueCreateToolInput))
             .Throws<JsonException>();
         _ = await Assert.That(() => JsonSerializer.Deserialize(
-                "{\"name\":\"work\",\"items\":[]}",
-                QueueToolJsonContext.Default.QueueCloseToolInput))
+                "{\"name\":\"work\",\"close\":true}",
+                QueueToolJsonContext.Default.QueueInfoToolInput))
             .Throws<JsonException>();
     }
 
