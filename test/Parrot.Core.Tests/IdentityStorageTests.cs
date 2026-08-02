@@ -65,8 +65,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var firstScratch = first.AgentScratch("agent-one");
         var secondScratch = second.AgentScratch("agent-two");
         _ = await Assert.That(first.Owns(firstScratch.Root)).IsTrue();
-        _ = await Assert.That(firstScratch.Contains(firstScratch.HomeDirectory)).IsTrue();
-        _ = await Assert.That(firstScratch.Contains(firstScratch.CacheDirectory)).IsTrue();
+        _ = await Assert.That(firstScratch.Contains(firstScratch.BlobDirectory)).IsTrue();
         _ = await Assert.That(firstScratch.Contains(firstScratch.PlanDirectory)).IsTrue();
         _ = await Assert.That(firstScratch.Contains(secondScratch.Root)).IsFalse();
         _ = await Assert.That(first.Owns(second.Root)).IsFalse();

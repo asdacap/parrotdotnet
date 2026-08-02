@@ -179,9 +179,8 @@ processes can write only their owning agent's scratch directory in addition to
 locations allowed by the security profile and runtime grants. This exception is
 available even to a read-only profile, but only when that profile exposes a shell
 tool. Scratch contains that agent's history projection, process and tool output
-blobs, private plan artifacts, and isolated home and cache directories. Shells
-default `HOME` and `XDG_CACHE_HOME` to the scratch home and cache respectively;
-explicit command environment overrides win, and Parrot does not set `TMPDIR`.
+blobs, and private plan artifacts. Parrot does not override `HOME`,
+`XDG_CACHE_HOME`, or `TMPDIR`.
 An agent cannot access a parent, child, or sibling's scratch directory.
 
 Legacy `profiles.<id>.status` input is accepted and ignored for compatibility.

@@ -100,9 +100,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             "--proc", "/proc",
         };
 
-        arguments.AddRange(["--setenv", "HOME", scratch.HomeDirectory]);
-        arguments.AddRange(["--setenv", "XDG_CACHE_HOME", scratch.CacheDirectory]);
-
         foreach (var entry in environment.Entries)
         {
             arguments.AddRange(["--setenv", entry.Key, entry.Value]);

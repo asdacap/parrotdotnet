@@ -932,9 +932,8 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   worktree lives outside the repository. Each process additionally receives only
   its owning agent's private scratch directory as a writable sandbox exception,
   after protected masks and profile restrictions. This remains writable for a
-  read-only profile when its tool set includes a shell. `HOME` and
-  `XDG_CACHE_HOME` default to that scratch directory's home and cache; command
-  environment overrides win, and Parrot does not set `TMPDIR`. The rest of the
+  read-only profile when its tool set includes a shell. Parrot does not override
+  `HOME`, `XDG_CACHE_HOME`, or `TMPDIR`. The rest of the
   host, including `~/.config`, remains read-only. Stdout and stderr retain at
   most 65,536 characters each in memory; if either exceeds that bound, the
   complete result is persisted in the owning agent's scratch blob directory and

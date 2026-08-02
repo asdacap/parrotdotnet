@@ -10,8 +10,6 @@ internal sealed class AgentScratchDirectory
         Root = Path.GetFullPath(root);
         HistoryPath = Contain("history.jsonl");
         BlobDirectory = Contain("blobs");
-        HomeDirectory = Contain("home");
-        CacheDirectory = Contain("cache");
         PlanDirectory = Contain("plan");
         Provision();
     }
@@ -21,10 +19,6 @@ internal sealed class AgentScratchDirectory
     public string HistoryPath { get; }
 
     public string BlobDirectory { get; }
-
-    public string HomeDirectory { get; }
-
-    public string CacheDirectory { get; }
 
     public string PlanDirectory { get; }
 
@@ -40,8 +34,6 @@ internal sealed class AgentScratchDirectory
     {
         ProvisionDirectory(Root);
         ProvisionDirectory(BlobDirectory);
-        ProvisionDirectory(HomeDirectory);
-        ProvisionDirectory(CacheDirectory);
     }
 
     public void ProvisionPlanDirectory() => ProvisionDirectory(PlanDirectory);
