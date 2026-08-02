@@ -711,7 +711,7 @@ providers:
 #   /dev                          sandbox tmpfs
 #   /dev/null                     writable null device
 #   /proc                         sandbox procfs
-#   {agent scratch directory}     private writable directory
+#   {user session scratch root}   writable by every agent in that user session
 #   {workspace and repository}    writable for non-read-only profiles
 #   {approved profile paths}      writable for non-read-only profiles
 #

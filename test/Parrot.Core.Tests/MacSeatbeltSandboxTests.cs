@@ -63,7 +63,7 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
                 [],
                 []),
             resources.Workspace.WritableRoots,
-            scratch.Root,
+            resources.ScratchRootDirectory,
             []);
 
         var policy = MacSeatbeltSandbox.CompilePolicy(profile).Text;
@@ -77,24 +77,46 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
     }
 
     [Test]
-    public async Task Read_only_policy_ignores_workspace_writes_but_allows_scratch()
+    public async Task Shared_scratch_omits_nested_write_denials_from_seatbelt_policy()
+    {
+        var resources = Resources();
+        var siblingScratch = resources.AgentScratch("agent-session-sibling");
+        var profile = SecurityProfile.ForAgent(
+            SecurityProfile.Compose(
+                false,
+                [new SandboxRule(siblingScratch.Root, SandboxRuleAction.DenyWrite)],
+                [],
+                []),
+            resources.Workspace.WritableRoots,
+            resources.ScratchRootDirectory,
+            []);
+
+        var policy = MacSeatbeltSandbox.CompilePolicy(profile).Text;
+
+        _ = await Assert.That(profile.AllowsWrite(Path.Combine(siblingScratch.Root, "file"))).IsTrue();
+        _ = await Assert.That(policy).DoesNotContain(Escape(siblingScratch.Root));
+    }
+
+    [Test]
+    public async Task Read_only_policy_ignores_workspace_writes_but_allows_shared_scratch()
     {
         var resources = Resources();
         var ignoredWorkspace = Directory.CreateTempSubdirectory();
 
         try
         {
-            var scratch = Scratch(resources);
             var profile = SecurityProfile.ForAgent(
                 SecurityProfile.Compose(true, [], [], []),
                 [ignoredWorkspace.FullName],
-                scratch.Root,
+                resources.ScratchRootDirectory,
                 []);
 
             var policy = MacSeatbeltSandbox.CompilePolicy(profile).Text;
 
             _ = await Assert.That(policy).Contains("(deny file-write*");
-            _ = await Assert.That(policy).Contains(Escape(scratch.Root));
+            _ = await Assert.That(policy).Contains(Escape(resources.ScratchRootDirectory));
+            _ = await Assert.That(profile.AllowsWrite(
+                Path.Combine(resources.ScratchRootDirectory, "agent-session-sibling", "file"))).IsTrue();
             _ = await Assert.That(policy).DoesNotContain(Escape(ignoredWorkspace.FullName));
         }
         finally

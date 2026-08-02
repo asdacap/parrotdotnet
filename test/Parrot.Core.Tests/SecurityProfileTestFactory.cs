@@ -14,6 +14,6 @@ internal static class SecurityProfileTestFactory
             workspace.LaunchDirectory,
             ".test-agent-scratch",
             Guid.NewGuid().ToString("n")));
-        return new AgentSessionSecurity(policy, workspace, scratch);
+        return new AgentSessionSecurity(policy, workspace, scratch.Root);
     }
 }

@@ -141,7 +141,7 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    public async Task Configured_profiles_compose_defaults_and_plan_keeps_its_scratch_private()
+    public async Task Configured_profiles_compose_defaults_and_raw_plan_policy_denies_artifacts()
     {
         var denied = Path.Combine(_root, "denied");
         var allowed = Path.Combine(_root, "allowed");
@@ -180,7 +180,7 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    public async Task Plan_scratch_lets_WriteTool_write_only_inside_the_plan_directory(
+    public async Task Runtime_scratch_grant_confines_WriteTool_to_the_user_session_scratch_root(
         CancellationToken cancellationToken)
     {
         var workspace = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;

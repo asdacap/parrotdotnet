@@ -206,12 +206,13 @@ grants apply even to `read_only`
 profiles. Filesystem access does not grant network access.
 
 Each agent receives an individually owned scratch directory beneath its user
-session. It is automatically created and writable by its owning agent, including
-when that agent uses a read-only profile (provided the profile exposes a shell
-tool). Scratch contains that agent's history projection, process and tool output
-blobs, and plan artifacts. Parrot does not override `HOME`, `XDG_CACHE_HOME`, or
-`TMPDIR`. Other agents do not receive write access to this scratch directory,
-but the read-only host baseline does not hide it from filesystem reads.
+session. It is automatically created for that agent's history projection,
+process and tool output blobs, and plan artifacts. Every agent in the same user
+session can write anywhere beneath the shared scratch root, including when it
+uses a read-only profile (provided the profile exposes a shell tool). This grant
+does not include another user session or non-scratch session infrastructure.
+Parrot does not override `HOME`, `XDG_CACHE_HOME`, or `TMPDIR`, and the read-only
+host baseline does not hide scratch contents from filesystem reads.
 
 Legacy `profiles.<id>.status` input is accepted and ignored for compatibility.
 It is not profile guidance and is never injected into a prompt.

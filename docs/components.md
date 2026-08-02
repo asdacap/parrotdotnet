@@ -587,9 +587,10 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   profile.
 - **Boundary** no. A user-approved allow-write rule enables write, edit, and
   shell access within its target, is runtime-only and nonpersistent, and cannot
-  override a read-only profile or explicit static deny. Each agent's private
-  scratch directory is automatically created and writable by its owner; neither
-  mechanism has network effect.
+  override a read-only profile or explicit static deny. Each agent's scratch
+  directory is automatically created, and every agent in the same user session
+  can write beneath their shared scratch root; neither mechanism has network
+  effect.
 
 ### `QuestionBroker` — rank 5, M3
 
@@ -724,7 +725,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   ancestor denial. An approval made before the child is created is therefore in
   that child profile; later parent approvals do not alter existing children or
   siblings. The relationship stays live through nested descendants and is
-  branch-local.
+  branch-local. The user-session scratch root is a mandatory runtime write grant
+  applied after this inheritance, so it remains writable to every agent in that
+  user session.
 - **Note** mutually dependent with `AgentSession`; both rank 9. The registry
   creates, names, retains, observes, and owns the lifetime of background child
   sessions. It does not admit input or wait for turns: those operations belong
@@ -929,16 +932,19 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   explicit `!replace` sandbox-rule sequence instead replaces its inherited list.
   A missing `allow_write` directory is omitted unless it sets
   `create_if_not_exist: true`, which recursively creates it before granting it.
-  Each process additionally receives its automatically created, private agent
-  scratch directory as a writable location. Parrot does not override `HOME`,
-  `XDG_CACHE_HOME`, or `TMPDIR`. The rest of the host remains read-only. Stdout
-  and stderr retain at
-  most 65,536 characters each in memory; if either exceeds that bound, the
-  complete result is persisted in the owning agent's scratch blob directory and
-  the tool returns its full absolute path. Tool-output blobs and plan artifacts
-  use the same individually owned scratch boundary. Parent, child, and sibling
-  agents do not share write access to scratch directories; the readable host
-  baseline does not make their contents confidential from filesystem reads.
+  Each process additionally receives the user session's automatically created
+  scratch root as a writable location, including under a read-only profile. Each
+  agent retains an individual directory beneath that root for its own history,
+  output blobs, and plans, but parent, child, and sibling agents in the same user
+  session can write those directories. This mandatory runtime grant is applied
+  after inherited profile restrictions; it does not extend to another user
+  session or non-scratch session infrastructure. Parrot does not override
+  `HOME`, `XDG_CACHE_HOME`, or `TMPDIR`. The rest of the host remains read-only.
+  Stdout and stderr retain at most 65,536 characters each in memory; if either
+  exceeds that bound, the complete result is persisted in the owning agent's
+  scratch blob directory and the tool returns its full absolute path. The
+  readable host baseline also does not make scratch contents confidential from
+  filesystem reads.
   Process names are ordinal and unique among running processes within their
   owning agent session: supplied duplicates fail before launch while the current
   binding is running, completed bindings can be replaced atomically, and omitted

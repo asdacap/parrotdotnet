@@ -34,12 +34,12 @@ internal sealed class SecurityProfile
     public static SecurityProfile ForAgent(
         SecurityProfile policy,
         IEnumerable<string> writableRoots,
-        string scratchRoot,
+        string userSessionScratchRoot,
         IEnumerable<SecurityWriteTarget> approvals)
     {
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(writableRoots);
-        ArgumentException.ThrowIfNullOrWhiteSpace(scratchRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(userSessionScratchRoot);
         ArgumentNullException.ThrowIfNull(approvals);
 
         var approvalTargets = approvals.ToArray();
@@ -48,8 +48,10 @@ internal sealed class SecurityProfile
             target.Validate();
         }
 
-        var root = Path.GetPathRoot(Path.GetFullPath(scratchRoot))
-            ?? throw new ArgumentException("The scratch root must have a filesystem root.", nameof(scratchRoot));
+        var root = Path.GetPathRoot(Path.GetFullPath(userSessionScratchRoot))
+            ?? throw new ArgumentException(
+                "The user session scratch root must have a filesystem root.",
+                nameof(userSessionScratchRoot));
         var rules = new List<SandboxRule> { new(root, SandboxRuleAction.DenyWrite) };
         if (!policy.ReadOnly)
         {
@@ -57,8 +59,9 @@ internal sealed class SecurityProfile
             rules.AddRange(approvalTargets.Select(target => new SandboxRule(target.Path, SandboxRuleAction.AllowWrite)));
         }
 
-        rules.AddRange(policy._rules);
-        rules.Add(new(scratchRoot, SandboxRuleAction.AllowWrite));
+        var scratchRule = Normalize(new(userSessionScratchRoot, SandboxRuleAction.AllowWrite));
+        rules.AddRange(policy._rules.Where(rule => !Contains(scratchRule.Path, rule.Path)));
+        rules.Add(scratchRule);
         return new(policy.ReadOnly, rules.Select(Normalize));
     }
 

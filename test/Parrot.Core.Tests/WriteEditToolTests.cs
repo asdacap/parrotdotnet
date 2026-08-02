@@ -4,6 +4,7 @@ using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Llm;
 using Parrot.Security;
+using Parrot.Store;
 using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
@@ -413,6 +414,45 @@ internal sealed class WriteEditToolTests : IDisposable
         _ = await Assert.That(await File.ReadAllTextAsync(created, cancellationToken)).IsEqualTo("created");
         File.Delete(existing);
         File.Delete(created);
+    }
+
+    [Test]
+    public async Task Agent_security_allows_write_and_edit_in_sibling_scratch_only(
+        CancellationToken cancellationToken)
+    {
+        var workspace = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var scratch = Directory.CreateDirectory(Path.Combine(_externalRoot, "session", "scratch")).FullName;
+        var siblingScratch = Directory.CreateDirectory(Path.Combine(scratch, "agent-sibling")).FullName;
+        var otherSessionScratch = Directory.CreateDirectory(
+            Path.Combine(_externalRoot, "other-session", "scratch", "agent-other")).FullName;
+        var siblingFile = Path.Combine(siblingScratch, "shared.txt");
+        var deniedFile = Path.Combine(otherSessionScratch, "denied.txt");
+        var security = new AgentSessionSecurity(
+            SecurityProfile.Compose(true, [], [], []),
+            ProjectWorkspace.FromLaunchDirectory(workspace),
+            scratch);
+        var profile = security.Capture(SecurityProfile.Compose(true, [], [], []));
+        var write = new WriteTool(new ToolWorkspace(workspace));
+        var edit = new EditTool(new ToolWorkspace(workspace));
+
+        var written = (await write.Execute(
+            new ToolInvocation("write-sibling", WriteArguments(siblingFile, "old")),
+            Turn(profile),
+            cancellationToken)).Text;
+        var edited = (await edit.Execute(
+            new ToolInvocation("edit-sibling", EditArguments(siblingFile, "old", "new", false)),
+            Turn(profile),
+            cancellationToken)).Text;
+        var denied = (await write.Execute(
+            new ToolInvocation("write-other-session", WriteArguments(deniedFile, "denied")),
+            Turn(profile),
+            cancellationToken)).Text;
+
+        _ = await Assert.That(written).DoesNotStartWith("error: ");
+        _ = await Assert.That(edited).DoesNotStartWith("error: ");
+        _ = await Assert.That(await File.ReadAllTextAsync(siblingFile, cancellationToken)).IsEqualTo("new");
+        _ = await Assert.That(denied).StartsWith("error: ");
+        _ = await Assert.That(File.Exists(deniedFile)).IsFalse();
     }
 
     [Test]

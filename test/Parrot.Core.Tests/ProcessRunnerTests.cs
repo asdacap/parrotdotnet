@@ -261,7 +261,7 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Agent_scratch_directory_is_writable(CancellationToken cancellationToken)
+    public async Task User_session_scratch_root_is_writable(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -272,7 +272,6 @@ internal sealed class ProcessRunnerTests : IDisposable
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
         var resources = Resources(_workspace);
-        var scratch = Scratch(resources);
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
@@ -282,14 +281,14 @@ internal sealed class ProcessRunnerTests : IDisposable
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        await AssertWritableBind(arguments, scratch.Root);
+        await AssertWritableBind(arguments, resources.ScratchRootDirectory);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "HOME")).IsEqualTo(-1);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "XDG_CACHE_HOME")).IsEqualTo(-1);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
     }
 
     [Test]
-    public async Task Agent_scratch_directory_overrides_profile_restrictions(
+    public async Task User_session_scratch_root_overrides_profile_restrictions(
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
@@ -316,8 +315,8 @@ internal sealed class ProcessRunnerTests : IDisposable
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        var mounts = FindMounts(arguments, scratch.Root);
-        _ = await Assert.That(mounts[^1]).IsEqualTo("--bind");
+        _ = await Assert.That(FindMounts(arguments, scratch.Root)).IsEmpty();
+        await AssertWritableBind(arguments, resources.ScratchRootDirectory);
     }
 
     [Test]
@@ -392,7 +391,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        var lastSecurityRule = Array.LastIndexOf(arguments, scratch.Root);
+        var lastSecurityRule = Array.LastIndexOf(arguments, resources.ScratchRootDirectory);
         var deviceMount = Array.IndexOf(arguments, "--dev");
         var processMount = Array.IndexOf(arguments, "--proc");
         _ = await Assert.That(deviceMount).IsGreaterThan(lastSecurityRule);
@@ -582,6 +581,41 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Read_only_process_writes_sibling_scratch_but_not_session_state(
+        CancellationToken cancellationToken)
+    {
+        var runner = ProcessRunner.Locate();
+
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        var resources = Resources(_workspace);
+        var ownScratch = Scratch(resources);
+        var siblingScratch = resources.AgentScratch("agent-session-sibling");
+        var siblingFile = Path.Combine(siblingScratch.Root, "shared.txt");
+        var outsideFile = Path.Combine(resources.Root, "outside.txt");
+        var policy = SecurityProfile.Compose(
+            true,
+            [new SandboxRule(siblingScratch.Root, SandboxRuleAction.DenyWrite)],
+            [],
+            []);
+        var result = await runner.Run(
+            $"printf shared > '{siblingFile}' && "
+            + $"(printf denied > '{outsideFile}' 2>/dev/null || printf outside-blocked)",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            ownScratch,
+            AgentProfile(resources, policy, []),
+            cancellationToken);
+
+        _ = await Assert.That(await File.ReadAllTextAsync(siblingFile, cancellationToken)).IsEqualTo("shared");
+        _ = await Assert.That(result.Stdout).Contains("outside-blocked");
+        _ = await Assert.That(File.Exists(outsideFile)).IsFalse();
+    }
+
+    [Test]
     public async Task The_workspace_is_writable_and_the_host_is_read_only(CancellationToken cancellationToken)
     {
         var runner = ProcessRunner.Locate();
@@ -617,7 +651,11 @@ internal sealed class ProcessRunnerTests : IDisposable
         UserSessionResources resources,
         SecurityProfile policy,
         IEnumerable<SecurityWriteTarget> approvals) =>
-        SecurityProfile.ForAgent(policy, resources.Workspace.WritableRoots, Scratch(resources).Root, approvals);
+        SecurityProfile.ForAgent(
+            policy,
+            resources.Workspace.WritableRoots,
+            resources.ScratchRootDirectory,
+            approvals);
 
     private static UserSessionResources Resources(string workspace) =>
         new(

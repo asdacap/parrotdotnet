@@ -65,17 +65,24 @@ internal sealed class SecurityProfileTests
     }
 
     [Test]
-    public async Task Agent_profile_applies_ordered_roots_approvals_policy_and_scratch()
+    public async Task Agent_profile_applies_ordered_roots_approvals_policy_and_shared_scratch()
     {
         var root = Directory.CreateTempSubdirectory();
         try
         {
             var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
             var approved = Directory.CreateDirectory(Path.Combine(root.FullName, "approved")).FullName;
-            var scratch = Directory.CreateDirectory(Path.Combine(root.FullName, "scratch")).FullName;
+            var scratch = Directory.CreateDirectory(Path.Combine(root.FullName, "session", "scratch")).FullName;
+            var ownScratch = Directory.CreateDirectory(Path.Combine(scratch, "agent-own")).FullName;
+            var siblingScratch = Directory.CreateDirectory(Path.Combine(scratch, "agent-sibling")).FullName;
+            var otherSessionScratch = Directory.CreateDirectory(
+                Path.Combine(root.FullName, "other-session", "scratch", "agent-other")).FullName;
             var policy = SecurityProfile.Compose(
                 false,
-                [new SandboxRule(approved, SandboxRuleAction.DenyWrite), new SandboxRule(scratch, SandboxRuleAction.DenyWrite)],
+                [
+                    new SandboxRule(approved, SandboxRuleAction.DenyWrite),
+                    new SandboxRule(siblingScratch, SandboxRuleAction.DenyWrite),
+                ],
                 [],
                 []);
 
@@ -88,7 +95,9 @@ internal sealed class SecurityProfileTests
             _ = await Assert.That(effective.AllowsWrite(Path.Combine(root.FullName, "ordinary"))).IsFalse();
             _ = await Assert.That(effective.AllowsWrite(Path.Combine(workspace, "file"))).IsTrue();
             _ = await Assert.That(effective.AllowsWrite(Path.Combine(approved, "file"))).IsFalse();
-            _ = await Assert.That(effective.AllowsWrite(Path.Combine(scratch, "file"))).IsTrue();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(ownScratch, "file"))).IsTrue();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(siblingScratch, "file"))).IsTrue();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(otherSessionScratch, "file"))).IsFalse();
         }
         finally
         {
@@ -110,13 +119,17 @@ internal sealed class SecurityProfileTests
     }
 
     [Test]
-    public async Task Agent_profile_keeps_workspace_read_only_but_always_allows_scratch()
+    public async Task Agent_profile_keeps_workspace_read_only_but_always_allows_shared_scratch()
     {
         var root = Directory.CreateTempSubdirectory();
         try
         {
             var workspace = Directory.CreateDirectory(Path.Combine(root.FullName, "workspace")).FullName;
-            var scratch = Directory.CreateDirectory(Path.Combine(root.FullName, "scratch")).FullName;
+            var scratch = Directory.CreateDirectory(Path.Combine(root.FullName, "session", "scratch")).FullName;
+            var ownScratch = Directory.CreateDirectory(Path.Combine(scratch, "agent-own")).FullName;
+            var siblingScratch = Directory.CreateDirectory(Path.Combine(scratch, "agent-sibling")).FullName;
+            var otherSessionScratch = Directory.CreateDirectory(
+                Path.Combine(root.FullName, "other-session", "scratch", "agent-other")).FullName;
             var effective = SecurityProfile.ForAgent(
                 SecurityProfile.Compose(true, [], [], []),
                 [workspace],
@@ -124,7 +137,9 @@ internal sealed class SecurityProfileTests
                 []);
 
             _ = await Assert.That(effective.AllowsWrite(Path.Combine(workspace, "file"))).IsFalse();
-            _ = await Assert.That(effective.AllowsWrite(Path.Combine(scratch, "file"))).IsTrue();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(ownScratch, "file"))).IsTrue();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(siblingScratch, "file"))).IsTrue();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(otherSessionScratch, "file"))).IsFalse();
         }
         finally
         {
