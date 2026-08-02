@@ -19,7 +19,7 @@ internal sealed class QueuePushToolPresenter : IToolPresenter
         var input = QueuePushInput.Parse(call.ArgumentsJson);
         return new ToolLiveValue(
             Label(call.Owner, input.Name, input.Close ? QueueState.Closed : QueueState.Open),
-            ToolBlock.FromQueue(input.Items),
+            ToolBlock.FromQueue(input.Details),
             Metadata,
             frame);
     }
@@ -30,7 +30,7 @@ internal sealed class QueuePushToolPresenter : IToolPresenter
         var status = terminal.ResolveStatus();
         var state = ResolveState(input, terminal, status);
         var block = status == ToolTerminalStatus.Succeeded
-            ? ToolBlock.FromQueue(input.Items)
+            ? ToolBlock.FromQueue(input.Details)
             : terminal.DescribeBlock(ToolBlockKind.None);
         return new ToolScrollbackValue(Label(call.Owner, input.Name, state), block, status, Metadata);
     }
@@ -51,7 +51,7 @@ internal sealed class QueuePushToolPresenter : IToolPresenter
     private static string Label(string owner, string name, QueueState state) =>
         $"{owner}: Push to queue {name} · {state.ToString().ToLowerInvariant()}";
 
-    private readonly record struct QueuePushInput(string Name, string[] Items, bool Close)
+    private readonly record struct QueuePushInput(string Name, string[] Details, bool Close)
     {
         public static QueuePushInput Parse(string argumentsJson)
         {
@@ -60,22 +60,48 @@ internal sealed class QueuePushToolPresenter : IToolPresenter
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("name", out var name)
                 || name.ValueKind != JsonValueKind.String
-                || string.IsNullOrEmpty(name.GetString())
-                || !root.TryGetProperty("items", out var items)
-                || items.ValueKind != JsonValueKind.Array)
+                || string.IsNullOrEmpty(name.GetString()))
             {
-                throw new FormatException("Queue push arguments require a name and items.");
+                throw new FormatException("Queue push arguments require a name and exactly one item source.");
             }
 
-            var values = new List<string>();
-            foreach (var item in items.EnumerateArray())
+            var hasItems = root.TryGetProperty("items", out var items);
+            var hasSourceFile = root.TryGetProperty("source_file", out var sourceFile);
+            if (hasItems == hasSourceFile)
             {
-                if (item.ValueKind != JsonValueKind.String)
+                throw new FormatException("Queue push arguments require exactly one of items or source_file.");
+            }
+
+            string[] details;
+            if (hasItems)
+            {
+                if (items.ValueKind != JsonValueKind.Array)
                 {
-                    throw new FormatException("Queue push items must be strings.");
+                    throw new FormatException("Queue push items must be an array.");
                 }
 
-                values.Add(item.GetString() ?? string.Empty);
+                var values = new List<string>();
+                foreach (var item in items.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.String)
+                    {
+                        throw new FormatException("Queue push items must be strings.");
+                    }
+
+                    values.Add(item.GetString() ?? string.Empty);
+                }
+
+                details = [.. values];
+            }
+            else
+            {
+                if (sourceFile.ValueKind != JsonValueKind.String
+                    || string.IsNullOrEmpty(sourceFile.GetString()))
+                {
+                    throw new FormatException("Queue push source_file must be a non-empty string.");
+                }
+
+                details = [$"source_file: {sourceFile.GetString()}"];
             }
 
             var close = false;
@@ -93,8 +119,8 @@ internal sealed class QueuePushToolPresenter : IToolPresenter
             return new QueuePushInput(
                 !string.IsNullOrEmpty(nameValue)
                     ? nameValue
-                    : throw new FormatException("Queue push arguments require a name and items."),
-                [.. values],
+                    : throw new FormatException("Queue push arguments require a name and exactly one item source."),
+                details,
                 close);
         }
     }
