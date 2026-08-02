@@ -14,6 +14,13 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
     private const int MaxVisited = 100_000;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
+    private enum WalkStopReason
+    {
+        Completed,
+        ResultLimit,
+        VisitLimit,
+    }
+
     public string Name => "glob";
 
     public string Description =>
@@ -93,7 +100,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
         {
             var results = new List<string>();
             var visited = 0;
-            Walk(
+            var stopReason = Walk(
                 workspace,
                 root,
                 string.Empty,
@@ -103,21 +110,24 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
                 selection.SecurityProfile,
                 timeoutCancellation.Token);
 
-            if (results.Count == 0)
+            if (results.Count == 0 && stopReason == WalkStopReason.Completed)
             {
                 return string.Empty;
             }
 
             results.Sort(StringComparer.Ordinal);
-            var truncated = results.Count > MaxResults;
-
-            if (truncated)
+            if (results.Count > MaxResults)
             {
                 results.RemoveRange(MaxResults, results.Count - MaxResults);
             }
 
-            var output = string.Join('\n', results) + "\n";
-            return truncated ? output + "[glob results truncated]\n" : output;
+            var output = results.Count == 0 ? string.Empty : string.Join('\n', results) + "\n";
+            return stopReason switch
+            {
+                WalkStopReason.ResultLimit => output + "[glob results truncated: result limit reached]\n",
+                WalkStopReason.VisitLimit => output + "[glob results truncated: visit limit reached]\n",
+                _ => output,
+            };
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -125,7 +135,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
         }
     }
 
-    private static void Walk(
+    private static WalkStopReason Walk(
         ToolWorkspace workspace,
         (string Lexical, string Physical) directory,
         string relativeDirectory,
@@ -145,22 +155,26 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
         }
         catch (IOException)
         {
-            return;
+            return WalkStopReason.Completed;
         }
         catch (UnauthorizedAccessException)
         {
-            return;
+            return WalkStopReason.Completed;
         }
 
         foreach (var entry in entries)
         {
-            visited++;
-
-            if (visited > MaxVisited || results.Count >= MaxResults)
+            if (results.Count > MaxResults)
             {
-                return;
+                return WalkStopReason.ResultLimit;
             }
 
+            if (visited >= MaxVisited)
+            {
+                return WalkStopReason.VisitLimit;
+            }
+
+            visited++;
             var name = Path.GetFileName(entry);
             var relative = relativeDirectory.Length == 0
                 ? name
@@ -203,13 +217,31 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
             if (regex.IsMatch(relative))
             {
                 results.Add(isRealDirectory || (isSymlink && Directory.Exists(entry)) ? relative + "/" : relative);
+                if (results.Count > MaxResults)
+                {
+                    return WalkStopReason.ResultLimit;
+                }
             }
 
             if (isRealDirectory)
             {
-                Walk(workspace, resolved, relative, regex, results, ref visited, securityProfile, cancellationToken);
+                var stopReason = Walk(
+                    workspace,
+                    resolved,
+                    relative,
+                    regex,
+                    results,
+                    ref visited,
+                    securityProfile,
+                    cancellationToken);
+                if (stopReason != WalkStopReason.Completed)
+                {
+                    return stopReason;
+                }
             }
         }
+
+        return WalkStopReason.Completed;
     }
 
     private static string GlobToRegex(string pattern)
