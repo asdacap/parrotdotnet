@@ -278,6 +278,29 @@ projection. That exception does not grant access to the containing session or ag
 directory, and it cannot expose another agent's history, including a parent,
 child, or sibling's.
 
+### Conversation checkpoints and child forks
+
+`set_checkpoint` durably names a point in the calling agent's conversation for a
+later `agent_spawn` fork. Its required `title` is preserved exactly; a whitespace-
+only title is invalid. Reusing a title is allowed, and the most recently recorded
+checkpoint with that exact title wins.
+
+`agent_spawn.fork` is an optional string. Omitting it, passing `""`, or passing
+`"empty"` gives the child no parent conversation. `"full"` gives it the parent's
+current **effective history**: the current compaction summary, status when present,
+and retained conversation tail. Any other value is a checkpoint title. A named fork
+contains the checkpoint's tool-call group and every later *completed* group before
+the spawn; the current spawn group is incomplete and is excluded. Thus another tool
+call in the same provider batch cannot use a checkpoint created by that batch.
+Unknown titles, checkpoints no longer represented by the effective history, and
+same-batch checkpoints fail rather than silently selecting a different range.
+
+Compaction reshapes effective history. It preserves only the summary, applicable
+status, and retained tail, so a checkpoint compacted out of that material is no
+longer forkable. A fork copies conversation context only: it does not transfer the
+parent's session identity, security profile, write grants, queues, process control,
+or any other runtime authority.
+
 Queues are agent-owned within this boundary rather than globally shared by all
 agents in the user session. An agent resolves its own queues first and may also
 access only its direct parent's queues; a parent cannot access a child's queue,

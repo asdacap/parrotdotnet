@@ -235,6 +235,21 @@ internal sealed class AgentSession(
     public async Task Settled() =>
         _ = await ResultSettled().ConfigureAwait(false);
 
+    internal void SetCheckpoint(string title, long assistantSequence, string toolCallId)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            throw new ArgumentException("checkpoint title must not be blank", nameof(title));
+        }
+
+        if (assistantSequence <= 0)
+        {
+            throw new ArgumentException("checkpoint requires a durable assistant tool batch", nameof(assistantSequence));
+        }
+
+        _ = eventRepository.RecordCheckpoint(SessionId, title, assistantSequence, toolCallId);
+    }
+
     internal AgentSelection ResolvePolicySelection() => registry?.ResolveSelection(this) ?? Selection();
 
     internal AgentScope ResolveScope() => identity.Scope;
@@ -1159,7 +1174,8 @@ internal sealed class AgentSession(
                     }
                     else
                     {
-                        settlement = await Invoke(selection, snapshot, call, cancellationToken).ConfigureAwait(false);
+                        settlement = await Invoke(selection, snapshot, batch.Sequence, call, cancellationToken)
+                            .ConfigureAwait(false);
                     }
 
                     terminal = settlement.Terminal;
@@ -1233,15 +1249,21 @@ internal sealed class AgentSession(
         {
             _systemPrompt.RenewEpoch();
             instructions = _systemPrompt.Build(selection);
-            var prior = eventRepository.CompactionHistory(SessionId);
-            var durableMessages = prior?.Tail ?? eventRepository.Conversation(SessionId);
-            var compactionHistory = new List<LLMMessage>();
-            if (prior is not null)
+            var effective = eventRepository.EffectiveConversationGroups(SessionId);
+            var activeCheckpoints = eventRepository.ActiveCheckpointAssistantSequences(SessionId);
+            var compactionGroups = new List<CompactionGroup>();
+            if (effective.Snapshot is not null)
             {
-                compactionHistory.Add(LLMMessage.System(prior.Snapshot.Summary));
+                compactionGroups.Add(new CompactionGroup(
+                    [LLMMessage.System(effective.Snapshot.Summary)],
+                    effective.Snapshot.Watermark,
+                    false));
             }
 
-            compactionHistory.AddRange(durableMessages.Select(item => RestoreMessage(eventRepository, item)));
+            compactionGroups.AddRange(effective.Groups.Select(group => new CompactionGroup(
+                [.. group.Items.Select(item => RestoreMessage(eventRepository, item))],
+                group.EndWatermark,
+                group.AssistantSequence > 0 && activeCheckpoints.Contains(group.AssistantSequence))));
             var statusContent = await status.Observe(this, selection, selection.Profile, cancellationToken)
                 .ConfigureAwait(false);
             var fixedStatus = LLMMessage.System(statusContent);
@@ -1249,39 +1271,30 @@ internal sealed class AgentSession(
                 selectedModel,
                 instructions,
                 tools,
-                compactionHistory,
+                compactionGroups,
+                effective.Snapshot?.Watermark ?? 0,
                 fixedStatus,
                 cancellationToken).ConfigureAwait(false);
-            if (compacted is not null)
+            if (compacted is not null
+                && compacted.Watermark > (effective.Snapshot?.Watermark ?? 0))
             {
-                if (compacted.RetainedDurableMessageCount > durableMessages.Count)
+                var statusInjected = new Event
                 {
-                    throw new InvalidOperationException(
-                        "compaction retained more messages than durable conversation history");
+                    Id = Identifier.EventId(),
+                    AgentSessionId = SessionId,
+                    StatusInjected = new StatusInjected(),
+                };
+                if (!eventRepository.AppendCompactionStatus(
+                        statusInjected,
+                        new CompactionSnapshot(compacted.Summary.Content, compacted.Watermark),
+                        statusContent))
+                {
+                    throw new InvalidOperationException("compaction snapshot was already persisted");
                 }
 
-                var summarisedCount = durableMessages.Count - compacted.RetainedDurableMessageCount;
-                if (summarisedCount > 0)
-                {
-                    var watermark = durableMessages[summarisedCount - 1].Sequence;
-                    var statusInjected = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        StatusInjected = new StatusInjected(),
-                    };
-                    if (!eventRepository.AppendCompactionStatus(
-                            statusInjected,
-                            new CompactionSnapshot(compacted.Summary.Content, watermark),
-                            statusContent))
-                    {
-                        throw new InvalidOperationException("compaction snapshot was already persisted");
-                    }
-
-                    _history.Clear();
-                    _history.AddRange(RestoreHistory(eventRepository, SessionId));
-                    await eventBroker.Publish(statusInjected, CancellationToken.None).ConfigureAwait(false);
-                }
+                _history.Clear();
+                _history.AddRange(RestoreHistory(eventRepository, SessionId));
+                await eventBroker.Publish(statusInjected, CancellationToken.None).ConfigureAwait(false);
             }
 
             var finished = new Event
@@ -1426,6 +1439,7 @@ internal sealed class AgentSession(
     private async Task<(Event Published, ToolExecutionTerminal Terminal)> Invoke(
         AgentTurnSelection selection,
         ToolSnapshot snapshot,
+        long assistantSequence,
         LLMToolCall call,
         CancellationToken cancellationToken)
     {
@@ -1448,7 +1462,7 @@ internal sealed class AgentSession(
             var effective = ResolveSelection();
             var invocationSelection = selection with { SecurityProfile = effective.SecurityProfile };
             var result = await tool.Execute(
-                new ToolInvocation(call.Id, call.ArgumentsJson),
+                new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence),
                 invocationSelection,
                 cancellationToken).ConfigureAwait(false);
             var text = result.Text;

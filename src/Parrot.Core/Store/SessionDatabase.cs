@@ -203,6 +203,19 @@ internal sealed class SessionDatabase : IDisposable
                 CREATE UNIQUE INDEX IF NOT EXISTS agent_history_compaction
                     ON agent_history (agent_session, watermark) WHERE kind = 'compaction';
 
+                CREATE TABLE IF NOT EXISTS history_checkpoint (
+                    sequence           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_session      TEXT NOT NULL,
+                    title              TEXT NOT NULL,
+                    assistant_sequence INTEGER NOT NULL REFERENCES conversation_item(sequence) ON DELETE CASCADE,
+                    tool_call_id        TEXT NOT NULL,
+                    created_at          TEXT NOT NULL,
+                    UNIQUE (agent_session, tool_call_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS history_checkpoint_by_title
+                    ON history_checkpoint (agent_session, title, sequence DESC);
+
                 CREATE TABLE IF NOT EXISTS todo (
                     agent_session TEXT NOT NULL,
                     id            TEXT NOT NULL,

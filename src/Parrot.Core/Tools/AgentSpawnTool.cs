@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Llm;
+using Parrot.Store;
 using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
@@ -29,6 +30,7 @@ internal sealed partial class AgentSpawnTool(
         string requestedModel;
         string requestedName;
         string requestedScope;
+        HistoryForkSelection requestedFork;
 
         try
         {
@@ -39,6 +41,7 @@ internal sealed partial class AgentSpawnTool(
             requestedModel = input.Model ?? string.Empty;
             requestedName = input.Name ?? string.Empty;
             requestedScope = input.Scope ?? string.Empty;
+            requestedFork = HistoryForkSelection.Parse(input.Fork ?? string.Empty);
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
@@ -50,11 +53,20 @@ internal sealed partial class AgentSpawnTool(
             var model = requestedModel.Length == 0
                 ? selection.RequestedModel
                 : router.Resolve(requestedModel).RequestedSelector;
-            var agent = agents.Spawn(session, selection, requestedProfile, model, requestedName, requestedScope);
+            var agent = agents.Spawn(
+                session,
+                selection,
+                requestedProfile,
+                model,
+                requestedName,
+                requestedScope,
+                requestedFork,
+                invocation.AssistantSequence,
+                invocation.CallId);
             _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
             return new SpawnAgentResult(agent.SessionId, agent.Name, agent.Depth).Format();
         }
-        catch (Exception failure) when (failure is AgentRegistryException or LLMProviderException)
+        catch (Exception failure) when (failure is AgentRegistryException or LLMProviderException or ArgumentException)
         {
             return $"error: {failure.Message}";
         }
@@ -86,5 +98,10 @@ internal sealed partial class AgentSpawnTool(
         [Description("Optional problem-space scope for the child; omitted or empty inherits the parent's effective scope.")]
         [JsonPropertyName("scope")]
         public string? Scope { get; init; }
+
+        [Description("Conversation history for the child: omitted, empty, or `empty` gives no history; `full` gives the parent's effective history; a checkpoint title gives history from that checkpoint.")]
+        [JsonPropertyName("fork")]
+        [ToolDefaultString("empty")]
+        public string? Fork { get; init; }
     }
 }

@@ -618,6 +618,386 @@ internal sealed class EventRepository
         }
     }
 
+    public bool RecordCheckpoint(string agentSessionId, string title, long assistantSequence, string toolCallId)
+    {
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            using var insert = _database.Connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = "INSERT OR IGNORE INTO history_checkpoint "
+                + "(agent_session, title, assistant_sequence, tool_call_id, created_at) "
+                + "SELECT $session, $title, $assistant, $call, $at WHERE EXISTS "
+                + "(SELECT 1 FROM conversation_tool_call AS call "
+                + "JOIN conversation_item AS item ON item.sequence = call.item_sequence "
+                + "WHERE item.agent_session = $session AND item.sequence = $assistant "
+                + "AND call.id = $call AND call.name = 'set_checkpoint');";
+            _ = insert.Parameters.AddWithValue("$session", agentSessionId);
+            _ = insert.Parameters.AddWithValue("$title", title);
+            _ = insert.Parameters.AddWithValue("$assistant", assistantSequence);
+            _ = insert.Parameters.AddWithValue("$call", toolCallId);
+            _ = insert.Parameters.AddWithValue("$at", Timestamp());
+            var changed = insert.ExecuteNonQuery() != 0;
+            if (!changed)
+            {
+                using var existing = _database.Connection.CreateCommand();
+                existing.Transaction = transaction;
+                existing.CommandText = "SELECT title, assistant_sequence FROM history_checkpoint "
+                    + "WHERE agent_session = $session AND tool_call_id = $call;";
+                _ = existing.Parameters.AddWithValue("$session", agentSessionId);
+                _ = existing.Parameters.AddWithValue("$call", toolCallId);
+                using var reader = existing.ExecuteReader();
+                if (!reader.Read()
+                    || !string.Equals((string)reader["title"], title, StringComparison.Ordinal)
+                    || Convert.ToInt64(reader["assistant_sequence"], System.Globalization.CultureInfo.InvariantCulture)
+                        != assistantSequence)
+                {
+                    throw new InputConflictException($"checkpoint tool call {toolCallId} was already recorded differently");
+                }
+            }
+
+            transaction.Commit();
+            return true;
+        }
+    }
+
+    public HistoryCheckpoint? LatestUsableCheckpoint(string agentSessionId, string title, long beforeAssistantSequence)
+    {
+        lock (_database.Gate)
+        {
+            using var read = _database.Connection.CreateCommand();
+            read.CommandText = "SELECT title, assistant_sequence, tool_call_id FROM history_checkpoint "
+                + "WHERE agent_session = $session AND title = $title "
+                + "ORDER BY sequence DESC LIMIT 1;";
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+            _ = read.Parameters.AddWithValue("$title", title);
+            using var reader = read.ExecuteReader();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var checkpoint = new HistoryCheckpoint(
+                (string)reader["title"],
+                Convert.ToInt64(reader["assistant_sequence"], System.Globalization.CultureInfo.InvariantCulture),
+                (string)reader["tool_call_id"]);
+            return checkpoint.AssistantSequence < beforeAssistantSequence ? checkpoint : null;
+        }
+    }
+
+    public IReadOnlySet<long> ActiveCheckpointAssistantSequences(string agentSessionId)
+    {
+        lock (_database.Gate)
+        {
+            using var read = _database.Connection.CreateCommand();
+            read.CommandText = "SELECT checkpoint.assistant_sequence FROM history_checkpoint AS checkpoint "
+                + "JOIN (SELECT title, MAX(sequence) AS sequence FROM history_checkpoint "
+                + "WHERE agent_session = $session GROUP BY title) AS latest ON latest.sequence = checkpoint.sequence "
+                + "LEFT JOIN compaction_snapshot AS snapshot ON snapshot.agent_session = checkpoint.agent_session "
+                + "WHERE checkpoint.agent_session = $session "
+                + "AND (snapshot.watermark IS NULL OR checkpoint.assistant_sequence > snapshot.watermark);";
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+            using var reader = read.ExecuteReader();
+            var sequences = new HashSet<long>();
+            while (reader.Read())
+            {
+                _ = sequences.Add(Convert.ToInt64(
+                    reader["assistant_sequence"],
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            return sequences;
+        }
+    }
+
+    public EffectiveConversationHistory EffectiveConversationGroups(string agentSessionId)
+    {
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            EnsureConversationProjection(transaction);
+            CompactionSnapshot? snapshot;
+            using (var read = _database.Connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText = "SELECT summary, watermark FROM compaction_snapshot WHERE agent_session = $session;";
+                _ = read.Parameters.AddWithValue("$session", agentSessionId);
+                using var reader = read.ExecuteReader();
+                snapshot = reader.Read()
+                    ? new CompactionSnapshot((string)reader["summary"], Convert.ToInt64(reader["watermark"], System.Globalization.CultureInfo.InvariantCulture))
+                    : null;
+            }
+
+            ConversationItem? status = null;
+            if (snapshot is not null)
+            {
+                using var read = _database.Connection.CreateCommand();
+                read.Transaction = transaction;
+                read.CommandText = "SELECT status_conversation_sequence FROM compaction_status WHERE agent_session = $session AND watermark = $watermark;";
+                _ = read.Parameters.AddWithValue("$session", agentSessionId);
+                _ = read.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                var value = read.ExecuteScalar();
+                if (value is not null)
+                {
+                    status = ReadConversationItem(transaction, Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture));
+                }
+            }
+
+            var items = ReadCompactionTail(transaction, agentSessionId, snapshot?.Watermark ?? 0);
+            var owners = new Dictionary<long, long>();
+            using (var read = _database.Connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText = "SELECT assistant_sequence, item_sequence FROM tool_batch_result WHERE agent_session = $session UNION ALL SELECT assistant_sequence, item_sequence FROM tool_batch_synthetic WHERE agent_session = $session;";
+                _ = read.Parameters.AddWithValue("$session", agentSessionId);
+                using var reader = read.ExecuteReader();
+                while (reader.Read())
+                {
+                    owners[Convert.ToInt64(reader["item_sequence"], System.Globalization.CultureInfo.InvariantCulture)] = Convert.ToInt64(reader["assistant_sequence"], System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+
+            var bySequence = items.ToDictionary(item => item.Sequence);
+            var grouped = new List<ConversationGroup>();
+            foreach (var item in items)
+            {
+                if (owners.ContainsKey(item.Sequence))
+                {
+                    continue;
+                }
+
+                var children = owners.Where(pair => pair.Value == item.Sequence && bySequence.ContainsKey(pair.Key))
+                    .Select(pair => bySequence[pair.Key]);
+                var members = new[] { item }.Concat(children).OrderBy(member => member.Sequence).ToArray();
+                var assistantSequence = item.Role == LLMRole.Assistant && item.ToolCalls.Count > 0
+                    ? item.Sequence
+                    : 0;
+                var complete = assistantSequence == 0 || item.ToolCalls.All(call => members.Any(member =>
+                    member.Role == LLMRole.Tool
+                    && string.Equals(member.ToolCallId, call.Id, StringComparison.Ordinal)));
+                grouped.Add(new ConversationGroup(
+                    members,
+                    members[0].Sequence - 1,
+                    members[^1].Sequence,
+                    assistantSequence,
+                    complete));
+            }
+
+            transaction.Commit();
+            return new EffectiveConversationHistory(snapshot, status, grouped);
+        }
+    }
+
+    public void InitializeForkedAgentHistory(
+        string sourceAgentSessionId,
+        string destinationAgentSessionId,
+        long beforeAssistantSequence,
+        string spawnToolCallId,
+        HistoryForkSelection selection)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceAgentSessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationAgentSessionId);
+        ArgumentNullException.ThrowIfNull(selection);
+        if (selection.Kind == HistoryForkKind.Empty)
+        {
+            return;
+        }
+
+        var effective = EffectiveConversationGroups(sourceAgentSessionId);
+        var current = effective.Groups.SingleOrDefault(group =>
+            group.AssistantSequence == beforeAssistantSequence
+            && group.Items[0].ToolCalls.Any(call => string.Equals(call.Id, spawnToolCallId, StringComparison.Ordinal)))
+            ?? throw new ArgumentException("fork requires the current durable agent_spawn batch", nameof(beforeAssistantSequence));
+        var preceding = effective.Groups.TakeWhile(group => !ReferenceEquals(group, current)).ToArray();
+        if (preceding.Any(group => !group.IsComplete))
+        {
+            throw new ArgumentException("parent history contains an incomplete tool batch", nameof(beforeAssistantSequence));
+        }
+
+        var selected = preceding;
+        if (selection.Kind == HistoryForkKind.Named)
+        {
+            var checkpoint = LatestUsableCheckpoint(
+                sourceAgentSessionId,
+                selection.Title,
+                beforeAssistantSequence)
+                ?? throw new ArgumentException($"checkpoint '{selection.Title}' is unavailable", nameof(selection));
+            if (effective.Snapshot is not null
+                && checkpoint.AssistantSequence <= effective.Snapshot.Watermark)
+            {
+                throw new ArgumentException($"checkpoint '{selection.Title}' is unavailable", nameof(selection));
+            }
+
+            var checkpointIndex = Array.FindIndex(
+                preceding,
+                group => group.AssistantSequence == checkpoint.AssistantSequence);
+            if (checkpointIndex < 0 || !preceding[checkpointIndex].IsComplete)
+            {
+                throw new ArgumentException($"checkpoint '{selection.Title}' is unavailable", nameof(selection));
+            }
+
+            selected = preceding[checkpointIndex..];
+        }
+
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            EnsureConversationProjection(transaction);
+            EnsureAgentHistoryProjection(transaction);
+            var sequenceMap = new Dictionary<long, long>();
+
+            if (selection.Kind == HistoryForkKind.Full && effective.Snapshot is not null)
+            {
+                var createdAt = Timestamp();
+                using (var snapshot = _database.Connection.CreateCommand())
+                {
+                    snapshot.Transaction = transaction;
+                    snapshot.CommandText = "INSERT INTO compaction_snapshot "
+                        + "(agent_session, summary, watermark, created_at) VALUES ($session, $summary, 0, $at);";
+                    _ = snapshot.Parameters.AddWithValue("$session", destinationAgentSessionId);
+                    _ = snapshot.Parameters.AddWithValue("$summary", effective.Snapshot.Summary);
+                    _ = snapshot.Parameters.AddWithValue("$at", createdAt);
+                    _ = snapshot.ExecuteNonQuery();
+                }
+
+                using (var history = _database.Connection.CreateCommand())
+                {
+                    history.Transaction = transaction;
+                    history.CommandText = "INSERT INTO agent_history "
+                        + "(agent_session, kind, conversation_sequence, summary, watermark, created_at) "
+                        + "VALUES ($session, 'compaction', NULL, $summary, 0, $at);";
+                    _ = history.Parameters.AddWithValue("$session", destinationAgentSessionId);
+                    _ = history.Parameters.AddWithValue("$summary", effective.Snapshot.Summary);
+                    _ = history.Parameters.AddWithValue("$at", createdAt);
+                    _ = history.ExecuteNonQuery();
+                }
+
+                if (effective.Status is not null)
+                {
+                    var statusSequence = CloneConversationItem(
+                        transaction,
+                        destinationAgentSessionId,
+                        effective.Status);
+                    using var association = _database.Connection.CreateCommand();
+                    association.Transaction = transaction;
+                    association.CommandText = "INSERT INTO compaction_status "
+                        + "(agent_session, watermark, status_conversation_sequence) VALUES ($session, 0, $status);";
+                    _ = association.Parameters.AddWithValue("$session", destinationAgentSessionId);
+                    _ = association.Parameters.AddWithValue("$status", statusSequence);
+                    _ = association.ExecuteNonQuery();
+                }
+            }
+
+            foreach (var group in selected)
+            {
+                foreach (var item in group.Items)
+                {
+                    sequenceMap[item.Sequence] = CloneConversationItem(
+                        transaction,
+                        destinationAgentSessionId,
+                        item);
+                }
+
+                if (group.AssistantSequence == 0)
+                {
+                    continue;
+                }
+
+                var assistant = group.Items[0];
+                foreach (var call in assistant.ToolCalls)
+                {
+                    var terminal = ReadToolTerminal(transaction, sourceAgentSessionId, call.Id)
+                        ?? throw new InvalidOperationException("a complete tool group has no terminal");
+                    InsertToolTerminal(transaction, destinationAgentSessionId, terminal);
+                    var result = group.Items.Single(item => item.Role == LLMRole.Tool
+                        && string.Equals(item.ToolCallId, call.Id, StringComparison.Ordinal));
+                    using var mapping = _database.Connection.CreateCommand();
+                    mapping.Transaction = transaction;
+                    mapping.CommandText = "INSERT INTO tool_batch_result "
+                        + "(agent_session, assistant_sequence, tool_call_id, item_sequence) "
+                        + "VALUES ($session, $assistant, $call, $item);";
+                    _ = mapping.Parameters.AddWithValue("$session", destinationAgentSessionId);
+                    _ = mapping.Parameters.AddWithValue("$assistant", sequenceMap[group.AssistantSequence]);
+                    _ = mapping.Parameters.AddWithValue("$call", call.Id);
+                    _ = mapping.Parameters.AddWithValue("$item", sequenceMap[result.Sequence]);
+                    _ = mapping.ExecuteNonQuery();
+                }
+
+                var synthetic = group.Items.SingleOrDefault(item =>
+                    item.Role == LLMRole.User && item.Origin == ConversationOrigin.Tool);
+                if (synthetic is not null)
+                {
+                    using var mapping = _database.Connection.CreateCommand();
+                    mapping.Transaction = transaction;
+                    mapping.CommandText = "INSERT INTO tool_batch_synthetic "
+                        + "(agent_session, assistant_sequence, item_sequence) VALUES ($session, $assistant, $item);";
+                    _ = mapping.Parameters.AddWithValue("$session", destinationAgentSessionId);
+                    _ = mapping.Parameters.AddWithValue("$assistant", sequenceMap[group.AssistantSequence]);
+                    _ = mapping.Parameters.AddWithValue("$item", sequenceMap[synthetic.Sequence]);
+                    _ = mapping.ExecuteNonQuery();
+                }
+            }
+
+            foreach (var group in selected.Where(group => group.AssistantSequence > 0))
+            {
+                using var checkpoints = _database.Connection.CreateCommand();
+                checkpoints.Transaction = transaction;
+                checkpoints.CommandText = "SELECT title, tool_call_id FROM history_checkpoint "
+                    + "WHERE agent_session = $session AND assistant_sequence = $assistant ORDER BY sequence;";
+                _ = checkpoints.Parameters.AddWithValue("$session", sourceAgentSessionId);
+                _ = checkpoints.Parameters.AddWithValue("$assistant", group.AssistantSequence);
+                var rows = new List<(string Title, string ToolCallId)>();
+                using (var reader = checkpoints.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        rows.Add(((string)reader["title"], (string)reader["tool_call_id"]));
+                    }
+                }
+
+                foreach (var (title, toolCallId) in rows)
+                {
+                    using var checkpoint = _database.Connection.CreateCommand();
+                    checkpoint.Transaction = transaction;
+                    checkpoint.CommandText = "INSERT INTO history_checkpoint "
+                        + "(agent_session, title, assistant_sequence, tool_call_id, created_at) "
+                        + "VALUES ($session, $title, $assistant, $call, $at);";
+                    _ = checkpoint.Parameters.AddWithValue("$session", destinationAgentSessionId);
+                    _ = checkpoint.Parameters.AddWithValue("$title", title);
+                    _ = checkpoint.Parameters.AddWithValue("$assistant", sequenceMap[group.AssistantSequence]);
+                    _ = checkpoint.Parameters.AddWithValue("$call", toolCallId);
+                    _ = checkpoint.Parameters.AddWithValue("$at", Timestamp());
+                    _ = checkpoint.ExecuteNonQuery();
+                }
+            }
+
+            transaction.Commit();
+        }
+
+        RefreshAgentHistory(destinationAgentSessionId);
+    }
+
+    public void CleanupForkedAgentHistory(string agentSessionId)
+    {
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            using var delete = _database.Connection.CreateCommand();
+            delete.Transaction = transaction;
+            delete.CommandText =
+                "DELETE FROM history_checkpoint WHERE agent_session = $session; "
+                + "DELETE FROM compaction_status WHERE agent_session = $session; "
+                + "DELETE FROM compaction_snapshot WHERE agent_session = $session; "
+                + "DELETE FROM tool_execution_terminal WHERE agent_session = $session; "
+                + "DELETE FROM conversation_item WHERE agent_session = $session; "
+                + "DELETE FROM agent_history WHERE agent_session = $session; "
+                + "DELETE FROM message WHERE agent_session = $session;";
+            _ = delete.Parameters.AddWithValue("$session", agentSessionId);
+            _ = delete.ExecuteNonQuery();
+            transaction.Commit();
+        }
+    }
+
     public IReadOnlyList<ConversationItem> ConversationAfter(string agentSessionId, long watermark)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(watermark);
@@ -2197,6 +2577,19 @@ internal sealed class EventRepository
         sequence.CommandText = "SELECT last_insert_rowid();";
         return Convert.ToInt64(sequence.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    private long CloneConversationItem(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        ConversationItem source) =>
+        Project(
+            transaction,
+            agentSessionId,
+            source.Origin,
+            source.Role,
+            source.Parts,
+            source.ToolCalls,
+            source.ToolCallId);
 
     private void Project(SqliteTransaction transaction, string agentSessionId, string role, string content) =>
         Project(transaction, agentSessionId, Message(role, content), Origin(role));

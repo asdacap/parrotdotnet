@@ -43,6 +43,7 @@ internal sealed class AgentSpawnToolPresenter : IToolPresenter
         AddScalar(values, arguments, "agent");
         AddScalar(values, arguments, "model");
         AddScalar(values, arguments, "scope");
+        values.Add($"fork: {Fork(arguments)}");
         if (arguments.GetProperty("prompt").GetString() is { Length: > 0 } prompt)
         {
             values.Add(prompt.Contains('\n', StringComparison.Ordinal)
@@ -51,6 +52,25 @@ internal sealed class AgentSpawnToolPresenter : IToolPresenter
         }
 
         return string.Join('\n', values);
+    }
+
+    private static string Fork(JsonElement arguments)
+    {
+        if (!arguments.TryGetProperty("fork", out var fork)
+            || fork.ValueKind == JsonValueKind.Null)
+        {
+            return "empty";
+        }
+
+        if (fork.ValueKind != JsonValueKind.String)
+        {
+            throw new FormatException("agent_spawn fork must be a string.");
+        }
+
+        var value = fork.GetString() ?? string.Empty;
+        return value.Length == 0 || string.Equals(value, "empty", StringComparison.Ordinal)
+            ? "empty"
+            : value;
     }
 
     private static void AddScalar(List<string> values, JsonElement arguments, string name)

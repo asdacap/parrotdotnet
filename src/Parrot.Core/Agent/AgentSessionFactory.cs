@@ -36,6 +36,7 @@ internal sealed class AgentSessionFactory(
             new EditToolFactory(_workspace),
             new WebFetchToolFactory(webFetcher),
             new AgentSpawnToolFactory(owner.Registry, router),
+            new SetCheckpointToolFactory(),
             new AgentSendToolFactory(owner.Registry),
             new WaitAgentToolFactory(owner.Registry),
             new WaitToolFactory(owner.Status, TimeProvider.System),

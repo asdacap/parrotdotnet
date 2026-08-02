@@ -28,7 +28,15 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
             new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect logs\",\"name\":\"scout\",\"scope\":\"storage layer\"}"),
             "{\"name\":\"scout\",\"status\":\"running\"}",
             "main: Start agent scout",
-            "♟ main: Start agent scout|name: scout|scope: storage layer|prompt: inspect logs",
+            "♟ main: Start agent scout|name: scout|scope: storage layer|fork: empty|prompt: inspect logs",
+        ];
+        yield return () =>
+        [
+            new SetCheckpointToolPresenter(),
+            new ToolCallPresentation("main", "set_checkpoint", "{\"title\":\"before refactor\"}"),
+            "checkpoint set",
+            "main: Set checkpoint before refactor",
+            "✓ main: Set checkpoint before refactor",
         ];
         yield return () =>
         [
@@ -74,6 +82,31 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
 
         _ = await Assert.That(string.Join('|', live)).Contains(expectedLive);
         _ = await Assert.That(string.Join('|', completed)).Contains(expectedTerminal);
+    }
+
+    [Test]
+    public async Task Agent_spawn_renders_empty_full_and_checkpoint_forks()
+    {
+        var presenter = new AgentSpawnToolPresenter();
+        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "{}", string.Empty);
+
+        var omitted = presenter.PresentTerminal(
+            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\"}"),
+            terminal).Render(ScrollbackContext);
+        var empty = presenter.PresentTerminal(
+            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"\"}"),
+            terminal).Render(ScrollbackContext);
+        var full = presenter.PresentTerminal(
+            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"full\"}"),
+            terminal).Render(ScrollbackContext);
+        var checkpoint = presenter.PresentTerminal(
+            new ToolCallPresentation("main", "agent_spawn", "{\"prompt\":\"inspect\",\"agent\":\"worker\",\"fork\":\"before refactor\"}"),
+            terminal).Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('|', omitted)).Contains("fork: empty");
+        _ = await Assert.That(string.Join('|', empty)).Contains("fork: empty");
+        _ = await Assert.That(string.Join('|', full)).Contains("fork: full");
+        _ = await Assert.That(string.Join('|', checkpoint)).Contains("fork: before refactor");
     }
 
     [Test]

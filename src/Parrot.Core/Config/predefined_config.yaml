@@ -301,6 +301,7 @@ profiles:
     usage: Delegate difficult read-only analysis and decision-making, typically to an expensive model.
     allowed_tools:
       - agent_spawn
+      - set_checkpoint
       - agent_send
       - wait_agent
       - wait

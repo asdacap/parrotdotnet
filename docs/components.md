@@ -341,6 +341,13 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   authority. The exact-file exception does not expose its containing private root,
   grant directory access, or permit an agent to read a parent, child, or sibling
   agent's history.
+- **Checkpoints and effective history.** A durable `set_checkpoint` record names
+  a tool-call group in this agent's conversation. Its title is exact (whitespace-
+  only is invalid), and duplicate exact titles use latest-wins semantics.
+  Effective history is the current compaction summary, applicable status, and
+  retained groups, not the unbounded durable timeline. A checkpoint outside that
+  effective material is unavailable for a later fork; compaction can therefore
+  make it unavailable without altering the durable record.
 
 ### `QueueStore` — rank 3, M8
 
@@ -737,6 +744,16 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   APIs, and the remaining `TaskManager` work stay deferred rather than stubbed.
   M8 adds only foreground profiles and typed observation of the existing child
   lifecycle.
+- **Conversation forks.** `agent_spawn.fork` is optional. An omitted or empty
+  value starts the child without parent conversation; `full` copies the parent's
+  current effective history (summary, applicable status, and retained groups).
+  Any other exact value is a checkpoint title and copies from that checkpoint's
+  tool-call group through the completed group immediately before the spawn.
+  The current batch is excluded, so a checkpoint made by a same-batch tool call
+  cannot be forked until a later batch. Unknown, same-batch, and compacted-away
+  checkpoint titles fail. A fork transfers history only: it never transfers
+  session ownership, security profile, write grants, queues, process control, or
+  other runtime authority.
 - **Completion delivery.** Absorbing the terminal notification path from
   `internal/agent`, `internal/tool`, and the former `internal/subagent`
   completion notifier, the registry resolves only a child's registered direct

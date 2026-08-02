@@ -118,6 +118,47 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Spawn_full_fork_seeds_child_before_its_first_prompt(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        var sessions = new TestAgentSessions(Router(provider), deliversCompletions: false);
+        await using var registry = TestModels.Registry(
+            sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
+        _repository.AppendConversation(
+            new Event { Id = "parent-context", AgentSessionId = parent.SessionId },
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("inherited context")],
+            [],
+            string.Empty);
+        _repository.AppendConversation(
+            new Event { Id = "spawn-batch", AgentSessionId = parent.SessionId },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart(string.Empty)],
+            [new LLMToolCall("spawn-call", "agent_spawn", "{}")],
+            string.Empty);
+        var spawnSequence = _repository.Conversation(parent.SessionId)[^1].Sequence;
+
+        var result = await new AgentSpawnTool(registry, Router(provider), parent).Execute(
+            new ToolInvocation(
+                "spawn-call",
+                "{\"prompt\":\"new work\",\"agent\":\"worker\",\"fork\":\"full\"}",
+                spawnSequence),
+            Turn(parent, Router(provider)),
+            cancellationToken);
+
+        _ = await Assert.That(result.Text).DoesNotStartWith("error:");
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests.Single().Messages.Select(message => message.Content))
+            .Contains("inherited context")
+            .And.Contains("new work")
+            .And.DoesNotContain(message => message.Contains("agent_spawn", StringComparison.Ordinal));
+        provider.Release();
+    }
+
+    [Test]
     public async Task Friendly_names_are_scoped_to_direct_siblings(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();

@@ -179,6 +179,113 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
+    public async Task Checkpoint_fork_copies_complete_named_history_and_remaps_tool_settlement()
+    {
+        var resources = Resources("checkpoint-fork");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        repository.AppendConversation(
+            Published("before"),
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("before")],
+            [],
+            string.Empty);
+        repository.AppendConversation(
+            Published("checkpoint-call"),
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart(string.Empty)],
+            [new LLMToolCall("checkpoint", "set_checkpoint", "{\"title\":\"handoff\"}")],
+            string.Empty);
+        var checkpointAssistant = repository.Conversation("agent")[1].Sequence;
+        _ = repository.RecordCheckpoint("agent", "handoff", checkpointAssistant, "checkpoint");
+        repository.AppendToolSettlement(
+            Published("checkpoint-result"),
+            checkpointAssistant,
+            new ToolExecutionTerminal(
+                "checkpoint",
+                "set_checkpoint",
+                ToolExecutionStatus.Finished,
+                [ConversationPart.TextPart("handoff")],
+                "handoff"));
+        repository.AppendConversation(
+            Published("between"),
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart("between")],
+            [],
+            string.Empty);
+        repository.AppendConversation(
+            Published("spawn-call"),
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart(string.Empty)],
+            [new LLMToolCall("spawn", "agent_spawn", "{}")],
+            string.Empty);
+        var spawnAssistant = repository.Conversation("agent")[^1].Sequence;
+
+        repository.InitializeForkedAgentHistory(
+            "agent",
+            "child",
+            spawnAssistant,
+            "spawn",
+            HistoryForkSelection.Parse("handoff"));
+
+        var child = repository.Conversation("child");
+        _ = await Assert.That(string.Join(',', child.Select(item => item.Role)))
+            .IsEqualTo("Assistant,Tool,User");
+        _ = await Assert.That(child[0].ToolCalls.Single().Name).IsEqualTo("set_checkpoint");
+        _ = await Assert.That(child[1].Parts.Single().Text).IsEqualTo("handoff");
+        _ = await Assert.That(child[2].Parts.Single().Text).IsEqualTo("between");
+        _ = await Assert.That(repository.ToolTerminals("child").Single().ToolName)
+            .IsEqualTo("set_checkpoint");
+        _ = await Assert.That(repository.LatestUsableCheckpoint("child", "handoff", long.MaxValue))
+            .IsNotNull();
+    }
+
+    [Test]
+    public async Task Latest_duplicate_checkpoint_does_not_fall_back_when_it_is_the_current_batch()
+    {
+        var resources = Resources("checkpoint-latest");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        foreach (var call in new[] { "first", "latest" })
+        {
+            repository.AppendConversation(
+                Published($"{call}-assistant"),
+                ConversationOrigin.Model,
+                LLMRole.Assistant,
+                [ConversationPart.TextPart(string.Empty)],
+                [new LLMToolCall(call, "set_checkpoint", "{\"title\":\"same\"}")],
+                string.Empty);
+            var assistant = repository.Conversation("agent")[^1].Sequence;
+            _ = repository.RecordCheckpoint("agent", "same", assistant, call);
+            if (string.Equals(call, "first", StringComparison.Ordinal))
+            {
+                repository.AppendToolSettlement(
+                    Published("first-result"),
+                    assistant,
+                    new ToolExecutionTerminal(
+                        call,
+                        "set_checkpoint",
+                        ToolExecutionStatus.Finished,
+                        [ConversationPart.TextPart("same")],
+                        "same"));
+            }
+        }
+
+        var current = repository.Conversation("agent")[^1].Sequence;
+        _ = await Assert.That(() => repository.InitializeForkedAgentHistory(
+            "agent",
+            "child",
+            current,
+            "latest",
+            HistoryForkSelection.Parse("same"))).Throws<ArgumentException>();
+        _ = await Assert.That(repository.Conversation("child")).IsEmpty();
+    }
+
+    [Test]
     public async Task Materialize_reads_durable_image_only_at_provider_boundary(CancellationToken cancellationToken)
     {
         var resources = Resources("materialize");

@@ -45,7 +45,28 @@ internal sealed class AgentRegistry(
         string requestedProfile,
         Llm.ModelSelector model,
         string requestedName,
-        string requestedScope)
+        string requestedScope) =>
+        Spawn(
+            parent,
+            selection,
+            requestedProfile,
+            model,
+            requestedName,
+            requestedScope,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty);
+
+    public AgentSession Spawn(
+        AgentSession parent,
+        AgentTurnSelection selection,
+        string requestedProfile,
+        Llm.ModelSelector model,
+        string requestedName,
+        string requestedScope,
+        HistoryForkSelection fork,
+        long assistantSequence,
+        string spawnToolCallId)
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(selection);
@@ -86,20 +107,34 @@ internal sealed class AgentRegistry(
             var name = UniqueName(names, requestedName, sessionId);
             var scope = parent.ResolveScope().DeriveChild(name, depth, requestedScope);
             var identity = AgentIdentity.Child(sessionId, parent.SessionId, parent.Name, name, depth, scope);
-            var lease = agentSessions.Create(
-                identity,
-                model,
-                eventBroker,
-                eventRepository,
-                profile,
-                securityProfile,
-                status,
-                this,
-                _lifetime.Token);
+            eventRepository.InitializeForkedAgentHistory(
+                parent.SessionId,
+                sessionId,
+                assistantSequence,
+                spawnToolCallId,
+                fork);
+            try
+            {
+                var lease = agentSessions.Create(
+                    identity,
+                    model,
+                    eventBroker,
+                    eventRepository,
+                    profile,
+                    securityProfile,
+                    status,
+                    this,
+                    _lifetime.Token);
 
-            _entries.Add(sessionId, lease);
-            names.Add(name, sessionId);
-            return lease.Session;
+                _entries.Add(sessionId, lease);
+                names.Add(name, sessionId);
+                return lease.Session;
+            }
+            catch
+            {
+                eventRepository.CleanupForkedAgentHistory(sessionId);
+                throw;
+            }
         }
     }
 

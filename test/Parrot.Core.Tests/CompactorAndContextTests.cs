@@ -698,6 +698,50 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Compaction_selects_a_fitting_checkpoint_and_reports_its_watermark(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var groups = Enumerable.Range(0, 7).Select(index => new CompactionGroup(
+            [LLMMessage.User($"message {index} {new string('x', 220)}")], 100 + index, index is 2 or 4)).ToList();
+
+        var result = await new Compactor(90, 30, 60_000, 1024).Compact(
+            CompactionModel(provider, 1_000),
+            "instructions",
+            [],
+            groups,
+            99,
+            LLMMessage.User("fixed"),
+            cancellationToken)
+            ?? throw new InvalidOperationException("Expected compaction.");
+
+        _ = await Assert.That(result.Watermark).IsEqualTo(103);
+        _ = await Assert.That(result.History[^1].Content).IsEqualTo(groups[^1].Messages[0].Content);
+    }
+
+    [Test]
+    public async Task Compaction_rejects_a_checkpoint_exceeding_an_attainable_target(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var groups = Enumerable.Range(0, 7).Select(index => new CompactionGroup(
+            [LLMMessage.User($"message {index} {new string('x', 260)}")], 200 + index, index == 1)).ToList();
+
+        var result = await new Compactor(90, 30, 60_000, 1024).Compact(
+            CompactionModel(provider, 1_000),
+            string.Empty,
+            [],
+            groups,
+            199,
+            LLMMessage.User("fixed"),
+            cancellationToken)
+            ?? throw new InvalidOperationException("Expected compaction.");
+
+        _ = await Assert.That(result.Watermark).IsNotEqualTo(200);
+        _ = await Assert.That(Compactor.EstimateInputTokens(string.Empty, [], result.History)).IsLessThanOrEqualTo(300);
+    }
+
+    [Test]
     public async Task Compaction_counts_tool_call_payloads()
     {
         var withoutToolCall = Compactor.EstimateTokens([LLMMessage.Assistant(string.Empty, [])]);

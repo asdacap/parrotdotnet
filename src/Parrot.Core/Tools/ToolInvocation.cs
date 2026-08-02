@@ -1,3 +1,9 @@
 namespace Parrot.Tools;
 
-internal sealed record ToolInvocation(string CallId, string ArgumentsJson);
+internal sealed record ToolInvocation(string CallId, string ArgumentsJson, long AssistantSequence)
+{
+    public ToolInvocation(string callId, string argumentsJson)
+        : this(callId, argumentsJson, 0)
+    {
+    }
+}

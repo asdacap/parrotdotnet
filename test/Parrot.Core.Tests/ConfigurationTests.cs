@@ -586,7 +586,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["worker"].AllowedTools).IsNull();
         _ = await Assert.That(configuration.Profiles.Values.All(profile => profile.EnforceActiveWorkCompletion)).IsTrue();
         _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.SequenceEqual(
-            ["agent_spawn", "agent_send", "wait_agent", "wait"],
+            ["agent_spawn", "set_checkpoint", "agent_send", "wait_agent", "wait"],
             StringComparer.Ordinal)).IsTrue();
 
         var noTools = Load(Write("profiles:\n  worker:\n    allowed_tools: []\n"));

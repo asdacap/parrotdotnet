@@ -64,7 +64,33 @@ internal sealed class Compactor(
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(fixedMessage);
 
-        var groups = Groups(history).ToList();
+        var groups = Groups(history)
+            .Select((messages, index) => new CompactionGroup(messages, index + 1L, false))
+            .ToList();
+        return await Compact(
+            selectedModel,
+            instructions,
+            tools,
+            groups,
+            0,
+            fixedMessage,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<CompactionResult?> Compact(
+        ProviderModel selectedModel,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<CompactionGroup> groups,
+        long baseWatermark,
+        LLMMessage fixedMessage,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(selectedModel);
+        ArgumentNullException.ThrowIfNull(instructions);
+        ArgumentNullException.ThrowIfNull(tools);
+        ArgumentNullException.ThrowIfNull(groups);
+        ArgumentNullException.ThrowIfNull(fixedMessage);
         if (groups.Count < 2)
         {
             return null;
@@ -73,11 +99,11 @@ internal sealed class Compactor(
         var contextWindow = selectedModel.Model.ContextWindow;
         var targetBudget = PercentageBudget(contextWindow, targetPercent);
         var keepGroupFrom = groups.Count - 1;
-        var retained = groups[^1].ToList();
+        var retained = groups[^1].Messages.ToList();
 
         while (keepGroupFrom > 1)
         {
-            var candidate = groups[keepGroupFrom - 1].Concat(retained).ToList();
+            var candidate = groups[keepGroupFrom - 1].Messages.Concat(retained).ToList();
             if (EstimateWithSummary(instructions, tools, fixedMessage, candidate) + 1 > targetBudget)
             {
                 break;
@@ -85,6 +111,29 @@ internal sealed class Compactor(
 
             retained = candidate;
             keepGroupFrom--;
+        }
+
+        var naturalRequiredExceedsTarget = EstimateWithSummary(instructions, tools, fixedMessage, retained) + 1
+            > targetBudget;
+        var checkpointCut = Enumerable.Range(0, groups.Count)
+            .Where(index => groups[index].HasCheckpointBefore)
+            .Select(index => new
+            {
+                Index = index,
+                Retained = groups.Skip(index).SelectMany(group => group.Messages).ToList(),
+            })
+            .Where(candidate =>
+            {
+                var estimate = EstimateWithSummary(instructions, tools, fixedMessage, candidate.Retained) + 1;
+                return estimate <= targetBudget || (naturalRequiredExceedsTarget && estimate <= contextWindow);
+            })
+            .OrderBy(candidate => Math.Abs(candidate.Index - keepGroupFrom))
+            .ThenBy(candidate => candidate.Index)
+            .FirstOrDefault();
+        if (checkpointCut is not null)
+        {
+            keepGroupFrom = checkpointCut.Index;
+            retained = checkpointCut.Retained;
         }
 
         var summaryBaseTokens = EstimateWithSummary(instructions, tools, fixedMessage, retained);
@@ -102,7 +151,7 @@ internal sealed class Compactor(
             throw new InvalidOperationException("The selected model leaves no room for a compaction request.");
         }
 
-        var toSummarise = groups.Take(keepGroupFrom).ToList();
+        var toSummarise = groups.Take(keepGroupFrom).Select(group => group.Messages).ToList();
         foreach (var group in toSummarise)
         {
             if (EstimateRequestTokens(string.Empty, group) > inputBudget)
@@ -153,7 +202,8 @@ internal sealed class Compactor(
             throw new InvalidOperationException("The compacted conversation exceeds the configured target.");
         }
 
-        return new CompactionResult(compacted, summaryMessage, retained.Count);
+        var watermark = keepGroupFrom == 0 ? baseWatermark : groups[keepGroupFrom - 1].EndWatermark;
+        return new CompactionResult(compacted, summaryMessage, retained.Count, watermark);
     }
 
     private static long EstimateWithSummary(

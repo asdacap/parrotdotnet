@@ -12,6 +12,7 @@ internal sealed class ToolInputDescriptorTests
         {
             ("agent_send", AgentSendTool.Input.Descriptor, false),
             ("agent_spawn", AgentSpawnTool.Input.Descriptor, false),
+            ("set_checkpoint", SetCheckpointTool.Input.Descriptor, false),
             ("edit", EditTool.Input.Descriptor, false),
             ("exec_command", ExecCommandTool.Input.Descriptor, false),
             ("glob", GlobTool.Input.Descriptor, false),
@@ -35,9 +36,9 @@ internal sealed class ToolInputDescriptorTests
             ("write", WriteTool.Input.Descriptor, false),
         };
 
-        _ = await Assert.That(descriptors.Length).IsEqualTo(23);
+        _ = await Assert.That(descriptors.Length).IsEqualTo(24);
         _ = await Assert.That(string.Join(",", descriptors.Select(descriptor => descriptor.Name)))
-            .IsEqualTo("agent_send,agent_spawn,edit,exec_command,glob,grep,interrupt_process,question,queue_create,queue_info,queue_listen,queue_push,queue_take,read,read_image,status,todoread,todowrite,wait_agent,wait_process,web_fetch,write_stdin,write");
+            .IsEqualTo("agent_send,agent_spawn,set_checkpoint,edit,exec_command,glob,grep,interrupt_process,question,queue_create,queue_info,queue_listen,queue_push,queue_take,read,read_image,status,todoread,todowrite,wait_agent,wait_process,web_fetch,write_stdin,write");
 
         using (var agentSpawn = JsonDocument.Parse(AgentSpawnTool.Input.Descriptor))
         {
@@ -47,6 +48,10 @@ internal sealed class ToolInputDescriptorTests
             _ = await Assert.That(scope.GetProperty("description").GetString()).IsNotEmpty();
             _ = await Assert.That(root.GetProperty("required").EnumerateArray()
                 .Select(item => item.GetString()).Contains("scope")).IsFalse();
+            var fork = root.GetProperty("properties").GetProperty("fork");
+            _ = await Assert.That(fork.GetProperty("type").GetString()).IsEqualTo("string");
+            _ = await Assert.That(fork.GetProperty("default").GetString()).IsEqualTo("empty");
+            _ = await Assert.That(fork.GetProperty("description").GetString()).IsNotEmpty();
         }
 
         using (var execCommand = JsonDocument.Parse(ExecCommandTool.Input.Descriptor))

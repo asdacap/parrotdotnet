@@ -35,6 +35,7 @@ internal partial class EnhancedComposition
                     new InterruptProcessToolPresenter(),
                     new ReadToolPresenter(),
                     new QuestionToolPresenter(),
+                    new SetCheckpointToolPresenter(),
                     new QueuePushToolPresenter(),
                     new QueueTakeToolPresenter(),
                     new TodoReadToolPresenter(),
