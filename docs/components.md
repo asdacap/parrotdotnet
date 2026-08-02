@@ -921,9 +921,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   filesystem and process isolation; environment selection remains command
   execution configuration. The host root is read-only by default. Configured
   `allow_write` rules grant writes to matched paths, including the predefined
-  shared grants for `/tmp`, `${XDG_CACHE_HOME:-${HOME}/.cache}`, and the NuGet,
-  npm, and pnpm caches; those predefined grants apply even to read-only
-  profiles. A missing `allow_write` directory is omitted unless it sets
+  shared grants for `/dev/null`, `/tmp`, `${XDG_CACHE_HOME:-${HOME}/.cache}`,
+  and the NuGet, npm, and pnpm caches; those predefined grants apply even to
+  read-only profiles. A missing `allow_write` directory is omitted unless it sets
   `create_if_not_exist: true`, which recursively creates it before granting it.
   Each process additionally receives its automatically created, private agent
   scratch directory as a writable location. Parrot does not override `HOME`,

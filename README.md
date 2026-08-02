@@ -176,8 +176,9 @@ matched paths; a missing `allow_write` path is omitted unless its
 the missing directory before granting it. `create_if_not_exist` applies only to
 `allow_write` directories.
 
-Predefined shared write grants cover `/tmp`, `${XDG_CACHE_HOME:-${HOME}/.cache}`,
-and the NuGet, npm, and pnpm caches. These grants apply even to `read_only`
+Predefined shared write grants cover `/dev/null`, `/tmp`,
+`${XDG_CACHE_HOME:-${HOME}/.cache}`, and the NuGet, npm, and pnpm caches. These
+grants apply even to `read_only`
 profiles. Filesystem access does not grant network access.
 
 Each agent receives an individually owned scratch directory beneath its user

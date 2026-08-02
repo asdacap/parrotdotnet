@@ -724,6 +724,8 @@ providers:
 #   {approved profile paths}      writable for non-read-only profiles
 #
 sandbox_rules:
+  - path: /dev/null
+    rule: allow_write
   - path: /tmp
     rule: allow_write
     create_if_not_exist: true

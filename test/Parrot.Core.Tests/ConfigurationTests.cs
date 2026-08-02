@@ -503,6 +503,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         var expected = new[]
         {
+            "/dev/null",
             "/tmp",
             cache,
             Path.Combine(home, ".nuget", "packages"),
