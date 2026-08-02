@@ -5,6 +5,7 @@ using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Security;
 using Parrot.State;
+using Parrot.Store;
 using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
@@ -140,7 +141,7 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
-    public async Task Configured_profiles_compose_defaults_and_plan_keeps_a_directory_runtime_capability()
+    public async Task Configured_profiles_compose_defaults_and_plan_keeps_its_scratch_private()
     {
         var denied = Path.Combine(_root, "denied");
         var allowed = Path.Combine(_root, "allowed");
@@ -161,7 +162,7 @@ internal sealed class ModeRegistryTests : IDisposable
                 configuration.DisabledTools),
             ModeRegistry.Build);
 
-        var planDirectory = Path.Combine(_root, "plans");
+        var planDirectory = Path.Combine(_root, "plans", "plan");
         var ownerModes = new UserSessionModes(registry, planDirectory);
         var build = ownerModes.Resolve(ModeRegistry.Build);
         var plan = ownerModes.Resolve(ModeRegistry.Plan);
@@ -171,16 +172,15 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(build.SecurityProfile.AllowsWrite(denied)).IsFalse();
         plan.Prepare();
         var artifact = PlanArtifactIn(planDirectory);
-        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(artifact)).IsTrue();
+        _ = await Assert.That(plan.SecurityProfile.AllowsWrite(artifact)).IsFalse();
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
-            Path.Combine(planDirectory, "supporting.md"))).IsTrue();
+            Path.Combine(planDirectory, "supporting.md"))).IsFalse();
         _ = await Assert.That(plan.SecurityProfile.AllowsWrite(
             Path.Combine(planDirectory, "..", "outside.md"))).IsFalse();
-        _ = await Assert.That(plan.SecurityProfile.WithoutRuntimeCapabilities().AllowsWrite(artifact)).IsFalse();
     }
 
     [Test]
-    public async Task Plan_runtime_capability_lets_WriteTool_write_only_inside_the_plan_directory(
+    public async Task Plan_scratch_lets_WriteTool_write_only_inside_the_plan_directory(
         CancellationToken cancellationToken)
     {
         var workspace = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
@@ -193,10 +193,10 @@ internal sealed class ModeRegistryTests : IDisposable
         var plan = new UserSessionModes(registry, planDirectory).Resolve(ModeRegistry.Plan);
         plan.Prepare();
         var artifact = PlanArtifactIn(planDirectory);
-        var outside = Path.Combine(paths.State, "sessions", "session", "outside.md");
-        var grants = new SandboxWriteGrants();
-        grants.Grant(SandboxWriteTarget.Resolve(paths.State));
-        var write = new WriteTool(new ToolWorkspace(workspace), grants);
+        var outside = Path.Combine(paths.State, "sessions", "other-session", "outside.md");
+        var scratch = new AgentScratchDirectory(Path.GetDirectoryName(planDirectory)
+            ?? throw new InvalidOperationException("Plan directory has no parent."));
+        var write = new WriteTool(new ToolWorkspace(workspace, scratch), new SandboxWriteGrants());
 
         var supporting = Path.Combine(planDirectory, "supporting.md");
         var written = await write.Execute(
@@ -211,20 +211,12 @@ internal sealed class ModeRegistryTests : IDisposable
             new ToolInvocation("write-outside", WriteArguments(outside, "outside")),
             Turn(plan.SecurityProfile),
             cancellationToken);
-        var withoutCapability = new WriteTool(
-            new ToolWorkspace(workspace),
-            new SandboxWriteGrants());
-        var capabilityRemoved = await withoutCapability.Execute(
-            new ToolInvocation("write-without-capability", WriteArguments(artifact, "changed")),
-            Turn(plan.SecurityProfile.WithoutRuntimeCapabilities()),
-            cancellationToken);
 
         _ = await Assert.That(written.Text).DoesNotStartWith("error: ");
         _ = await Assert.That(supported.Text).DoesNotStartWith("error: ");
         _ = await Assert.That(await File.ReadAllTextAsync(artifact, cancellationToken)).IsEqualTo("# Plan");
         _ = await Assert.That(await File.ReadAllTextAsync(supporting, cancellationToken)).IsEqualTo("details");
         _ = await Assert.That(denied.Text).StartsWith("error: ");
-        _ = await Assert.That(capabilityRemoved.Text).StartsWith("error: ");
         _ = await Assert.That(File.Exists(outside)).IsFalse();
     }
 

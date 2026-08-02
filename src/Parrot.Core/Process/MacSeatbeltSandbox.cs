@@ -27,6 +27,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
+        AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode,
@@ -48,10 +49,10 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
             throw new ArgumentOutOfRangeException(nameof(terminalMode));
         }
 
-        PreparePrivateRuntime(resources);
+        scratch.Provision();
         var profilePath = Path.Combine(resources.QueueDirectory, $"seatbelt-{Guid.NewGuid():n}.sb");
-        WriteProfile(profilePath, CompilePolicy(resources, securityProfile, writeGrants));
-        var startInfo = CreateStartInfo(_seatbeltPath, profilePath, command, environment, resources);
+        WriteProfile(profilePath, CompilePolicy(resources, scratch, securityProfile, writeGrants));
+        var startInfo = CreateStartInfo(_seatbeltPath, profilePath, command, environment, resources, scratch);
         var process = new System.Diagnostics.Process { StartInfo = startInfo };
         DarwinProcessSignalTarget? signalTarget = null;
         var started = false;
@@ -68,7 +69,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
             return new ShellProcessExecution(
                 process,
                 signalTarget,
-                resources.BlobDirectory,
+                scratch.BlobDirectory,
                 profilePath,
                 cancellationToken);
         }
@@ -90,6 +91,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
 
     internal static SeatbeltPolicySnapshot CompilePolicy(
         UserSessionResources resources,
+        AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants)
     {
@@ -119,30 +121,8 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
             profile.DenyRead(root);
         }
 
-        profile.AllowWrite(resources.RuntimeHomeDirectory);
-        profile.AllowWrite(resources.CacheDirectory);
-        profile.AllowWrite(resources.TemporaryDirectory);
-        profile.AllowRead(resources.BlobDirectory);
+        profile.AllowWrite(scratch.Root);
 
-        foreach (var rule in securityProfile.RuntimeCapabilities)
-        {
-            var path = Path.GetFullPath(rule.Path);
-            if (!resources.Owns(path) || !Path.Exists(path))
-            {
-                continue;
-            }
-
-            if (rule.Action == SandboxRuleAction.AllowWrite)
-            {
-                profile.AllowWrite(path);
-            }
-            else if (rule.Action == SandboxRuleAction.AllowRead)
-            {
-                profile.AllowRead(path);
-            }
-        }
-
-        AddRuntimeRestrictions(profile, securityProfile, resources);
         return profile.Capture();
     }
 
@@ -151,7 +131,8 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         string profilePath,
         string command,
         ProcessEnvironmentOverrides environment,
-        UserSessionResources resources)
+        UserSessionResources resources,
+        AgentScratchDirectory scratch)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -174,9 +155,8 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
                 entry => entry.Key ?? string.Empty,
                 entry => entry.Value ?? string.Empty,
                 StringComparer.Ordinal);
-        childEnvironment["HOME"] = resources.RuntimeHomeDirectory;
-        childEnvironment["TMPDIR"] = resources.TemporaryDirectory;
-        childEnvironment["XDG_CACHE_HOME"] = resources.CacheDirectory;
+        childEnvironment["HOME"] = scratch.HomeDirectory;
+        childEnvironment["XDG_CACHE_HOME"] = scratch.CacheDirectory;
 
         foreach (var entry in environment.Entries)
         {
@@ -204,33 +184,6 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         {
             applied.Add(rule);
             AddEffectiveRule(profile, rule.Path, securityProfile.ReadOnly, applied);
-        }
-    }
-
-    private static void AddRuntimeRestrictions(
-        SeatbeltPolicy profile,
-        SecurityProfile securityProfile,
-        UserSessionResources resources)
-    {
-        var runtimeRoots = securityProfile.RuntimeCapabilities
-            .Select(rule => rule.Path)
-            .Append(resources.RuntimeHomeDirectory)
-            .Append(resources.CacheDirectory)
-            .Append(resources.TemporaryDirectory)
-            .ToArray();
-        var applied = new List<SandboxRule>();
-
-        foreach (var rule in securityProfile.Rules)
-        {
-            applied.Add(rule);
-
-            foreach (var path in runtimeRoots
-                         .Where(root => Contains(root, rule.Path) || Contains(rule.Path, root))
-                         .Select(root => Contains(rule.Path, root) ? root : rule.Path)
-                         .Distinct(StringComparer.Ordinal))
-            {
-                AddEffectiveRule(profile, path, securityProfile.ReadOnly, applied);
-            }
         }
     }
 
@@ -341,16 +294,6 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         var relative = Path.GetRelativePath(root, path);
         return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
             && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
-    }
-
-    [SupportedOSPlatform("macos")]
-    private static void PreparePrivateRuntime(UserSessionResources resources)
-    {
-        EnsurePrivateDirectory(resources.QueueDirectory);
-        EnsurePrivateDirectory(resources.RuntimeHomeDirectory);
-        EnsurePrivateDirectory(resources.CacheDirectory);
-        EnsurePrivateDirectory(resources.TemporaryDirectory);
-        EnsurePrivateDirectory(resources.BlobDirectory);
     }
 
     [SupportedOSPlatform("macos")]

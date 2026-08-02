@@ -32,8 +32,7 @@ internal sealed class AgentProfile : IAgentProfile
             configuration.ReadOnly,
             configuration.SandboxRules,
             globalRules,
-            mandatoryRules,
-            []);
+            mandatoryRules);
     }
 
     public string Id { get; }

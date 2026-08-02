@@ -17,17 +17,12 @@ internal sealed class AgentSessionFactorySource(
         new AgentSessionFactory(
             owner,
             owner.Resources.Workspace.LaunchDirectory,
-            owner.Resources.BlobDirectory,
             compactor,
             webFetcher,
             router,
             new CompositeSystemPromptProvider(
                 "runtime:user-session-system-prompt",
-                [
-                    systemPromptProvider,
-                    new TemporaryDirectoryProvider(owner.Resources.TemporaryDirectory),
-                    new AgentHistoryProvider(owner.Resources),
-                ]),
+                [systemPromptProvider, new AgentHistoryProvider(owner.Resources)]),
             scopes);
 
     public ShellProcessOwners CreateShellProcesses(UserSession owner) =>

@@ -76,7 +76,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
             return $"error: {failure.Message}";
         }
 
-        if (!selection.SecurityProfile.AllowsRead(root.Lexical) || !selection.SecurityProfile.AllowsRead(root.Physical))
+        if (!workspace.AllowsRead(root, selection.SecurityProfile))
         {
             return "error: access denied";
         }
@@ -177,7 +177,7 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
                 continue;
             }
 
-            if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
+            if (!workspace.AllowsRead(resolved, securityProfile))
             {
                 continue;
             }

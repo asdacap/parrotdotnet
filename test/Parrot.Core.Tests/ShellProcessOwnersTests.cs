@@ -44,8 +44,8 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
             lifetime.Token);
-        var firstAgent = CreateAgent("agent-1", model, events, repository, resources.BlobDirectory, lifetime.Token);
-        var secondAgent = CreateAgent("agent-2", model, events, repository, resources.BlobDirectory, lifetime.Token);
+        var firstAgent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
+        var secondAgent = CreateAgent("agent-2", model, events, repository, resources.AgentScratch("agent-2").BlobDirectory, lifetime.Token);
         var first = coordinator.Prepare(firstAgent.SessionId);
         var second = coordinator.Prepare(secondAgent.SessionId);
         coordinator.Register(first);
@@ -116,7 +116,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
             lifetime.Token);
-        var agent = CreateAgent("agent-1", model, events, repository, resources.BlobDirectory, lifetime.Token);
+        var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
         var owner = coordinator.Prepare(agent.SessionId);
         coordinator.Register(owner);
         var process = owner.Start(
@@ -160,7 +160,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
             lifetime.Token);
-        var agent = CreateAgent("agent-1", model, events, repository, resources.BlobDirectory, lifetime.Token);
+        var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
         var owner = coordinator.Prepare(agent.SessionId);
         coordinator.Register(owner);
         var completionMarker = Path.Combine(_workspace, "complete");

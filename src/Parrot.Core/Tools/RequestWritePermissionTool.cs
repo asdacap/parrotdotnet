@@ -7,8 +7,14 @@ namespace Parrot.Tools;
 
 internal sealed class RequestWritePermissionTool(
     PermissionBroker broker,
-    AgentSession agentSession) : ITool
+    AgentSession agentSession,
+    ToolWorkspace workspace) : ITool
 {
+    public RequestWritePermissionTool(PermissionBroker broker, AgentSession agentSession)
+        : this(broker, agentSession, new ToolWorkspace(Directory.GetCurrentDirectory()))
+    {
+    }
+
     public string Name => "request_write_permission";
 
     public string Description =>
@@ -42,18 +48,24 @@ internal sealed class RequestWritePermissionTool(
                 throw new FormatException("Permission reason must not be empty.");
             }
 
+            var targets = paths.Select(SandboxWriteTarget.Resolve).Distinct().ToArray();
+            var externalTargets = targets.Where(target => !workspace.IsScratchPath(target.Path)).ToArray();
+            if (externalTargets.Length == 0)
+            {
+                return $"Write permission already allowed for this agent scratch directory: {string.Join(", ", targets.Select(target => target.Path))}";
+            }
+
             if (selection.SecurityProfile.ReadOnly)
             {
                 throw new PermissionException("request_write_permission is not permitted by the current security profile");
             }
 
-            var targets = paths.Select(SandboxWriteTarget.Resolve).Distinct().ToArray();
-            if (targets.All(target => selection.SecurityProfile.AllowsWrite(target.Path)))
+            if (externalTargets.All(target => selection.SecurityProfile.AllowsWrite(target.Path)))
             {
                 return $"Write permission already allowed by the current security profile; static policy and protected roots still apply: {string.Join(", ", targets.Select(target => target.Path))}";
             }
 
-            var reply = await broker.Request(agentSession, reason, targets, cancellationToken).ConfigureAwait(false);
+            var reply = await broker.Request(agentSession, reason, externalTargets, cancellationToken).ConfigureAwait(false);
             if (reply.Kind == PermissionReplyKind.UserAway)
             {
                 return "The user is away.";

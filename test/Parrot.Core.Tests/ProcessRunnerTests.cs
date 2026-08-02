@@ -34,6 +34,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                     $"touch {marker}",
                     ProcessEnvironmentOverrides.Empty,
                     Resources(_workspace),
+                    Scratch(_workspace),
                     WritableProfile(),
                     SandboxWriteGrantSnapshot.Empty,
                     CancellationToken.None))
@@ -58,6 +59,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             + "for (i = 0; i < 70000; i++) printf \"e\" > \"/dev/stderr\"; exit 7 }'",
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
+            Scratch(_workspace),
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
@@ -68,14 +70,14 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(result.Spilled).IsTrue();
         _ = await Assert.That(Path.IsPathFullyQualified(result.BlobPath)).IsTrue();
         _ = await Assert.That(Path.GetDirectoryName(result.BlobPath))
-            .IsEqualTo(Resources(_workspace).BlobDirectory);
+            .IsEqualTo(Scratch(_workspace).BlobDirectory);
         _ = await Assert.That(Path.GetFileName(result.BlobPath)).EndsWith("-arse.dat");
 
         var output = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
         _ = await Assert.That(output).IsEqualTo(
             $"Process exited with code 7\n[stdout]\n{new string('o', 70000)}"
             + $"\n[stderr]\n{new string('e', 70000)}");
-        _ = await Assert.That(Directory.EnumerateFiles(Resources(_workspace).BlobDirectory, ".process-*.tmp"))
+        _ = await Assert.That(Directory.EnumerateFiles(Scratch(_workspace).BlobDirectory, ".process-*.tmp"))
             .IsEmpty();
     }
 
@@ -95,6 +97,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             + "for (i = 0; i < 11000; i++) printf \"€\" > \"/dev/stderr\" }'",
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
+            Scratch(_workspace),
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
@@ -117,18 +120,20 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var runner = new ProcessRunner(CreateSandboxPassThrough(_workspace));
         var resources = Resources(_workspace);
-        _ = Directory.CreateDirectory(resources.Root);
-        await File.WriteAllTextAsync(resources.BlobDirectory, string.Empty, cancellationToken);
+        var scratch = Scratch(resources);
+        Directory.Delete(scratch.BlobDirectory);
+        await File.WriteAllTextAsync(scratch.BlobDirectory, string.Empty, cancellationToken);
 
         _ = await Assert.That(async () =>
                 await runner.Run(
                     "awk 'BEGIN { for (i = 0; i < 1000000; i++) printf \"x\" }'",
                     ProcessEnvironmentOverrides.Empty,
                     resources,
+                    scratch,
                     WritableProfile(),
                     SandboxWriteGrantSnapshot.Empty,
                     cancellationToken))
-            .Throws<IOException>();
+            .Throws<InvalidOperationException>();
     }
 
     [Test]
@@ -146,6 +151,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             "sh -c 'while :; do sleep 1; done' & echo $! > child.pid; wait",
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
+            Scratch(_workspace),
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellation.Token);
@@ -197,6 +203,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             "true",
             ProcessEnvironmentOverrides.Empty,
             Resources(worktree),
+            Scratch(worktree),
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
@@ -213,6 +220,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             "true",
             ProcessEnvironmentOverrides.Empty,
             Resources(worktree),
+            Scratch(worktree),
             SecurityProfile.Compose(true, [], [], []),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
@@ -245,6 +253,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 new KeyValuePair<string, string>("COMMAND_VALUE", "present"),
             ]),
             Resources(_workspace),
+            Scratch(_workspace),
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
@@ -255,10 +264,15 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(FindSetEnvironment(arguments, "LANG")).IsEqualTo("command-language");
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "COMMAND_VALUE"))
             .IsLessThan(Array.IndexOf(arguments, "--chdir"));
+        _ = await Assert.That(FindSetEnvironment(arguments, "HOME"))
+            .IsEqualTo(Scratch(_workspace).HomeDirectory);
+        _ = await Assert.That(FindSetEnvironment(arguments, "XDG_CACHE_HOME"))
+            .IsEqualTo(Scratch(_workspace).CacheDirectory);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
     }
 
     [Test]
-    public async Task Private_runtime_directories_are_writable(CancellationToken cancellationToken)
+    public async Task Agent_scratch_directory_is_writable(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -269,21 +283,25 @@ internal sealed class ProcessRunnerTests : IDisposable
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
 
         var resources = Resources(_workspace);
+        var scratch = Scratch(resources);
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
             resources,
+            Scratch(resources),
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        await AssertWritableBind(arguments, resources.CacheDirectory);
-        await AssertWritableBind(arguments, resources.TemporaryDirectory);
+        await AssertWritableBind(arguments, scratch.Root);
+        _ = await Assert.That(FindSetEnvironment(arguments, "HOME")).IsEqualTo(scratch.HomeDirectory);
+        _ = await Assert.That(FindSetEnvironment(arguments, "XDG_CACHE_HOME")).IsEqualTo(scratch.CacheDirectory);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
     }
 
     [Test]
-    public async Task Effective_rules_narrow_private_runtime_mounts(
+    public async Task Agent_scratch_directory_overrides_profile_restrictions(
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
@@ -294,9 +312,10 @@ internal sealed class ProcessRunnerTests : IDisposable
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
         var resources = Resources(_workspace);
+        var scratch = Scratch(resources);
         var profile = SecurityProfile.Compose(
             false,
-            [new SandboxRule(resources.RuntimeDirectory, SandboxRuleAction.DenyWrite)],
+            [new SandboxRule(scratch.Root, SandboxRuleAction.DenyWrite)],
             [],
             []);
 
@@ -304,50 +323,14 @@ internal sealed class ProcessRunnerTests : IDisposable
             "true",
             ProcessEnvironmentOverrides.Empty,
             resources,
+            Scratch(resources),
             profile,
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        var mounts = FindMounts(arguments, resources.CacheDirectory);
-        _ = await Assert.That(mounts).Contains("--bind");
-        _ = await Assert.That(mounts[^1]).IsEqualTo("--ro-bind");
-    }
-
-    [Test]
-    public async Task Inherited_runtime_capabilities_are_mounted_before_child_restrictions(
-        CancellationToken cancellationToken)
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
-
-        var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
-        var resources = Resources(_workspace);
-        var restricted = Directory.CreateDirectory(Path.Combine(resources.PlanDirectory, "restricted")).FullName;
-        var parent = SecurityProfile.Compose(true, [], [], [])
-            .WithRuntimeCapability(resources.PlanDirectory);
-        var child = SecurityProfile.Compose(
-            false,
-            [new SandboxRule(restricted, SandboxRuleAction.DenyWrite)],
-            [],
-            []);
-
-        _ = await runner.Run(
-            "true",
-            ProcessEnvironmentOverrides.Empty,
-            resources,
-            parent.RestrictWith(child),
-            SandboxWriteGrantSnapshot.Empty,
-            cancellationToken);
-
-        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        _ = await Assert.That(FindMounts(arguments, resources.PlanDirectory)).Contains("--bind");
-        _ = await Assert.That(FindMounts(arguments, restricted)[^1]).IsEqualTo("--ro-bind");
-        _ = await Assert.That(Array.LastIndexOf(arguments, restricted))
-            .IsGreaterThan(Array.LastIndexOf(arguments, resources.PlanDirectory));
+        var mounts = FindMounts(arguments, scratch.Root);
+        _ = await Assert.That(mounts[^1]).IsEqualTo("--bind");
     }
 
     [Test]
@@ -374,12 +357,13 @@ internal sealed class ProcessRunnerTests : IDisposable
                 new SandboxRule(hidden, SandboxRuleAction.AllowRead),
             ],
             globalRules: [],
-            runtimeCapabilities: []);
+            mandatoryRules: []);
 
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
+            Scratch(_workspace),
             profile,
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
@@ -425,6 +409,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             "true",
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
+            Scratch(_workspace),
             profile,
             snapshot,
             cancellationToken);
@@ -437,6 +422,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             "true",
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
+            Scratch(_workspace),
             SecurityProfile.Compose(true, [], [], []),
             snapshot,
             cancellationToken);
@@ -463,13 +449,13 @@ internal sealed class ProcessRunnerTests : IDisposable
             readOnly: false,
             modeRules: [new SandboxRule(mandatoryRoot, SandboxRuleAction.AllowWrite)],
             globalRules: [],
-            mandatoryRules: [new SandboxRule(mandatoryRoot, SandboxRuleAction.DenyRead)],
-            runtimeCapabilities: []);
+            mandatoryRules: [new SandboxRule(mandatoryRoot, SandboxRuleAction.DenyRead)]);
 
         _ = await runner.Run(
             "true",
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
+            Scratch(_workspace),
             profile,
             grants.Capture(),
             cancellationToken);
@@ -497,6 +483,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             "true",
             ProcessEnvironmentOverrides.Empty,
             resources,
+            Scratch(resources),
             WritableProfile(),
             grants.Capture(),
             cancellationToken);
@@ -540,6 +527,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 + $"printf outside > '{outsideGrant}' 2>/dev/null",
                 ProcessEnvironmentOverrides.Empty,
                 Resources(_workspace),
+                Scratch(_workspace),
                 profile,
                 grants.Capture(),
                 cancellationToken);
@@ -579,6 +567,7 @@ internal sealed class ProcessRunnerTests : IDisposable
                 $"printf allowed > '{allowed}'; printf denied > '{denied}' 2>/dev/null",
                 ProcessEnvironmentOverrides.Empty,
                 Resources(_workspace),
+                Scratch(_workspace),
                 WritableProfile(),
                 grants.Capture(),
                 cancellationToken);
@@ -614,6 +603,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             "true",
             ProcessEnvironmentOverrides.Empty,
             Resources(_workspace),
+            Scratch(_workspace),
             WritableProfile(),
             snapshot,
             cancellationToken);
@@ -634,6 +624,7 @@ internal sealed class ProcessRunnerTests : IDisposable
         var argumentsPath = Path.Combine(_workspace, "arguments");
         var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
         var resources = Resources(_workspace);
+        var scratch = Scratch(resources);
         _ = Directory.CreateDirectory(resources.Root);
         _ = Directory.CreateDirectory(Path.Combine(resources.ProtectedRoots[0], "private"));
         _ = Directory.CreateDirectory(Path.Combine(resources.ProtectedRoots[3], "private"));
@@ -647,13 +638,16 @@ internal sealed class ProcessRunnerTests : IDisposable
             "true",
             ProcessEnvironmentOverrides.Empty,
             resources,
+            Scratch(resources),
             profile,
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         _ = await Assert.That(arguments).DoesNotContain("--clearenv");
-        _ = await Assert.That(arguments).DoesNotContain("--setenv");
+        _ = await Assert.That(FindSetEnvironment(arguments, "HOME")).IsEqualTo(scratch.HomeDirectory);
+        _ = await Assert.That(FindSetEnvironment(arguments, "XDG_CACHE_HOME")).IsEqualTo(scratch.CacheDirectory);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
 
         foreach (var root in resources.ProtectedRoots.Where(Directory.Exists))
         {
@@ -662,7 +656,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             _ = await Assert.That(mounts[^1]).IsEqualTo("--tmpfs");
         }
 
-        _ = await Assert.That(FindMounts(arguments, resources.BlobDirectory)[^1]).IsEqualTo("--ro-bind");
+        _ = await Assert.That(FindMounts(arguments, scratch.Root)[^1]).IsEqualTo("--bind");
     }
 
     [Test]
@@ -676,24 +670,26 @@ internal sealed class ProcessRunnerTests : IDisposable
         }
 
         var resources = Resources(_workspace);
-        _ = Directory.CreateDirectory(resources.BlobDirectory);
+        var scratch = Scratch(resources);
+        _ = Directory.CreateDirectory(scratch.BlobDirectory);
         _ = Directory.CreateDirectory(resources.ProtectedRoots[3]);
         await File.WriteAllTextAsync(
             Path.Combine(resources.ProtectedRoots[3], "parrot.token"),
             "secret",
             cancellationToken);
         await File.WriteAllTextAsync(
-            Path.Combine(resources.BlobDirectory, "result.txt"),
+            Path.Combine(scratch.BlobDirectory, "result.txt"),
             "result",
             cancellationToken);
 
-        var home = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
-        var cache = Environment.GetEnvironmentVariable("XDG_CACHE_HOME") ?? string.Empty;
+        var home = scratch.HomeDirectory;
+        var cache = scratch.CacheDirectory;
         var result = await runner.Run(
             $"cat '{resources.ProtectedRoots[3]}/parrot.token' 2>/dev/null || echo hidden; "
-            + $"cat '{resources.BlobDirectory}/result.txt'; printf '\\n%s' \"$HOME|$XDG_CACHE_HOME\"",
+            + $"cat '{scratch.BlobDirectory}/result.txt'; printf '\\n%s' \"$HOME|$XDG_CACHE_HOME\"",
             ProcessEnvironmentOverrides.Empty,
             resources,
+            Scratch(resources),
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
@@ -714,11 +710,13 @@ internal sealed class ProcessRunnerTests : IDisposable
         }
 
         var resources = Resources(_workspace);
-        var scratchFile = Path.Combine(resources.TemporaryDirectory, "scratch.txt");
+        var scratch = Scratch(resources);
+        var scratchFile = Path.Combine(scratch.Root, "scratch.txt");
         var result = await runner.Run(
             $"echo hi > inside.txt && echo scratch > '{scratchFile}' && (touch /host-write 2>&1 || echo blocked)",
             ProcessEnvironmentOverrides.Empty,
             resources,
+            Scratch(resources),
             WritableProfile(),
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
@@ -739,6 +737,12 @@ internal sealed class ProcessRunnerTests : IDisposable
                 Path.Combine(workspace, ".test-data")),
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(workspace));
+
+    private static AgentScratchDirectory Scratch(string workspace) =>
+        Resources(workspace).AgentScratch("agent-session-test");
+
+    private static AgentScratchDirectory Scratch(UserSessionResources resources) =>
+        resources.AgentScratch("agent-session-test");
 
     private static string[] FindMounts(string[] arguments, string path)
     {

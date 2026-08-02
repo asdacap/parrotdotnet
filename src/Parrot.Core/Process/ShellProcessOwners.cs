@@ -19,7 +19,13 @@ internal sealed class ShellProcessOwners(
         lock (_gate)
         {
             ValidateRegistration(sessionId);
-            return new ShellProcessOwner(sessionId, resources, runner, _inventory, lifetime);
+            return new ShellProcessOwner(
+                sessionId,
+                resources,
+                resources.AgentScratch(sessionId),
+                runner,
+                _inventory,
+                lifetime);
         }
     }
 

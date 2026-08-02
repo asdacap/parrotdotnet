@@ -12,6 +12,7 @@ internal sealed class UnavailableProcessSandbox : IProcessSandbox
         string command,
         ProcessEnvironmentOverrides environment,
         UserSessionResources resources,
+        AgentScratchDirectory scratch,
         SecurityProfile securityProfile,
         SandboxWriteGrantSnapshot writeGrants,
         ShellProcessTerminalMode terminalMode,

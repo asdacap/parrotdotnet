@@ -40,6 +40,14 @@ internal sealed class ExecCommandToolTests : IDisposable
         var identity = AgentIdentity.Main("session", string.Empty);
         var repository = new EventRepository(database);
         var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".state"),
+                Path.Combine(_workspace, ".config"),
+                Path.Combine(_workspace, ".data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var scratch = resources.AgentScratch(identity.SessionId);
         var session = new AgentSession(
             identity,
             new ModelSelector(model.Selector),
@@ -49,7 +57,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             [],
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("session", repository, events),
-            new ToolOutputBlobStore(Path.Combine(_workspace, "blob")),
+            new ToolOutputBlobStore(scratch.BlobDirectory),
             new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
@@ -58,17 +66,11 @@ internal sealed class ExecCommandToolTests : IDisposable
             dependencies.Registry,
             dependencies.Queues,
             CancellationToken.None);
-        var resources = new UserSessionResources(
-            new StatePaths(
-                Path.Combine(_workspace, ".state"),
-                Path.Combine(_workspace, ".config"),
-                Path.Combine(_workspace, ".data")),
-            UserSessionId.Parse("session-test"),
-            ProjectWorkspace.FromLaunchDirectory(_workspace));
         using var inventory = new ShellProcessInventory();
         var processes = new ShellProcessOwner(
             session.SessionId,
             resources,
+            scratch,
             new ProcessRunner(CreateSandboxPassThrough(_workspace)),
             inventory,
             CancellationToken.None);
@@ -134,7 +136,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         var spilledPath = spilled.Text[spilledPrefix.Length..^spilledSuffix.Length];
         _ = await Assert.That(spilled.Text).IsEqualTo(spilledPrefix + spilledPath + spilledSuffix);
         _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();
-        _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(resources.BlobDirectory);
+        _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(scratch.BlobDirectory);
 
         var yielded = await Execute(tool, """{"command":"sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""", selection, cancellationToken);
         var waited = await Execute(new WaitProcessTool(processes), """{"name":"later"}""", selection, cancellationToken);

@@ -126,7 +126,7 @@ internal sealed class StatusDrainTests : IDisposable
         _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         var planArtifact = Directory.GetFiles(
-            Path.Combine(_root, "sessions", "user", "plan"),
+            Path.Combine(_root, "sessions", "user", "scratch", AgentSessionId(repository), "plan"),
             "plan-*.md").Single();
         await File.WriteAllTextAsync(planArtifact, "  # Plan\n", cancellationToken);
         provider.Release();

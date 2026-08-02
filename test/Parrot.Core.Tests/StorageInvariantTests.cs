@@ -195,8 +195,8 @@ internal sealed class StorageInvariantTests : IDisposable
             ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
         var index = new SessionIndex(resources);
 
-        _ = await Assert.That(resources.BlobDirectory)
-            .IsEqualTo(Path.Combine(resources.Root, "blob"));
+        _ = await Assert.That(resources.AgentScratch("agent-session-test").BlobDirectory)
+            .IsEqualTo(Path.Combine(resources.Root, "scratch", "agent-session-test", "blobs"));
 
         index.Publish(new SessionMeta
         {

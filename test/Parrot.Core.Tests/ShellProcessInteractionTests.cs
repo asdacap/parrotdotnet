@@ -38,11 +38,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
+            resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             lifetime.Token);
@@ -88,11 +89,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
+            resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             lifetime.Token);
@@ -110,9 +112,9 @@ internal sealed class ShellProcessInteractionTests : IDisposable
 
         _ = await Assert.That(initial.Running).IsTrue();
         _ = await Assert.That(result.Spilled).IsTrue();
-        await WaitForNoTranscriptSpools(resources.BlobDirectory, cancellationToken);
+        await WaitForNoTranscriptSpools(resources.AgentScratch(agent.SessionId).BlobDirectory, cancellationToken);
         _ = await Assert.That(File.Exists(result.BlobPath)).IsTrue();
-        _ = await Assert.That(Directory.EnumerateFiles(resources.BlobDirectory, ".process-*.tmp")).IsEmpty();
+        _ = await Assert.That(Directory.EnumerateFiles(resources.AgentScratch(agent.SessionId).BlobDirectory, ".process-*.tmp")).IsEmpty();
         var durable = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
         _ = await Assert.That(durable).Contains("[stdout]\n");
         _ = await Assert.That(durable).DoesNotContain("prefix");
@@ -136,11 +138,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
+            resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             lifetime.Token);
@@ -180,11 +183,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
+            resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             lifetime.Token);
@@ -237,11 +241,12 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.BlobDirectory, lifetime.Token);
+        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
             resources,
+            resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             lifetime.Token);

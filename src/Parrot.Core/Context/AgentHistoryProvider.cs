@@ -12,7 +12,7 @@ internal sealed class AgentHistoryProvider(UserSessionResources resources) : ISy
         ArgumentNullException.ThrowIfNull(identity);
         var path = resources.AgentHistoryFile(identity.SessionId);
         return new StaticSystemPrompt(
-            $"Your durable message and compaction history is available as a read-only JSONL file: {path}. "
-            + "Use the read tool when you need to inspect it.");
+            $"Your durable message and compaction history is projected to this JSONL file: {path}. "
+            + "SQLite remains authoritative, so Parrot may replace this file when the history changes.");
     }
 }

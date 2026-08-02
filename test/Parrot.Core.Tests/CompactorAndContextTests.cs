@@ -33,16 +33,17 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Temporary_directory_context_names_the_writable_directory()
+    public async Task Scratch_directory_context_names_the_agent_private_directory()
     {
-        var directory = Path.Combine(_temporaryDirectory, "session", "runtime", "tmp");
-        var prompt = new TemporaryDirectoryProvider(directory)
+        var directory = new AgentScratchDirectory(Path.Combine(_temporaryDirectory, "session", "scratch", "agent"));
+        var prompt = new ScratchDirectoryProvider(directory)
             .Materialize(AgentIdentity.Main("session", string.Empty));
 
         prompt.RenewEpoch();
         var built = prompt.Build(Selection());
 
-        _ = await Assert.That(built).IsEqualTo($"Writable temporary directory for shell commands: {directory}");
+        _ = await Assert.That(built).Contains($"Persistent writable scratch directory for this agent: {directory.Root}");
+        _ = await Assert.That(built).Contains("durable artifacts");
     }
 
     [Test]

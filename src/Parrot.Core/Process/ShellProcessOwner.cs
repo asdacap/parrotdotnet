@@ -10,6 +10,7 @@ namespace Parrot.Process;
 internal sealed class ShellProcessOwner(
     string sessionId,
     UserSessionResources resources,
+    AgentScratchDirectory scratch,
     ProcessRunner runner,
     ShellProcessInventory inventory,
     CancellationToken lifetime) : IActiveWorkSource, IProcessStatusSource
@@ -86,6 +87,7 @@ internal sealed class ShellProcessOwner(
                 command,
                 environment,
                 resources,
+                scratch,
                 securityProfile,
                 writeGrants,
                 terminalMode,

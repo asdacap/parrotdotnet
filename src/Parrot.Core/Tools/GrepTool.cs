@@ -102,7 +102,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
             return $"error: {failure.Message}";
         }
 
-        if (!selection.SecurityProfile.AllowsRead(resolved.Lexical) || !selection.SecurityProfile.AllowsRead(resolved.Physical))
+        if (!workspace.AllowsRead(resolved, selection.SecurityProfile))
         {
             return "error: access denied";
         }
@@ -119,7 +119,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
             if (File.Exists(full))
             {
                 var displayPath = Path.GetFileName(resolved.Lexical);
-                await SearchFile(full, displayPath, regex, state, selection.SecurityProfile, timeoutCancellation.Token)
+                await SearchFile(workspace, full, displayPath, regex, state, selection.SecurityProfile, timeoutCancellation.Token)
                     .ConfigureAwait(false);
             }
             else if (Directory.Exists(full))
@@ -176,7 +176,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
             }
 
             var displayPath = Path.GetRelativePath(directory.Physical, file).Replace(Path.DirectorySeparatorChar, '/');
-            await SearchFile(file, displayPath, regex, state, securityProfile, cancellationToken)
+            await SearchFile(workspace, file, displayPath, regex, state, securityProfile, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -226,7 +226,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
                 continue;
             }
 
-            if (!securityProfile.AllowsRead(resolved.Lexical) || !securityProfile.AllowsRead(resolved.Physical))
+            if (!workspace.AllowsRead(resolved, securityProfile))
             {
                 continue;
             }
@@ -261,6 +261,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
     }
 
     private static async Task SearchFile(
+        ToolWorkspace workspace,
         string file,
         string displayPath,
         Regex regex,
@@ -268,7 +269,7 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
         SecurityProfile securityProfile,
         CancellationToken cancellationToken)
     {
-        if (!securityProfile.AllowsRead(file) || IsBinary(file))
+        if (!workspace.AllowsRead(workspace.ResolveRead(file), securityProfile) || IsBinary(file))
         {
             return;
         }

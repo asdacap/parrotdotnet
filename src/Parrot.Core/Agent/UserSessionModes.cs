@@ -1,21 +1,40 @@
 using Parrot.Protocol;
+using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class UserSessionModes(ModeRegistry modes, string planDirectory)
+internal sealed class UserSessionModes(ModeRegistry modes)
 {
     private readonly Lock _planGate = new();
+    private readonly ModeRegistry _modes = modes ?? throw new ArgumentNullException(nameof(modes));
+    private AgentScratchDirectory? _mainScratch;
     private string _planArtifact = string.Empty;
+
+    internal UserSessionModes(ModeRegistry modes, string planDirectory)
+        : this(modes) =>
+        _mainScratch = new AgentScratchDirectory(
+            Path.GetDirectoryName(planDirectory)
+            ?? throw new ArgumentException("A plan directory must have a parent.", nameof(planDirectory)));
+
+    public void Attach(AgentScratchDirectory mainScratch)
+    {
+        ArgumentNullException.ThrowIfNull(mainScratch);
+        lock (_planGate)
+        {
+            _mainScratch = mainScratch;
+            _planArtifact = string.Empty;
+        }
+    }
 
     public IMode Resolve(string id)
     {
-        var profile = modes.Resolve(id);
+        var profile = _modes.Resolve(id);
 
         return string.Equals(profile.Id, ModeRegistry.Plan, StringComparison.Ordinal)
             ? new SessionMode(
                 profile,
-                () => $"{profile.Prompt} to this exact file: {GetPlanArtifact()}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {planDirectory}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
-                profile.SecurityProfile.WithRuntimeCapability(planDirectory),
+                () => $"{profile.Prompt} to this exact file: {GetPlanArtifact()}. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {GetPlanDirectory()}. Do not include the plan in your assistant response. Finish only after writing the canonical file.",
+                profile.SecurityProfile,
                 PreparePlan,
                 CompletePlan)
             : new SessionMode(
@@ -51,6 +70,8 @@ internal sealed class UserSessionModes(ModeRegistry modes, string planDirectory)
         }
     }
 
+    private string GetPlanDirectory() => RequireMainScratch().PlanDirectory;
+
     private void PreparePlan()
     {
         lock (_planGate)
@@ -61,17 +82,18 @@ internal sealed class UserSessionModes(ModeRegistry modes, string planDirectory)
                 return;
             }
 
+            var scratch = RequireMainScratch();
             try
             {
-                _ = Directory.CreateDirectory(planDirectory);
+                scratch.ProvisionPlanDirectory();
             }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
                 throw new ModeRegistryException($"mode: create plan directory: {failure.Message}");
             }
 
             SecureDirectory();
-            var artifact = Path.Combine(planDirectory, $"plan-{Guid.NewGuid():n}.md");
+            var artifact = Path.Combine(scratch.PlanDirectory, $"plan-{Guid.NewGuid():n}.md");
 
             try
             {
@@ -126,7 +148,7 @@ internal sealed class UserSessionModes(ModeRegistry modes, string planDirectory)
                             Value = "yes",
                             Description = "Implement the approved plan",
                             Aliases = { "y" },
-                            Action = new ChoiceAction { Mode = modes.Default, Prompt = "Implement the approved plan." },
+                            Action = new ChoiceAction { Mode = _modes.Default, Prompt = "Implement the approved plan." },
                         },
                         new DialogChoice { Value = "no", Description = "Stop after planning", Aliases = { "n" } },
                     },
@@ -138,11 +160,17 @@ internal sealed class UserSessionModes(ModeRegistry modes, string planDirectory)
             };
     }
 
+    private AgentScratchDirectory RequireMainScratch() =>
+        _mainScratch ?? throw new ModeRegistryException("the main agent scratch directory is not attached");
+
     private void SecureDirectory()
     {
+        var planDirectory = RequireMainScratch().PlanDirectory;
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD())
         {
-            File.SetUnixFileMode(planDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            File.SetUnixFileMode(
+                planDirectory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
     }
 }
