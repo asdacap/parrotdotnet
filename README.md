@@ -82,6 +82,24 @@ Parrot writes an agent-readable `predefined_config.yaml` alongside the
 user-owned `config.yaml`. The user file is recursively layered over the
 predefined defaults and is never rewritten except by an interactive setting.
 
+Top-level `system_prompts` is a mapping from namespaced system-provider keys to
+nonblank prompt strings. Its entries configure static system-prompt providers;
+for example:
+
+```yaml
+system_prompts:
+  runtime:system-context:01-base: Additional base guidance
+  custom:workflow: Guidance from a custom provider
+```
+
+Nested user mappings override a predefined entry with the same provider key and
+add new keys without replacing unrelated entries. Provider keys must follow the
+same namespaced key rules as runtime system-prompt providers. A configured key
+that collides with a runtime provider is rejected rather than replacing the
+runtime provider. This map is separate from `profiles.<id>.prompt`, which is
+mode-specific guidance, and `model_augment_system_prompts`, which augments the
+prompt for selected model selectors.
+
 Profiles are configured under `profiles`. `build`, `plan`, and `query` are
 foreground modes, while `explorer`, `review`, `worker`, and `thinker` are child
 profiles selected by `agent_spawn.agent`. `default_profile` must name a

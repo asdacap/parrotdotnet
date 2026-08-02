@@ -157,7 +157,7 @@ internal static class TestModels
         new CompositeSystemPromptProvider(
             "test:system-prompt",
             [
-                new BasePromptProvider("Test base prompt."),
+                new ConfiguredSystemPromptProvider("runtime:system-context:01-base", "Test base prompt."),
                 new AgentsPromptProvider(workingDirectory, configDirectory),
                 new ExpectedCliUtilitiesProvider(EmptyCliUtilities()),
                 new DateProvider("2026-07-24"),

@@ -298,6 +298,35 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Configured_system_prompts_are_ordered_with_runtime_providers()
+    {
+        var runtime = new PromptTestProvider("test:m-runtime", "runtime");
+        var composite = new CompositeSystemPromptProvider(
+            "test:composite",
+            [
+                new ConfiguredSystemPromptProvider("test:z-configured", "last"),
+                runtime,
+                new ConfiguredSystemPromptProvider("test:a-configured", "first"),
+            ]);
+
+        var prompt = composite.Materialize(AgentIdentity.Main("main", string.Empty));
+        prompt.RenewEpoch();
+
+        _ = await Assert.That(prompt.Build(Selection())).IsEqualTo("first\n\nruntime\n\nlast");
+        _ = await Assert.That(runtime.Materializations).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Configured_system_prompt_keys_cannot_collide_with_runtime_providers()
+    {
+        var runtime = new PromptTestProvider("test:collision", "runtime");
+        var configured = new ConfiguredSystemPromptProvider("test:collision", "configured");
+
+        _ = await Assert.That(() => new CompositeSystemPromptProvider("test:composite", [configured, runtime]))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Agents_prompt_is_stable_until_the_epoch_is_renewed()
     {
         var agents = Path.Combine(_workspace, "AGENTS.md");
@@ -791,7 +820,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         new(
             "test:system-context",
             [
-                new BasePromptProvider("Configured base prompt."),
+                new ConfiguredSystemPromptProvider("runtime:system-context:01-base", "Configured base prompt."),
                 new AgentsPromptProvider(_workspace, _configDirectory),
                 new ExpectedCliUtilitiesProvider(EmptyCliUtilities()),
                 new DateProvider("2026-07-24"),

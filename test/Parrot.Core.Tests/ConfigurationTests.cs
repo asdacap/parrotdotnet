@@ -26,10 +26,11 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(File.Exists(path)).IsFalse();
         _ = await Assert.That(configuration.Model).IsEmpty();
-        _ = await Assert.That(configuration.Prompt).StartsWith(
+        var basePrompt = configuration.SystemPrompts["runtime:system-context:01-base"];
+        _ = await Assert.That(basePrompt).StartsWith(
             "You are parrot, a coding agent. You work in the user's project directory.\n"
             + "Filesystem access is determined by the active security policy.");
-        _ = await Assert.That(configuration.Prompt).Contains("# Common subagent spawn strategy");
+        _ = await Assert.That(basePrompt).Contains("# Common subagent spawn strategy");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configuration.DisabledTools.Count).IsEqualTo(2);
@@ -167,19 +168,42 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task The_base_prompt_is_read_from_the_file()
+    public async Task System_prompts_override_inherited_entries_and_add_namespaced_providers()
     {
-        var path = Write("prompt: Custom base prompt.\n");
+        var prompts = Load(Write("""
+            system_prompts:
+              runtime:system-context:01-base: Custom base prompt.
+              custom:guidance: Additional guidance.
+            """)).SystemPrompts;
 
-        _ = await Assert.That(Load(path).Prompt).IsEqualTo("Custom base prompt.");
+        _ = await Assert.That(prompts).Count().IsEqualTo(2);
+        _ = await Assert.That(prompts["runtime:system-context:01-base"]).IsEqualTo("Custom base prompt.");
+        _ = await Assert.That(prompts["custom:guidance"]).IsEqualTo("Additional guidance.");
     }
 
     [Test]
-    [Arguments("prompt: ''\n")]
-    [Arguments("prompt: null\n")]
-    [Arguments("prompt: ~\n")]
-    [Arguments("prompt: []\n")]
-    public async Task The_base_prompt_must_be_a_non_empty_string(string content) =>
+    public async Task Legacy_top_level_prompt_is_not_used()
+    {
+        var configuration = Load(Write("prompt: Legacy prompt.\n"));
+
+        _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:01-base"])
+            .DoesNotContain("Legacy prompt.");
+    }
+
+    [Test]
+    [Arguments("system_prompts: []\n")]
+    [Arguments("system_prompts:\n  custom:guidance: ''\n")]
+    [Arguments("system_prompts:\n  custom:guidance: '   '\n")]
+    [Arguments("system_prompts:\n  custom:guidance: null\n")]
+    [Arguments("system_prompts:\n  custom:guidance: ~\n")]
+    [Arguments("system_prompts:\n  custom:guidance: []\n")]
+    [Arguments("system_prompts:\n  guidance: value\n")]
+    [Arguments("system_prompts:\n  ':guidance': value\n")]
+    [Arguments("system_prompts:\n  'custom:': value\n")]
+    [Arguments("system_prompts:\n  ' custom:guidance': value\n")]
+    [Arguments("system_prompts:\n  'custom:guidance ': value\n")]
+    [Arguments("system_prompts:\n  \"custom:guidance\\tbad\": value\n")]
+    public async Task System_prompts_require_namespaced_keys_and_non_empty_string_values(string content) =>
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
@@ -462,8 +486,8 @@ internal sealed class ConfigurationTests : IDisposable
                 read_only: true
             """));
 
-        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(8);
-        _ = await Assert.That(configuration.SandboxRules[0].Path).IsEqualTo("/dev/null");
+        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(7);
+        _ = await Assert.That(configuration.SandboxRules[0].Path).IsEqualTo("/tmp");
         _ = await Assert.That(configuration.SandboxRules[^2])
             .IsEqualTo(new SandboxRule(workspace, SandboxRuleAction.AllowWrite));
         _ = await Assert.That(configuration.SandboxRules[^1].Action).IsEqualTo(SandboxRuleAction.DenyRead);
@@ -501,7 +525,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         var configuration = Load(path, environment);
 
-        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(8);
+        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(7);
         _ = await Assert.That(configuration.SandboxRules[^2]).IsEqualTo(
             new SandboxRule(Path.Combine(environment["ROOT"], "first", "cache"), SandboxRuleAction.AllowWrite));
         _ = await Assert.That(configuration.SandboxRules[^1]).IsEqualTo(
@@ -525,7 +549,6 @@ internal sealed class ConfigurationTests : IDisposable
 
         var expected = new[]
         {
-            "/dev/null",
             "/tmp",
             cache,
             Path.Combine(home, ".nuget", "packages"),
@@ -564,8 +587,8 @@ internal sealed class ConfigurationTests : IDisposable
                 ["XDG_CACHE_HOME"] = Path.Combine(_directory, "cache"),
             });
 
-        _ = await Assert.That(configuration.SandboxRules).Count().IsEqualTo(6);
-        _ = await Assert.That(configuration.SandboxRules[0].Path).IsEqualTo("/dev/null");
+        _ = await Assert.That(configuration.SandboxRules).Count().IsEqualTo(5);
+        _ = await Assert.That(configuration.SandboxRules[0].Path).IsEqualTo("/tmp");
     }
 
     [Test]
@@ -596,7 +619,7 @@ internal sealed class ConfigurationTests : IDisposable
                 rule: allow_write
             """));
 
-        _ = await Assert.That(configuration.SandboxRules).Count().IsEqualTo(6);
+        _ = await Assert.That(configuration.SandboxRules).Count().IsEqualTo(5);
         _ = await Assert.That(configuration.SandboxRules).DoesNotContain(
             new SandboxRule(missing, SandboxRuleAction.AllowWrite));
         _ = await Assert.That(Directory.Exists(missing)).IsFalse();

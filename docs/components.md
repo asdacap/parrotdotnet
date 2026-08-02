@@ -602,8 +602,9 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 ### `SystemContextBuilder` — rank 7, M4
 
 - **Absorbs** `systemcontext`, `skill`, `command`.
-- **Owns** the typed context sources: base prompt, date, platform, working
-  directory, project metadata, `AGENTS.md` files, skills, tool guidance.
+- **Owns** the typed context sources: configured system-prompt providers, date,
+  platform, working directory, project metadata, `AGENTS.md` files, skills, and
+  tool guidance.
 - **Inbound** sample the sources and produce an epoch baseline. **Sampled only
   at a safe turn boundary** (principle 4).
 - **Outbound** `Configuration`, `StatePaths`, the filesystem.

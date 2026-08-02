@@ -133,21 +133,22 @@ internal partial class Composition
                 ctx.Inject<string>("date", out var date);
                 ctx.Inject<ProfileRegistry>(out var profiles);
                 ctx.Inject<CliUtilityAvailability>(out var cliUtilities);
-                return new CompositeSystemPromptProvider(
-                    "runtime:system-prompt",
-                    [
-                        new BasePromptProvider(configuration.Prompt),
-                        new AgentsPromptProvider(workingDirectory, paths.Config),
-                        new ExpectedCliUtilitiesProvider(cliUtilities),
-                        new DateProvider(date),
-                        new PlatformProvider(),
-                        new WorkingDirectoryProvider(workingDirectory),
-                        new OptionalCliUtilitiesProvider(cliUtilities),
-                        new SessionIdentityProvider(),
-                        new SubagentsProvider(profiles),
-                        new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
-                        new QueueGuidanceProvider(),
-                    ]);
+                List<ISystemPromptProvider> systemPromptProviders =
+                [
+                    .. configuration.SystemPrompts.Select(
+                        entry => new ConfiguredSystemPromptProvider(entry.Key, entry.Value)),
+                    new AgentsPromptProvider(workingDirectory, paths.Config),
+                    new ExpectedCliUtilitiesProvider(cliUtilities),
+                    new DateProvider(date),
+                    new PlatformProvider(),
+                    new WorkingDirectoryProvider(workingDirectory),
+                    new OptionalCliUtilitiesProvider(cliUtilities),
+                    new SessionIdentityProvider(),
+                    new SubagentsProvider(profiles),
+                    new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
+                    new QueueGuidanceProvider(),
+                ];
+                return new CompositeSystemPromptProvider("runtime:system-prompt", systemPromptProviders);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {

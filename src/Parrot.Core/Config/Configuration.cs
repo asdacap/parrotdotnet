@@ -1,4 +1,5 @@
 using System.Globalization;
+using Parrot.Context;
 using Parrot.Security;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
@@ -13,7 +14,7 @@ internal sealed class Configuration(string path)
     private const string ProviderModelAliasDefaultsKey = "provider_model_alias_defaults";
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
-    private const string PromptKey = "prompt";
+    private const string SystemPromptsKey = "system_prompts";
     private const string DefaultProfileKey = "default_profile";
     private const string DisabledToolsKey = "disabled_tools";
     private const string CliUtilitiesKey = "cli_utilities";
@@ -29,7 +30,8 @@ internal sealed class Configuration(string path)
     // what upstream accepts for the model too.
     public string Model { get; private set; } = string.Empty;
 
-    public string Prompt { get; private set; } = string.Empty;
+    public IReadOnlyDictionary<string, string> SystemPrompts { get; private set; } =
+        new SortedDictionary<string, string>(StringComparer.Ordinal);
 
     public bool InlineDiff { get; private set; } = true;
 
@@ -161,7 +163,7 @@ internal sealed class Configuration(string path)
         var configuration = new Configuration(path)
         {
             Model = Scalar(root, ModelKey),
-            Prompt = NonEmptyScalar(root, PromptKey, PromptKey),
+            SystemPrompts = ReadSystemPrompts(root),
             InlineDiff = ReadInlineDiff(root),
             ModelAliases = ReadModelAliases(root),
             ProviderModelAliasDefaults = ReadProviderModelAliasDefaults(root),
@@ -516,6 +518,35 @@ internal sealed class Configuration(string path)
                 throw new InvalidDataException($"{field} must select provider {providerId}");
             }
         }
+    }
+
+    private static SortedDictionary<string, string> ReadSystemPrompts(YamlMappingNode root)
+    {
+        var prompts = new SortedDictionary<string, string>(StringComparer.Ordinal);
+
+        if (!Child(root, SystemPromptsKey, out var node) || node is not YamlMappingNode configured)
+        {
+            throw new InvalidDataException($"{SystemPromptsKey} must be a mapping");
+        }
+
+        foreach (var entry in configured.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { } key } || !SystemPromptProviderKey.IsValid(key))
+            {
+                throw new InvalidDataException($"{SystemPromptsKey} keys must be namespaced system prompt provider keys");
+            }
+
+            if (entry.Value is not YamlScalarNode { Value: { } prompt } scalar ||
+                string.IsNullOrWhiteSpace(prompt) ||
+                (scalar.Style == ScalarStyle.Plain && prompt is "null" or "Null" or "NULL" or "~"))
+            {
+                throw new InvalidDataException($"{SystemPromptsKey}.{key} must be a non-empty string");
+            }
+
+            prompts[key] = prompt;
+        }
+
+        return prompts;
     }
 
     private static SortedDictionary<string, string> ReadModelAugmentSystemPrompts(YamlMappingNode root)

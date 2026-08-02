@@ -188,12 +188,12 @@ internal sealed class ModeRegistryTests : IDisposable
             Path.Combine(_root, "state"),
             Path.Combine(_root, "config"),
             Path.Combine(_root, "data"));
-        var registry = Registry();
+        var registry = Registry([new SandboxRule(_root, SandboxRuleAction.DenyWrite)]);
         var planDirectory = Path.Combine(paths.State, "sessions", "session", "plan");
         var plan = new UserSessionModes(registry, planDirectory).Resolve(ModeRegistry.Plan);
         plan.Prepare();
         var artifact = PlanArtifactIn(planDirectory);
-        var outside = Path.Combine(paths.State, "sessions", "other-session", "outside.md");
+        var outside = Path.Combine(_root, "outside.md");
         var scratch = new AgentScratchDirectory(Path.GetDirectoryName(planDirectory)
             ?? throw new InvalidOperationException("Plan directory has no parent."));
         var security = SecurityProfile.ForAgent(plan.SecurityProfile, [], scratch.Root, []);

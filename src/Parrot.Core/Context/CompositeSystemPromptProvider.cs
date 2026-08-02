@@ -8,7 +8,7 @@ internal sealed class CompositeSystemPromptProvider : ISystemPromptProvider
 
     public CompositeSystemPromptProvider(string key, IReadOnlyList<ISystemPromptProvider> providers)
     {
-        if (!ValidKey(key))
+        if (!SystemPromptProviderKey.IsValid(key))
         {
             throw new ArgumentException("A system prompt provider key must be namespaced.", nameof(key));
         }
@@ -21,7 +21,7 @@ internal sealed class CompositeSystemPromptProvider : ISystemPromptProvider
         {
             ArgumentNullException.ThrowIfNull(provider);
 
-            if (!ValidKey(provider.Key))
+            if (!SystemPromptProviderKey.IsValid(provider.Key))
             {
                 throw new ArgumentException("A system prompt provider key must be namespaced.", nameof(providers));
             }
@@ -54,13 +54,5 @@ internal sealed class CompositeSystemPromptProvider : ISystemPromptProvider
         }
 
         return new CompositeSystemPrompt(prompts);
-    }
-
-    private static bool ValidKey(string key)
-    {
-        var separator = key.IndexOf(':', StringComparison.Ordinal);
-        return separator > 0
-            && separator < key.Length - 1
-            && !key.AsSpan().ContainsAny("\r\n\t ");
     }
 }

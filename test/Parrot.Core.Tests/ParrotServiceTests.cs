@@ -356,7 +356,8 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await client.SendMessageAsync(
             Send(created.Id, "initialize", "msg-noninteractive"),
             cancellationToken: cancellationToken);
-        var target = SecurityWriteTarget.Resolve(EnsureDirectory(Path.Combine(_root, "noninteractive-target")));
+        var target = SecurityWriteTarget.Resolve(
+            Path.GetPathRoot(_root) ?? throw new InvalidOperationException("Test root has no filesystem root."));
 
         var reply = await sessions.Owners.Single().Permissions.Request(
             sessions.Sessions.Single(),
