@@ -75,6 +75,26 @@ internal sealed class IdentityStorageTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_scratch_immediately_provisions_its_root_and_blob_directory()
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var resources = new UserSessionResources(
+            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+        var expectedRoot = Path.Combine(resources.ScratchRootDirectory, "agent-session-child");
+        var expectedBlobs = Path.Combine(expectedRoot, "blobs");
+
+        _ = await Assert.That(Directory.Exists(expectedRoot)).IsFalse();
+        _ = await Assert.That(Directory.Exists(expectedBlobs)).IsFalse();
+
+        var scratch = resources.AgentScratch("agent-session-child");
+
+        _ = await Assert.That(scratch.Root).IsEqualTo(expectedRoot);
+        _ = await Assert.That(scratch.BlobDirectory).IsEqualTo(expectedBlobs);
+        _ = await Assert.That(Directory.Exists(scratch.Root)).IsTrue();
+        _ = await Assert.That(Directory.Exists(scratch.BlobDirectory)).IsTrue();
+    }
+
+    [Test]
     public async Task Agent_queue_directories_are_contained_beneath_the_agents_queue_root()
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;

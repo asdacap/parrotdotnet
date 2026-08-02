@@ -85,15 +85,12 @@ may list sessions and decide which private root an operation is attempting to
 open, but it never returns a live `UserSession`, database, queue store, or other
 runtime-owned object. This keeps management reads from becoming a second owner.
 
-**Protected roots.** Built-in filesystem tools enforce a mandatory protected-
-root policy in addition to profile sandbox rules. Parrot's private state,
-configuration, and data roots are inaccessible through `read`, `glob`, `grep`,
-`write`, `edit`, and `apply_patch`; nesting one of those roots beneath a
-workspace or reaching one through a symlink does not weaken the rule. A profile
-cannot override it. Plan artifacts and overflow blobs are exposed only through
-narrow, runtime-granted capabilities owned by their components, not by making a
-private root generally readable or writable. Filesystem permission never
-implies network permission.
+**Filesystem baseline.** The host root is mounted read-only. Profile sandbox
+rules can grant writes at configured paths and configured `deny_read` rules can
+further narrow reads; filesystem permission never implies network permission.
+Private artifacts remain owned by their user session and are exposed only through
+the narrow, runtime-granted capabilities owned by their components, not by
+transferring ownership to another session.
 
 **Serving.** The default remote-capable transport is a Unix-domain socket in a
 user-only control directory: the directory is mode `0700` and the socket is
@@ -128,18 +125,18 @@ is attributed differently.
 
 **Input and transcript.** A prompt is an ordered `MessageContentPart` sequence, not a
 string with image paths embedded in it. Text and image parts retain their original
-order. Image bytes are stored once in the owning user session's private attachment
-root; the durable transcript stores the artifact reference and immutable inspected
+order. Image bytes are stored once in the owning user session's attachment store;
+the durable transcript stores the artifact reference and immutable inspected
 metadata, never base64 image data or a workspace path. A live provider request may
 materialize those referenced parts, bounded to 40 MiB of image context and 64 MiB of
 outbound JSON.
 
 **Ownership and security.** An attachment belongs to the user session that accepted
-its upload. Only that session's agents and provider execution may dereference it;
-agent sessions never receive a capability to another user session's attachment root.
-The root is subject to the same mandatory protected-root policy as the database and
-blobs, so filesystem tools cannot read or write it by path. Upload authorization is
-admission to the target user session, not a filesystem permission. Artifacts are
+its upload. Only that session's agents and provider execution may dereference it
+through runtime APIs; agent sessions never receive a capability to another user
+session's attachment store. The readable host-filesystem baseline can still expose
+artifact paths unless configured `deny_read` rules narrow it. Upload authorization
+is admission to the target user session, not a filesystem permission. Artifacts are
 removed only with their owning user session.
 
 **Supported input.** PNG, JPEG, GIF, and WebP are accepted. Animation is bounded and
@@ -327,20 +324,18 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 
 ### `AgentHistoryTimeline` — rank 3, M8
 
-- **Owns** each agent session's ordered history timeline and its private JSONL file
-  projection at `<session>/agents/<agent>/history.jsonl`.
+- **Owns** each agent session's ordered history timeline and JSONL projection in
+  that agent's scratch directory.
 - **Inbound** record durable message and compaction records after their SQLite
   transaction commits; project the agent's complete timeline atomically enough that
-  an interrupted projection can be rebuilt from SQLite; grant the owning agent an
-  exact-file read capability for its projection.
+  an interrupted projection can be rebuilt from SQLite.
 - **Outbound** `SessionDatabase` as the sole authority for durable history and the
-  owning `AgentSession` for the narrowly scoped read capability.
+  owning `AgentSession`.
 - **Boundary** no. It is a per-agent component, not a user-session-wide history
   service.
 - **Note** JSONL is an inspectable projection, never an alternate persistence
-  authority. The exact-file exception does not expose its containing private root,
-  grant directory access, or permit an agent to read a parent, child, or sibling
-  agent's history.
+  authority. Runtime history APIs remain agent-scoped, while filesystem reads use
+  the readable host baseline and any configured `deny_read` rules.
 - **Checkpoints and effective history.** A durable `set_checkpoint` record names
   a tool-call group in this agent's conversation. Its title is exact (whitespace-
   only is invalid), and duplicate exact titles use latest-wins semantics.
@@ -592,10 +587,9 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   profile.
 - **Boundary** no. A user-approved allow-write rule enables write, edit, and
   shell access within its target, is runtime-only and nonpersistent, and cannot
-  override a read-only profile, explicit static deny, or mandatory protected
-  root. Each agent's private scratch-directory exception is enforced by the
-  process sandbox rather than merged into `SecurityProfile`; neither mechanism
-  has network effect.
+  override a read-only profile or explicit static deny. Each agent's private
+  scratch directory is automatically created and writable by its owner; neither
+  mechanism has network effect.
 
 ### `QuestionBroker` — rank 5, M3
 
@@ -815,10 +809,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - `/mode` and `/modes` select and discover foreground policies. `/status` remains
   deferred because it is a separate user-facing summary, not status-prompt
   injection. Basic and Enhanced render the transient notification independently.
-- Profile tool capabilities remain distinct from the mandatory protected-root
-  boundary. `query` and `plan` apply their configured workspace policy, while
-  the plan artifact receives only its runtime-owned narrow capability. Plan
-  approval dialogs remain separate from filesystem isolation.
+- Profile tool capabilities remain distinct from filesystem sandbox rules.
+  `query` and `plan` apply their configured workspace policy, while the plan
+  artifact remains owned by its user session. Plan approval dialogs remain
+  separate from filesystem isolation.
 
 ---
 
@@ -871,12 +865,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   `replace_all` it requires exactly one match, while `replace_all` permits zero
   or more. Both write directly under the active filesystem security profile;
   they do not restore the dropped transactional change machinery.
-- **Protected roots.** `read`, `glob`, `grep`, `write`, and `edit`
-  additionally enforce Parrot's mandatory protected-root policy.
-  Profile rules cannot grant access to state, configuration, or data roots,
-  including when nested beneath the workspace or reached through a symlink.
-  Runtime-owned plans and blobs use narrow capabilities rather than an
-  exception for their containing root.
+- **Filesystem policy.** `read`, `glob`, `grep`, `write`, and `edit` operate
+  under the active filesystem security profile. The host root is read-only by
+  default; configured `deny_read` rules remain effective, and `allow_write`
+  rules grant only their matched paths. Runtime-owned plans and blobs remain
+  session-owned capabilities rather than general filesystem authority.
 - **Outbound** `PermissionBroker`, the invoking agent session's shell-process
   owner, `ProcessRunner`, `WebFetcher`, the filesystem.
 - **Boundary** **yes** — tools.
@@ -926,19 +919,22 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   environment variables are protected, cleared, or forced. **Fails closed**: no
   sandbox, no execution. Not a warning, not a fallback. The sandbox provides
   filesystem and process isolation; environment selection remains command
-  execution configuration. The working directory and its Git repository root
-  are writable; the latter is detected from linked-worktree metadata when the
-  worktree lives outside the repository. Each process additionally receives only
-  its owning agent's private scratch directory as a writable sandbox exception,
-  after protected masks and profile restrictions. This remains writable for a
-  read-only profile when its tool set includes a shell. Parrot does not override
-  `HOME`, `XDG_CACHE_HOME`, or `TMPDIR`. The rest of the
-  host, including `~/.config`, remains read-only. Stdout and stderr retain at
+  execution configuration. The host root is read-only by default. Configured
+  `allow_write` rules grant writes to matched paths, including the predefined
+  shared grants for `/tmp`, `${XDG_CACHE_HOME:-${HOME}/.cache}`, and the NuGet,
+  npm, and pnpm caches; those predefined grants apply even to read-only
+  profiles. A missing `allow_write` directory is omitted unless it sets
+  `create_if_not_exist: true`, which recursively creates it before granting it.
+  Each process additionally receives its automatically created, private agent
+  scratch directory as a writable location. Parrot does not override `HOME`,
+  `XDG_CACHE_HOME`, or `TMPDIR`. The rest of the host remains read-only. Stdout
+  and stderr retain at
   most 65,536 characters each in memory; if either exceeds that bound, the
   complete result is persisted in the owning agent's scratch blob directory and
-  the tool returns its full absolute path. Tool-output blobs and private plan
-  artifacts use the same agent scratch boundary. Parent, child, and sibling
-  agents do not share scratch directories.
+  the tool returns its full absolute path. Tool-output blobs and plan artifacts
+  use the same individually owned scratch boundary. Parent, child, and sibling
+  agents do not share write access to scratch directories; the readable host
+  baseline does not make their contents confidential from filesystem reads.
   Process names are ordinal and unique among running processes within their
   owning agent session: supplied duplicates fail before launch while the current
   binding is running, completed bindings can be replaced atomically, and omitted

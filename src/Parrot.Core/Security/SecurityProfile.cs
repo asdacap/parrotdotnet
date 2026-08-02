@@ -22,8 +22,7 @@ internal sealed class SecurityProfile
     {
         var overrides = modeRules.Select(Normalize).ToArray();
         var mandatory = mandatoryRules.Select(Normalize).ToArray();
-        var configured = globalRules.Select(Normalize)
-            .Where(rule => !readOnly || rule.Action != SandboxRuleAction.AllowWrite);
+        var configured = globalRules.Select(Normalize);
         var rules = configured.Concat(overrides)
             .OrderBy(rule => rule.Path.Length)
             .Concat(mandatory)

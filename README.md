@@ -156,8 +156,9 @@ cli_utilities:
 ```
 
 Sandbox configuration is an ordered list of `sandbox_rules` at the top level
-and optionally on each profile. Each item has an absolute `path` and a `rule`:
-`allow_write`, `allow_read`, `deny_write`, or `deny_read`. Matching rules are
+and optionally on each profile. Each item has an absolute `path`, a `rule`
+(`allow_write`, `allow_read`, `deny_write`, or `deny_read`), and may set
+`create_if_not_exist` for an `allow_write` directory. Matching rules are
 applied from broader paths to more specific paths, so the most specific match
 wins; for the same normalized path, the later rule wins. Top-level rules apply
 to every profile; profile rules replace that profile's predefined list. A path
@@ -166,22 +167,26 @@ may use `${NAME}` to require a nonempty environment variable or
 fallbacks may themselves use expansions. Expansion happens when configuration
 is loaded, without shell evaluation, and the result must be a fully qualified
 path. An unavailable required variable or invalid result rejects the
-configuration. Global `allow_write` rules are ignored by read-only profiles.
+configuration.
 
-Sandbox configuration is not the complete filesystem boundary. Every effective
-security profile includes mandatory protection for Parrot's state,
-configuration, and data roots. Configured profile rules, workspace nesting,
-symlinks, and user-approved security-profile approvals cannot bypass that protection.
-Filesystem access does not grant network access.
+The host root is the read-only baseline. Configured `deny_read` rules remain in
+effect and can narrow that baseline. `allow_write` rules grant only their
+matched paths; a missing `allow_write` path is omitted unless its
+`create_if_not_exist` value is `true`, in which case Parrot recursively creates
+the missing directory before granting it. `create_if_not_exist` applies only to
+`allow_write` directories.
 
-Each agent receives a private scratch directory beneath its user session. Shell
-processes can write only their owning agent's scratch directory in addition to
-locations allowed by the effective security profile. This exception is
-available even to a read-only profile, but only when that profile exposes a shell
-tool. Scratch contains that agent's history projection, process and tool output
-blobs, and private plan artifacts. Parrot does not override `HOME`,
-`XDG_CACHE_HOME`, or `TMPDIR`.
-An agent cannot access a parent, child, or sibling's scratch directory.
+Predefined shared write grants cover `/tmp`, `${XDG_CACHE_HOME:-${HOME}/.cache}`,
+and the NuGet, npm, and pnpm caches. These grants apply even to `read_only`
+profiles. Filesystem access does not grant network access.
+
+Each agent receives an individually owned scratch directory beneath its user
+session. It is automatically created and writable by its owning agent, including
+when that agent uses a read-only profile (provided the profile exposes a shell
+tool). Scratch contains that agent's history projection, process and tool output
+blobs, and plan artifacts. Parrot does not override `HOME`, `XDG_CACHE_HOME`, or
+`TMPDIR`. Other agents do not receive write access to this scratch directory,
+but the read-only host baseline does not hide it from filesystem reads.
 
 Legacy `profiles.<id>.status` input is accepted and ignored for compatibility.
 It is not profile guidance and is never injected into a prompt.
@@ -200,9 +205,10 @@ Each `AttachmentUploadFrame` is at most 1 MiB; `AttachmentUploadResponse` return
 session-scoped artifact reference. A sent prompt is an ordered sequence of structured
 `MessageContentPart` text and image values, so transcript order is preserved without
 embedding base64 image data in prompt text. The image bytes and inspected metadata
-live in the owning user session's private attachment store. They are subject to the
-same protected-root and user-session isolation rules as other private artifacts; an
-artifact reference or digest does not authorize another session to access it.
+live in the owning user session's attachment store. Runtime artifact references
+remain session-scoped, while direct filesystem reads follow the host-readable
+baseline and any configured `deny_read` rules. An artifact reference or digest
+does not authorize another session to resolve it through runtime APIs.
 
 In either CLI, `@path` attaches an image at a path without spaces, and
 `@{path with spaces}` attaches an enclosed path. Use `@@` for one literal `@`.
@@ -236,8 +242,8 @@ configuration and does not survive the session. A child security profile is
 restricted from its parent's current effective profile, so an approval made
 before the child is created is inherited, while later parent approvals do not
 change an existing child or sibling. An approval cannot override a read-only
-profile, an explicit static deny, or Parrot's protected state, configuration,
-and data roots. Filesystem permission still does not imply network permission.
+profile or an explicit static deny. Filesystem permission still does not imply
+network permission.
 
 ## User Session Isolation
 
@@ -269,15 +275,13 @@ listing is a server-authoritative management operation when connected to a
 server; management callers read metadata through `SessionCatalog` and never
 obtain a live session, database, queue, or repository.
 
-Each agent also has a private, inspectable history timeline projection at
-`<session>/agents/<agent>/history.jsonl`. SQLite remains the authoritative durable
-history: the JSON Lines file is rebuilt from it rather than becoming a second
-source of truth. Its records include durable messages and compactions, so the
-projection describes both the conversation and the history cutoffs that reshape
-later context. Parrot grants an agent only an exact-file read exception for its own
-projection. That exception does not grant access to the containing session or agent
-directory, and it cannot expose another agent's history, including a parent,
-child, or sibling's.
+Each agent also has an inspectable history timeline projection in its scratch
+directory. SQLite remains the authoritative durable history: the JSON Lines file
+is rebuilt from it rather than becoming a second source of truth. Its records
+include durable messages and compactions, so the projection describes both the
+conversation and the history cutoffs that reshape later context. Filesystem reads
+follow the host-wide readable baseline and any configured `deny_read` rules;
+agent ownership still governs runtime history APIs and writes.
 
 ### Conversation checkpoints and child forks
 

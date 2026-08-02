@@ -445,37 +445,6 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Protected_roots_override_approvals(CancellationToken cancellationToken)
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
-
-        var resources = Resources(_workspace);
-        var protectedRoot = Directory.CreateDirectory(resources.ProtectedRoots[0]).FullName;
-        var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
-        var approval = SecurityWriteTarget.Resolve(protectedRoot);
-        var profile = SecurityProfile.Compose(
-            false,
-            [],
-            [],
-            [new SandboxRule(protectedRoot, SandboxRuleAction.DenyRead)]);
-
-        _ = await runner.Run(
-            "true",
-            ProcessEnvironmentOverrides.Empty,
-            resources,
-            Scratch(resources),
-            AgentProfile(resources, profile, [approval]),
-            cancellationToken);
-
-        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        _ = await Assert.That(FindMounts(arguments, protectedRoot)[^1]).IsEqualTo("--tmpfs");
-    }
-
-    [Test]
     public async Task Real_sandbox_applies_directory_grants_and_static_precedence(
         CancellationToken cancellationToken)
     {
@@ -579,87 +548,6 @@ internal sealed class ProcessRunnerTests : IDisposable
                 SecurityProfile.Compose(false, [], [], []),
                 [approval]))
             .Throws<InvalidOperationException>();
-    }
-
-    [Test]
-    public async Task Mandatory_isolation_preserves_the_environment(
-        CancellationToken cancellationToken)
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
-
-        var argumentsPath = Path.Combine(_workspace, "arguments");
-        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
-        var resources = Resources(_workspace);
-        var scratch = Scratch(resources);
-        _ = Directory.CreateDirectory(resources.Root);
-        _ = Directory.CreateDirectory(Path.Combine(resources.ProtectedRoots[0], "private"));
-        _ = Directory.CreateDirectory(Path.Combine(resources.ProtectedRoots[3], "private"));
-        var profile = SecurityProfile.Compose(
-            readOnly: false,
-            resources.ProtectedRoots.Select(path => new SandboxRule(path, SandboxRuleAction.DenyRead)),
-            [],
-            []);
-
-        _ = await runner.Run(
-            "true",
-            ProcessEnvironmentOverrides.Empty,
-            resources,
-            Scratch(resources),
-            AgentProfile(resources, profile, []),
-            cancellationToken);
-
-        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
-        _ = await Assert.That(arguments).DoesNotContain("--clearenv");
-        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "HOME")).IsEqualTo(-1);
-        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "XDG_CACHE_HOME")).IsEqualTo(-1);
-        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
-
-        foreach (var root in resources.ProtectedRoots.Where(Directory.Exists))
-        {
-            var mounts = FindMounts(arguments, root);
-            _ = await Assert.That(mounts).IsNotEmpty();
-            _ = await Assert.That(mounts[^1]).IsEqualTo("--tmpfs");
-        }
-
-        _ = await Assert.That(FindMounts(arguments, scratch.Root)[^1]).IsEqualTo("--bind");
-    }
-
-    [Test]
-    public async Task Protected_control_data_is_hidden_while_the_blob_is_readable(
-        CancellationToken cancellationToken)
-    {
-        var runner = ProcessRunner.Locate();
-        if (!runner.SandboxAvailable)
-        {
-            return;
-        }
-
-        var resources = Resources(_workspace);
-        var scratch = Scratch(resources);
-        _ = Directory.CreateDirectory(scratch.BlobDirectory);
-        _ = Directory.CreateDirectory(resources.ProtectedRoots[3]);
-        await File.WriteAllTextAsync(
-            Path.Combine(resources.ProtectedRoots[3], "parrot.token"),
-            "secret",
-            cancellationToken);
-        await File.WriteAllTextAsync(
-            Path.Combine(scratch.BlobDirectory, "result.txt"),
-            "result",
-            cancellationToken);
-
-        var result = await runner.Run(
-            $"cat '{resources.ProtectedRoots[3]}/parrot.token' 2>/dev/null || echo hidden; "
-            + $"cat '{scratch.BlobDirectory}/result.txt'",
-            ProcessEnvironmentOverrides.Empty,
-            resources,
-            Scratch(resources),
-            WritableProfile(resources),
-            cancellationToken);
-
-        _ = await Assert.That(result.Stdout).IsEqualTo("hidden\nresult");
     }
 
     [Test]

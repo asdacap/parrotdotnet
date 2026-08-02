@@ -4,7 +4,6 @@ using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
-using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
 using Parrot.Web;
@@ -120,11 +119,10 @@ internal partial class Composition
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<Configuration>(out var configuration);
-                ctx.Inject<StatePaths>(out var paths);
                 return new ProfileRegistry(
                     configuration.Profiles,
                     configuration.SandboxRules,
-                    new ApplicationDataSecurityRules(paths).Rules,
+                    [],
                     configuration.DisabledTools);
             })
             .Bind().As(Lifetime.Singleton).To<ISystemPromptProvider>(ctx =>
