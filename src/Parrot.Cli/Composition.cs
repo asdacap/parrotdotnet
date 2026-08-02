@@ -29,10 +29,6 @@ namespace Parrot.Cli;
 // is a channel, not a composed object: the server owns that side.
 internal partial class Composition
 {
-    // Well under the smallest model window, with margin for the system context
-    // and tool results the estimate does not see precisely.
-    private const int CompactionTokenBudget = 120_000;
-
     // Never called: Pure.DI reads it at compile time. Internal rather than
     // private so it is not an unused private member (IDE0051).
     internal static void Setup() =>
@@ -84,7 +80,8 @@ internal partial class Composition
             {
                 ctx.Inject<Configuration>(out var configuration);
                 return new Compactor(
-                    CompactionTokenBudget,
+                    configuration.Compaction.TriggerPercent,
+                    configuration.Compaction.TargetPercent,
                     configuration.Compaction.MaximumInputTokens,
                     configuration.Compaction.SummaryOutputTokens);
             })

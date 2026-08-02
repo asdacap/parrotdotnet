@@ -238,7 +238,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection(sessionId, repository, events),
             new ToolOutputBlobStore(blobDirectory),
-            new Compactor(120_000, 60_000, 1024),
+            new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),

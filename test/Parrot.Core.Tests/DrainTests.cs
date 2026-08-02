@@ -692,7 +692,7 @@ internal sealed class DrainTests : IDisposable
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(_blobDirectory),
-            new Compactor(120_000, 60_000, 1024),
+            new Compactor(int.MaxValue, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             profile ?? dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),

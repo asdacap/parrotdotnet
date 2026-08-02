@@ -214,7 +214,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("requesting", repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),
-            new Compactor(120_000, 60_000, 1024),
+            new Compactor(90, 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             securityProfile,

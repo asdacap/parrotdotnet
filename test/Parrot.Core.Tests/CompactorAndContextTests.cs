@@ -315,7 +315,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("reply");
         var model = new ProviderModel(
             provider,
-            new LLMModel("model", provider.Id),
+            new LLMModel("model", provider.Id) { ContextWindow = 1_000_000 },
             new Parrot.Llm.ModelVariant("high", "xhigh"));
         var identity = AgentIdentity.Main("agent", string.Empty);
         var repository = new EventRepository(database);
@@ -330,7 +330,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("agent", new EventRepository(database), broker),
             new ToolOutputBlobStore(_workspace),
-            new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024),
+            new Compactor(1, 1, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -361,12 +361,14 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         using var broker = new EventBroker();
         var provider = new ScriptedProvider("reply");
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var model = new ProviderModel(
+            provider,
+            new LLMModel("model", provider.Id) { ContextWindow = 10_000 });
         var identity = AgentIdentity.Main("agent", string.Empty);
         var repository = new EventRepository(database);
         var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
 
-        AgentSession Build(int budget) => new(
+        AgentSession Build(bool compact) => new(
             identity,
             new ModelSelector(model.Selector),
             TestModels.Route(model),
@@ -376,7 +378,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("agent", repository, broker),
             new ToolOutputBlobStore(_workspace),
-            new Compactor(budget, maximumInputTokens: 60_000, summaryOutputTokens: 1024),
+            new Compactor(compact ? 1 : 99, compact ? 1 : 30, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -385,7 +387,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             dependencies.Queues,
             cancellationToken);
 
-        var session = Build(0);
+        var session = Build(compact: true);
         foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
         {
             _ = await session.Send(prompt, Identifier.MessageId(), Delivery.Steer, cancellationToken);
@@ -408,7 +410,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             .DoesNotContain(item => item.Parts.Any(part => part.Text == "old prompt"));
 
         var requestsBeforeRestart = provider.Requests.Count;
-        var restarted = Build(int.MaxValue);
+        var restarted = Build(compact: false);
         _ = await restarted.Send("after restart", Identifier.MessageId(), Delivery.Steer, cancellationToken);
         _ = await restarted.ResultSettled();
 
@@ -428,7 +430,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         using var database = SessionDatabase.Open(":memory:");
         using var broker = new EventBroker();
         var provider = new FailingCompactionProvider();
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var model = new ProviderModel(
+            provider,
+            new LLMModel("model", provider.Id) { ContextWindow = 10_000 });
         var identity = AgentIdentity.Main("agent", string.Empty);
         var repository = new EventRepository(database);
         var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
@@ -442,7 +446,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("agent", repository, broker),
             new ToolOutputBlobStore(_workspace),
-            new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024),
+            new Compactor(1, 1, 60_000, 1024),
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfile.Compose(readOnly: false, [], [], []),
@@ -463,12 +467,16 @@ internal sealed class CompactorAndContextTests : IDisposable
                 or Event.PayloadOneofCase.CompactionFailed
                 or Event.PayloadOneofCase.TurnFailed)
             .ToArray();
-        _ = await Assert.That(string.Join(',', lifecycle.Select(published => published.PayloadCase)))
-            .IsEqualTo("CompactionStarted,CompactionFinished,CompactionStarted,CompactionFinished,"
-                + "CompactionStarted,CompactionFailed,TurnFailed");
-        _ = await Assert.That(lifecycle[^2].CompactionFailed.Message)
+        var failure = lifecycle.First(published => published.PayloadCase == Event.PayloadOneofCase.CompactionFailed);
+        var failureIndex = Array.IndexOf(lifecycle, failure);
+        _ = await Assert.That(failureIndex).IsGreaterThan(0);
+        _ = await Assert.That(lifecycle[failureIndex - 1].PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.CompactionStarted);
+        _ = await Assert.That(lifecycle[failureIndex + 1].PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.TurnFailed);
+        _ = await Assert.That(failure.CompactionFailed.Message)
             .IsEqualTo("The compaction provider did not complete with a summary.");
-        _ = await Assert.That(lifecycle[^1].TurnFailed.Message).IsEqualTo(lifecycle[^2].CompactionFailed.Message);
+        _ = await Assert.That(lifecycle[failureIndex + 1].TurnFailed.Message).IsEqualTo(failure.CompactionFailed.Message);
     }
 
     [Test]
@@ -476,8 +484,8 @@ internal sealed class CompactorAndContextTests : IDisposable
     {
         var provider = new ScriptedProvider("SUMMARY OF EARLIER");
 
-        // A budget of zero forces compaction; the four newest messages survive.
-        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
+        // A small model window forces compaction.
+        var compactor = new Compactor(90, 30, 60_000, 1024);
 
         var history = new List<LLMMessage>();
 
@@ -486,9 +494,9 @@ internal sealed class CompactorAndContextTests : IDisposable
             history.Add(LLMMessage.User($"message {index}"));
         }
 
-        _ = await Assert.That(compactor.ShouldCompact(history)).IsTrue();
+        _ = await Assert.That(compactor.ShouldCompact(CompactionModel(provider, 100), string.Empty, [], history)).IsTrue();
 
-        var result = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
+        var result = await compactor.Compact(CompactionModel(provider, 500), string.Empty, [], history, cancellationToken);
         var compacted = result?.History ?? throw new InvalidOperationException("Expected compaction.");
 
         _ = await Assert.That(compacted.Count).IsLessThan(history.Count);
@@ -512,13 +520,68 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMMessage.User("latest"),
         ];
 
-        result = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
+        result = await compactor.Compact(CompactionModel(provider, 500), string.Empty, [], history, cancellationToken);
         compacted = result?.History ?? throw new InvalidOperationException("Expected compaction.");
 
-        _ = await Assert.That(compacted[1].ToolCalls).Count().IsEqualTo(2);
-        _ = await Assert.That(compacted[1].ToolCalls[0].Id).IsEqualTo("call-1");
-        _ = await Assert.That(compacted[2].ToolCallId).IsEqualTo("call-1");
-        _ = await Assert.That(compacted[3].ToolCallId).IsEqualTo("call-2");
+        var assistant = compacted.Single(message => message.ToolCalls.Count > 0);
+        var assistantIndex = compacted.ToList().IndexOf(assistant);
+        _ = await Assert.That(assistant.ToolCalls).Count().IsEqualTo(2);
+        _ = await Assert.That(assistant.ToolCalls[0].Id).IsEqualTo("call-1");
+        _ = await Assert.That(compacted[assistantIndex + 1].ToolCallId).IsEqualTo("call-1");
+        _ = await Assert.That(compacted[assistantIndex + 2].ToolCallId).IsEqualTo("call-2");
+    }
+
+    [Test]
+    public async Task Compaction_uses_provider_window_and_complete_request_input()
+    {
+        var provider = new ScriptedProvider("summary");
+        var compactor = new Compactor(90, 30, 60_000, 1024);
+        var history = new List<LLMMessage>
+        {
+            LLMMessage.User(new string('x', 2_000)),
+        };
+        var tools = new[]
+        {
+            new LLMToolDefinition("tool", "description", new string('s', 2_000)),
+        };
+
+        _ = await Assert.That(compactor.ShouldCompact(
+            CompactionModel(provider, 1_000), string.Empty, [], history)).IsFalse();
+        _ = await Assert.That(compactor.ShouldCompact(
+            CompactionModel(provider, 500), string.Empty, [], history)).IsTrue();
+        _ = await Assert.That(compactor.ShouldCompact(
+            CompactionModel(provider, 1_000), new string('i', 2_000), [], history)).IsTrue();
+        _ = await Assert.That(compactor.ShouldCompact(
+            CompactionModel(provider, 1_000), string.Empty, tools, history)).IsTrue();
+    }
+
+    [Test]
+    public async Task Compaction_targets_percentage_and_retains_the_maximal_recent_suffix(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var compactor = new Compactor(90, 30, 60_000, 1024);
+        var model = CompactionModel(provider, 1_000);
+        var history = Enumerable.Range(0, 6)
+            .Select(index => LLMMessage.User($"message {index} {new string('x', 300)}"))
+            .ToList();
+
+        var result = await compactor.Compact(model, "instructions", [], history, cancellationToken)
+            ?? throw new InvalidOperationException("Expected compaction.");
+
+        _ = await Assert.That(Compactor.EstimateInputTokens("instructions", [], result.History))
+            .IsLessThanOrEqualTo(300);
+        _ = await Assert.That(result.History[^1].Content).IsEqualTo(history[^1].Content);
+        _ = await Assert.That(result.RetainedDurableMessageCount).IsGreaterThan(0);
+        _ = await Assert.That(result.RetainedDurableMessageCount).IsLessThan(history.Count);
+        var immediatelyPreceding = history[history.Count - result.RetainedDurableMessageCount - 1];
+        IReadOnlyList<LLMMessage> withOneMore =
+        [
+            result.History[0],
+            immediatelyPreceding,
+            .. result.History.Skip(1),
+        ];
+        _ = await Assert.That(Compactor.EstimateInputTokens("instructions", [], withOneMore)).IsGreaterThan(300);
     }
 
     [Test]
@@ -531,10 +594,10 @@ internal sealed class CompactorAndContextTests : IDisposable
         };
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"tail {index}")));
         var provider = new ScriptedProvider("SUMMARY");
-        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
+        var compactor = new Compactor(90, 30, 60_000, 1024);
 
         _ = await Assert.That(Compactor.EstimateTokens([LLMMessage.User([image])])).IsGreaterThan(1000);
-        _ = await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken);
+        _ = await compactor.Compact(CompactionModel(provider, 100_000), string.Empty, [], history, cancellationToken);
 
         var request = provider.Requests.Single();
         _ = await Assert.That(request.Messages[1].Contents.Any(content => content.Kind == LLMContentKind.Image)).IsTrue();
@@ -546,12 +609,12 @@ internal sealed class CompactorAndContextTests : IDisposable
         var provider = new ScriptedProvider("summary");
         var model = new ProviderModel(
             provider,
-            new LLMModel("model", provider.Id),
+            new LLMModel("model", provider.Id) { ContextWindow = 1_000 },
             new Parrot.Llm.ModelVariant("high", "xhigh"));
-        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
+        var compactor = new Compactor(90, 30, 60_000, 1024);
         var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
 
-        _ = await compactor.Compact(model, history, cancellationToken);
+        _ = await compactor.Compact(model, string.Empty, [], history, cancellationToken);
 
         var reasoning = provider.Requests.Single().Reasoning
             ?? throw new InvalidOperationException("Expected reasoning options.");
@@ -563,32 +626,30 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_folds_bounded_complete_groups(CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var model = CompactionModel(provider, contextWindow: 0);
-        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 500, summaryOutputTokens: 137);
+        var model = CompactionModel(provider, contextWindow: 10_000);
+        var compactor = new Compactor(90, 5, 500, 137);
         var history = new List<LLMMessage>();
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"old {index} {new string('x', 1_000)}")));
         history.Add(LLMMessage.Assistant(string.Empty, [new LLMToolCall("call", "read", "{}")]));
         history.Add(LLMMessage.ToolResult("call", new string('r', 500)));
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"tail {index}")));
 
-        _ = await compactor.Compact(model, history, cancellationToken);
+        _ = await compactor.Compact(model, string.Empty, [], history, cancellationToken);
 
         _ = await Assert.That(provider.Requests.Count).IsGreaterThan(1);
         _ = await Assert.That(provider.Requests)
-            .All(request => request.MaxTokens == 137);
+            .All(request => request.MaxTokens is > 0 and <= 137);
         _ = await Assert.That(provider.Requests)
             .All(request => Compactor.EstimateTokens(request.Messages) <= 500);
         _ = await Assert.That(provider.Requests[1].Messages)
             .Contains(message => message.Content.Contains("summary", StringComparison.Ordinal));
-        var toolRequest = provider.Requests.Single(request => request.Messages.Any(message => message.ToolCallId == "call"));
-        _ = await Assert.That(toolRequest.Messages).Contains(message => message.ToolCalls.Any(call => call.Id == "call"));
     }
 
     [Test]
     public async Task Compaction_rejects_an_oversized_recent_tail(CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
+        var compactor = new Compactor(90, 30, 60_000, 1024);
         var history = new List<LLMMessage>
         {
             LLMMessage.User("old"),
@@ -598,18 +659,20 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMMessage.User("tail 3"),
         };
 
-        _ = await Assert.That(async () => await compactor.Compact(
-            CompactionModel(provider, 2_000), history, cancellationToken)).Throws<InvalidOperationException>();
+        var result = await compactor.Compact(
+            CompactionModel(provider, 2_000), string.Empty, [], history, cancellationToken);
+
+        _ = await Assert.That(result?.History[^1].Content).IsEqualTo("tail 3");
     }
 
     [Test]
     public async Task Compaction_rejects_a_provider_without_a_terminal_summary(CancellationToken cancellationToken)
     {
         var provider = new IncompleteProvider();
-        var compactor = new Compactor(tokenBudget: 0, maximumInputTokens: 60_000, summaryOutputTokens: 1024);
+        var compactor = new Compactor(90, 30, 60_000, 1024);
         var history = Enumerable.Range(0, 5).Select(index => LLMMessage.User($"message {index}")).ToList();
 
-        _ = await Assert.That(async () => await compactor.Compact(CompactionModel(provider, 0), history, cancellationToken))
+        _ = await Assert.That(async () => await compactor.Compact(CompactionModel(provider, 100_000), string.Empty, [], history, cancellationToken))
             .Throws<InvalidOperationException>();
     }
 

@@ -2,53 +2,125 @@ using Parrot.Llm;
 
 namespace Parrot.Context;
 
-internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int summaryOutputTokens)
+internal sealed class Compactor(
+    int triggerPercent,
+    int targetPercent,
+    int maximumInputTokens,
+    int summaryOutputTokens)
 {
     private const string SummaryInstructions = "Summarise the following conversation so it can continue. Keep decisions, "
         + "file paths, open tasks, and relevant evidence from images. Be terse.";
 
-    public static int EstimateTokens(IReadOnlyList<LLMMessage> messages)
+    private const string SummaryPrefix = "Summary of the earlier conversation:\n";
+
+    public static long EstimateTokens(IReadOnlyList<LLMMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
         return messages.Sum(EstimateTokens);
     }
 
+    public static long EstimateInputTokens(
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(instructions);
+        ArgumentNullException.ThrowIfNull(tools);
+        ArgumentNullException.ThrowIfNull(messages);
+
+        return EstimateStringTokens(instructions)
+            + tools.Sum(tool => EstimateStringTokens(tool.Name)
+                + EstimateStringTokens(tool.Description)
+                + EstimateStringTokens(tool.ParametersJson)
+                + 12L)
+            + EstimateTokens(messages)
+            + 4;
+    }
+
+    public bool ShouldCompact(
+        ProviderModel selectedModel,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> history)
+    {
+        ArgumentNullException.ThrowIfNull(selectedModel);
+        var contextWindow = selectedModel.Model.ContextWindow;
+        return contextWindow > 0
+            && EstimateInputTokens(instructions, tools, history)
+                > PercentageBudget(contextWindow, triggerPercent);
+    }
+
     public async Task<CompactionResult?> Compact(
         ProviderModel selectedModel,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
         IReadOnlyList<LLMMessage> history,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
+        ArgumentNullException.ThrowIfNull(instructions);
+        ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(history);
 
-        var keepFrom = history.Count - Math.Min(4, history.Count);
-        while (keepFrom > 0 && history[keepFrom].Role == LLMRole.Tool)
-        {
-            keepFrom--;
-        }
-
-        var toSummarise = history.Take(keepFrom).ToList();
-        if (toSummarise.Count == 0)
+        var groups = Groups(history).ToList();
+        if (groups.Count < 2)
         {
             return null;
         }
 
-        var inputBudget = InputBudget(selectedModel.Model.ContextWindow);
-        var summary = string.Empty;
-        foreach (var group in Groups(toSummarise))
+        var contextWindow = selectedModel.Model.ContextWindow;
+        var targetBudget = PercentageBudget(contextWindow, targetPercent);
+        var keepGroupFrom = groups.Count - 1;
+        var retained = groups[^1].ToList();
+
+        while (keepGroupFrom > 1)
         {
-            if (EstimateTokens(group) > inputBudget)
+            var candidate = groups[keepGroupFrom - 1].Concat(retained).ToList();
+            if (EstimateWithSummary(instructions, tools, candidate) + 1 > targetBudget)
+            {
+                break;
+            }
+
+            retained = candidate;
+            keepGroupFrom--;
+        }
+
+        var summaryBaseTokens = EstimateWithSummary(instructions, tools, retained);
+        var targetExceededByRequiredContext = summaryBaseTokens + 1 > targetBudget;
+        var summaryBudget = (targetExceededByRequiredContext ? contextWindow : targetBudget) - summaryBaseTokens;
+        if (summaryBudget <= 0)
+        {
+            throw new InvalidOperationException("The recent conversation leaves no room for a compaction summary.");
+        }
+
+        var summaryTokens = checked((int)Math.Min(summaryOutputTokens, summaryBudget));
+        var inputBudget = Math.Min((long)maximumInputTokens, contextWindow - summaryTokens);
+        if (inputBudget <= 0)
+        {
+            throw new InvalidOperationException("The selected model leaves no room for a compaction request.");
+        }
+
+        var toSummarise = groups.Take(keepGroupFrom).ToList();
+        foreach (var group in toSummarise)
+        {
+            if (EstimateRequestTokens(string.Empty, group) > inputBudget)
             {
                 throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
             }
         }
 
+        var summary = string.Empty;
         var chunk = new List<LLMMessage>();
-        foreach (var group in Groups(toSummarise))
+        foreach (var group in toSummarise)
         {
             if (chunk.Count > 0 && EstimateRequestTokens(summary, chunk, group) > inputBudget)
             {
-                summary = await Summarise(selectedModel, summary, chunk, cancellationToken).ConfigureAwait(false);
+                summary = await Summarise(
+                    selectedModel,
+                    summary,
+                    chunk,
+                    summaryTokens,
+                    cancellationToken).ConfigureAwait(false);
                 chunk.Clear();
             }
 
@@ -60,25 +132,35 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
             chunk.AddRange(group);
         }
 
-        summary = await Summarise(selectedModel, summary, chunk, cancellationToken).ConfigureAwait(false);
-        var summaryMessage = LLMMessage.System($"Summary of the earlier conversation:\n{summary}");
-        IReadOnlyList<LLMMessage> compacted =
-        [
-            summaryMessage,
-            .. history.Skip(keepFrom),
-        ];
-        if (EstimateTokens(compacted) > inputBudget)
+        summary = await Summarise(
+            selectedModel,
+            summary,
+            chunk,
+            summaryTokens,
+            cancellationToken).ConfigureAwait(false);
+        var summaryMessage = LLMMessage.System($"{SummaryPrefix}{summary}");
+        IReadOnlyList<LLMMessage> compacted = [summaryMessage, .. retained];
+        var compactedTokens = EstimateInputTokens(instructions, tools, compacted);
+        if (compactedTokens > contextWindow)
         {
-            throw new InvalidOperationException("The recent conversation exceeds the compaction input budget.");
+            throw new InvalidOperationException("The compacted conversation exceeds the selected model context window.");
         }
 
-        return new CompactionResult(compacted, summaryMessage, history.Count - keepFrom);
+        if (!targetExceededByRequiredContext && compactedTokens > targetBudget)
+        {
+            throw new InvalidOperationException("The compacted conversation exceeds the configured target.");
+        }
+
+        return new CompactionResult(compacted, summaryMessage, retained.Count);
     }
 
-    public bool ShouldCompact(IReadOnlyList<LLMMessage> history) =>
-        EstimateTokens(history) > tokenBudget;
+    private static long EstimateWithSummary(
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> retained) =>
+        EstimateInputTokens(instructions, tools, [LLMMessage.System(SummaryPrefix), .. retained]);
 
-    private static int EstimateTokens(LLMMessage message) =>
+    private static long EstimateTokens(LLMMessage message) =>
         message.Contents.Sum(content => content.Kind switch
         {
             LLMContentKind.Text => EstimateStringTokens(content.Text),
@@ -90,7 +172,19 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
         + EstimateStringTokens(message.ToolCallId)
         + 8;
 
-    private static int EstimateRequestTokens(
+    private static long EstimateRequestTokens(
+        string precedingSummary,
+        IReadOnlyList<LLMMessage> chunk,
+        IReadOnlyList<LLMMessage> nextGroup)
+    {
+        var messages = RequestMessages(precedingSummary, chunk, nextGroup);
+        return EstimateTokens(messages);
+    }
+
+    private static long EstimateRequestTokens(string precedingSummary, IReadOnlyList<LLMMessage> chunk) =>
+        EstimateTokens(RequestMessages(precedingSummary, chunk, []));
+
+    private static List<LLMMessage> RequestMessages(
         string precedingSummary,
         IReadOnlyList<LLMMessage> chunk,
         IReadOnlyList<LLMMessage> nextGroup)
@@ -101,15 +195,15 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
         };
         if (precedingSummary.Length > 0)
         {
-            messages.Add(LLMMessage.System($"Summary of the earlier conversation:\n{precedingSummary}"));
+            messages.Add(LLMMessage.System($"{SummaryPrefix}{precedingSummary}"));
         }
 
         messages.AddRange(chunk);
         messages.AddRange(nextGroup);
-        return EstimateTokens(messages);
+        return messages;
     }
 
-    private static IEnumerable<IReadOnlyList<LLMMessage>> Groups(List<LLMMessage> messages)
+    private static IEnumerable<IReadOnlyList<LLMMessage>> Groups(IReadOnlyList<LLMMessage> messages)
     {
         for (var index = 0; index < messages.Count; index++)
         {
@@ -126,32 +220,33 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
         }
     }
 
-    private static int EstimateStringTokens(string value) => (value.Length + 3) / 4;
+    private static long EstimateStringTokens(string value) => (value.Length + 3L) / 4L;
 
-    private static int EstimateImageTokens(int byteLength) =>
-        Math.Max(1024, checked((byteLength + 2) / 3));
+    private static long EstimateImageTokens(int byteLength) =>
+        Math.Max(1024L, (byteLength + 2L) / 3L);
 
-    private async Task<string> Summarise(
+    private static long PercentageBudget(int contextWindow, int percentage)
+    {
+        if (contextWindow <= 0)
+        {
+            throw new InvalidOperationException("The selected model must provide a positive context window.");
+        }
+
+        return ((long)contextWindow * percentage) / 100;
+    }
+
+    private static async Task<string> Summarise(
         ProviderModel selectedModel,
         string precedingSummary,
         IReadOnlyList<LLMMessage> chunk,
+        int maximumOutputTokens,
         CancellationToken cancellationToken)
     {
-        var messages = new List<LLMMessage>
-        {
-            LLMMessage.System(SummaryInstructions),
-        };
-        if (precedingSummary.Length > 0)
-        {
-            messages.Add(LLMMessage.System($"Summary of the earlier conversation:\n{precedingSummary}"));
-        }
-
-        messages.AddRange(chunk);
         var request = new LLMRequest
         {
             Model = selectedModel.ModelId,
-            MaxTokens = summaryOutputTokens,
-            Messages = messages,
+            MaxTokens = maximumOutputTokens,
+            Messages = RequestMessages(precedingSummary, chunk, []),
             Reasoning = selectedModel.Reasoning,
         };
 
@@ -174,14 +269,17 @@ internal sealed class Compactor(int tokenBudget, int maximumInputTokens, int sum
             throw new InvalidOperationException("The compaction provider did not complete with a summary.");
         }
 
-        return summary;
+        return BoundSummary(summary, maximumOutputTokens);
     }
 
-    private int InputBudget(int contextWindow)
+    private static string BoundSummary(string summary, int maximumOutputTokens)
     {
-        var budget = tokenBudget > 0
-            ? Math.Min(maximumInputTokens, tokenBudget)
-            : maximumInputTokens;
-        return contextWindow > 0 ? Math.Min(budget, contextWindow / 4) : budget;
+        if (EstimateStringTokens(summary) <= maximumOutputTokens)
+        {
+            return summary;
+        }
+
+        var maximumCharacters = checked(maximumOutputTokens * 4);
+        return summary[..Math.Min(summary.Length, maximumCharacters)];
     }
 }

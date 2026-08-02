@@ -61,7 +61,7 @@ internal sealed class Configuration(string path)
 
     public TimeSpan UserInputTimeout { get; private set; }
 
-    public CompactionConfig Compaction { get; private set; } = new(60_000, 12_000);
+    public CompactionConfig Compaction { get; private set; } = new(90, 30, 60_000, 12_000);
 
     public static Configuration Load(string path, string predefinedPath)
     {
@@ -838,8 +838,23 @@ internal sealed class Configuration(string path)
             throw new InvalidDataException($"{CompactionKey} must be a mapping");
         }
 
-        ValidateKeys(compaction, CompactionKey, "maximum_input_tokens", "summary_output_tokens");
+        ValidateKeys(
+            compaction,
+            CompactionKey,
+            "trigger_percent",
+            "target_percent",
+            "maximum_input_tokens",
+            "summary_output_tokens");
+        var triggerPercent = PositiveInteger(compaction, "trigger_percent", $"{CompactionKey}.trigger_percent");
+        var targetPercent = PositiveInteger(compaction, "target_percent", $"{CompactionKey}.target_percent");
+        if (targetPercent >= triggerPercent || triggerPercent > 99)
+        {
+            throw new InvalidDataException($"{CompactionKey} requires 1 <= target_percent < trigger_percent <= 99");
+        }
+
         return new(
+            triggerPercent,
+            targetPercent,
             PositiveInteger(compaction, "maximum_input_tokens", $"{CompactionKey}.maximum_input_tokens"),
             PositiveInteger(compaction, "summary_output_tokens", $"{CompactionKey}.summary_output_tokens"));
     }

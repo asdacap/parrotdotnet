@@ -911,8 +911,6 @@ internal sealed class AgentSession(
                 // epoch baseline, status, then the user input it describes.
                 _ = await Promote(cancellationToken).ConfigureAwait(false);
 
-                await Epoch(activeSelection, cancellationToken).ConfigureAwait(false);
-
                 if (activeSelection is null || activeTools is null)
                 {
                     throw new AgentRegistryException("turn selection is unavailable");
@@ -928,8 +926,10 @@ internal sealed class AgentSession(
                 var snapshot = providerRequests + 1 == maxTurns
                     ? new ToolSnapshot([])
                     : activeTools;
-
-                var instructions = _systemPrompt.Build(activeSelection);
+                var instructions = await PrepareEpoch(
+                    activeSelection,
+                    snapshot.Definitions,
+                    cancellationToken).ConfigureAwait(false);
                 var messages = new List<LLMMessage>(_history);
 
                 providerRequests++;
@@ -1188,7 +1188,10 @@ internal sealed class AgentSession(
 
     // Sampled at the start of an epoch, not every turn, and compaction starts a
     // fresh one -- so a turn never begins already over the window.
-    private async Task Epoch(AgentTurnSelection? selection, CancellationToken cancellationToken)
+    private async Task<string> PrepareEpoch(
+        AgentTurnSelection selection,
+        IReadOnlyList<LLMToolDefinition> tools,
+        CancellationToken cancellationToken)
     {
         if (!_epochInitialized)
         {
@@ -1196,13 +1199,13 @@ internal sealed class AgentSession(
             _epochInitialized = true;
         }
 
-        if (!compactor.ShouldCompact(_history))
+        var instructions = _systemPrompt.Build(selection);
+        var selectedModel = selection.ResolvedModel.CanonicalModel;
+        if (!compactor.ShouldCompact(selectedModel, instructions, tools, _history))
         {
-            return;
+            return instructions;
         }
 
-        var selectedModel = selection?.ResolvedModel.CanonicalModel
-            ?? throw new AgentRegistryException("turn selection is unavailable");
         var started = new Event
         {
             Id = Identifier.EventId(),
@@ -1213,10 +1216,14 @@ internal sealed class AgentSession(
 
         try
         {
+            _systemPrompt.RenewEpoch();
+            instructions = _systemPrompt.Build(selection);
             var priorWatermark = eventRepository.Compaction(SessionId)?.Watermark ?? 0;
             var durableMessages = eventRepository.ConversationAfter(SessionId, priorWatermark);
             var compacted = await compactor.Compact(
                 selectedModel,
+                instructions,
+                tools,
                 _history,
                 cancellationToken).ConfigureAwait(false);
             if (compacted is not null)
@@ -1236,7 +1243,6 @@ internal sealed class AgentSession(
                         new CompactionSnapshot(compacted.Summary.Content, watermark));
                     _history.Clear();
                     _history.AddRange(compacted.History);
-                    _systemPrompt.RenewEpoch();
                 }
             }
 
@@ -1247,6 +1253,7 @@ internal sealed class AgentSession(
                 CompactionFinished = new CompactionFinished(),
             };
             await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
+            return instructions;
         }
         catch (Exception failure)
         {

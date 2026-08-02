@@ -250,18 +250,26 @@ internal sealed class ConfigurationTests : IDisposable
         var predefined = Path.Combine(_directory, "predefined_config.yaml");
         var configuration = Load(Path.Combine(_directory, "config.yaml"));
 
+        _ = await Assert.That(configuration.Compaction.TriggerPercent).IsEqualTo(90);
+        _ = await Assert.That(configuration.Compaction.TargetPercent).IsEqualTo(30);
         _ = await Assert.That(configuration.Compaction.MaximumInputTokens).IsEqualTo(60_000);
         _ = await Assert.That(configuration.Compaction.SummaryOutputTokens).IsEqualTo(12_000);
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken)).Contains(
-            "compaction:\n  maximum_input_tokens: 60000\n  summary_output_tokens: 12000");
+            "compaction:\n  trigger_percent: 90\n  target_percent: 30\n  maximum_input_tokens: 60000\n  summary_output_tokens: 12000");
     }
 
     [Test]
     public async Task Compaction_fields_partially_override_predefined_definitions()
     {
+        var trigger = Load(Write("compaction:\n  trigger_percent: 80\n")).Compaction;
+        var target = Load(Write("compaction:\n  target_percent: 20\n")).Compaction;
         var maximum = Load(Write("compaction:\n  maximum_input_tokens: 2048\n")).Compaction;
         var summary = Load(Write("compaction:\n  summary_output_tokens: 512\n")).Compaction;
 
+        _ = await Assert.That(trigger.TriggerPercent).IsEqualTo(80);
+        _ = await Assert.That(trigger.TargetPercent).IsEqualTo(30);
+        _ = await Assert.That(target.TriggerPercent).IsEqualTo(90);
+        _ = await Assert.That(target.TargetPercent).IsEqualTo(20);
         _ = await Assert.That(maximum.MaximumInputTokens).IsEqualTo(2_048);
         _ = await Assert.That(maximum.SummaryOutputTokens).IsEqualTo(12_000);
         _ = await Assert.That(summary.MaximumInputTokens).IsEqualTo(60_000);
@@ -278,10 +286,19 @@ internal sealed class ConfigurationTests : IDisposable
     [Test]
     [Arguments("compaction:\n  maximum_input_tokens: 60000\n  unsupported: 1\n")]
     [Arguments("compaction:\n  summary_output_tokens: 12000\n  maximum_tokens: 1\n")]
+    [Arguments("compaction:\n  trigger_percent: 90\n  target_tokens: 30\n")]
     public async Task Compaction_configuration_rejects_unknown_keys(string content) =>
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
+    [Arguments("trigger_percent", "0")]
+    [Arguments("trigger_percent", "1.5")]
+    [Arguments("trigger_percent", "true")]
+    [Arguments("trigger_percent", "null")]
+    [Arguments("target_percent", "0")]
+    [Arguments("target_percent", "1.5")]
+    [Arguments("target_percent", "true")]
+    [Arguments("target_percent", "null")]
     [Arguments("maximum_input_tokens", "0")]
     [Arguments("maximum_input_tokens", "-1")]
     [Arguments("maximum_input_tokens", "1.5")]
@@ -297,6 +314,14 @@ internal sealed class ConfigurationTests : IDisposable
     public async Task Compaction_configuration_requires_positive_integer_fields(string key, string value) =>
         _ = await Assert.That(() => Load(Write($"compaction:\n  {key}: {value}\n")))
             .Throws<InvalidDataException>();
+
+    [Test]
+    [Arguments("compaction:\n  trigger_percent: 100\n")]
+    [Arguments("compaction:\n  trigger_percent: 30\n  target_percent: 30\n")]
+    [Arguments("compaction:\n  trigger_percent: 30\n  target_percent: 31\n")]
+    public async Task Compaction_percentages_require_target_to_be_less_than_trigger_between_one_and_ninety_nine(
+        string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
     public async Task Cli_utility_candidates_have_exact_defaults()
