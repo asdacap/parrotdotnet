@@ -102,15 +102,15 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             arguments.AddRange(["--ro-bind", pseudoTerminalHelperPath, SandboxHelperPath]);
         }
 
+        // must be AFTER other mount
+        arguments.AddRange(["--dev", "/dev", "--proc", "/proc"]);
+
         arguments.AddRange(["--chdir", resources.Workspace.LaunchDirectory, "--"]);
 
         if (pseudoTerminalHelperPath.Length > 0)
         {
             arguments.AddRange([SandboxHelperPath, "--attach", "--"]);
         }
-
-        // must be AFTER other mount
-        arguments.AddRange(["--dev", "/dev", "--proc", "/proc"]);
 
         arguments.AddRange(["/bin/sh", "-c", command]);
         return arguments;
