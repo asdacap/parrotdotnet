@@ -23,11 +23,14 @@ internal sealed class EventRepository
     private const long UsageProjectionVersion = 1;
     private const string ConversationProjection = "conversation";
     private const long ConversationProjectionVersion = 1;
+    private const string AgentHistoryProjection = "agent-history";
+    private const long AgentHistoryProjectionVersion = 1;
     private const string ImageArtifactSelect =
         "SELECT artifact.artifact_id, content.sha256, content.media_type, content.byte_length, content.width, content.height, content.frame_count, content.aggregate_pixels, artifact.display_name, artifact.origin FROM image_artifact AS artifact JOIN image_content AS content ON content.sha256 = artifact.sha256";
 
     private readonly SessionDatabase _database;
     private readonly ImageArtifactStore? _imageStore;
+    private readonly AgentHistoryFiles? _historyFiles;
 
     public EventRepository(SessionDatabase database) => _database = database;
 
@@ -35,6 +38,51 @@ internal sealed class EventRepository
     {
         _database = database;
         _imageStore = imageStore;
+    }
+
+    public EventRepository(
+        SessionDatabase database,
+        ImageArtifactStore imageStore,
+        AgentHistoryFiles historyFiles)
+    {
+        _database = database;
+        _imageStore = imageStore;
+        _historyFiles = historyFiles;
+    }
+
+    public string PrepareAgentHistory(string agentSessionId)
+    {
+        if (_historyFiles is null)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var file = _historyFiles.PathFor(agentSessionId);
+            file.Replace(() => AgentHistory(agentSessionId));
+            return file.Path;
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return string.Empty;
+        }
+    }
+
+    public void RefreshAgentHistory(string agentSessionId)
+    {
+        if (_historyFiles is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _historyFiles.PathFor(agentSessionId).Replace(() => AgentHistory(agentSessionId));
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+        }
     }
 
     public SessionUsage? Append(Event published, string? messageRole, string? messageContent) =>
@@ -47,6 +95,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(published);
 
+        SessionUsage? usage;
         lock (_database.Gate)
         {
             using var transaction = _database.Begin();
@@ -62,7 +111,7 @@ internal sealed class EventRepository
                 Project(transaction, published.AgentSessionId, message, origin);
             }
 
-            SessionUsage? usage = null;
+            usage = null;
             if (published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated)
             {
                 ProjectUsage(transaction, published.AgentSessionId, revision, published.AgentStatisticsUpdated);
@@ -70,8 +119,14 @@ internal sealed class EventRepository
             }
 
             transaction.Commit();
-            return usage;
         }
+
+        if (message is not null)
+        {
+            RefreshAgentHistory(published.AgentSessionId);
+        }
+
+        return usage;
     }
 
     public void AppendConversation(
@@ -92,6 +147,8 @@ internal sealed class EventRepository
             _ = Project(transaction, published.AgentSessionId, origin, role, parts, toolCalls, toolCallId);
             transaction.Commit();
         }
+
+        RefreshAgentHistory(published.AgentSessionId);
     }
 
     public bool AppendToolResult(
@@ -113,8 +170,10 @@ internal sealed class EventRepository
             _ = Record(transaction, published);
             InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
             transaction.Commit();
-            return true;
         }
+
+        RefreshAgentHistory(published.AgentSessionId);
+        return true;
     }
 
     public bool HasToolSynthetic(long assistantSequence, string agentSessionId)
@@ -168,8 +227,10 @@ internal sealed class EventRepository
             _ = insert.Parameters.AddWithValue("$item", sequence);
             _ = insert.ExecuteNonQuery();
             transaction.Commit();
-            return true;
         }
+
+        RefreshAgentHistory(published.AgentSessionId);
+        return true;
     }
 
     // Accepts a prompt without promoting it: it becomes durable here, and joins
@@ -495,6 +556,68 @@ internal sealed class EventRepository
     public IReadOnlyList<ConversationItem> Conversation(string agentSessionId) =>
         ConversationAfter(agentSessionId, 0);
 
+    public IReadOnlyList<string> AgentHistorySessionIds()
+    {
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            EnsureAgentHistoryProjection(transaction);
+            var sessionIds = new List<string>();
+            using var read = _database.Connection.CreateCommand();
+            read.Transaction = transaction;
+            read.CommandText = "SELECT DISTINCT agent_session FROM agent_history ORDER BY agent_session;";
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                sessionIds.Add((string)reader["agent_session"]);
+            }
+
+            transaction.Commit();
+            return sessionIds;
+        }
+    }
+
+    public IReadOnlyList<AgentHistoryEntry> AgentHistory(string agentSessionId)
+    {
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            EnsureAgentHistoryProjection(transaction);
+            var rows = new List<(long Sequence, string Kind, long ConversationSequence, string Summary, long Watermark)>();
+            using (var read = _database.Connection.CreateCommand())
+            {
+                read.Transaction = transaction;
+                read.CommandText =
+                    "SELECT sequence, kind, conversation_sequence, summary, watermark FROM agent_history "
+                    + "WHERE agent_session = $session ORDER BY sequence;";
+                _ = read.Parameters.AddWithValue("$session", agentSessionId);
+                using var reader = read.ExecuteReader();
+                while (reader.Read())
+                {
+                    rows.Add((
+                        Convert.ToInt64(reader["sequence"], System.Globalization.CultureInfo.InvariantCulture),
+                        (string)reader["kind"],
+                        reader["conversation_sequence"] is DBNull
+                            ? 0
+                            : Convert.ToInt64(
+                                reader["conversation_sequence"],
+                                System.Globalization.CultureInfo.InvariantCulture),
+                        (string)reader["summary"],
+                        Convert.ToInt64(reader["watermark"], System.Globalization.CultureInfo.InvariantCulture)));
+                }
+            }
+
+            var entries = rows.Select(row => string.Equals(row.Kind, "message", StringComparison.Ordinal)
+                    ? ToAgentHistoryEntry(
+                        row.Sequence,
+                        ReadConversationItem(transaction, row.ConversationSequence))
+                    : (AgentHistoryEntry)new AgentHistoryCompactionEntry(row.Sequence, row.Summary, row.Watermark))
+                .ToArray();
+            transaction.Commit();
+            return entries;
+        }
+    }
+
     public IReadOnlyList<ConversationItem> ConversationAfter(string agentSessionId, long watermark)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(watermark);
@@ -541,6 +664,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(published);
         ArgumentNullException.ThrowIfNull(terminal);
+        var changed = false;
         lock (_database.Gate)
         {
             using var transaction = _database.Begin();
@@ -559,9 +683,15 @@ internal sealed class EventRepository
             if (!HasToolResult(transaction, published.AgentSessionId, assistantSequence, terminal.ToolCallId))
             {
                 InsertToolResult(transaction, published.AgentSessionId, assistantSequence, terminal);
+                changed = true;
             }
 
             transaction.Commit();
+        }
+
+        if (changed)
+        {
+            RefreshAgentHistory(published.AgentSessionId);
         }
     }
 
@@ -594,22 +724,65 @@ internal sealed class EventRepository
         }
     }
 
-    public void SaveCompaction(string agentSessionId, CompactionSnapshot snapshot)
+    public bool SaveCompaction(string agentSessionId, CompactionSnapshot snapshot)
     {
+        var saved = false;
         lock (_database.Gate)
         {
-            using var command = _database.Connection.CreateCommand();
-            command.CommandText =
-                "INSERT INTO compaction_snapshot (agent_session, summary, watermark, created_at) "
-                + "VALUES ($session, $summary, $watermark, $at) "
-                + "ON CONFLICT (agent_session) DO UPDATE SET summary = excluded.summary, "
-                + "watermark = excluded.watermark, created_at = excluded.created_at;";
-            _ = command.Parameters.AddWithValue("$session", agentSessionId);
-            _ = command.Parameters.AddWithValue("$summary", snapshot.Summary);
-            _ = command.Parameters.AddWithValue("$watermark", snapshot.Watermark);
-            _ = command.Parameters.AddWithValue("$at", Timestamp());
-            _ = command.ExecuteNonQuery();
+            using var transaction = _database.Begin();
+            EnsureAgentHistoryProjection(transaction);
+            using (var existing = _database.Connection.CreateCommand())
+            {
+                existing.Transaction = transaction;
+                existing.CommandText =
+                    "SELECT EXISTS (SELECT 1 FROM agent_history "
+                    + "WHERE agent_session = $session AND kind = 'compaction' AND watermark = $watermark);";
+                _ = existing.Parameters.AddWithValue("$session", agentSessionId);
+                _ = existing.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                saved = Convert.ToInt64(
+                    existing.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 0;
+            }
+
+            if (saved)
+            {
+                var createdAt = Timestamp();
+                using (var snapshotCommand = _database.Connection.CreateCommand())
+                {
+                    snapshotCommand.Transaction = transaction;
+                    snapshotCommand.CommandText =
+                        "INSERT INTO compaction_snapshot (agent_session, summary, watermark, created_at) "
+                        + "VALUES ($session, $summary, $watermark, $at) "
+                        + "ON CONFLICT (agent_session) DO UPDATE SET summary = excluded.summary, "
+                        + "watermark = excluded.watermark, created_at = excluded.created_at;";
+                    _ = snapshotCommand.Parameters.AddWithValue("$session", agentSessionId);
+                    _ = snapshotCommand.Parameters.AddWithValue("$summary", snapshot.Summary);
+                    _ = snapshotCommand.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                    _ = snapshotCommand.Parameters.AddWithValue("$at", createdAt);
+                    _ = snapshotCommand.ExecuteNonQuery();
+                }
+
+                using var history = _database.Connection.CreateCommand();
+                history.Transaction = transaction;
+                history.CommandText =
+                    "INSERT INTO agent_history "
+                    + "(agent_session, kind, conversation_sequence, summary, watermark, created_at) "
+                    + "VALUES ($session, 'compaction', NULL, $summary, $watermark, $at);";
+                _ = history.Parameters.AddWithValue("$session", agentSessionId);
+                _ = history.Parameters.AddWithValue("$summary", snapshot.Summary);
+                _ = history.Parameters.AddWithValue("$watermark", snapshot.Watermark);
+                _ = history.Parameters.AddWithValue("$at", createdAt);
+                _ = history.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
         }
+
+        if (saved)
+        {
+            RefreshAgentHistory(agentSessionId);
+        }
+
+        return saved;
     }
 
     public CompactionSnapshot? Compaction(string agentSessionId)
@@ -760,8 +933,10 @@ internal sealed class EventRepository
             _ = insert.Parameters.AddWithValue("$at", Timestamp());
             _ = insert.ExecuteNonQuery();
             transaction.Commit();
-            return true;
         }
+
+        RefreshAgentHistory(published.AgentSessionId);
+        return true;
     }
 
     public void AppendInitialStatusPrompt(Event published, string content)
@@ -776,6 +951,8 @@ internal sealed class EventRepository
             Project(transaction, published.AgentSessionId, "system", content);
             transaction.Commit();
         }
+
+        RefreshAgentHistory(published.AgentSessionId);
     }
 
     public void AppendActiveWorkReminder(Event published, string content)
@@ -790,6 +967,8 @@ internal sealed class EventRepository
             Project(transaction, published.AgentSessionId, "system", content);
             transaction.Commit();
         }
+
+        RefreshAgentHistory(published.AgentSessionId);
     }
 
     public ImageArtifactMetadata RecordImageArtifact(ImageArtifactMetadata artifact, string uploadId)
@@ -1142,6 +1321,21 @@ internal sealed class EventRepository
         var kind => throw new InvalidOperationException($"unknown conversation part kind {kind}"),
     };
 
+    private static AgentHistoryMessageEntry ToAgentHistoryEntry(long sequence, ConversationItem item) =>
+        new(
+            sequence,
+            item.Sequence,
+            OriginText(item.Origin),
+            Text(item.Role),
+            [.. item.Parts.Select(part => new AgentHistoryPart(
+                part.Kind == ConversationPartKind.Text ? "text" : "image_artifact",
+                part.Text,
+                part.ArtifactId,
+                part.MediaType,
+                part.DisplayName))],
+            [.. item.ToolCalls.Select(call => new AgentHistoryToolCall(call.Id, call.Name, call.ArgumentsJson))],
+            item.ToolCallId);
+
     private static LLMMessage ToMessage(ConversationItem item)
     {
         if (item.Parts.Any(part => part.Kind == ConversationPartKind.ImageArtifact))
@@ -1256,6 +1450,7 @@ internal sealed class EventRepository
     {
         ArgumentNullException.ThrowIfNull(compose);
 
+        List<Promotion> promoted;
         lock (_database.Gate)
         {
             // Read before the transaction: the drain asks at every turn
@@ -1274,7 +1469,7 @@ internal sealed class EventRepository
             // One instant for the whole commit. Three statements landing
             // atomically should not record three different times.
             var at = Timestamp();
-            var promoted = new List<Promotion>(pending.Count);
+            promoted = new List<Promotion>(pending.Count);
 
             foreach (var input in pending)
             {
@@ -1310,9 +1505,10 @@ internal sealed class EventRepository
             }
 
             transaction.Commit();
-
-            return promoted;
         }
+
+        RefreshAgentHistory(agentSessionId);
+        return promoted;
     }
 
     // A negative limit is SQLite for "no limit", which is what lets one query
@@ -1506,6 +1702,32 @@ internal sealed class EventRepository
         return parts;
     }
 
+    private ConversationItem ReadConversationItem(SqliteTransaction transaction, long sequence)
+    {
+        using var read = _database.Connection.CreateCommand();
+        read.Transaction = transaction;
+        read.CommandText =
+            "SELECT origin, role, tool_call_id FROM conversation_item WHERE sequence = $sequence;";
+        _ = read.Parameters.AddWithValue("$sequence", sequence);
+        using var reader = read.ExecuteReader();
+        if (!reader.Read())
+        {
+            throw new InvalidOperationException($"Conversation item {sequence} does not exist.");
+        }
+
+        var origin = ParseOrigin((string)reader["origin"]);
+        var role = ParseRole((string)reader["role"]);
+        var toolCallId = (string)reader["tool_call_id"];
+        reader.Close();
+        return new ConversationItem(
+            sequence,
+            origin,
+            role,
+            ReadParts(transaction, sequence),
+            ReadToolCalls(transaction, sequence),
+            toolCallId);
+    }
+
     private List<ConversationItem> ReadConversation(
         SqliteTransaction transaction,
         string agentSessionId,
@@ -1569,6 +1791,69 @@ internal sealed class EventRepository
         }
 
         return calls;
+    }
+
+    private void EnsureAgentHistoryProjection(SqliteTransaction transaction)
+    {
+        using (var version = _database.Connection.CreateCommand())
+        {
+            version.Transaction = transaction;
+            version.CommandText = "SELECT version FROM projection_version WHERE name = $name;";
+            _ = version.Parameters.AddWithValue("$name", AgentHistoryProjection);
+            var current = version.ExecuteScalar();
+            if (current is not null
+                && Convert.ToInt64(current, System.Globalization.CultureInfo.InvariantCulture)
+                    >= AgentHistoryProjectionVersion)
+            {
+                return;
+            }
+        }
+
+        using (var messages = _database.Connection.CreateCommand())
+        {
+            messages.Transaction = transaction;
+            messages.CommandText =
+                "INSERT OR IGNORE INTO agent_history "
+                + "(agent_session, kind, conversation_sequence, summary, watermark, created_at) "
+                + "SELECT item.agent_session, 'message', item.sequence, '', 0, item.created_at "
+                + "FROM conversation_item AS item "
+                + "LEFT JOIN compaction_snapshot AS snapshot ON snapshot.agent_session = item.agent_session "
+                + "WHERE snapshot.watermark IS NULL OR item.sequence <= snapshot.watermark "
+                + "ORDER BY item.sequence;";
+            _ = messages.ExecuteNonQuery();
+        }
+
+        using (var compactions = _database.Connection.CreateCommand())
+        {
+            compactions.Transaction = transaction;
+            compactions.CommandText =
+                "INSERT OR IGNORE INTO agent_history "
+                + "(agent_session, kind, conversation_sequence, summary, watermark, created_at) "
+                + "SELECT agent_session, 'compaction', NULL, summary, watermark, created_at "
+                + "FROM compaction_snapshot ORDER BY created_at, agent_session;";
+            _ = compactions.ExecuteNonQuery();
+        }
+
+        using (var tail = _database.Connection.CreateCommand())
+        {
+            tail.Transaction = transaction;
+            tail.CommandText =
+                "INSERT OR IGNORE INTO agent_history "
+                + "(agent_session, kind, conversation_sequence, summary, watermark, created_at) "
+                + "SELECT item.agent_session, 'message', item.sequence, '', 0, item.created_at "
+                + "FROM conversation_item AS item "
+                + "JOIN compaction_snapshot AS snapshot ON snapshot.agent_session = item.agent_session "
+                + "WHERE item.sequence > snapshot.watermark ORDER BY item.sequence;";
+            _ = tail.ExecuteNonQuery();
+        }
+
+        using var mark = _database.Connection.CreateCommand();
+        mark.Transaction = transaction;
+        mark.CommandText =
+            "INSERT OR REPLACE INTO projection_version (name, version) VALUES ($name, $version);";
+        _ = mark.Parameters.AddWithValue("$name", AgentHistoryProjection);
+        _ = mark.Parameters.AddWithValue("$version", AgentHistoryProjectionVersion);
+        _ = mark.ExecuteNonQuery();
     }
 
     private void EnsureUsageProjection(SqliteTransaction transaction)
@@ -1773,6 +2058,7 @@ internal sealed class EventRepository
         var sequence = InsertConversationItem(transaction, agentSessionId, origin, role, toolCallId, createdAt);
         InsertConversationParts(transaction, sequence, parts);
         InsertToolCalls(transaction, sequence, toolCalls);
+        InsertAgentHistoryMessage(transaction, agentSessionId, sequence, createdAt);
         return sequence;
     }
 
@@ -1800,6 +2086,26 @@ internal sealed class EventRepository
             transaction, agentSessionId, origin, message.Role, message.ToolCallId, createdAt);
         InsertConversationParts(transaction, itemSequence, [.. message.Contents.Select(ToPart)]);
         InsertToolCalls(transaction, itemSequence, message.ToolCalls);
+        InsertAgentHistoryMessage(transaction, agentSessionId, itemSequence, createdAt);
+    }
+
+    private void InsertAgentHistoryMessage(
+        SqliteTransaction transaction,
+        string agentSessionId,
+        long conversationSequence,
+        string createdAt)
+    {
+        EnsureAgentHistoryProjection(transaction);
+        using var insert = _database.Connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText =
+            "INSERT OR IGNORE INTO agent_history "
+            + "(agent_session, kind, conversation_sequence, summary, watermark, created_at) "
+            + "VALUES ($session, 'message', $conversation, '', 0, $at);";
+        _ = insert.Parameters.AddWithValue("$session", agentSessionId);
+        _ = insert.Parameters.AddWithValue("$conversation", conversationSequence);
+        _ = insert.Parameters.AddWithValue("$at", createdAt);
+        _ = insert.ExecuteNonQuery();
     }
 
     private long InsertConversationItem(

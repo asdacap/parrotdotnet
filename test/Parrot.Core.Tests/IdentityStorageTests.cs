@@ -111,6 +111,77 @@ internal sealed class IdentityStorageTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_history_files_are_isolated_under_the_session_agents_root()
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var resources = new UserSessionResources(
+            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+        var files = new AgentHistoryFiles(resources);
+
+        var history = files.PathFor("agent-session-child");
+
+        _ = await Assert.That(history.Path)
+            .IsEqualTo(Path.Combine(resources.Root, "agents", "agent-session-child", "history.jsonl"));
+        _ = await Assert.That(resources.Owns(history.Path)).IsTrue();
+        _ = await Assert.That(Path.GetRelativePath(resources.Root, history.Path))
+            .IsEqualTo(Path.Combine("agents", "agent-session-child", "history.jsonl"));
+    }
+
+    [Test]
+    public async Task Agent_history_projection_writes_discriminated_lowercase_JSON_lines()
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var resources = new UserSessionResources(
+            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+        var files = new AgentHistoryFiles(resources);
+
+        files.Publish("agent-session-child", [new AgentHistoryCompactionEntry(7, "summary", 4)]);
+
+        var text = await File.ReadAllTextAsync(files.PathFor("agent-session-child").Path);
+        _ = await Assert.That(text).IsEqualTo("{\"type\":\"compaction\",\"summary\":\"summary\",\"watermark\":4,\"sequence\":7}\n");
+    }
+
+    [Test]
+    public async Task Agent_history_projection_writes_structured_message_records()
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var resources = new UserSessionResources(
+            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+        var files = new AgentHistoryFiles(resources);
+        var entry = new AgentHistoryMessageEntry(
+            2,
+            9,
+            "model",
+            "assistant",
+            [new AgentHistoryPart("text", "hello", string.Empty, string.Empty, string.Empty)],
+            [new AgentHistoryToolCall("call", "read", "{}")],
+            string.Empty);
+
+        files.Publish("agent-session-child", [entry]);
+
+        var text = await File.ReadAllTextAsync(files.PathFor("agent-session-child").Path);
+        _ = await Assert.That(text).Contains("\"type\":\"message\"");
+        _ = await Assert.That(text).Contains("\"conversation_sequence\":9");
+        _ = await Assert.That(text).Contains("\"arguments_json\":\"{}\"");
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments("..")]
+    [Arguments("../other")]
+    [Arguments("other/session")]
+    [Arguments("other\\session")]
+    public async Task Agent_history_files_reject_unsafe_agent_session_ids(string value)
+    {
+        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
+        var resources = new UserSessionResources(
+            Paths(), UserSessionId.Parse("session-one"), ProjectWorkspace.FromLaunchDirectory(workspaceDirectory));
+        var files = new AgentHistoryFiles(resources);
+
+        _ = await Assert.That(() => files.PathFor(value)).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Owner_bound_index_refuses_metadata_for_another_session()
     {
         var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;

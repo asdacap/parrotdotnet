@@ -73,6 +73,11 @@ internal sealed class UserSession : IAsyncDisposable
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _lifetime.Token);
         Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry);
         Registry.AttachStatus(Status);
+        foreach (var agentSessionId in _eventRepository.AgentHistorySessionIds())
+        {
+            _ = _eventRepository.PrepareAgentHistory(agentSessionId);
+        }
+
         Main().Recover();
     }
 

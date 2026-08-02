@@ -325,6 +325,23 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
 - **Outbound** `SessionDatabase`.
 - **Boundary** no.
 
+### `AgentHistoryTimeline` — rank 3, M8
+
+- **Owns** each agent session's ordered history timeline and its private JSONL file
+  projection at `<session>/agents/<agent>/history.jsonl`.
+- **Inbound** record durable message and compaction records after their SQLite
+  transaction commits; project the agent's complete timeline atomically enough that
+  an interrupted projection can be rebuilt from SQLite; grant the owning agent an
+  exact-file read capability for its projection.
+- **Outbound** `SessionDatabase` as the sole authority for durable history and the
+  owning `AgentSession` for the narrowly scoped read capability.
+- **Boundary** no. It is a per-agent component, not a user-session-wide history
+  service.
+- **Note** JSONL is an inspectable projection, never an alternate persistence
+  authority. The exact-file exception does not expose its containing private root,
+  grant directory access, or permit an agent to read a parent, child, or sibling
+  agent's history.
+
 ### `QueueStore` — rank 3, M8
 
 - **Absorbs** `internal/queue` and the queue portions of upstream `tool`,

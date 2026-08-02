@@ -23,6 +23,7 @@ internal sealed class UserSessionResources
         ArtifactDirectory = RequireContained(Root, Path.Combine(Root, "artifacts"));
         QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
         AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
+        AgentRootDirectory = RequireContained(Root, Path.Combine(Root, "agents"));
         PlanDirectory = RequireContained(Root, Path.Combine(Root, "plan"));
         RuntimeDirectory = RequireContained(Root, Path.Combine(Root, "runtime"));
         RuntimeHomeDirectory = RequireContained(RuntimeDirectory, Path.Combine(RuntimeDirectory, "home"));
@@ -60,6 +61,8 @@ internal sealed class UserSessionResources
 
     public string AgentQueueRootDirectory { get; }
 
+    public string AgentRootDirectory { get; }
+
     public string PlanDirectory { get; }
 
     public string RuntimeDirectory { get; }
@@ -74,7 +77,16 @@ internal sealed class UserSessionResources
 
     public bool Owns(string path) => Contains(Root, Path.GetFullPath(path));
 
-    public string AgentQueueDirectory(string sessionId)
+    public string AgentQueueDirectory(string sessionId) =>
+        AgentPath(AgentQueueRootDirectory, sessionId);
+
+    public string AgentHistoryFile(string sessionId) =>
+        RequireContained(AgentDirectory(sessionId), Path.Combine(AgentDirectory(sessionId), "history.jsonl"));
+
+    public string AgentDirectory(string sessionId) =>
+        AgentPath(AgentRootDirectory, sessionId);
+
+    private static string AgentPath(string root, string sessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         if (sessionId is "." or ".."
@@ -86,7 +98,7 @@ internal sealed class UserSessionResources
             throw new ArgumentException("An agent session id must be one path segment.", nameof(sessionId));
         }
 
-        return RequireContained(AgentQueueRootDirectory, Path.Combine(AgentQueueRootDirectory, sessionId));
+        return RequireContained(root, Path.Combine(root, sessionId));
     }
 
     private static string RequireContained(string root, string path)

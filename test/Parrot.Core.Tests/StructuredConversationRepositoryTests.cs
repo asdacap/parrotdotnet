@@ -59,6 +59,44 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_history_orders_structured_messages_and_retains_compactions()
+    {
+        var resources = Resources("history");
+        using var database = SessionDatabase.Open(resources.DatabasePath);
+        var repository = new EventRepository(database);
+        repository.AppendConversation(
+            Published("assistant"),
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart("before")],
+            [new LLMToolCall("call-1", "read", "{\"path\":\"file\"}")],
+            string.Empty);
+        _ = repository.SaveCompaction("agent", new CompactionSnapshot("summary one", 1));
+        repository.AppendConversation(
+            Published("tool"),
+            ConversationOrigin.Tool,
+            LLMRole.Tool,
+            [ConversationPart.TextPart("result")],
+            [],
+            "call-1");
+        _ = repository.SaveCompaction("agent", new CompactionSnapshot("summary two", 2));
+
+        var history = repository.AgentHistory("agent");
+
+        _ = await Assert.That(history).Count().IsEqualTo(4);
+        _ = await Assert.That(string.Join(',', history.Select(entry => entry.GetType().Name)))
+            .IsEqualTo("AgentHistoryMessageEntry,AgentHistoryCompactionEntry,"
+                + "AgentHistoryMessageEntry,AgentHistoryCompactionEntry");
+        var message = (AgentHistoryMessageEntry)history[0];
+        _ = await Assert.That(message.Role).IsEqualTo("assistant");
+        _ = await Assert.That(message.ToolCalls.Single().ArgumentsJson).Contains("file");
+        var compactions = history.OfType<AgentHistoryCompactionEntry>().ToArray();
+        _ = await Assert.That(string.Join(',', compactions.Select(entry => entry.Summary)))
+            .IsEqualTo("summary one,summary two");
+        _ = await Assert.That(repository.SaveCompaction("agent", new CompactionSnapshot("duplicate", 2))).IsFalse();
+    }
+
+    [Test]
     public async Task Tool_terminal_is_idempotent_and_recovers_structured_parts()
     {
         var resources = Resources("terminals");

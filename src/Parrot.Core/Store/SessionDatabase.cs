@@ -173,6 +173,28 @@ internal sealed class SessionDatabase : IDisposable
                     created_at    TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS agent_history (
+                    sequence              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_session         TEXT NOT NULL,
+                    kind                  TEXT NOT NULL CHECK (kind IN ('message', 'compaction')),
+                    conversation_sequence INTEGER REFERENCES conversation_item(sequence) ON DELETE CASCADE,
+                    summary               TEXT NOT NULL,
+                    watermark             INTEGER NOT NULL CHECK (watermark >= 0),
+                    created_at            TEXT NOT NULL,
+                    CHECK (
+                        (kind = 'message' AND conversation_sequence IS NOT NULL AND summary = '' AND watermark = 0)
+                        OR
+                        (kind = 'compaction' AND conversation_sequence IS NULL)
+                    ),
+                    UNIQUE (conversation_sequence)
+                );
+
+                CREATE INDEX IF NOT EXISTS agent_history_by_session
+                    ON agent_history (agent_session, sequence);
+
+                CREATE UNIQUE INDEX IF NOT EXISTS agent_history_compaction
+                    ON agent_history (agent_session, watermark) WHERE kind = 'compaction';
+
                 CREATE TABLE IF NOT EXISTS todo (
                     agent_session TEXT NOT NULL,
                     id            TEXT NOT NULL,

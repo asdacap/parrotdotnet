@@ -63,6 +63,7 @@ internal sealed class AgentSession(
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
     private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
+    private readonly string _historyPath = eventRepository.PrepareAgentHistory(identity.SessionId);
 
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
@@ -131,7 +132,17 @@ internal sealed class AgentSession(
         }
     }
 
-    public AgentSelection ResolveSelection() => registry?.ResolveSelection(this) ?? Selection();
+    public AgentSelection ResolveSelection()
+    {
+        var selected = ResolvePolicySelection();
+        return _historyPath.Length == 0
+            ? selected
+            : selected with
+            {
+                SecurityProfile = selected.SecurityProfile.Add(
+                    new SandboxRule(_historyPath, SandboxRuleAction.AllowRead)),
+            };
+    }
 
     public void UpdateSelection(ModelSelector selectedModel, IAgentProfile? profile)
     {
@@ -223,6 +234,8 @@ internal sealed class AgentSession(
     // close.
     public async Task Settled() =>
         _ = await ResultSettled().ConfigureAwait(false);
+
+    internal AgentSelection ResolvePolicySelection() => registry?.ResolveSelection(this) ?? Selection();
 
     internal AgentScope ResolveScope() => identity.Scope;
 
@@ -1238,7 +1251,7 @@ internal sealed class AgentSession(
                 if (summarisedCount > 0)
                 {
                     var watermark = durableMessages[summarisedCount - 1].Sequence;
-                    eventRepository.SaveCompaction(
+                    _ = eventRepository.SaveCompaction(
                         SessionId,
                         new CompactionSnapshot(compacted.Summary.Content, watermark));
                     _history.Clear();

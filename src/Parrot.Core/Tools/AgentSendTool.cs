@@ -43,7 +43,8 @@ internal sealed partial class AgentSendTool(
             var target = agents.GetRecipient(session, sessionId);
 
             if (!string.Equals(target.SessionId, session.ParentSessionId, StringComparison.Ordinal)
-                && !selection.SecurityProfile.AllowsDelegationTo(target.ResolveSelection().SecurityProfile))
+                && !session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(
+                    target.ResolvePolicySelection().SecurityProfile))
             {
                 return "error: cannot delegate to a more permissive agent";
             }

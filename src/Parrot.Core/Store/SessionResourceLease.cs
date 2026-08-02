@@ -15,7 +15,7 @@ internal sealed class SessionResourceLease : IDisposable, IAsyncDisposable
         _database = database;
         _activation = activation;
         var imageStore = new ImageArtifactStore(resources);
-        Events = new EventRepository(database, imageStore);
+        Events = new EventRepository(database, imageStore, new AgentHistoryFiles(resources));
         Images = new ImageArtifactRepository(imageStore, Events);
         Images.RemoveStaleUnreferenced(DateTimeOffset.UtcNow.AddDays(-1));
     }

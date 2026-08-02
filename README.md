@@ -252,6 +252,16 @@ listing is a server-authoritative management operation when connected to a
 server; management callers read metadata through `SessionCatalog` and never
 obtain a live session, database, queue, or repository.
 
+Each agent also has a private, inspectable history timeline projection at
+`<session>/agents/<agent>/history.jsonl`. SQLite remains the authoritative durable
+history: the JSON Lines file is rebuilt from it rather than becoming a second
+source of truth. Its records include durable messages and compactions, so the
+projection describes both the conversation and the history cutoffs that reshape
+later context. Parrot grants an agent only an exact-file read exception for its own
+projection. That exception does not grant access to the containing session or agent
+directory, and it cannot expose another agent's history, including a parent,
+child, or sibling's.
+
 Queues are agent-owned within this boundary rather than globally shared by all
 agents in the user session. An agent resolves its own queues first and may also
 access only its direct parent's queues; a parent cannot access a child's queue,

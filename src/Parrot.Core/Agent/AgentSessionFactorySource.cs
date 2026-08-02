@@ -26,6 +26,7 @@ internal sealed class AgentSessionFactorySource(
                 [
                     systemPromptProvider,
                     new TemporaryDirectoryProvider(owner.Resources.TemporaryDirectory),
+                    new AgentHistoryProvider(owner.Resources),
                 ]),
             scopes);
 
