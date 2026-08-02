@@ -31,7 +31,9 @@ internal sealed class ConfigurationTests : IDisposable
             "You are parrot, a coding agent. You work in the user's project directory.\n"
             + "Filesystem access is determined by the active security policy.");
         _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:02-delegation"])
-            .StartsWith("## Delegation and orchestration");
+            .StartsWith("Prefer to split larger task to subagent with a well defined scope.");
+        _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:03-subagent-pattern"])
+            .StartsWith("# Common subagent spawn strategy");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
         _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
         _ = await Assert.That(configuration.DisabledTools.Count).IsEqualTo(2);
@@ -177,10 +179,12 @@ internal sealed class ConfigurationTests : IDisposable
               custom:guidance: Additional guidance.
             """)).SystemPrompts;
 
-        _ = await Assert.That(prompts).Count().IsEqualTo(3);
+        _ = await Assert.That(prompts).Count().IsEqualTo(4);
         _ = await Assert.That(prompts["runtime:system-context:01-base"]).IsEqualTo("Custom base prompt.");
         _ = await Assert.That(prompts["runtime:system-context:02-delegation"])
-            .StartsWith("## Delegation and orchestration");
+            .StartsWith("Prefer to split larger task to subagent with a well defined scope.");
+        _ = await Assert.That(prompts["runtime:system-context:03-subagent-pattern"])
+            .StartsWith("# Common subagent spawn strategy");
         _ = await Assert.That(prompts["custom:guidance"]).IsEqualTo("Additional guidance.");
     }
 
