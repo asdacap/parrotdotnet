@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -95,8 +94,6 @@ internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
         }
 
         _ = stream.Seek(0, SeekOrigin.Begin);
-        var hashBytes = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
-        _ = stream.Seek(0, SeekOrigin.Begin);
 
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         var output = new StringBuilder();
@@ -140,7 +137,9 @@ internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
             _ = output.Append("[output truncated]\n");
         }
 
-        _ = output.Append("sha256: ").Append(Convert.ToHexString(hashBytes).ToLowerInvariant()).Append('\n');
+        _ = output.Append("total lines in file: ")
+            .Append(lineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .Append('\n');
         return output.ToString();
     }
 
