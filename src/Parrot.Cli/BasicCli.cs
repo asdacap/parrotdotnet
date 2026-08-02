@@ -133,7 +133,9 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.CompactionStarted or
                 Event.PayloadOneofCase.CompactionFinished or
                 Event.PayloadOneofCase.CompactionFailed or
-                Event.PayloadOneofCase.ActiveWorkReminderInjected)
+                Event.PayloadOneofCase.ActiveWorkReminderInjected or
+                Event.PayloadOneofCase.FinalProviderRequestPromptInjected or
+                Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected)
             {
                 await output.WriteLineAsync().ConfigureAwait(false);
                 textEndsLine = true;
@@ -159,6 +161,16 @@ internal sealed class BasicCli(
 
                 case Event.PayloadOneofCase.ActiveWorkReminderInjected:
                     await output.WriteLineAsync("↻ Active work reminder injected".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.FinalProviderRequestPromptInjected:
+                    await output.WriteLineAsync("↻ Final provider request prompt injected".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected:
+                    await output.WriteLineAsync("↻ Tool availability restored prompt injected".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 

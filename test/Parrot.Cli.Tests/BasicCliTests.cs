@@ -311,6 +311,43 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    public async Task Provider_request_limit_prompts_render_as_their_own_notifications(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event { Id = "text", TextChunk = new TextChunk { Fragment = "draft" } },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event
+            {
+                Id = "final-provider-request",
+                FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected(),
+            },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event
+            {
+                Id = "tool-availability-restored",
+                ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
+            },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(output.ToString()).Contains("draft\n↻ Final provider request prompt injected");
+        _ = await Assert.That(output.ToString()).Contains("↻ Tool availability restored prompt injected");
+        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Final provider request prompt injected");
+        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Tool availability restored prompt injected");
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task A_line_typed_during_a_turn_is_sent_rather_than_held_until_it_ends(

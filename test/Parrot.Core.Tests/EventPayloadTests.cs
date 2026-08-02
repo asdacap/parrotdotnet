@@ -317,6 +317,28 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Provider_request_limit_prompts_roundtrip_as_distinct_protobuf_payloads()
+    {
+        var finalRequest = Event.Parser.ParseFrom(new Event
+        {
+            Id = "final-provider-request-event",
+            AgentSessionId = "session",
+            FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected(),
+        }.ToByteArray());
+        var restored = Event.Parser.ParseFrom(new Event
+        {
+            Id = "tool-availability-restored-event",
+            AgentSessionId = "session",
+            ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected(),
+        }.ToByteArray());
+
+        _ = await Assert.That(finalRequest.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.FinalProviderRequestPromptInjected);
+        _ = await Assert.That(restored.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected);
+    }
+
+    [Test]
     public async Task Active_work_reminder_is_durable_history_with_a_transient_event()
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -330,6 +352,31 @@ internal sealed class EventPayloadTests
         var messages = repository.Messages("session");
         _ = await Assert.That(messages).Count().IsEqualTo(1);
         _ = await Assert.That(messages[0]).IsEqualTo("system: wait for direct active work");
+        _ = await Assert.That(repository.Replay()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Provider_request_limit_prompts_are_durable_and_restore_exactly_once()
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var finalRequest = new Event { Id = "final", AgentSessionId = "session" };
+        var restored = new Event { Id = "restored", AgentSessionId = "session" };
+
+        repository.AppendFinalProviderRequestPrompt(finalRequest, "tools unavailable");
+        var firstRestoration = repository.AppendToolAvailabilityRestoredPrompt(restored, "tools restored");
+        var secondRestoration = repository.AppendToolAvailabilityRestoredPrompt(
+            new Event { Id = "duplicate", AgentSessionId = "session" },
+            "duplicate restoration");
+
+        _ = await Assert.That(finalRequest.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.FinalProviderRequestPromptInjected);
+        _ = await Assert.That(restored.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected);
+        _ = await Assert.That(firstRestoration).IsTrue();
+        _ = await Assert.That(secondRestoration).IsFalse();
+        _ = await Assert.That(string.Join(" | ", repository.Messages("session")))
+            .IsEqualTo("system: tools unavailable | system: tools restored");
         _ = await Assert.That(repository.Replay()).IsEmpty();
     }
 

@@ -121,7 +121,12 @@ internal sealed class DrainTests : IDisposable
         using var provider = new SteppedProvider(
             Answer(string.Empty, new LLMToolCall("call-1", "settled", "{}")), Answer("done"));
         var repository = new EventRepository(_database);
-        var session = Session(provider, repository, [new FixedToolFactory(new SettledTool("settled"))], cancellationToken);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            Profile(maxTurns: 2),
+            cancellationToken);
 
         _ = await session.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -131,6 +136,10 @@ internal sealed class DrainTests : IDisposable
         // which is where the steer joins it.
         provider.Release();
         await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[1].Tools).IsEmpty();
+        _ = await Assert.That(provider.Requests[1].Messages).DoesNotContain(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("Tool access is restored", StringComparison.Ordinal));
         provider.Release();
         await session.Settled();
 
@@ -138,7 +147,10 @@ internal sealed class DrainTests : IDisposable
         // already running rather than starting one of its own.
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
         _ = await Assert.That(Conversation(repository))
-            .IsEqualTo("user: first prompt | assistant:  | tool: settled | user: steer | assistant: done");
+            .IsEqualTo("user: first prompt | assistant:  | tool: settled | user: steer | "
+                + "system: This is the final provider request allowed for the current turn. "
+                + "Tools are unavailable for this request. Do not request or invoke tools. "
+                + "Provide the best possible final answer using the information already available. | assistant: done");
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | steer");
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
             "started:call-1:settled | finished:call-1:settled");
@@ -419,16 +431,74 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(provider.Requests[1].Tools).IsEmpty();
+        _ = await Assert.That(provider.Requests[1].Messages).Contains(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("final provider request", StringComparison.Ordinal));
+        _ = await Assert.That(provider.Requests[1].Messages).DoesNotContain(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("Tool access is restored", StringComparison.Ordinal));
         provider.Release();
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(provider.Requests[2].Tools).HasSingleItem();
+        _ = await Assert.That(provider.Requests[2].Messages).Contains(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("Tool access is restored", StringComparison.Ordinal));
         provider.Release();
         await session.Settled();
 
         _ = await Assert.That(Endings(repository)).IsEqualTo("stop | stop");
         _ = await Assert.That(Conversation(repository)).IsEqualTo(
-            "user: first prompt | assistant:  | tool: settled | assistant: first answer | "
+            "user: first prompt | assistant:  | tool: settled | "
+            + "system: This is the final provider request allowed for the current turn. "
+            + "Tools are unavailable for this request. Do not request or invoke tools. "
+            + "Provide the best possible final answer using the information already available. | "
+            + "assistant: first answer | system: A new turn has started and its provider-request budget has reset. "
+            + "Tool access is restored to the tools permitted for this turn. | "
             + "user: queued prompt | assistant: queued answer");
+    }
+
+    [Test]
+    public async Task Tool_availability_is_restored_once_after_recovering_a_session(
+        CancellationToken cancellationToken)
+    {
+        var repository = new EventRepository(_database);
+        using (var firstProvider = new SteppedProvider(Answer("first answer")))
+        {
+            var firstSession = Session(firstProvider, repository, [], Profile(maxTurns: 1), cancellationToken);
+
+            _ = await firstSession.Admit("first prompt", "msg-1", Delivery.Steer, cancellationToken);
+            await firstProvider.Arrived(cancellationToken);
+            firstProvider.Release();
+            await firstSession.Settled();
+        }
+
+        using var restoredProvider = new SteppedProvider(Answer("second answer"), Answer("third answer"));
+        var restoredSession = Session(
+            restoredProvider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            Profile(maxTurns: 2),
+            cancellationToken);
+
+        _ = await restoredSession.Admit("second prompt", "msg-2", Delivery.Steer, cancellationToken);
+        await restoredProvider.Arrived(cancellationToken);
+        _ = await Assert.That(restoredProvider.Requests[0].Tools).HasSingleItem();
+        _ = await Assert.That(restoredProvider.Requests[0].Messages.Count(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("Tool access is restored", StringComparison.Ordinal))).IsEqualTo(1);
+        restoredProvider.Release();
+        await restoredSession.Settled();
+
+        _ = await restoredSession.Admit("third prompt", "msg-3", Delivery.Steer, cancellationToken);
+        await restoredProvider.Arrived(cancellationToken);
+        _ = await Assert.That(restoredProvider.Requests[1].Messages.Count(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("Tool access is restored", StringComparison.Ordinal))).IsEqualTo(1);
+        restoredProvider.Release();
+        await restoredSession.Settled();
+
+        _ = await Assert.That(repository.Messages("agent").Count(message =>
+            message.Contains("Tool access is restored", StringComparison.Ordinal))).IsEqualTo(1);
     }
 
     [Test]
