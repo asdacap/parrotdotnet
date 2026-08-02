@@ -132,12 +132,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
 
         foreach (var directory in parents)
         {
-            arguments.AddRange(["--dir", directory, "--chmod", "100", directory]);
-        }
-
-        if (parents.Count > 0)
-        {
-            arguments.AddRange(["--chmod", "100", resources.Root]);
+            arguments.AddRange(["--dir", directory]);
         }
     }
 
@@ -186,7 +181,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
     {
         if (Directory.Exists(path))
         {
-            arguments.AddRange(["--tmpfs", path, "--chmod", "100", path]);
+            arguments.AddRange(["--tmpfs", path]);
         }
         else
         {
