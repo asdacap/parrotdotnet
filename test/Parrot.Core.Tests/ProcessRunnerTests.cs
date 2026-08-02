@@ -371,6 +371,37 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Virtual_filesystems_are_mounted_after_security_rules(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var resources = Resources(_workspace);
+        var scratch = Scratch(resources);
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            scratch,
+            WritableProfile(resources),
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        var lastSecurityRule = Array.LastIndexOf(arguments, scratch.Root);
+        var deviceMount = Array.IndexOf(arguments, "--dev");
+        var processMount = Array.IndexOf(arguments, "--proc");
+        _ = await Assert.That(deviceMount).IsGreaterThan(lastSecurityRule);
+        _ = await Assert.That(processMount).IsGreaterThan(lastSecurityRule);
+        _ = await Assert.That(arguments[deviceMount + 1]).IsEqualTo("/dev");
+        _ = await Assert.That(arguments[processMount + 1]).IsEqualTo("/proc");
+    }
+
+    [Test]
     public async Task Approvals_are_ordered_below_static_policy(
         CancellationToken cancellationToken)
     {

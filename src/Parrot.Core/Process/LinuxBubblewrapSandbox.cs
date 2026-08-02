@@ -89,8 +89,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             "--unshare-uts",
             "--cap-drop", "ALL",
             "--ro-bind", "/", "/",
-            "--dev", "/dev",
-            "--proc", "/proc",
         };
 
         foreach (var entry in environment.Entries)
@@ -99,7 +97,6 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         }
 
         AddSecurityRules(arguments, resources, securityProfile);
-
         if (pseudoTerminalHelperPath.Length > 0)
         {
             arguments.AddRange(["--ro-bind", pseudoTerminalHelperPath, SandboxHelperPath]);
@@ -111,6 +108,9 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         {
             arguments.AddRange([SandboxHelperPath, "--attach", "--"]);
         }
+
+        // must be AFTER other mount
+        arguments.AddRange(["--dev", "/dev", "--proc", "/proc"]);
 
         arguments.AddRange(["/bin/sh", "-c", command]);
         return arguments;
