@@ -36,6 +36,7 @@ internal partial class EnhancedComposition
                     new ReadToolPresenter(),
                     new QuestionToolPresenter(),
                     new QueuePushToolPresenter(),
+                    new QueueTakeToolPresenter(),
                     new TodoReadToolPresenter(),
                     new TodoWriteToolPresenter(),
                     new WaitToolPresenter(),
