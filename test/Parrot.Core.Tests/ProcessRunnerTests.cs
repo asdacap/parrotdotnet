@@ -264,10 +264,8 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(FindSetEnvironment(arguments, "LANG")).IsEqualTo("command-language");
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "COMMAND_VALUE"))
             .IsLessThan(Array.IndexOf(arguments, "--chdir"));
-        _ = await Assert.That(FindSetEnvironment(arguments, "HOME"))
-            .IsEqualTo(Scratch(_workspace).HomeDirectory);
-        _ = await Assert.That(FindSetEnvironment(arguments, "XDG_CACHE_HOME"))
-            .IsEqualTo(Scratch(_workspace).CacheDirectory);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "HOME")).IsEqualTo(-1);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "XDG_CACHE_HOME")).IsEqualTo(-1);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
     }
 
@@ -295,8 +293,8 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         await AssertWritableBind(arguments, scratch.Root);
-        _ = await Assert.That(FindSetEnvironment(arguments, "HOME")).IsEqualTo(scratch.HomeDirectory);
-        _ = await Assert.That(FindSetEnvironment(arguments, "XDG_CACHE_HOME")).IsEqualTo(scratch.CacheDirectory);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "HOME")).IsEqualTo(-1);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "XDG_CACHE_HOME")).IsEqualTo(-1);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
     }
 
@@ -645,8 +643,8 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         _ = await Assert.That(arguments).DoesNotContain("--clearenv");
-        _ = await Assert.That(FindSetEnvironment(arguments, "HOME")).IsEqualTo(scratch.HomeDirectory);
-        _ = await Assert.That(FindSetEnvironment(arguments, "XDG_CACHE_HOME")).IsEqualTo(scratch.CacheDirectory);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "HOME")).IsEqualTo(-1);
+        _ = await Assert.That(LastSetEnvironmentIndex(arguments, "XDG_CACHE_HOME")).IsEqualTo(-1);
         _ = await Assert.That(LastSetEnvironmentIndex(arguments, "TMPDIR")).IsEqualTo(-1);
 
         foreach (var root in resources.ProtectedRoots.Where(Directory.Exists))
@@ -682,11 +680,9 @@ internal sealed class ProcessRunnerTests : IDisposable
             "result",
             cancellationToken);
 
-        var home = scratch.HomeDirectory;
-        var cache = scratch.CacheDirectory;
         var result = await runner.Run(
             $"cat '{resources.ProtectedRoots[3]}/parrot.token' 2>/dev/null || echo hidden; "
-            + $"cat '{scratch.BlobDirectory}/result.txt'; printf '\\n%s' \"$HOME|$XDG_CACHE_HOME\"",
+            + $"cat '{scratch.BlobDirectory}/result.txt'",
             ProcessEnvironmentOverrides.Empty,
             resources,
             Scratch(resources),
@@ -694,7 +690,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             SandboxWriteGrantSnapshot.Empty,
             cancellationToken);
 
-        _ = await Assert.That(result.Stdout).IsEqualTo($"hidden\nresult\n{home}|{cache}");
+        _ = await Assert.That(result.Stdout).IsEqualTo("hidden\nresult");
     }
 
     [Test]

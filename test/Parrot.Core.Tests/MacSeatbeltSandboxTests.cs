@@ -35,8 +35,7 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
             "/private/profile.sb",
             "printf test",
             environment,
-            resources,
-            Scratch(resources));
+            resources);
 
         _ = await Assert.That(startInfo.FileName).IsEqualTo("/usr/bin/sandbox-exec");
         _ = await Assert.That(startInfo.WorkingDirectory).IsEqualTo(_workspace);
@@ -44,8 +43,6 @@ internal sealed class MacSeatbeltSandboxTests : IDisposable
         _ = await Assert.That(startInfo.RedirectStandardError).IsTrue();
         _ = await Assert.That(string.Join('|', startInfo.ArgumentList.Take(4)))
             .IsEqualTo("-f|/private/profile.sb|/usr/bin/env|-i");
-        _ = await Assert.That(startInfo.ArgumentList).Contains($"HOME={Scratch(resources).HomeDirectory}");
-        _ = await Assert.That(startInfo.ArgumentList).Contains($"XDG_CACHE_HOME={Scratch(resources).CacheDirectory}");
         _ = await Assert.That(startInfo.ArgumentList).Contains("COMMAND_VALUE=present");
         _ = await Assert.That(startInfo.ArgumentList).DoesNotContain("TMPDIR=/command-temp");
         _ = await Assert.That(string.Join('|', startInfo.ArgumentList.TakeLast(3)))

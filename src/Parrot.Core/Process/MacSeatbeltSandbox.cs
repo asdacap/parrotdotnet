@@ -52,7 +52,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         scratch.Provision();
         var profilePath = Path.Combine(resources.QueueDirectory, $"seatbelt-{Guid.NewGuid():n}.sb");
         WriteProfile(profilePath, CompilePolicy(resources, scratch, securityProfile, writeGrants));
-        var startInfo = CreateStartInfo(_seatbeltPath, profilePath, command, environment, resources, scratch);
+        var startInfo = CreateStartInfo(_seatbeltPath, profilePath, command, environment, resources);
         var process = new System.Diagnostics.Process { StartInfo = startInfo };
         DarwinProcessSignalTarget? signalTarget = null;
         var started = false;
@@ -131,8 +131,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         string profilePath,
         string command,
         ProcessEnvironmentOverrides environment,
-        UserSessionResources resources,
-        AgentScratchDirectory scratch)
+        UserSessionResources resources)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -155,9 +154,6 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
                 entry => entry.Key ?? string.Empty,
                 entry => entry.Value ?? string.Empty,
                 StringComparer.Ordinal);
-        childEnvironment["HOME"] = scratch.HomeDirectory;
-        childEnvironment["XDG_CACHE_HOME"] = scratch.CacheDirectory;
-
         foreach (var entry in environment.Entries)
         {
             childEnvironment[entry.Key] = entry.Value;
