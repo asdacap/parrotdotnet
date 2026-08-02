@@ -18,9 +18,10 @@ internal sealed class ReadToolPresenter : IToolPresenter
     {
         var path = Path(call.ArgumentsJson);
         var status = terminal.ResolveStatus();
-        var block = status == ToolTerminalStatus.Succeeded
-            ? ToolBlock.Empty
-            : terminal.DescribeBlock(ToolBlockKind.None);
+        var block = status is ToolTerminalStatus.Errored or ToolTerminalStatus.ReportedFailure
+            ? ToolBlock.FromError(
+                $"{ToolYamlFormatter.Format(call.ArgumentsJson)}\n---\n{terminal.DescribeBlock(ToolBlockKind.None).Text}")
+            : ToolBlock.Empty;
         return new ToolScrollbackValue($"{call.Owner}: read {path}", block, status, Metadata);
     }
 
