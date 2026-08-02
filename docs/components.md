@@ -923,7 +923,10 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   `allow_write` rules grant writes to matched paths, including the predefined
   shared grants for `/dev/null`, `/tmp`, `${XDG_CACHE_HOME:-${HOME}/.cache}`,
   and the NuGet, npm, and pnpm caches; those predefined grants apply even to
-  read-only profiles. A missing `allow_write` directory is omitted unless it sets
+  read-only profiles. Ordinary top-level and profile `sandbox_rules` entries
+  append after inherited rules, so adding a rule retains those shared grants. An
+  explicit `!replace` sandbox-rule sequence instead replaces its inherited list.
+  A missing `allow_write` directory is omitted unless it sets
   `create_if_not_exist: true`, which recursively creates it before granting it.
   Each process additionally receives its automatically created, private agent
   scratch directory as a writable location. Parrot does not override `HOME`,

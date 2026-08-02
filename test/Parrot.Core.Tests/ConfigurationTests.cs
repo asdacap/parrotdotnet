@@ -339,8 +339,9 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Cli_utility_sequences_override_independently_and_expected_wins_across_lists()
+    public async Task Cli_utility_sequences_append_independently_and_expected_wins_across_lists()
     {
+        var defaults = Load(Path.Combine(_directory, "missing.yaml")).CliUtilities;
         var candidates = Load(Write("""
             cli_utilities:
               expected:
@@ -351,19 +352,39 @@ internal sealed class ConfigurationTests : IDisposable
                 - shared
             """)).CliUtilities;
 
-        _ = await Assert.That(candidates.Expected.SequenceEqual(["custom", "shared"], StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(candidates.Optional.SequenceEqual(["other"], StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(candidates.Expected.SequenceEqual(
+            defaults.Expected.Concat(["custom", "shared"]),
+            StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(candidates.Optional.SequenceEqual(
+            defaults.Optional.Concat(["other"]),
+            StringComparer.Ordinal)).IsTrue();
 
         var expectedOnly = Load(Write("cli_utilities:\n  expected: [docker]\n")).CliUtilities;
-        _ = await Assert.That(expectedOnly.Expected.SequenceEqual(["docker"], StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(expectedOnly.Optional).Count().IsEqualTo(37);
+        _ = await Assert.That(expectedOnly.Expected.SequenceEqual(
+            defaults.Expected.Concat(["docker"]),
+            StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(expectedOnly.Optional).Count().IsEqualTo(defaults.Optional.Count - 1);
         _ = await Assert.That(expectedOnly.Optional).DoesNotContain("docker");
+    }
+
+    [Test]
+    public async Task Cli_utility_sequences_can_explicitly_replace_defaults()
+    {
+        var candidates = Load(Write("""
+            cli_utilities:
+              expected: !replace [custom]
+              optional: !replace []
+            """)).CliUtilities;
+
+        _ = await Assert.That(candidates.Expected.SequenceEqual(["custom"], StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(candidates.Optional).IsEmpty();
     }
 
     [Test]
     [Arguments("cli_utilities: []\n")]
     [Arguments("cli_utilities:\n  expected: null\n")]
     [Arguments("cli_utilities:\n  optional: value\n")]
+    [Arguments("cli_utilities:\n  expected: [git]\n")]
     [Arguments("cli_utilities:\n  expected: [git, git]\n")]
     [Arguments("cli_utilities:\n  optional: [git, git]\n")]
     [Arguments("cli_utilities:\n  expected: ['']\n")]
@@ -441,10 +462,11 @@ internal sealed class ConfigurationTests : IDisposable
                 read_only: true
             """));
 
-        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(2);
-        _ = await Assert.That(configuration.SandboxRules[0])
+        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(8);
+        _ = await Assert.That(configuration.SandboxRules[0].Path).IsEqualTo("/dev/null");
+        _ = await Assert.That(configuration.SandboxRules[^2])
             .IsEqualTo(new SandboxRule(workspace, SandboxRuleAction.AllowWrite));
-        _ = await Assert.That(configuration.SandboxRules[1].Action).IsEqualTo(SandboxRuleAction.DenyRead);
+        _ = await Assert.That(configuration.SandboxRules[^1].Action).IsEqualTo(SandboxRuleAction.DenyRead);
         _ = await Assert.That(configuration.Profiles["build"].ReadOnly).IsFalse();
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules[0].Action)
             .IsEqualTo(SandboxRuleAction.DenyWrite);
@@ -479,10 +501,10 @@ internal sealed class ConfigurationTests : IDisposable
 
         var configuration = Load(path, environment);
 
-        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(2);
-        _ = await Assert.That(configuration.SandboxRules[0]).IsEqualTo(
+        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(8);
+        _ = await Assert.That(configuration.SandboxRules[^2]).IsEqualTo(
             new SandboxRule(Path.Combine(environment["ROOT"], "first", "cache"), SandboxRuleAction.AllowWrite));
-        _ = await Assert.That(configuration.SandboxRules[1]).IsEqualTo(
+        _ = await Assert.That(configuration.SandboxRules[^1]).IsEqualTo(
             new SandboxRule(cache, SandboxRuleAction.DenyWrite));
         _ = await Assert.That(configuration.Profiles["build"].SandboxRules)
             .Contains(new SandboxRule(Path.Combine(environment["ROOT"], "profile"), SandboxRuleAction.DenyRead));
@@ -510,10 +532,12 @@ internal sealed class ConfigurationTests : IDisposable
             Path.Combine(home, ".npm"),
             Path.Combine(home, ".local", "share", "pnpm", "store"),
         };
-        _ = await Assert.That(configuration.SandboxRules.Select(rule => rule.Path)).IsEquivalentTo(expected);
+        _ = await Assert.That(configuration.SandboxRules.Select(rule => rule.Path).SequenceEqual(
+            expected,
+            StringComparer.Ordinal)).IsTrue();
         _ = await Assert.That(configuration.SandboxRules.All(rule => rule.Action == SandboxRuleAction.AllowWrite))
             .IsTrue();
-        _ = await Assert.That(expected.All(Directory.Exists)).IsTrue();
+        _ = await Assert.That(expected.Skip(1).All(Directory.Exists)).IsTrue();
     }
 
     [Test]
@@ -530,13 +554,36 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Empty_user_sandbox_rules_replace_predefined_rules()
+    public async Task Empty_user_sandbox_rules_retain_predefined_rules()
     {
         var configuration = Load(
             Write("sandbox_rules: []\n"),
-            new Dictionary<string, string>(StringComparer.Ordinal));
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["HOME"] = Path.Combine(_directory, "home"),
+                ["XDG_CACHE_HOME"] = Path.Combine(_directory, "cache"),
+            });
 
-        _ = await Assert.That(configuration.SandboxRules).IsEmpty();
+        _ = await Assert.That(configuration.SandboxRules).Count().IsEqualTo(6);
+        _ = await Assert.That(configuration.SandboxRules[0].Path).IsEqualTo("/dev/null");
+    }
+
+    [Test]
+    public async Task Sandbox_rules_can_explicitly_replace_predefined_rules()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(_directory, "replacement")).FullName;
+        var configuration = Load(Write($"""
+            sandbox_rules: !replace
+              - path: {root}
+                rule: deny_write
+            """));
+
+        _ = await Assert.That(configuration.SandboxRules).Count().IsEqualTo(1);
+        _ = await Assert.That(configuration.SandboxRules[0])
+            .IsEqualTo(new SandboxRule(root, SandboxRuleAction.DenyWrite));
+
+        var empty = Load(Write("sandbox_rules: !replace []\n"));
+        _ = await Assert.That(empty.SandboxRules).IsEmpty();
     }
 
     [Test]
@@ -549,7 +596,9 @@ internal sealed class ConfigurationTests : IDisposable
                 rule: allow_write
             """));
 
-        _ = await Assert.That(configuration.SandboxRules).IsEmpty();
+        _ = await Assert.That(configuration.SandboxRules).Count().IsEqualTo(6);
+        _ = await Assert.That(configuration.SandboxRules).DoesNotContain(
+            new SandboxRule(missing, SandboxRuleAction.AllowWrite));
         _ = await Assert.That(Directory.Exists(missing)).IsFalse();
     }
 
@@ -614,11 +663,11 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Sandbox_rule_creation_rejects_a_path_that_is_an_existing_file()
+    public async Task Sandbox_rule_creation_rejects_a_path_that_is_an_existing_file(CancellationToken cancellationToken)
     {
         _ = Directory.CreateDirectory(_directory);
         var file = Path.Combine(_directory, "file");
-        File.WriteAllText(file, string.Empty);
+        await File.WriteAllTextAsync(file, string.Empty, cancellationToken);
         var impossibleDirectory = Path.Combine(file, "child");
 
         _ = await Assert.That(() => Load(Write($"""
@@ -698,11 +747,35 @@ internal sealed class ConfigurationTests : IDisposable
             Write("sandbox_rules:\n  - path: '${ROOT}'\n    rule: allow_write\n    create_if_not_exist: true\n"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
+                ["HOME"] = Path.Combine(_directory, "home"),
+                ["XDG_CACHE_HOME"] = Path.Combine(_directory, "cache"),
                 ["ROOT"] = root,
                 ["OTHER"] = "expanded",
             });
 
-        _ = await Assert.That(configuration.SandboxRules[0].Path).IsEqualTo(root);
+        _ = await Assert.That(configuration.SandboxRules[^1].Path).IsEqualTo(root);
+    }
+
+    [Test]
+    public async Task Non_selected_sequences_continue_to_replace_defaults()
+    {
+        var configuration = Load(Write("""
+            profiles:
+              thinker:
+                allowed_tools: [read]
+            providers:
+              chatgpt:
+                model_defaults:
+                  gpt-5.6-sol:
+                    output: [custom]
+            """));
+
+        _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.SequenceEqual(
+            ["read"],
+            StringComparer.Ordinal)).IsTrue();
+        _ = await Assert.That(configuration.Providers["chatgpt"].ModelDefaults["gpt-5.6-sol"].Output.SequenceEqual(
+            ["custom"],
+            StringComparer.Ordinal)).IsTrue();
     }
 
     [Test]
@@ -724,6 +797,19 @@ internal sealed class ConfigurationTests : IDisposable
 
         var noTools = Load(Write("profiles:\n  worker:\n    allowed_tools: []\n"));
         _ = await Assert.That(noTools.Profiles["worker"].AllowedTools).IsEmpty();
+    }
+
+    [Test]
+    public async Task Replace_tag_is_rejected_outside_append_enabled_sequences()
+    {
+        _ = await Assert.That(() => Load(Write("model: !replace value\n"))).Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(Write("profiles:\n  thinker:\n    allowed_tools: !replace []\n")))
+            .Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(Write("""
+            sandbox_rules:
+              - path: !replace /tmp
+                rule: deny_write
+            """))).Throws<InvalidDataException>();
     }
 
     [Test]
@@ -1167,6 +1253,19 @@ internal sealed class ConfigurationTests : IDisposable
         Load(path).SetModel("glm-5.2");
 
         _ = await Assert.That(Load(path).Model).IsEqualTo("glm-5.2");
+    }
+
+    [Test]
+    public async Task Settings_preserve_replace_tags(CancellationToken cancellationToken)
+    {
+        var path = Write("cli_utilities:\n  expected: !replace [custom]\n");
+        var configuration = Load(path);
+
+        configuration.SetModel("glm-5.2");
+
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("!replace");
+        _ = await Assert.That(Load(path).CliUtilities.Expected.SequenceEqual(["custom"], StringComparer.Ordinal))
+            .IsTrue();
     }
 
     [Test]

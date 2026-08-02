@@ -20,6 +20,7 @@ internal sealed class Configuration(string path)
     private const string UserInputTimeoutKey = "user_input_timeout_ms";
     private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
     private const string CompactionKey = "compaction";
+    private static readonly TagName ReplaceTag = new("!replace");
 
     private readonly Lock _writeLock = new();
 
@@ -153,6 +154,7 @@ internal sealed class Configuration(string path)
         ArgumentNullException.ThrowIfNull(environment);
         CopyPredefined(predefinedPath);
         var userRoot = LoadRoot(path);
+        ValidateReplaceTags(userRoot, []);
         var root = Merge(LoadRoot(predefinedPath), userRoot);
         var environmentTemplates = new EnvironmentTemplateResolver(environment);
         var directories = new List<(string Path, string Field)>();
@@ -203,14 +205,35 @@ internal sealed class Configuration(string path)
         }
     }
 
-    private static YamlMappingNode Merge(YamlMappingNode defaults, YamlMappingNode overrides)
+    private static YamlMappingNode Merge(YamlMappingNode defaults, YamlMappingNode overrides) =>
+        Merge(defaults, overrides, []);
+
+    private static YamlMappingNode Merge(
+        YamlMappingNode defaults,
+        YamlMappingNode overrides,
+        IReadOnlyList<string> parentPath)
     {
         foreach (var entry in overrides.Children)
         {
+            if (entry.Key is not YamlScalarNode { Value: { } key })
+            {
+                throw new InvalidDataException("configuration mapping keys must be strings");
+            }
+
+            var path = parentPath.Append(key).ToArray();
+            ValidateReplaceTag(entry.Value, path);
+
             if (defaults.Children.TryGetValue(entry.Key, out var current) &&
                 current is YamlMappingNode baseMapping && entry.Value is YamlMappingNode overrideMapping)
             {
-                _ = Merge(baseMapping, overrideMapping);
+                _ = Merge(baseMapping, overrideMapping, path);
+            }
+            else if (entry.Value is YamlSequenceNode overrideSequence && AppendsSequence(path))
+            {
+                defaults.Children[Clone(entry.Key)] = current is YamlSequenceNode baseSequence &&
+                                                       !ReplacesSequence(overrideSequence)
+                    ? AppendSequence(baseSequence, overrideSequence)
+                    : CloneSequenceItems(overrideSequence);
             }
             else
             {
@@ -221,11 +244,71 @@ internal sealed class Configuration(string path)
         return defaults;
     }
 
+    private static void ValidateReplaceTags(YamlNode node, IReadOnlyList<string> path)
+    {
+        ValidateReplaceTag(node, path);
+
+        if (node is YamlSequenceNode sequence)
+        {
+            foreach (var item in sequence.Children)
+            {
+                ValidateReplaceTags(item, path);
+            }
+
+            return;
+        }
+
+        if (node is YamlMappingNode mapping)
+        {
+            foreach (var entry in mapping.Children)
+            {
+                if (entry.Key is not YamlScalarNode { Value: { } key })
+                {
+                    throw new InvalidDataException("configuration mapping keys must be strings");
+                }
+
+                ValidateReplaceTags(entry.Value, [.. path, key]);
+            }
+        }
+    }
+
+    private static void ValidateReplaceTag(YamlNode node, IReadOnlyList<string> path)
+    {
+        if (node.Tag != ReplaceTag)
+        {
+            return;
+        }
+
+        if (node is not YamlSequenceNode || !AppendsSequence(path))
+        {
+            throw new InvalidDataException($"{string.Join('.', path)} may use !replace only on an append-enabled sequence");
+        }
+    }
+
+    private static bool AppendsSequence(IReadOnlyList<string> path) => path is
+        ["sandbox_rules"] or
+        ["cli_utilities", "expected"] or
+        ["cli_utilities", "optional"] or
+        ["profiles", _, "sandbox_rules"];
+
+    private static bool ReplacesSequence(YamlSequenceNode sequence) => sequence.Tag == ReplaceTag;
+
+    private static YamlSequenceNode AppendSequence(YamlSequenceNode defaults, YamlSequenceNode overrides)
+    {
+        var result = CloneSequence(defaults);
+        foreach (var item in overrides.Children)
+        {
+            result.Add(Clone(item));
+        }
+
+        return result;
+    }
+
     private static YamlNode Clone(YamlNode node) => node switch
     {
         YamlMappingNode mapping => CloneMapping(mapping),
         YamlSequenceNode sequence => CloneSequence(sequence),
-        YamlScalarNode scalar => new YamlScalarNode(scalar.Value) { Style = scalar.Style },
+        YamlScalarNode scalar => new YamlScalarNode(scalar.Value) { Style = scalar.Style, Tag = scalar.Tag },
         _ => throw new InvalidDataException("configuration contains an unsupported YAML node"),
     };
 
@@ -242,6 +325,13 @@ internal sealed class Configuration(string path)
     }
 
     private static YamlSequenceNode CloneSequence(YamlSequenceNode source)
+    {
+        var clone = CloneSequenceItems(source);
+        clone.Tag = source.Tag;
+        return clone;
+    }
+
+    private static YamlSequenceNode CloneSequenceItems(YamlSequenceNode source)
     {
         var clone = new YamlSequenceNode();
 

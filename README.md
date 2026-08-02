@@ -100,8 +100,8 @@ instructions; there is no separate `hard_rules` field to inherit or override.
 Runtime restrictions such as `read_only`, tool filtering, and sandbox rules
 remain independently enforced and are not weakened by prompt text. A child
 profile can recur only up to its selected profile's recursion limit. Profile
-sandbox rules replace that profile's default list; top-level `sandbox_rules`
-apply to every profile.
+sandbox rules append to that profile's predefined list; top-level
+`sandbox_rules` apply to every profile.
 
 A spawned child inherits its runtime parent's current effective security
 profile and may only narrow it with the selected child profile; a child allow
@@ -121,11 +121,12 @@ profiles:
       - edit
 ```
 
-`allowed_tools` has three meanings: omit it (or use `null`) to retain every
-otherwise available tool, use `[]` to offer none, or list exact tool IDs to
-offer only those tools. The same filtered set is both sent to the model and
-used for execution. `explore` is accepted as a compatibility alias for the
-canonical `explorer` child profile.
+`allowed_tools` replaces its predefined sequence rather than appending. It has
+three meanings: omit it (or use `null`) to retain every otherwise available
+tool, use `[]` to offer none, or list exact tool IDs to offer only those tools.
+The same filtered set is both sent to the model and used for execution.
+`explore` is accepted as a compatibility alias for the canonical `explorer`
+child profile.
 
 `disabled_tools` is a global mapping keyed by exact tool ID. A `true` value
 disables that tool for every profile, even when the profile lists it in
@@ -139,11 +140,14 @@ disabled_tools:
 ```
 
 CLI executable discovery is configured with ordered `cli_utilities.expected`
-and `cli_utilities.optional` sequences. User sequences replace their respective
-predefined defaults. Names must be nonempty executable basenames without
-whitespace or path separators and must be unique within each sequence. A name
-may occur in both sequences; in that case the expected classification wins.
-Both keys are required in the effective merged configuration.
+and `cli_utilities.optional` sequences. User entries append after their
+respective predefined defaults. Use `!replace` on either sequence to replace
+its inherited entries, including `!replace []` to clear it. Appending preserves
+duplicates; the effective list must still satisfy the field's uniqueness
+validation. Names must be nonempty executable basenames without whitespace or
+path separators and must be unique within each effective sequence. A name may
+occur in both sequences; in that case the expected classification wins. Both
+keys are required in the effective merged configuration.
 
 ```yaml
 cli_utilities:
@@ -158,11 +162,13 @@ cli_utilities:
 Sandbox configuration is an ordered list of `sandbox_rules` at the top level
 and optionally on each profile. Each item has an absolute `path`, a `rule`
 (`allow_write`, `allow_read`, `deny_write`, or `deny_read`), and may set
-`create_if_not_exist` for an `allow_write` directory. Matching rules are
-applied from broader paths to more specific paths, so the most specific match
-wins; for the same normalized path, the later rule wins. Top-level rules apply
-to every profile; profile rules replace that profile's predefined list. A path
-may use `${NAME}` to require a nonempty environment variable or
+`create_if_not_exist` for an `allow_write` directory. User rules append after
+predefined rules, preserving duplicates and declaration order. Use `!replace`
+on a sandbox-rule sequence to replace inherited rules, including `!replace []`
+to clear it. Matching rules are applied from broader paths to more specific
+paths, so the most specific match wins; for the same normalized path, the later
+rule wins. Top-level rules apply to every profile; profile rules append after
+that profile's predefined list. A path may use `${NAME}` to require a nonempty environment variable or
 `${NAME:-fallback}` to use a fallback when the variable is unset or empty;
 fallbacks may themselves use expansions. Expansion happens when configuration
 is loaded, without shell evaluation, and the result must be a fully qualified
@@ -503,12 +509,15 @@ serializable defaults and catalog metadata.
 
 Put personal settings in `config.yaml` in the same directory. It is never
 created or overwritten by loading configuration. Parrot recursively merges its
-mapping over `predefined_config.yaml`: nested mappings combine by key, while
-scalars and sequences replace their corresponding defaults. Thus a
-`model_aliases.low_llm.model_string` entry can override that target without
-repeating its predefined usage. The predefined file contains all seven profile
-definitions, so a nested `profiles.<id>` mapping can override one profile field
-while inheriting every other field from the active default.
+mapping over `predefined_config.yaml`: nested mappings combine by key, and
+scalars and sequences replace their corresponding defaults unless documented
+otherwise. Only `sandbox_rules`, `profiles.<id>.sandbox_rules`, and
+`cli_utilities.expected` and `.optional` append user entries after predefined
+entries; `!replace` restores replacement behavior for one of those sequences.
+Thus a `model_aliases.low_llm.model_string` entry can override that target
+without repeating its predefined usage. The predefined file contains all seven
+profile definitions, so a nested `profiles.<id>` mapping can override one
+profile field while inheriting every other field from the active default.
 
 ## Build And Run
 

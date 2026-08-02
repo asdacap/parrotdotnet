@@ -132,8 +132,9 @@ provider_model_alias_defaults:
 model_augment_system_prompts: {}
 
 # CLI executable names to discover on PATH. Expected utilities should normally be
-# available; optional utilities are reported only when installed. User sequences
-# replace these defaults. A name present in both lists is treated as expected.
+# available; optional utilities are reported only when installed. User entries
+# append after these defaults; use !replace on either sequence to replace inherited
+# entries, including !replace []. A name present in both lists is treated as expected.
 cli_utilities:
   expected:
     - awk
@@ -731,10 +732,11 @@ providers:
 #     # Milliseconds to wait for a call; zero uses default.
 #     call_timeout_ms: 30000
 
-# Ordered sandbox rules applied after the built-in mounts below.
-# Each rule has a path and an action: allow_write, deny_read,
-# allow_read, or deny_write. More specific paths override broader paths; rules
-# for the same normalized path retain declaration order. A missing allow_write
+# Ordered sandbox rules applied after the built-in mounts below. User rules append
+# after these rules; use !replace on a sandbox_rules sequence to replace inherited
+# rules, including !replace []. Each rule has a path and an action: allow_write,
+# deny_read, allow_read, or deny_write. More specific paths override broader paths;
+# rules for the same normalized path retain declaration order. A missing allow_write
 # target is ignored unless create_if_not_exist is true, which creates it as a
 # directory with any missing parents. That option is invalid for other actions.
 # Paths must be absolute after environment expansion. Use ${NAME} for a required
