@@ -223,9 +223,10 @@ internal sealed class ModeRegistryTests : IDisposable
     [Test]
     public async Task Plan_completion_trims_artifact_and_declares_approval_policy()
     {
-        var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
+        var profile = OwnerModes("session", Registry([], ModeRegistry.Query)).Resolve(ModeRegistry.Plan);
         profile.Prepare();
-        await File.WriteAllTextAsync(PlanArtifact("session"), "  # Plan\n\n- change code\n");
+        var artifact = PlanArtifact("session");
+        await File.WriteAllTextAsync(artifact, "  # Plan\n\n- change code\n");
 
         var completed = profile.Complete("session", "message");
 
@@ -239,7 +240,8 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(emitted.Markdown).IsEqualTo("# Plan\n\n- change code");
         _ = await Assert.That(emitted.Dialog.Prompt).IsEqualTo("Plan complete: ");
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Mode).IsEqualTo(ModeRegistry.Build);
-        _ = await Assert.That(emitted.Dialog.Choices[0].Action.Prompt).IsEqualTo("Implement the approved plan.");
+        _ = await Assert.That(emitted.Dialog.Choices[0].Action.Prompt)
+            .IsEqualTo($"Implement the approved plan at {artifact}.");
         _ = await Assert.That(emitted.Dialog.EmptyMessage).IsEqualTo("enter yes, no, or feedback");
     }
 
@@ -333,15 +335,20 @@ internal sealed class ModeRegistryTests : IDisposable
             securityProfile);
     }
 
-    private UserSessionModes OwnerModes(string ownerId) =>
-        new(Registry(), Path.Combine(_root, "sessions", ownerId, "plan"));
+    private UserSessionModes OwnerModes(string ownerId) => OwnerModes(ownerId, Registry());
+
+    private UserSessionModes OwnerModes(string ownerId, ModeRegistry registry) =>
+        new(registry, Path.Combine(_root, "sessions", ownerId, "plan"));
 
     private string PlanArtifact(string ownerId) =>
         PlanArtifactIn(Path.Combine(_root, "sessions", ownerId, "plan"));
 
-    private ModeRegistry Registry() => Registry([]);
+    private ModeRegistry Registry() => Registry([], null);
 
-    private ModeRegistry Registry(IReadOnlyList<SandboxRule> mandatoryRules)
+    private ModeRegistry Registry(IReadOnlyList<SandboxRule> mandatoryRules) =>
+        Registry(mandatoryRules, null);
+
+    private ModeRegistry Registry(IReadOnlyList<SandboxRule> mandatoryRules, string? defaultProfile)
     {
         var configuration = Configuration.Load(
             Path.Combine(_root, "config.yaml"),
@@ -352,6 +359,6 @@ internal sealed class ModeRegistryTests : IDisposable
                 configuration.SandboxRules,
                 mandatoryRules,
                 configuration.DisabledTools),
-            configuration.DefaultProfile);
+            defaultProfile ?? configuration.DefaultProfile);
     }
 }

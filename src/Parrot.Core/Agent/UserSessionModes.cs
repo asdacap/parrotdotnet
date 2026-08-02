@@ -111,6 +111,7 @@ internal sealed class UserSessionModes(ModeRegistry modes)
 
     private PlanCompleted? CompletePlan(string agentSessionId, string messageId)
     {
+        string artifact;
         string plan;
 
         lock (_planGate)
@@ -120,9 +121,10 @@ internal sealed class UserSessionModes(ModeRegistry modes)
                 return null;
             }
 
+            artifact = _planArtifact;
             try
             {
-                plan = File.ReadAllText(_planArtifact).Trim();
+                plan = File.ReadAllText(artifact).Trim();
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
@@ -148,7 +150,11 @@ internal sealed class UserSessionModes(ModeRegistry modes)
                             Value = "yes",
                             Description = "Implement the approved plan",
                             Aliases = { "y" },
-                            Action = new ChoiceAction { Mode = _modes.Default, Prompt = "Implement the approved plan." },
+                            Action = new ChoiceAction
+                            {
+                                Mode = ModeRegistry.Build,
+                                Prompt = $"Implement the approved plan at {artifact}.",
+                            },
                         },
                         new DialogChoice { Value = "no", Description = "Stop after planning", Aliases = { "n" } },
                     },
