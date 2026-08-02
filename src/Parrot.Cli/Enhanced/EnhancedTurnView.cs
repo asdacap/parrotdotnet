@@ -103,6 +103,18 @@ internal sealed class EnhancedTurnView(
                     cancellationToken).ConfigureAwait(false);
                 break;
 
+            case Event.PayloadOneofCase.FinalProviderRequestPromptInjected:
+                await Commit(
+                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Final provider request prompt injected{Reset}"]),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
+            case Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected:
+                await Commit(
+                    ImmediateScrollbackValue.Trusted([$"{Dim}↻ Tool availability restored prompt injected{Reset}"]),
+                    cancellationToken).ConfigureAwait(false);
+                break;
+
             case Event.PayloadOneofCase.ReasoningChunk:
                 if (renderActivityEvents && !foreground.IsChild(published.AgentSessionId))
                 {

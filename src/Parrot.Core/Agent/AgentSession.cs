@@ -45,6 +45,13 @@ internal sealed class AgentSession(
     CancellationToken lifetime)
 {
     private const string RunawayMessage = "the turn exceeded its provider-request limit";
+    private const string FinalProviderRequestPrompt =
+        "This is the final provider request allowed for the current turn. Tools are unavailable for this request. "
+        + "Do not request or invoke tools. Provide the best possible final answer using the information already available.";
+
+    private const string ToolAvailabilityRestoredPrompt =
+        "A new turn has started and its provider-request budget has reset. "
+        + "Tool access is restored to the tools permitted for this turn.";
 
     // What the model is told about a call the interrupt cut short. It is a tool
     // result like any other, because the provider requires one per call.
@@ -935,6 +942,7 @@ internal sealed class AgentSession(
                     activeTools = MaterializeTools()
                         .Without(activeSelection.Profile.DisabledTools)
                         .Only(activeSelection.Profile.AllowedTools);
+                    await RestoreToolAvailability(cancellationToken).ConfigureAwait(false);
                 }
 
                 // Status is committed before promotion, so sequenced history is
@@ -953,9 +961,15 @@ internal sealed class AgentSession(
                     return AgentExecution.Failed(RunawayMessage);
                 }
 
-                var snapshot = providerRequests + 1 == maxTurns
+                var finalProviderRequest = providerRequests + 1 == maxTurns;
+                var snapshot = finalProviderRequest
                     ? new ToolSnapshot([])
                     : activeTools;
+                if (finalProviderRequest)
+                {
+                    await InjectFinalProviderRequestPrompt(cancellationToken).ConfigureAwait(false);
+                }
+
                 var instructions = await PrepareEpoch(
                     activeSelection,
                     snapshot.Definitions,
@@ -1317,6 +1331,34 @@ internal sealed class AgentSession(
             await EmitEvent(failed, null, null, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
+    }
+
+    private async Task InjectFinalProviderRequestPrompt(CancellationToken cancellationToken)
+    {
+        var published = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+        };
+        eventRepository.AppendFinalProviderRequestPrompt(published, FinalProviderRequestPrompt);
+        _history.Add(LLMMessage.System(FinalProviderRequestPrompt));
+        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RestoreToolAvailability(CancellationToken cancellationToken)
+    {
+        var published = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+        };
+        if (!eventRepository.AppendToolAvailabilityRestoredPrompt(published, ToolAvailabilityRestoredPrompt))
+        {
+            return;
+        }
+
+        _history.Add(LLMMessage.System(ToolAvailabilityRestoredPrompt));
+        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<AgentTurnSelection> InjectStatus(

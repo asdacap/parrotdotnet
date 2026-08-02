@@ -986,6 +986,7 @@ internal sealed class EventRepository
             delete.Transaction = transaction;
             delete.CommandText =
                 "DELETE FROM history_checkpoint WHERE agent_session = $session; "
+                + "DELETE FROM final_provider_request_prompt WHERE agent_session = $session; "
                 + "DELETE FROM compaction_status WHERE agent_session = $session; "
                 + "DELETE FROM compaction_snapshot WHERE agent_session = $session; "
                 + "DELETE FROM tool_execution_terminal WHERE agent_session = $session; "
@@ -1486,6 +1487,59 @@ internal sealed class EventRepository
         }
 
         RefreshAgentHistory(published.AgentSessionId);
+    }
+
+    public void AppendFinalProviderRequestPrompt(Event published, string content)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+
+        published.FinalProviderRequestPromptInjected = new FinalProviderRequestPromptInjected();
+
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            using (var insert = _database.Connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText =
+                    "INSERT INTO final_provider_request_prompt (agent_session, created_at) VALUES ($session, $at);";
+                _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
+                _ = insert.Parameters.AddWithValue("$at", Timestamp());
+                _ = insert.ExecuteNonQuery();
+            }
+
+            Project(transaction, published.AgentSessionId, "system", content);
+            transaction.Commit();
+        }
+
+        RefreshAgentHistory(published.AgentSessionId);
+    }
+
+    public bool AppendToolAvailabilityRestoredPrompt(Event published, string content)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            using var delete = _database.Connection.CreateCommand();
+            delete.Transaction = transaction;
+            delete.CommandText =
+                "DELETE FROM final_provider_request_prompt WHERE agent_session = $session;";
+            _ = delete.Parameters.AddWithValue("$session", published.AgentSessionId);
+            if (delete.ExecuteNonQuery() == 0)
+            {
+                transaction.Commit();
+                return false;
+            }
+
+            published.ToolAvailabilityRestoredPromptInjected = new ToolAvailabilityRestoredPromptInjected();
+            Project(transaction, published.AgentSessionId, "system", content);
+            transaction.Commit();
+        }
+
+        RefreshAgentHistory(published.AgentSessionId);
+        return true;
     }
 
     public ImageArtifactMetadata RecordImageArtifact(ImageArtifactMetadata artifact, string uploadId)

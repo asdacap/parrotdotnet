@@ -248,6 +248,11 @@ internal sealed class SessionDatabase : IDisposable
                 CREATE INDEX IF NOT EXISTS status_prompt_by_session
                     ON status_prompt (agent_session, sequence);
 
+                CREATE TABLE IF NOT EXISTS final_provider_request_prompt (
+                    agent_session TEXT PRIMARY KEY,
+                    created_at    TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS session_state (
                     user_session  TEXT PRIMARY KEY,
                     agent_session TEXT NOT NULL,

@@ -395,6 +395,8 @@ message Event {
     CompactionStarted compaction_started = 28;
     CompactionFinished compaction_finished = 29;
     CompactionFailed compaction_failed = 30;
+    FinalProviderRequestPromptInjected final_provider_request_prompt_injected = 31;
+    ToolAvailabilityRestoredPromptInjected tool_availability_restored_prompt_injected = 32;
   }
 }
 
@@ -474,6 +476,14 @@ message StatusInjected {}
 // Transient notification that a durable system reminder about direct active
 // work was added to model history. Its text remains in history, not on the wire.
 message ActiveWorkReminderInjected {}
+
+// Transient notification that a durable system prompt explains that this is the
+// final provider request of the turn and tools are unavailable.
+message FinalProviderRequestPromptInjected {}
+
+// Transient notification that a durable system prompt restores tool availability
+// for a new turn after its provider-request budget resets.
+message ToolAvailabilityRestoredPromptInjected {}
 
 message CompactionStarted {}
 
