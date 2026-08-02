@@ -116,6 +116,30 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
+    public async Task Default_cache_rule_grants_only_writable_profiles()
+    {
+        var cache = Path.Combine(_root, "cache");
+        var configuration = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["XDG_CACHE_HOME"] = cache,
+            });
+        var modes = new ModeRegistry(
+            new ProfileRegistry(
+                configuration.Profiles,
+                configuration.SandboxRules,
+                [],
+                configuration.DisabledTools),
+            configuration.DefaultProfile);
+
+        _ = await Assert.That(modes.Resolve(ModeRegistry.Build).SecurityProfile.AllowsWrite(cache)).IsTrue();
+        _ = await Assert.That(modes.Resolve(ModeRegistry.Plan).SecurityProfile.AllowsWrite(cache)).IsFalse();
+        _ = await Assert.That(modes.Resolve(ModeRegistry.Query).SecurityProfile.AllowsWrite(cache)).IsFalse();
+    }
+
+    [Test]
     public async Task Configured_profiles_compose_defaults_and_plan_keeps_a_directory_runtime_capability()
     {
         var denied = Path.Combine(_root, "denied");

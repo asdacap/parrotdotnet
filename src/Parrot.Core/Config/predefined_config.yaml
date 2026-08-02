@@ -702,8 +702,12 @@ providers:
 
 # Ordered sandbox rules applied after the built-in mounts below.
 # Each rule has a path and an action: allow_write, deny_read,
-# allow_read, or deny_write. Later rules override earlier ones.
-# Requires global configuration.
+# allow_read, or deny_write. More specific paths override broader paths; rules
+# for the same normalized path retain declaration order.
+# Paths must be absolute after environment expansion. Use ${NAME} for a required
+# nonempty environment variable or ${NAME:-fallback} when it is unset or empty;
+# fallbacks may contain nested expansions. Expansion does not invoke a shell and
+# an unavailable required variable rejects the configuration.
 #
 # Built-in rules (applied first, in order):
 #   /                             allow_read    (entire host filesystem)
@@ -718,10 +722,12 @@ providers:
 #   {workspace}/.parrot           deny_write    (protected metadata)
 #   {workspace}/parrot.yaml       deny_write    (protected metadata)
 #
-# sandbox_rules:
+sandbox_rules:
+  # Keep developer-tool caches outside the workspace writable by default.
+  - path: '${XDG_CACHE_HOME:-${HOME}/.cache}'
+    rule: allow_write
+# Add broader rules before narrower overrides.
 #   - path: /absolute/path/to/dir
-#     rule: allow_write
-#   - path: /another/path
 #     rule: deny_read
 
 # Web fetch restrictions.

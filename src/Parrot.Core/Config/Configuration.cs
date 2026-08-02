@@ -63,31 +63,8 @@ internal sealed class Configuration(string path)
 
     public CompactionConfig Compaction { get; private set; } = new(90, 30, 60_000, 12_000);
 
-    public static Configuration Load(string path, string predefinedPath)
-    {
-        CopyPredefined(predefinedPath);
-        var userRoot = LoadRoot(path);
-        var root = Merge(LoadRoot(predefinedPath), userRoot);
-
-        return new(path)
-        {
-            Model = Scalar(root, ModelKey),
-            Prompt = NonEmptyScalar(root, PromptKey, PromptKey),
-            InlineDiff = ReadInlineDiff(root),
-            ModelAliases = ReadModelAliases(root),
-            ProviderModelAliasDefaults = ReadProviderModelAliasDefaults(root),
-            ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
-            Providers = ReadProviders(root),
-            WebFetch = ReadWebFetch(root),
-            SandboxRules = ReadSandboxRules(root, "sandbox_rules"),
-            DisabledTools = ReadDisabledTools(root),
-            Profiles = ReadProfiles(root),
-            DefaultProfile = ReadDefaultProfile(root),
-            CliUtilities = ReadCliUtilities(root),
-            UserInputTimeout = ReadUserInputTimeout(root, userRoot),
-            Compaction = ReadCompaction(root),
-        };
-    }
+    public static Configuration Load(string path, string predefinedPath) =>
+        Load(path, predefinedPath, CaptureEnvironment());
 
     // Only the interactive /model reaches here; --model is a per-invocation
     // override that does not persist.
@@ -166,6 +143,37 @@ internal sealed class Configuration(string path)
             Write(root);
             ModelAliases = updated;
         }
+    }
+
+    internal static Configuration Load(
+        string path,
+        string predefinedPath,
+        IReadOnlyDictionary<string, string> environment)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        CopyPredefined(predefinedPath);
+        var userRoot = LoadRoot(path);
+        var root = Merge(LoadRoot(predefinedPath), userRoot);
+        var environmentTemplates = new EnvironmentTemplateResolver(environment);
+
+        return new(path)
+        {
+            Model = Scalar(root, ModelKey),
+            Prompt = NonEmptyScalar(root, PromptKey, PromptKey),
+            InlineDiff = ReadInlineDiff(root),
+            ModelAliases = ReadModelAliases(root),
+            ProviderModelAliasDefaults = ReadProviderModelAliasDefaults(root),
+            ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
+            Providers = ReadProviders(root),
+            WebFetch = ReadWebFetch(root),
+            SandboxRules = ReadSandboxRules(root, "sandbox_rules", environmentTemplates),
+            DisabledTools = ReadDisabledTools(root),
+            Profiles = ReadProfiles(root, environmentTemplates),
+            DefaultProfile = ReadDefaultProfile(root),
+            CliUtilities = ReadCliUtilities(root),
+            UserInputTimeout = ReadUserInputTimeout(root, userRoot),
+            Compaction = ReadCompaction(root),
+        };
     }
 
     private static void CopyPredefined(string destination)
@@ -574,7 +582,9 @@ internal sealed class Configuration(string path)
         return node as YamlMappingNode ?? throw new InvalidDataException($"{key} must be a mapping");
     }
 
-    private static Dictionary<string, ProfileConfig> ReadProfiles(YamlMappingNode root)
+    private static Dictionary<string, ProfileConfig> ReadProfiles(
+        YamlMappingNode root,
+        EnvironmentTemplateResolver environmentTemplates)
     {
         var result = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
         var ids = new[] { "build", "plan", "query", "explorer", "review", "worker", "thinker" };
@@ -629,7 +639,7 @@ internal sealed class Configuration(string path)
                     profile,
                     "enforce_active_work_completion",
                     $"profiles.{id}.enforce_active_work_completion"),
-                ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules"));
+                ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules", environmentTemplates));
         }
 
         return result;
@@ -749,7 +759,10 @@ internal sealed class Configuration(string path)
         return disabled;
     }
 
-    private static List<SandboxRule> ReadSandboxRules(YamlMappingNode parent, string path)
+    private static List<SandboxRule> ReadSandboxRules(
+        YamlMappingNode parent,
+        string path,
+        EnvironmentTemplateResolver environmentTemplates)
     {
         if (!Child(parent, "sandbox_rules", out var node))
         {
@@ -772,13 +785,19 @@ internal sealed class Configuration(string path)
             ValidateKeys(item, $"{path}.{index}", "path", "rule");
 
             if (!Child(item, "path", out var pathNode) || pathNode is not YamlScalarNode { Value: { } rulePath } ||
-                string.IsNullOrWhiteSpace(rulePath) || !Path.IsPathFullyQualified(rulePath) ||
                 !Child(item, "rule", out var actionNode) || actionNode is not YamlScalarNode { Value: { } action })
             {
                 throw new InvalidDataException($"{path}.{index} requires scalar path and rule fields");
             }
 
-            result.Add(new(rulePath, ParseAction(action, $"{path}.{index}.rule")));
+            var field = $"{path}.{index}.path";
+            var expandedPath = environmentTemplates.Resolve(rulePath, field);
+            if (string.IsNullOrWhiteSpace(expandedPath) || !Path.IsPathFullyQualified(expandedPath))
+            {
+                throw new InvalidDataException($"{field} must resolve to a nonblank fully qualified path");
+            }
+
+            result.Add(new(expandedPath, ParseAction(action, $"{path}.{index}.rule")));
         }
 
         return result;
@@ -1106,6 +1125,20 @@ internal sealed class Configuration(string path)
 
     private static string Scalar(YamlMappingNode parent, string key) =>
         Child(parent, key, out var node) && node is YamlScalarNode { Value: { } scalar } ? scalar : string.Empty;
+
+    private static Dictionary<string, string> CaptureEnvironment()
+    {
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string key && entry.Value is string value)
+            {
+                environment[key] = value;
+            }
+        }
+
+        return environment;
+    }
 
     private static bool Child(YamlMappingNode parent, string key, out YamlNode? value) =>
         parent.Children.TryGetValue(new YamlScalarNode(key), out value);

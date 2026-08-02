@@ -155,6 +155,22 @@ cli_utilities:
     - dotnet
 ```
 
+Sandbox configuration is an ordered list of `sandbox_rules` at the top level
+and optionally on each profile. Each item has an absolute `path` and a `rule`:
+`allow_write`, `allow_read`, `deny_write`, or `deny_read`. Matching rules are
+applied from broader paths to more specific paths, so the most specific match
+wins; for the same normalized path, the later rule wins. Top-level rules apply
+to every profile; profile rules replace that profile's predefined list. A path
+may use `${NAME}` to require a nonempty environment variable or
+`${NAME:-fallback}` to use a fallback when the variable is unset or empty;
+fallbacks may themselves use expansions. Expansion happens when configuration
+is loaded, without shell evaluation, and the result must be a fully qualified
+path. An unavailable required variable or invalid result rejects the
+configuration. The default top-level rule makes
+`${XDG_CACHE_HOME:-${HOME}/.cache}` writable for writable profiles so sandboxed
+developer tools can persist caches outside the workspace; read-only profiles do
+not receive global `allow_write` rules.
+
 Sandbox configuration is not the complete filesystem boundary. Every effective
 security profile includes mandatory protection for Parrot's state,
 configuration, and data roots. Configured profile rules, workspace nesting,

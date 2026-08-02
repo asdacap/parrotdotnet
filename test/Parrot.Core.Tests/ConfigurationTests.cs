@@ -451,6 +451,128 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Sandbox_rule_paths_expand_environment_templates_and_nested_fallbacks()
+    {
+        var home = Path.Combine(_directory, "home");
+        var cache = Path.Combine(_directory, "cache");
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["HOME"] = home,
+            ["CACHE"] = cache,
+            ["ROOT"] = Path.Combine(_directory, "root"),
+        };
+        var path = Write("""
+            sandbox_rules:
+              - path: '${ROOT}/first/${CACHE_NAME:-cache}'
+                rule: allow_write
+              - path: '${CACHE:-${MISSING}/unused}'
+                rule: deny_write
+            profiles:
+              build:
+                sandbox_rules:
+                  - path: '${ROOT}/profile'
+                    rule: deny_read
+            """);
+
+        var configuration = Load(path, environment);
+
+        _ = await Assert.That(configuration.SandboxRules.Count).IsEqualTo(2);
+        _ = await Assert.That(configuration.SandboxRules[0]).IsEqualTo(
+            new SandboxRule(Path.Combine(environment["ROOT"], "first", "cache"), SandboxRuleAction.AllowWrite));
+        _ = await Assert.That(configuration.SandboxRules[1]).IsEqualTo(
+            new SandboxRule(cache, SandboxRuleAction.DenyWrite));
+        _ = await Assert.That(configuration.Profiles["build"].SandboxRules)
+            .Contains(new SandboxRule(Path.Combine(environment["ROOT"], "profile"), SandboxRuleAction.DenyRead));
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Predefined_cache_rule_uses_home_fallback_when_xdg_cache_is_missing_or_empty(bool empty)
+    {
+        var home = Path.Combine(_directory, "home");
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal) { ["HOME"] = home };
+        if (empty)
+        {
+            environment["XDG_CACHE_HOME"] = string.Empty;
+        }
+
+        var configuration = Load(Path.Combine(_directory, "config.yaml"), environment);
+
+        _ = await Assert.That(configuration.SandboxRules).HasSingleItem();
+        _ = await Assert.That(configuration.SandboxRules[0]).IsEqualTo(
+            new SandboxRule(Path.Combine(home, ".cache"), SandboxRuleAction.AllowWrite));
+    }
+
+    [Test]
+    public async Task Predefined_cache_rule_prefers_nonempty_xdg_cache_without_evaluating_fallback()
+    {
+        var cache = Path.Combine(_directory, "cache");
+        var configuration = Load(
+            Path.Combine(_directory, "config.yaml"),
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["XDG_CACHE_HOME"] = cache });
+
+        _ = await Assert.That(configuration.SandboxRules).HasSingleItem();
+        _ = await Assert.That(configuration.SandboxRules[0])
+            .IsEqualTo(new SandboxRule(cache, SandboxRuleAction.AllowWrite));
+    }
+
+    [Test]
+    public async Task Empty_user_sandbox_rules_remove_the_predefined_cache_rule()
+    {
+        var configuration = Load(
+            Write("sandbox_rules: []\n"),
+            new Dictionary<string, string>(StringComparer.Ordinal));
+
+        _ = await Assert.That(configuration.SandboxRules).IsEmpty();
+    }
+
+    [Test]
+    [Arguments("${}")]
+    [Arguments("${1ROOT}")]
+    [Arguments("${ROOT-default}")]
+    [Arguments("${ROOT")]
+    [Arguments("/root}")]
+    public async Task Sandbox_rule_paths_reject_malformed_environment_templates(string template)
+    {
+        var path = Write($"sandbox_rules:\n  - path: '{template}'\n    rule: allow_write\n");
+
+        _ = await Assert.That(() => Load(path, new Dictionary<string, string>(StringComparer.Ordinal)))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task Sandbox_rule_paths_reject_missing_empty_and_relative_environment_values()
+    {
+        var required = Write("sandbox_rules:\n  - path: '${ROOT}'\n    rule: allow_write\n");
+        _ = await Assert.That(() => Load(required, new Dictionary<string, string>(StringComparer.Ordinal)))
+            .Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(
+                required,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["ROOT"] = string.Empty }))
+            .Throws<InvalidDataException>();
+        _ = await Assert.That(() => Load(
+                required,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["ROOT"] = "relative" }))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task Environment_values_are_not_recursively_expanded()
+    {
+        var root = Path.Combine(_directory, "${OTHER}");
+        var configuration = Load(
+            Write("sandbox_rules:\n  - path: '${ROOT}'\n    rule: allow_write\n"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ROOT"] = root,
+                ["OTHER"] = "expanded",
+            });
+
+        _ = await Assert.That(configuration.SandboxRules[0].Path).IsEqualTo(root);
+    }
+
+    [Test]
     public async Task Profile_defaults_include_all_policies_and_distinguish_omitted_from_empty_tool_allowlists()
     {
         var configuration = Load(Write(string.Empty));
@@ -939,6 +1061,9 @@ internal sealed class ConfigurationTests : IDisposable
 
     private Configuration Load(string path) =>
         Configuration.Load(path, Path.Combine(_directory, "predefined_config.yaml"));
+
+    private Configuration Load(string path, IReadOnlyDictionary<string, string> environment) =>
+        Configuration.Load(path, Path.Combine(_directory, "predefined_config.yaml"), environment);
 
     private string Write(string content)
     {
