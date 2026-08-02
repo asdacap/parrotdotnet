@@ -21,6 +21,7 @@ system_prompts:
     Minimize subagent context by regularly setting checkpoint and manually setting subagent fork point.
 
     Queue is for when there are more than 5 work item or there are multiple producer subagent.
+    Queue items are not meant to be chunk or group of items. Flatten them. Consumer may take items in batch.
     Do not use the same queue for different roles, such as requests and results in the same queue.
     Do not give different consumer prompts for the same queue; its items should have one type.
     Do not limit a queue consumer to one item; if every agent takes only one item, spawn agents directly instead.
