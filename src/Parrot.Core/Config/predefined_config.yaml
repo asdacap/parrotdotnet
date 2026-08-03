@@ -21,10 +21,11 @@ system_prompts:
     Minimize subagent context by regularly setting checkpoint and manually setting subagent fork point.
 
     Queue is for when there are more than 5 work item or there are multiple producer subagent.
-    Queue items are not meant to be chunk or group of items. Flatten them. Consumer may take items in batch.
+    Do not batch or chunk items in the queue. Flatten them. Consumer can already take items in batch.
     Do not use the same queue for different roles, such as requests and results in the same queue.
     Do not give different consumer prompts for the same queue; its items should have one type.
     Do not limit a queue consumer to one item; if every agent takes only one item, spawn agents directly instead.
+    An agent can only access its own queues or its parent's queue.
     Prefer queue_listen+wait over polling. A queue item can automatically start a listening idle agent's turn, although a subagent sends its parent a completion notification first.
     Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers keep taking until queue_take reports closed with no items; an open empty timeout is not completion.
 
