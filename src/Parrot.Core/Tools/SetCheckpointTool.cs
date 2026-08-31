@@ -1,18 +1,12 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class SetCheckpointTool(AgentSession session) : ITool
+internal sealed class SetCheckpointTool(AgentSession session) : ITool
 {
     public string Name => "set_checkpoint";
-
-    public string Description => "Save a named checkpoint of this agent's conversation for a future child-agent fork.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -33,13 +27,9 @@ internal sealed partial class SetCheckpointTool(AgentSession session) : ITool
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
-        [Description("Human-readable name for this checkpoint.")]
         [JsonPropertyName("title")]
-        [ToolMinLength(1)]
-        [ToolRequired]
         public string? Title { get; init; }
     }
 }

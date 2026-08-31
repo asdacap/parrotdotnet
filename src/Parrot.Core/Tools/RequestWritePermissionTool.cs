@@ -12,14 +12,6 @@ internal sealed class RequestWritePermissionTool(
 {
     public string Name => "request_write_permission";
 
-    public string Description =>
-        "Request agent-session-scoped permission for write, edit, and sandboxed shell operations on exact existing files or directories.";
-
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"paths":{"type":"array","minItems":1,"items":{"type":"string","minLength":1},"description":"Exact absolute paths of existing files or directories to make writable for write, edit, and sandboxed shell operations"},"reason":{"type":"string","minLength":1,"description":"Why write access to these paths is needed"}},"required":["paths","reason"],"additionalProperties":false}
-        """;
-
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

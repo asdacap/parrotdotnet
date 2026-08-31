@@ -14,16 +14,6 @@ internal sealed class WaitTool(
 
     public string Name => "wait";
 
-    public string Description =>
-        "Wait for incoming activity. Returns early for a new message, direct child-agent completion, "
-        + "unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen. "
-        + "A timeout reports an agent tree containing queues and active processes.";
-
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"duration_ms":{"type":"integer","minimum":10000,"maximum":4294967294,"default":10000,"description":"Maximum time to wait in milliseconds."}},"additionalProperties":false}
-        """;
-
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

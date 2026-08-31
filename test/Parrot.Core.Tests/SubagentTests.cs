@@ -494,14 +494,24 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
         var session = Session(provider, 0, "root-id", cancellationToken);
         var send = new AgentSendTool(registry, session);
-        using var schema = JsonDocument.Parse(send.ParametersJson);
+        var root = Path.Combine(Path.GetTempPath(), "parrot-agent-send-documentation", Guid.NewGuid().ToString("N"));
+        var configuration = Configuration.Load(
+            Path.Combine(root, "config.yaml"),
+            Path.Combine(root, "predefined_config.yaml"));
+        var definitions = new ToolDefinitionCatalog(
+            new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
+            {
+                [send.Name] = configuration.ToolDefinitions.Definitions[send.Name],
+            });
+        var definition = definitions.Document([send]).Single();
+        using var schema = JsonDocument.Parse(definition.ParametersJson);
         var sessionIdDescription = schema.RootElement.GetProperty("properties").GetProperty("session_id")
             .GetProperty("description").GetString();
 
-        _ = await Assert.That(send.Description).Contains("direct parent or direct child");
-        _ = await Assert.That(send.Description).Contains("literal 'parent'");
-        _ = await Assert.That(send.Description).Contains("Exact canonical session IDs for those recipients");
-        _ = await Assert.That(send.Description).Contains("Direct-child friendly names");
+        _ = await Assert.That(definition.Description).Contains("direct parent or direct child");
+        _ = await Assert.That(definition.Description).Contains("literal 'parent'");
+        _ = await Assert.That(definition.Description).Contains("Exact canonical session IDs for those recipients");
+        _ = await Assert.That(definition.Description).Contains("Direct-child friendly names");
         _ = await Assert.That(sessionIdDescription).Contains("direct parent or direct child");
         _ = await Assert.That(sessionIdDescription).Contains("literal 'parent'");
         _ = await Assert.That(sessionIdDescription).Contains("direct-child friendly name");
@@ -1239,6 +1249,7 @@ internal sealed class SubagentTests : IDisposable
             _broker,
             _repository,
             [],
+            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection(identity.SessionId, _repository, _broker),
             new ToolOutputBlobStore(Path.GetTempPath()),
@@ -1333,6 +1344,7 @@ internal sealed class SubagentTests : IDisposable
                 eventBroker,
                 eventRepository,
                 [],
+                TestModels.EmptyToolDefinitions,
                 TestModels.MaterializePrompt(identity, ".", "."),
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),

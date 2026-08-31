@@ -1,21 +1,13 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Store;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class ReadImageTool(ToolWorkspace workspace, ImageArtifactRepository artifacts) : ITool
+internal sealed class ReadImageTool(ToolWorkspace workspace, ImageArtifactRepository artifacts) : ITool
 {
     public string Name => "read_image";
-
-    public string Description =>
-        "Read a PNG, JPEG, GIF, or WebP image file. Relative paths resolve within the workspace; "
-        + "absolute paths require read permission.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -72,12 +64,9 @@ internal sealed partial class ReadImageTool(ToolWorkspace workspace, ImageArtifa
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("path")]
-        [Description("Workspace-relative or authorized absolute image file path.")]
-        [ToolRequired]
         public string? Path { get; init; }
     }
 }

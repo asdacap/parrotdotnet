@@ -12,10 +12,6 @@ internal sealed class HeldTool : ITool
 
     public string Name => "held";
 
-    public string Description => "Never finishes.";
-
-    public string ParametersJson => """{"type":"object","properties":{}}""";
-
     public Task Started => _started.Task;
 
     public async Task<ToolExecutionResult> Execute(

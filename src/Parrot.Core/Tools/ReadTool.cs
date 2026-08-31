@@ -1,26 +1,18 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Security;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
+internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 {
     private const int MaxLines = 2000;
     private const int MaxOutputBytes = 1 << 20;
     private const int BinaryProbeSize = 8192;
 
     public string Name => "read";
-
-    public string Description =>
-        "Read a bounded line range from a text file or list a directory. "
-        + "Relative paths resolve within the workspace; absolute paths require read permission.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -192,22 +184,15 @@ internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
         return output.ToString();
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("path")]
-        [Description("Workspace-relative or authorized absolute file or directory path.")]
-        [ToolRequired]
         public string? Path { get; init; }
 
         [JsonPropertyName("offset")]
-        [Description("One-based first line to read.")]
-        [ToolMinimum(1)]
         public int? Offset { get; init; }
 
         [JsonPropertyName("limit")]
-        [Description("Maximum number of lines to read.")]
-        [ToolMinimum(1)]
         public int? Limit { get; init; }
     }
 }

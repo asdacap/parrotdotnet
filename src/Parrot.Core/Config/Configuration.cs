@@ -1,6 +1,10 @@
+using System.Buffers;
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
 using Parrot.Context;
 using Parrot.Security;
+using Parrot.Tools;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
@@ -21,6 +25,7 @@ internal sealed class Configuration(string path)
     private const string UserInputTimeoutKey = "user_input_timeout_ms";
     private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
     private const string CompactionKey = "compaction";
+    private const string ToolsKey = "tools";
     private static readonly TagName ReplaceTag = new("!replace");
 
     private readonly Lock _writeLock = new();
@@ -65,6 +70,9 @@ internal sealed class Configuration(string path)
     public TimeSpan UserInputTimeout { get; private set; }
 
     public CompactionConfig Compaction { get; private set; } = new(90, 30, 60_000, 12_000);
+
+    public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
+        new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
 
     public static Configuration Load(string path, string predefinedPath) =>
         Load(path, predefinedPath, CaptureEnvironment());
@@ -177,6 +185,7 @@ internal sealed class Configuration(string path)
             CliUtilities = ReadCliUtilities(root),
             UserInputTimeout = ReadUserInputTimeout(root, userRoot),
             Compaction = ReadCompaction(root),
+            ToolDefinitions = ReadToolDefinitions(root),
         };
         ProvisionSandboxDirectories(directories);
         return configuration;
@@ -1036,6 +1045,235 @@ internal sealed class Configuration(string path)
             PositiveInteger(compaction, "maximum_input_tokens", $"{CompactionKey}.maximum_input_tokens"),
             PositiveInteger(compaction, "summary_output_tokens", $"{CompactionKey}.summary_output_tokens"));
     }
+
+    private static ToolDefinitionCatalog ReadToolDefinitions(YamlMappingNode root)
+    {
+        if (!Child(root, ToolsKey, out var node) || node is not YamlMappingNode tools)
+        {
+            throw new InvalidDataException($"{ToolsKey} must be a mapping");
+        }
+
+        var result = new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal);
+        foreach (var entry in tools.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { Length: > 0 } name } ||
+                entry.Value is not YamlMappingNode tool)
+            {
+                throw new InvalidDataException($"each {ToolsKey} entry must be a named mapping");
+            }
+
+            var path = $"{ToolsKey}.{name}";
+            ValidateKeys(tool, path, "description", "parameters");
+            if (!Child(tool, "parameters", out var parameters) || parameters is not YamlMappingNode)
+            {
+                throw new InvalidDataException($"{path}.parameters must be a mapping");
+            }
+
+            ValidateSchemaDescriptions(parameters, $"{path}.parameters", propertyMap: false);
+            result[name] = new ConfiguredToolDefinition(
+                NonEmptyScalar(tool, "description", $"{path}.description"),
+                WriteJson(parameters, $"{path}.parameters"));
+        }
+
+        return new ToolDefinitionCatalog(result);
+    }
+
+    private static string WriteJson(YamlNode node, string path)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            WriteJson(writer, node, path);
+        }
+
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private static void WriteJson(Utf8JsonWriter writer, YamlNode node, string path)
+    {
+        switch (node)
+        {
+            case YamlMappingNode mapping:
+                writer.WriteStartObject();
+                foreach (var entry in mapping.Children)
+                {
+                    if (entry.Key is not YamlScalarNode { Value: { Length: > 0 } name })
+                    {
+                        throw new InvalidDataException($"{path} must use non-empty scalar property names");
+                    }
+
+                    writer.WritePropertyName(name);
+                    WriteJson(writer, entry.Value, $"{path}.{name}");
+                }
+
+                writer.WriteEndObject();
+                break;
+            case YamlSequenceNode sequence:
+                writer.WriteStartArray();
+                for (var index = 0; index < sequence.Children.Count; index++)
+                {
+                    WriteJson(writer, sequence.Children[index], $"{path}[{index}]");
+                }
+
+                writer.WriteEndArray();
+                break;
+            case YamlScalarNode scalar:
+                WriteJsonScalar(writer, scalar, path);
+                break;
+            default:
+                throw new InvalidDataException($"{path} contains unsupported YAML");
+        }
+    }
+
+    private static void WriteJsonScalar(Utf8JsonWriter writer, YamlScalarNode scalar, string path)
+    {
+        var value = scalar.Value;
+        if (scalar.Style != ScalarStyle.Plain)
+        {
+            writer.WriteStringValue(value ?? string.Empty);
+            return;
+        }
+
+        switch (value)
+        {
+            case null:
+            case "null":
+            case "Null":
+            case "NULL":
+            case "~":
+                writer.WriteNullValue();
+                return;
+            case "true":
+            case "True":
+            case "TRUE":
+                writer.WriteBooleanValue(true);
+                return;
+            case "false":
+            case "False":
+            case "FALSE":
+                writer.WriteBooleanValue(false);
+                return;
+        }
+
+        if (IsJsonNumber(value))
+        {
+            writer.WriteRawValue(value, skipInputValidation: false);
+            return;
+        }
+
+        if (value is ".nan" or ".NaN" or ".NAN" or ".inf" or ".Inf" or ".INF" or
+            "-.inf" or "-.Inf" or "-.INF" or "+.inf" or "+.Inf" or "+.INF")
+        {
+            throw new InvalidDataException($"{path} must be representable as JSON");
+        }
+
+        writer.WriteStringValue(value);
+    }
+
+    private static bool IsJsonNumber(string value)
+    {
+        var index = value.StartsWith('-') ? 1 : 0;
+        if (index == value.Length)
+        {
+            return false;
+        }
+
+        if (value[index] == '0')
+        {
+            index++;
+        }
+        else if (value[index] is >= '1' and <= '9')
+        {
+            while (++index < value.Length && value[index] is >= '0' and <= '9')
+            {
+            }
+        }
+        else
+        {
+            return false;
+        }
+
+        if (index < value.Length && value[index] == '.')
+        {
+            index++;
+            var fraction = index;
+            while (index < value.Length && value[index] is >= '0' and <= '9')
+            {
+                index++;
+            }
+
+            if (index == fraction)
+            {
+                return false;
+            }
+        }
+
+        if (index < value.Length && value[index] is 'e' or 'E')
+        {
+            index++;
+            if (index < value.Length && value[index] is '+' or '-')
+            {
+                index++;
+            }
+
+            var exponent = index;
+            while (index < value.Length && value[index] is >= '0' and <= '9')
+            {
+                index++;
+            }
+
+            if (index == exponent)
+            {
+                return false;
+            }
+        }
+
+        return index == value.Length;
+    }
+
+    private static void ValidateSchemaDescriptions(YamlNode node, string path, bool propertyMap)
+    {
+        if (node is YamlMappingNode mapping)
+        {
+            foreach (var entry in mapping.Children)
+            {
+                if (entry.Key is not YamlScalarNode { Value: { Length: > 0 } name })
+                {
+                    throw new InvalidDataException($"{path} must use non-empty scalar property names");
+                }
+
+                if (!propertyMap && string.Equals(name, "description", StringComparison.Ordinal) &&
+                    entry.Value is not YamlScalarNode { Value.Length: > 0 })
+                {
+                    throw new InvalidDataException($"{path}.description must be a non-empty scalar");
+                }
+
+                if (propertyMap || IsSchemaKeyword(name))
+                {
+                    ValidateSchemaDescriptions(
+                        entry.Value,
+                        $"{path}.{name}",
+                        !propertyMap && IsSchemaMapKeyword(name));
+                }
+            }
+        }
+        else if (node is YamlSequenceNode sequence)
+        {
+            for (var index = 0; index < sequence.Children.Count; index++)
+            {
+                ValidateSchemaDescriptions(sequence.Children[index], $"{path}[{index}]", propertyMap: false);
+            }
+        }
+    }
+
+    private static bool IsSchemaKeyword(string name) =>
+        IsSchemaMapKeyword(name) ||
+        name is "items" or "additionalProperties" or "not" or "if" or "then" or "else" or "contains" or
+            "propertyNames" or "unevaluatedProperties" or "unevaluatedItems" or "allOf" or "anyOf" or
+            "oneOf" or "prefixItems";
+
+    private static bool IsSchemaMapKeyword(string name) =>
+        name is "properties" or "patternProperties" or "dependentSchemas" or "$defs" or "definitions";
 
     private static TimeSpan ReadUserInputTimeout(YamlMappingNode root, YamlMappingNode userRoot)
     {

@@ -1,21 +1,13 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Process;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) : ITool
+internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
 {
     public string Name => "interrupt_process";
-
-    public string Description =>
-        "Send a process signal to a running shell process's tracked top-level wrapper. "
-        + "The signal defaults to 2 and does not target the command or its process tree.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -61,19 +53,12 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Omitted)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
-        [Description("Reserved shell process name")]
         [JsonPropertyName("name")]
-        [ToolRequired]
         public string? Name { get; init; }
 
-        [Description("Process signal number from 1 through 64 to send to the tracked top-level process")]
         [JsonPropertyName("signal")]
-        [ToolDefaultLong(2)]
-        [ToolMinimum(1)]
-        [ToolMaximum(64)]
         public int? Signal { get; init; }
     }
 }

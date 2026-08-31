@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
@@ -55,6 +54,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             events,
             repository,
             [],
+            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection("session", repository, events),
             new ToolOutputBlobStore(scratch.BlobDirectory),
@@ -84,20 +84,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         var factoryTool = new ExecCommandToolFactory(processes).Create(session);
         var writeStdinFactoryTool = new WriteStdinToolFactory(processes).Create(session);
         _ = await Assert.That(factoryTool.Name).IsEqualTo("exec_command");
-        _ = await Assert.That(factoryTool.ParametersJson).IsEqualTo(ExecCommandTool.Input.Descriptor);
         _ = await Assert.That(writeStdinFactoryTool.Name).IsEqualTo("write_stdin");
-        _ = await Assert.That(writeStdinFactoryTool.ParametersJson).IsEqualTo(WriteStdinTool.Input.Descriptor);
-        using var schema = JsonDocument.Parse(tool.ParametersJson);
-        var schemaRoot = schema.RootElement;
-        var properties = schemaRoot.GetProperty("properties");
-        var environmentSchema = properties.GetProperty("env");
-        var terminalSchema = properties.GetProperty("tty");
-        _ = await Assert.That(schemaRoot.GetProperty("additionalProperties").GetBoolean()).IsFalse();
-        _ = await Assert.That(terminalSchema.GetProperty("type").GetString()).IsEqualTo("boolean");
-        _ = await Assert.That(terminalSchema.GetProperty("default").GetBoolean()).IsFalse();
-        _ = await Assert.That(environmentSchema.GetProperty("type").GetString()).IsEqualTo("object");
-        _ = await Assert.That(environmentSchema.GetProperty("additionalProperties").GetProperty("type").GetString())
-            .IsEqualTo("string");
 
         var result = await Execute(tool, """{"command":"printf out; printf err >&2; exit 7"}""", selection, cancellationToken);
         var missing = await Execute(tool, "{}", selection, cancellationToken);

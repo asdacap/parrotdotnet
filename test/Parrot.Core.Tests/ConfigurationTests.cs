@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Parrot.Config;
 using Parrot.Security;
 
@@ -1321,6 +1322,79 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(Load(path).Model).IsEqualTo("added");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("theme: dark");
+    }
+
+    [Test]
+    public async Task Tool_definitions_are_loaded_and_user_overrides_replace_structure_and_prose()
+    {
+        var path = Write(
+            """
+            tools:
+              question:
+                parameters:
+                  properties:
+                    questions:
+                      minItems: 2
+                      items:
+                        properties:
+                          prompt:
+                            description: Custom question prompt.
+                  required: [questions, custom]
+            """);
+
+        var definitions = Load(path).ToolDefinitions.Definitions;
+
+        _ = await Assert.That(definitions.Count).IsEqualTo(26);
+        _ = await Assert.That(definitions["question"].Description)
+            .StartsWith("Ask the user structured questions");
+        using var question = JsonDocument.Parse(definitions["question"].ParametersJson);
+        var schema = question.RootElement;
+        _ = await Assert.That(schema.GetProperty("properties").GetProperty("questions")
+            .GetProperty("minItems").GetInt32()).IsEqualTo(2);
+        _ = await Assert.That(schema.GetProperty("properties").GetProperty("questions").GetProperty("items")
+            .GetProperty("properties").GetProperty("prompt").GetProperty("description").GetString())
+            .IsEqualTo("Custom question prompt.");
+        _ = await Assert.That(string.Join(",", schema.GetProperty("required").EnumerateArray().Select(item => item.GetString())))
+            .IsEqualTo("questions,custom");
+        using var status = JsonDocument.Parse(definitions["status"].ParametersJson);
+        _ = await Assert.That(status.RootElement.GetProperty("type").GetString()).IsEqualTo("object");
+    }
+
+    [Test]
+    public async Task Tool_schema_numbers_and_semantic_description_fields_are_preserved()
+    {
+        var path = Write(
+            """
+            tools:
+              read:
+                parameters:
+                  properties:
+                    offset:
+                      maximum: 1e100
+                      default:
+                        description: ''
+            """);
+
+        using var schema = JsonDocument.Parse(
+            Load(path).ToolDefinitions.Definitions["read"].ParametersJson);
+        var offset = schema.RootElement.GetProperty("properties").GetProperty("offset");
+        _ = await Assert.That(offset.GetProperty("maximum").GetRawText()).IsEqualTo("1e100");
+        _ = await Assert.That(offset.GetProperty("default").GetProperty("description").GetString())
+            .IsEqualTo(string.Empty);
+    }
+
+    [Test]
+    [Arguments("description: ''", "tools.read.description must be a non-empty string")]
+    [Arguments("description: null", "tools.read.description must be a non-empty string")]
+    [Arguments("parameters: []", "tools.read.parameters must be a mapping")]
+    [Arguments("unsupported: value", "tools.read contains an unsupported key")]
+    public async Task Invalid_tool_definition_overrides_are_rejected(string overrideYaml, string message)
+    {
+        var path = Write($"tools:\n  read:\n    {overrideYaml}\n");
+
+        var exception = Assert.Throws<InvalidDataException>(() => Load(path));
+
+        _ = await Assert.That(exception.Message).IsEqualTo(message);
     }
 
     private Configuration Load(string path) =>

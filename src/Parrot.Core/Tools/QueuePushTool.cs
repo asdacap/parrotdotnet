@@ -1,27 +1,17 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Queues;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueuePushTool(AgentQueues queues, ToolWorkspace workspace) : ITool
+internal sealed class QueuePushTool(AgentQueues queues, ToolWorkspace workspace) : ITool
 {
     private const int MaximumSourceFileBytes = 16 << 20;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     public string Name => "queue_push";
-
-    public string Description =>
-        "Push strings onto an accessible queue owned by the invoking agent or its direct parent, then optionally close it. "
-        + "Exactly one of items or source_file is required. Items may be empty to close without adding data. "
-        + "A source file up to 16 MiB contributes one item per nonblank UTF-8 line. Pushing items to a closed queue fails. "
-        + "Direction defaults to back and close defaults to false.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -189,32 +179,21 @@ internal sealed partial class QueuePushTool(AgentQueues queues, ToolWorkspace wo
         return items;
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
-        [Description("Name of the queue to receive the items.")]
         [JsonPropertyName("name")]
-        [ToolPattern("^[a-z0-9]+(?:-[a-z0-9]+)*$")]
-        [ToolRequired]
         public string? Name { get; init; }
 
-        [Description("Strings to push. Exactly one of items or source_file is required; items may be empty when closing.")]
         [JsonPropertyName("items")]
         public string[]? Items { get; init; }
 
-        [Description("Workspace-relative or authorized absolute UTF-8 text file up to 16 MiB, supplying one item per nonblank line. Exactly one of items or source_file is required.")]
         [JsonPropertyName("source_file")]
         public string? SourceFile { get; init; }
 
-        [Description("End of the queue onto which the items are pushed.")]
         [JsonPropertyName("direction")]
-        [ToolDefaultString("back")]
-        [ToolStringEnum("front", "back")]
         public string? Direction { get; init; }
 
-        [Description("Whether to close the queue after pushing the items.")]
         [JsonPropertyName("close")]
-        [ToolDefaultBool(false)]
         public bool? Close { get; init; }
     }
 }

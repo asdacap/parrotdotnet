@@ -72,6 +72,7 @@ internal partial class AgentSessionComposition
                     arguments.EventBroker,
                     arguments.EventRepository,
                     toolFactories,
+                    arguments.ToolDefinitions,
                     systemPrompt,
                     todos,
                     toolOutputBlobs,

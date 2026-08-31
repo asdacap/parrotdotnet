@@ -70,6 +70,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 eventBroker,
                 eventRepository,
                 source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [],
+                TestModels.EmptyToolDefinitions,
                 TestModels.MaterializePrompt(identity, ".", "."),
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),

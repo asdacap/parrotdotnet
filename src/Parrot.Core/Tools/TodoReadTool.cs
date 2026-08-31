@@ -1,16 +1,11 @@
 using System.Text.Json;
 using Parrot.Agent;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class TodoReadTool(AgentSession session) : ITool
+internal sealed class TodoReadTool(AgentSession session) : ITool
 {
     public string Name => "todoread";
-
-    public string Description => "Read the current session's ordered todo list.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
@@ -28,6 +23,5 @@ internal sealed partial class TodoReadTool(AgentSession session) : ITool
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input;
+    internal sealed class Input;
 }

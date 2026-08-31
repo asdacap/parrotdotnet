@@ -1,19 +1,13 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Queues;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueueTakeTool(AgentQueues queues) : ITool
+internal sealed class QueueTakeTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_take";
-
-    public string Description => "Remove and return strings from an accessible queue owned by the invoking agent or its direct parent. If the queue is open and empty, wait until an item is available or yield_after_ms elapses. Every result reports whether the queue is closed; a closed drained queue returns immediately. Count defaults to one, direction defaults to front, and yield_after_ms defaults to 30000. The queue does not need to fill count before returning.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
@@ -72,31 +66,18 @@ internal sealed partial class QueueTakeTool(AgentQueues queues) : ITool
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
-        [Description("Name of the queue from which to remove items.")]
         [JsonPropertyName("name")]
-        [ToolPattern("^[a-z0-9]+(?:-[a-z0-9]+)*$")]
-        [ToolRequired]
         public string? Name { get; init; }
 
-        [Description("Maximum number of items to remove.")]
         [JsonPropertyName("count")]
-        [ToolDefaultLong(1)]
-        [ToolMinimum(1)]
         public int? Count { get; init; }
 
-        [Description("End of the queue from which items are removed.")]
         [JsonPropertyName("direction")]
-        [ToolDefaultString("front")]
-        [ToolStringEnum("front", "back")]
         public string? Direction { get; init; }
 
-        [Description("Milliseconds to wait for an item when the queue is empty.")]
         [JsonPropertyName("yield_after_ms")]
-        [ToolDefaultLong(30_000)]
-        [ToolMinimum(0)]
         public long? YieldAfterMilliseconds { get; init; }
     }
 }

@@ -35,21 +35,6 @@ internal sealed class WriteEditToolTests : IDisposable
     }
 
     [Test]
-    public async Task Tools_expose_the_approved_contracts()
-    {
-        using var writeSchema = JsonDocument.Parse(WriteTool().ParametersJson);
-        using var editSchema = JsonDocument.Parse(EditTool().ParametersJson);
-        var writeProperties = writeSchema.RootElement.GetProperty("properties");
-        var editProperties = editSchema.RootElement.GetProperty("properties");
-        _ = await Assert.That(writeProperties.GetProperty("path").GetProperty("minLength").GetInt32()).IsEqualTo(1);
-        _ = await Assert.That(writeProperties.GetProperty("content").GetProperty("description").GetString()).IsNotEmpty();
-        _ = await Assert.That(editProperties.GetProperty("old_string").GetProperty("minLength").GetInt32()).IsEqualTo(1);
-        _ = await Assert.That(editProperties.GetProperty("replace_all").GetProperty("description").GetString()).IsNotEmpty();
-        _ = await Assert.That(WriteTool().Name).IsEqualTo("write");
-        _ = await Assert.That(EditTool().Name).IsEqualTo("edit");
-    }
-
-    [Test]
     [Arguments("write", "{")]
     [Arguments("write", "{}")]
     [Arguments("write", "{\"path\":1,\"content\":\"x\"}")]

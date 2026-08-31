@@ -10,10 +10,6 @@ internal sealed class SettledTool(string result) : ITool
 {
     public string Name => "settled";
 
-    public string Description => "Finishes at once.";
-
-    public string ParametersJson => """{"type":"object","properties":{}}""";
-
     public Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

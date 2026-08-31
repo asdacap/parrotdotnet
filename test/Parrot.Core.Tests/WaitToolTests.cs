@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Events;
@@ -63,13 +62,6 @@ internal sealed class WaitToolTests : IAsyncDisposable
             new RuntimeStatus(queueCatalog, processes, subagents),
             session,
             time);
-        using var schema = JsonDocument.Parse(tool.ParametersJson);
-        var duration = schema.RootElement.GetProperty("properties").GetProperty("duration_ms");
-
-        _ = await Assert.That(duration.GetProperty("minimum").GetInt64()).IsEqualTo(10_000);
-        _ = await Assert.That(duration.GetProperty("default").GetInt64()).IsEqualTo(10_000);
-        _ = await Assert.That(duration.GetProperty("maximum").GetInt64()).IsEqualTo(4_294_967_294);
-        _ = await Assert.That(schema.RootElement.GetProperty("additionalProperties").GetBoolean()).IsFalse();
 
         var invalid = new[]
         {
@@ -458,6 +450,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             _broker,
             repository,
             tools,
+            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, _root, _root),
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(Path.Combine(_root, "blobs")),
@@ -648,6 +641,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                     eventBroker,
                     eventRepository,
                     [new WaitToolFactory(status, timeProvider)],
+                    TestModels.EmptyToolDefinitions,
                     TestModels.MaterializePrompt(identity, root, root),
                     new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                     new ToolOutputBlobStore(Path.Combine(root, "blobs")),

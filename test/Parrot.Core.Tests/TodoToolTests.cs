@@ -142,6 +142,7 @@ internal sealed class TodoToolTests : IDisposable
             _events,
             repository,
             [],
+            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, "/workspace", "/workspace"),
             new TodoCollection(sessionId, repository, _events),
             new ToolOutputBlobStore(_root),

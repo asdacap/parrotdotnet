@@ -280,6 +280,12 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   configuration supplies prompts, declared rules, and limits without a mutable
   foreground/child classification flag. Mode remains per-session state rather
   than a YAML key. Child profiles are not selectable foreground modes.
+- **Tool definitions.** The shipped `predefined_config.yaml` owns each complete
+  model-facing tool definition: its description and standard JSON Schema
+  `parameters` object. User `config.yaml` recursively layers over descriptions
+  and structural schema members. Runtime tools still own deserialization,
+  validation, execution, sandbox, permission, and security behavior; configured
+  schemas guide the model/provider and cannot grant runtime authority.
 
 ### `SessionDatabase` — rank 2, M2
 
@@ -830,9 +836,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 ### `ITool` — rank 7, M3
 
 - **Absorbs** `tool` (the interface and the builtins).
-- **Owns** nothing shared; each tool owns its own arguments and plan.
-- **Inbound** describe, plan, execute. **Display differences are methods on the
-  tool, never a branch on its id.** `exec_command` accepts optional `name`,
+- **Owns** nothing shared; each tool owns its own arguments and plan, its
+  execution. It does not own model-facing
+  descriptions.
+- **Inbound** plan, execute. **Display differences are methods on the tool,
+  never a branch on its id.** `exec_command` accepts optional `name`,
   `yield_after_ms`, and `env`, where `env` is a string-to-string map represented
   internally by concrete `ProcessEnvironmentOverrides`, constructed from
   `IEnumerable<KeyValuePair<string, string>>` (`Empty` when omitted). A
@@ -881,7 +889,13 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   session-owned capabilities rather than general filesystem authority.
 - **Outbound** `PermissionBroker`, the invoking agent session's shell-process
   owner, `ProcessRunner`, `WebFetcher`, the filesystem.
-- **Boundary** **yes** — tools.
+- **Boundary** **yes** — tools. `ToolDefinitionCatalog` pairs every composed
+  `ITool` name with its complete configured model-facing definition before
+  support and profile/global filtering and before anything is sent to the
+  model. It fails closed when tool names are missing, extra, or duplicated.
+  Structural schema and descriptions come entirely from merged configuration;
+  runtime deserialization, validation, execution, and security remain separate
+  authorities and may intentionally differ after a user override.
 - **Divergence** `grep` uses .NET's `RegexOptions.NonBacktracking` engine
   rather than Go's RE2. The two reject the same pathological inputs (both
   guarantee linear time), but the accepted syntax differs: .NET non-backtracking

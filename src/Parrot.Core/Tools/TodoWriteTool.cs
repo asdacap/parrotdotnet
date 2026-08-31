@@ -1,18 +1,12 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class TodoWriteTool(AgentSession session) : ITool
+internal sealed class TodoWriteTool(AgentSession session) : ITool
 {
     public string Name => "todowrite";
-
-    public string Description => "Transactionally replace the current session's ordered todo list.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
@@ -32,37 +26,23 @@ internal sealed partial class TodoWriteTool(AgentSession session) : ITool
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
-        [Description("Complete ordered todo list that replaces the current list.")]
         [JsonPropertyName("todos")]
-        [ToolRequired]
         public Item[]? Todos { get; init; }
 
-        [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-        internal sealed partial class Item
+        internal sealed class Item
         {
-            [Description("Stable todo identifier. Omit it when adding a new todo.")]
             [JsonPropertyName("id")]
             public string? Id { get; init; }
 
-            [Description("Todo text.")]
             [JsonPropertyName("content")]
-            [ToolMinLength(1)]
-            [ToolRequired]
             public string? Content { get; init; }
 
-            [Description("Current todo state.")]
             [JsonPropertyName("status")]
-            [ToolStringEnum("pending", "in_progress", "completed", "cancelled")]
-            [ToolRequired]
             public string? Status { get; init; }
 
-            [Description("Todo urgency.")]
             [JsonPropertyName("priority")]
-            [ToolStringEnum("high", "medium", "low")]
-            [ToolRequired]
             public string? Priority { get; init; }
         }
     }

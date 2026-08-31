@@ -1,18 +1,12 @@
-using System.ComponentModel;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Queues;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueueListenTool(AgentQueues queues) : ITool
+internal sealed class QueueListenTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_listen";
-
-    public string Description => "Enable or disable idle notification delivery for the invoking agent from an accessible queue. Listening remains enabled after each FIFO delivery.";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -34,18 +28,12 @@ internal sealed partial class QueueListenTool(AgentQueues queues) : ITool
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
-        [Description("Name of the queue whose idle notifications to configure.")]
         [JsonPropertyName("name")]
-        [ToolPattern("^[a-z0-9]+(?:-[a-z0-9]+)*$")]
-        [ToolRequired]
         public string? Name { get; init; }
 
-        [Description("Whether idle notification delivery is enabled.")]
         [JsonPropertyName("enabled")]
-        [ToolDefaultBool(true)]
         public bool? Enabled { get; init; }
     }
 }

@@ -14,6 +14,7 @@ internal sealed class AgentSessionFactory(
     string workingDirectory,
     Compactor compactor,
     WebFetcher webFetcher,
+    ToolDefinitionCatalog toolDefinitions,
     ModelRouter router,
     ISystemPromptProvider systemPromptProvider,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactory
@@ -51,6 +52,7 @@ internal sealed class AgentSessionFactory(
                 eventBroker,
                 eventRepository,
                 ToolFactories(workspace),
+                toolDefinitions,
                 owner.ShellProcesses,
                 prompts,
                 scratch,
