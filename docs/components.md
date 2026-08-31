@@ -121,6 +121,60 @@ task lifecycle events. Upstream tests asserting task parentage are rewritten
 against session parentage rather than deleted — the behaviour still exists, it
 is attributed differently.
 
+### Approved AgentTask graphs are explicit, private, and non-transactional
+
+**Plan/approval pair.** Plan mode writes one correlated pair at runtime-designated
+private paths: a readable Markdown plan and strict AgentTask v1 JSON. Completion
+requires both files to be nonblank and the JSON to validate. The `PlanCompleted`
+dialog presents the Markdown and, on approval, enters build mode with both paths;
+the build prompt directs `run_agent_tasks` to the approved JSON path. The tool
+reopens a readable regular non-symbolic-link file and validates it immediately,
+so approval is not authority for a subsequently altered artifact.
+
+**Schema and scope.** The JSON envelope is
+`{"schema_version":1,"tasks":[...]}`. A sibling list is nonempty. Each task
+has nonblank `name`, `description`, `payload`, and `acceptance_criteria`, with
+optional `dependencies` and `model`; payload is either a nonblank instruction or
+a recursive nonempty sibling list. Unknown fields, null required values,
+duplicate names or dependencies, missing/self/cyclic references, and
+cross-level dependencies are invalid. Dependency names are case-sensitive and
+local to their immediate sibling list. This makes a nested payload a hierarchy
+of independently validated sibling DAGs, not one graph with globally addressable
+names.
+
+**Execution context.** `run_agent_tasks` synchronously creates fresh
+retained-only `worker` children for each research, execution, and acceptance
+role. They have no inherited conversation, and retained-only delivery prevents
+their internal completions from steering the tool-owning parent. They retain the
+same workspace and user-session-scoped runtime resources. A task-specific model
+is resolved normally; otherwise each role uses the invoking turn's requested
+model.
+
+**Research and inheritance.** Every task begins with a mandatory research hook
+that returns strict JSON containing nonblank context and, optionally, a sparse
+patch to `description`, `payload`, `acceptance_criteria`, or `model`. The patch
+changes only the effective in-memory task for that run, preserves omitted
+fields, is revalidated, and never persists into the approved artifact. Nested
+work receives labelled ancestor declarations in root-to-parent order and
+research contexts in root-to-current order. It receives no sibling or cousin
+research. A ready task additionally receives bounded direct-dependency
+summaries.
+
+**Acceptance, scheduling, and outcome.** An instruction is executed then
+reviewed by a separate acceptance child. `accept` plus evidence is authoritative
+and marks its task successful even when a composite's retained nested results
+include failures. `reject` fails immediately; `retry` carries feedback and a
+replacement payload, with three attempts total. Composite payloads rerun their
+nested sibling graph on each attempt. Ready siblings run in parallel. An
+unsuccessful dependency blocks only its descendants while independent branches
+continue. Results preserve the hierarchy and include graph/task status, attempts,
+research context, effective patch, execution, verdict/evidence, failures or
+blocking dependencies, and nested results. Cancellation aborts and joins every
+runner-owned child before it propagates. There is deliberately no rollback or
+resume: concurrent ready tasks share a workspace, and dependencies are the
+planner's only mutation-ordering mechanism. Plans must declare every required
+write serialization; the scheduler cannot protect undeclared concurrent writes.
+
 ### Image attachments are session-owned structured content
 
 **Input and transcript.** A prompt is an ordered `MessageContentPart` sequence, not a

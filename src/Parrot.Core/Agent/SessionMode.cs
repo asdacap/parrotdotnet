@@ -1,4 +1,3 @@
-using Parrot.Protocol;
 using Parrot.Security;
 
 namespace Parrot.Agent;
@@ -8,7 +7,7 @@ internal sealed class SessionMode(
     Func<string> prompt,
     SecurityProfile securityProfile,
     Action prepare,
-    Func<string, string, PlanCompleted?> complete) : IMode
+    Func<string, string, ModeCompletionOutcome> complete) : IMode
 {
     public string Id => profile.Id;
 
@@ -26,5 +25,5 @@ internal sealed class SessionMode(
 
     public void Prepare() => prepare();
 
-    public PlanCompleted? Complete(string sessionId, string messageId) => complete(sessionId, messageId);
+    public ModeCompletionOutcome Complete(string sessionId, string messageId) => complete(sessionId, messageId);
 }

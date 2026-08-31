@@ -11,12 +11,48 @@ internal sealed class ToolWorkspace(string workingDirectory)
 
     public (string Lexical, string Physical) ResolveRead(string path)
     {
-        var lexical = Path.IsPathFullyQualified(path)
-            ? Path.GetFullPath(path)
-            : Path.GetFullPath(Path.Combine(Root, path));
-
+        var lexical = ResolveLexical(path);
         var physical = ResolveLinks(lexical);
         return (lexical, physical);
+    }
+
+    public FileStream OpenRegularReadWithoutLinks(string path, SecurityProfile security)
+    {
+        var lexical = ResolveLexical(path);
+        ValidateRegularReadWithoutLinks(lexical, path);
+        var stream = new FileStream(
+            lexical,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            4096,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+        try
+        {
+            var descriptor = stream.SafeFileHandle.DangerousGetHandle().ToInt64();
+            var descriptorPath = $"/proc/self/fd/{descriptor}";
+            var target = new FileInfo(descriptorPath).ResolveLinkTarget(returnFinalTarget: true)
+                ?? throw new IOException($"Cannot resolve opened source '{path}'.");
+            var physical = Path.GetFullPath(target.FullName);
+            ValidateRegularReadWithoutLinks(lexical, path);
+            if (!string.Equals(lexical, physical, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Path '{path}' does not identify the opened regular file without links.");
+            }
+
+            if (!AllowsRead((lexical, physical), security))
+            {
+                throw new UnauthorizedAccessException($"Read access denied for '{path}'.");
+            }
+
+            return stream;
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
     }
 
     public ToolMutationPath ResolveMutation(string path, bool create, SecurityProfile security)
@@ -37,6 +73,30 @@ internal sealed class ToolWorkspace(string workingDirectory)
         }
 
         return new ToolMutationPath(physical, DisplayPath(physical));
+    }
+
+    private static void ValidateRegularReadWithoutLinks(string lexical, string requested)
+    {
+        var root = Path.GetPathRoot(lexical) ?? throw new InvalidOperationException($"Invalid path '{requested}'.");
+        var relative = Path.GetRelativePath(root, lexical);
+        var current = Path.TrimEndingDirectorySeparator(root);
+
+        foreach (var part in relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            var kind = FileMutation.Inspect(current);
+            if (kind == FileMutationEntryKind.SymbolicLink)
+            {
+                throw new InvalidOperationException($"Path '{requested}' traverses a symbolic link.");
+            }
+
+            if (kind == FileMutationEntryKind.Missing)
+            {
+                throw new FileNotFoundException($"Source '{requested}' is missing.");
+            }
+        }
+
+        FileMutation.RequireRegularFile(lexical);
     }
 
     private static string ResolveMutationPath(string full, string requested, bool create)
@@ -121,6 +181,10 @@ internal sealed class ToolWorkspace(string workingDirectory)
 
         return current;
     }
+
+    private string ResolveLexical(string path) => Path.IsPathFullyQualified(path)
+        ? Path.GetFullPath(path)
+        : Path.GetFullPath(Path.Combine(Root, path));
 
     private string DisplayPath(string physical) => Path.GetRelativePath(Root, physical);
 }

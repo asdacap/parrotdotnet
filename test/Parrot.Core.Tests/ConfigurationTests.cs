@@ -32,7 +32,7 @@ internal sealed class ConfigurationTests : IDisposable
             "You are parrot, a coding agent. You work in the user's project directory.\n"
             + "Filesystem access is determined by the active security policy.");
         _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:02-delegation"])
-            .StartsWith("Prefer to split larger task to subagent with a well defined scope.");
+            .StartsWith("# Agent delegation\nPrefer to split larger task to subagent with a well defined scope.");
         _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:03-subagent-pattern"])
             .StartsWith("# Common subagent spawn strategy");
         _ = await Assert.That(configuration.InlineDiff).IsTrue();
@@ -183,7 +183,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(prompts).Count().IsEqualTo(4);
         _ = await Assert.That(prompts["runtime:system-context:01-base"]).IsEqualTo("Custom base prompt.");
         _ = await Assert.That(prompts["runtime:system-context:02-delegation"])
-            .StartsWith("Prefer to split larger task to subagent with a well defined scope.");
+            .StartsWith("# Agent delegation\nPrefer to split larger task to subagent with a well defined scope.");
         _ = await Assert.That(prompts["runtime:system-context:03-subagent-pattern"])
             .StartsWith("# Common subagent spawn strategy");
         _ = await Assert.That(prompts["custom:guidance"]).IsEqualTo("Additional guidance.");
@@ -823,7 +823,7 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["worker"].AllowedTools).IsNull();
         _ = await Assert.That(configuration.Profiles.Values.All(profile => profile.EnforceActiveWorkCompletion)).IsTrue();
         _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.SequenceEqual(
-            ["agent_spawn", "set_checkpoint", "agent_send", "wait_agent", "wait"],
+            ["agent_spawn", "set_checkpoint", "read", "agent_send", "wait_agent", "wait"],
             StringComparer.Ordinal)).IsTrue();
 
         var noTools = Load(Write("profiles:\n  worker:\n    allowed_tools: []\n"));
@@ -1344,7 +1344,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         var definitions = Load(path).ToolDefinitions.Definitions;
 
-        _ = await Assert.That(definitions.Count).IsEqualTo(26);
+        _ = await Assert.That(definitions.Count).IsEqualTo(27);
         _ = await Assert.That(definitions["question"].Description)
             .StartsWith("Ask the user structured questions");
         using var question = JsonDocument.Parse(definitions["question"].ParametersJson);

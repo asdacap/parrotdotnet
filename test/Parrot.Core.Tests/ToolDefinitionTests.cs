@@ -29,11 +29,12 @@ internal sealed class ToolDefinitionTests : IDisposable
         {
             "agent_send", "agent_spawn", "edit", "exec_command", "glob", "grep", "interrupt_process",
             "question", "queue_create", "queue_info", "queue_listen", "queue_push", "queue_take", "read",
-            "read_image", "request_write_permission", "set_checkpoint", "status", "todoread", "todowrite",
+            "read_image", "request_write_permission", "run_agent_tasks", "set_checkpoint", "status", "todoread", "todowrite",
             "wait", "wait_agent", "wait_process", "web_fetch", "write_stdin", "write",
         };
 
-        _ = await Assert.That(string.Join(",", definitions.Keys)).IsEqualTo(string.Join(",", expected));
+        _ = await Assert.That(string.Join(",", definitions.Keys.Order(StringComparer.Ordinal)))
+            .IsEqualTo(string.Join(",", expected.Order(StringComparer.Ordinal)));
         foreach (var definition in definitions.Values)
         {
             _ = await Assert.That(definition.Description).IsNotEmpty();

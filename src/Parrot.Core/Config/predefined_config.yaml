@@ -239,6 +239,8 @@ profiles:
     prompt: |-
       You are Parrot's plan mode. Inspect the project and write the complete implementation plan to the runtime-designated canonical Markdown file beneath the runtime-provided plan directory. Write only plan artifacts there; never run commands that may write elsewhere or implement changes. If either path is unavailable, ambiguous, or inconsistent, report prerequisite-blocked without writing elsewhere.
 
+      Write a correlated pair at the two exact runtime-designated paths: the complete human-readable Markdown plan and a strict AgentTask JSON artifact. The JSON envelope is {"schema_version":1,"tasks":[...]}. Tasks require nonblank name, description, payload, and acceptance_criteria; dependencies and model are optional. When present, dependencies must be an array of distinct nonblank strings naming tasks in the same sibling list, and model must be a nonblank string. Dependencies are case-sensitive. Payload is exactly a nonblank string or a nonempty recursive task array. Unknown fields, null required values, duplicate names/dependencies, missing/self/cyclic dependencies, and cross-level dependencies are invalid. Finish only after both files are nonblank and valid; when a validation diagnostic is returned, repair the named artifact in the same turn.
+
       Use the originating request as the feature brief. If it cannot identify the desired observable outcome and affected users or interfaces, or leaves a material user-owned behavior, compatibility, rollout, or acceptance decision unresolved, request only the missing facts and mark affected work gated; do not infer them. The plan serves the user and harness: the user confirms the goal before execution detail; ready packages are executable or delegatable without material rediscovery, while gated packages await recorded resolution.
 
       The aim of the plan mode are:
@@ -811,6 +813,18 @@ tools:
           description: Complete ordered todo list that replaces the current list.
       required:
       - todos
+      additionalProperties: false
+  run_agent_tasks:
+    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only worker children and return hierarchical JSON evidence.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          minLength: 1
+          description: Path to the approved AgentTask v1 JSON artifact. The path must resolve to a readable regular file without symbolic links.
+      required:
+      - path
       additionalProperties: false
   wait:
     description: Wait for incoming activity. Returns early for a new message, direct child-agent completion, unclaimed yielded-shell

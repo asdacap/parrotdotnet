@@ -1473,6 +1473,35 @@ internal sealed class EventRepository
         RefreshAgentHistory(published.AgentSessionId);
     }
 
+    public void AppendPlanValidationRepair(Event published, string assistantContent, string diagnostic)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            _ = Record(transaction, published);
+            _ = Project(
+                transaction,
+                published.AgentSessionId,
+                ConversationOrigin.Model,
+                LLMRole.Assistant,
+                [ConversationPart.TextPart(assistantContent)],
+                [],
+                string.Empty);
+            _ = Project(
+                transaction,
+                published.AgentSessionId,
+                ConversationOrigin.System,
+                LLMRole.System,
+                [ConversationPart.TextPart(diagnostic)],
+                [],
+                string.Empty);
+            transaction.Commit();
+        }
+
+        RefreshAgentHistory(published.AgentSessionId);
+    }
+
     public void AppendActiveWorkReminder(Event published, string content)
     {
         ArgumentNullException.ThrowIfNull(published);

@@ -53,13 +53,17 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 4);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
             new ModelSelector("child/model"),
             "direct-child",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -114,13 +118,17 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 2);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
             new ModelSelector("child/model"),
             "direct-child",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -166,30 +174,42 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             status,
             new CompletionMode(enforce: true, maxTurns: 2),
             lifetime.Token);
-        var monitored = registry.Spawn(
+        var monitored = registry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, router),
             "worker",
             new ModelSelector("monitored/model"),
             "monitored",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         monitored.UpdateSelection(
             new ModelSelector("monitored/model"),
             new CompletionMode(enforce: true, maxTurns: 2));
-        var sibling = registry.Spawn(
+        var sibling = registry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, router),
             "worker",
             new ModelSelector("sibling/model"),
             "sibling",
-            string.Empty);
-        var grandchild = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var grandchild = registry.Spawn(new AgentLaunchRequest(
             sibling,
             Turn(sibling, router),
             "worker",
             new ModelSelector("grandchild/model"),
             "grandchild",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         using var subscription = _broker.Subscribe();
 
         _ = await sibling.Send("work", cancellationToken);
@@ -296,13 +316,17 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 3);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
             new ModelSelector("child/model"),
             "direct-child",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -348,13 +372,17 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
             new ModelSelector("child/model"),
             "direct-child",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -545,15 +573,17 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         {
         }
 
-        public PlanCompleted Complete(string sessionId, string messageId)
+        public ModeCompletionOutcome Complete(string sessionId, string messageId)
         {
             Completions++;
-            return new PlanCompleted
+            var completion = new PlanCompleted
             {
                 AgentSessionId = sessionId,
                 MessageId = messageId,
                 Markdown = "# Completed",
             };
+
+            return ModeCompletionOutcome.Completed(completion);
         }
     }
 

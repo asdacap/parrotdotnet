@@ -1,4 +1,3 @@
-using Parrot.Protocol;
 using Parrot.Security;
 
 namespace Parrot.Agent;
@@ -26,5 +25,5 @@ internal sealed class NoopMode(IAgentProfile profile, SecurityProfile securityPr
     {
     }
 
-    public PlanCompleted? Complete(string sessionId, string messageId) => null;
+    public ModeCompletionOutcome Complete(string sessionId, string messageId) => ModeCompletionOutcome.None;
 }
