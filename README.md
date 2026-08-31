@@ -217,6 +217,78 @@ host baseline does not hide scratch contents from filesystem reads.
 Legacy `profiles.<id>.status` input is accepted and ignored for compatibility.
 It is not profile guidance and is never injected into a prompt.
 
+## Approved AgentTask workflow
+
+Plan mode produces a correlated pair of private, runtime-designated artifacts:
+a human-readable Markdown plan and an AgentTask JSON artifact. It completes only
+when both files are nonblank and the JSON validates. The plan-completion dialog
+shows the Markdown for approval. Choosing implementation changes to build mode
+with both approved paths and directs it to call `run_agent_tasks` with the JSON
+path. The tool reopens and validates that regular, non-symbolic-link file at
+invocation time; approval does not make a later changed artifact trusted.
+
+The v1 artifact has this strict envelope:
+
+```json
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "name": "compile",
+      "description": "Build the approved change.",
+      "payload": "Implement and verify the change.",
+      "acceptance_criteria": "The focused build succeeds.",
+      "dependencies": [],
+      "model": "provider/model"
+    }
+  ]
+}
+```
+
+`schema_version` must be `1`, and `tasks` must be nonempty. Every task requires
+nonblank `name`, `description`, `payload`, and `acceptance_criteria`; `model`
+and `dependencies` are optional. A payload is either a nonblank instruction or
+a nonempty recursive sibling task array. Unknown fields and null required
+values are rejected. Names and dependencies are case-sensitive. Dependencies
+are distinct, must name another task in the same sibling list, and may not be
+self-references or cycles; a task cannot depend on a nested task or a task in
+another branch.
+
+`run_agent_tasks` runs an approved graph synchronously. For every task role it
+creates a fresh, retained-only child using the `worker` profile, so internal
+research, execution, and review completion does not steer the invoking agent.
+These children do not inherit conversational context, but they use the same
+workspace and the normal user-session-scoped runtime resources. A task's
+`model`, when present, is routed through normal model resolution; otherwise its
+roles inherit the invoking turn's requested model.
+
+Every task first runs a mandatory research pre-hook. It returns strict JSON with
+nonblank `context` and may omit `task_patch`; when supplied, the patch is sparse
+and may replace only `description`, `payload`, `acceptance_criteria`, or
+`model`. Omitted fields remain unchanged. The patch is validated for that run
+only and never writes back to the approved artifact. Descendants receive the
+ordered root-to-parent ancestor declarations and root-to-current research
+contexts, each labelled with its task path. They never receive sibling or cousin
+research context. Direct dependency summaries are also supplied to a ready
+task.
+
+An instruction payload is executed and then reviewed by a separate acceptance
+child. An `accept` verdict with evidence is authoritative: it succeeds even if
+a composite task's nested result contains failures, which remain visible in the
+result. A `reject` verdict fails the task. A `retry` verdict supplies feedback
+and a replacement payload; there are at most three attempts, including the
+first. Composite payloads recursively run their sibling graph on every attempt.
+
+Ready sibling tasks run concurrently. A failed, blocked, or canceled dependency
+blocks only its descendants; independent siblings continue. The returned JSON
+is a hierarchical result: graph and per-task statuses, attempt count, research
+context, any run-local patch, execution, verdict/evidence, failure or blocking
+dependencies, and nested task results. Cancellation stops runner-owned children
+and waits for them to finish before cancellation propagates. This workflow has
+no rollback and no resume facility. Parallel tasks share one workspace, so the
+planner must express dependencies for any mutation ordering; the scheduler
+cannot make undeclared concurrent writes safe.
+
 ## Image attachments
 
 Parrot accepts PNG, JPEG, GIF, and WebP image attachments, including bounded

@@ -228,8 +228,9 @@ internal sealed class ModeRegistryTests : IDisposable
         profile.Prepare();
         var artifact = PlanArtifact("session");
         await File.WriteAllTextAsync(artifact, "  # Plan\n\n- change code\n");
+        await WriteValidTasks(artifact);
 
-        var completed = profile.Complete("session", "message");
+        var completed = profile.Complete("session", "message").Completion;
 
         if (completed is not { } emitted)
         {
@@ -242,7 +243,7 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(emitted.Dialog.Prompt).IsEqualTo("Plan complete: ");
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Mode).IsEqualTo(ModeRegistry.Build);
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Prompt)
-            .IsEqualTo($"Implement the approved plan at {artifact}.");
+            .IsEqualTo($"Implement the approved Markdown plan at {artifact}. Call run_agent_tasks with the approved task JSON path {TaskArtifactFor(artifact)}.");
         _ = await Assert.That(emitted.Dialog.EmptyMessage).IsEqualTo("enter yes, no, or feedback");
     }
 
@@ -252,8 +253,9 @@ internal sealed class ModeRegistryTests : IDisposable
         var profile = OwnerModes("user-session").Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(PlanArtifact("user-session"), "# Plan");
+        await WriteValidTasks(PlanArtifact("user-session"));
 
-        var completed = profile.Complete("main-agent-session", "message");
+        var completed = profile.Complete("main-agent-session", "message").Completion;
 
         if (completed is not { } emitted)
         {
@@ -265,13 +267,39 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
+    public async Task Plan_completion_requires_and_validates_the_task_artifact()
+    {
+        var profile = OwnerModes("repair").Resolve(ModeRegistry.Plan);
+        profile.Prepare();
+        var artifact = PlanArtifact("repair");
+        await File.WriteAllTextAsync(artifact, "# Plan");
+
+        var missing = profile.Complete("session", "missing");
+
+        _ = await Assert.That(missing.Completion).IsNull();
+        _ = await Assert.That(missing.RepairDiagnostic).Contains(TaskArtifactFor(artifact));
+        _ = await Assert.That(missing.RepairDiagnostic).Contains("blank");
+
+        await File.WriteAllTextAsync(TaskArtifactFor(artifact), "{\"schema_version\":2,\"tasks\":[]}");
+        var invalid = profile.Complete("session", "invalid");
+
+        _ = await Assert.That(invalid.Completion).IsNull();
+        _ = await Assert.That(invalid.RepairDiagnostic).Contains(TaskArtifactFor(artifact));
+        _ = await Assert.That(invalid.RepairDiagnostic).Contains("schema_version must equal 1");
+    }
+
+    [Test]
     public async Task Plan_completion_omits_a_blank_artifact()
     {
         var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);
         profile.Prepare();
         await File.WriteAllTextAsync(PlanArtifact("session"), " \n\t ");
 
-        _ = await Assert.That(profile.Complete("session", "message")).IsNull();
+        var outcome = profile.Complete("session", "message");
+
+        _ = await Assert.That(outcome.Completion).IsNull();
+        _ = await Assert.That(outcome.RepairDiagnostic).Contains(PlanArtifact("session"));
+        _ = await Assert.That(outcome.RepairDiagnostic).Contains("Markdown plan artifact is blank");
     }
 
     [Test]
@@ -317,6 +345,12 @@ internal sealed class ModeRegistryTests : IDisposable
 
     private static string PlanArtifactIn(string directory) =>
         Directory.GetFiles(directory, "plan-*.md").Single();
+
+    private static string TaskArtifactFor(string markdownArtifact) =>
+        string.Concat(markdownArtifact.AsSpan(0, markdownArtifact.Length - 3), ".tasks.json");
+
+    private static Task WriteValidTasks(string markdownArtifact) =>
+        File.WriteAllTextAsync(TaskArtifactFor(markdownArtifact), "{\"schema_version\":1,\"tasks\":[{\"name\":\"work\",\"description\":\"Do work\",\"payload\":\"Implement it\",\"acceptance_criteria\":\"Tests pass\"}]}");
 
     private static string WriteArguments(string path, string content) =>
         string.Concat(

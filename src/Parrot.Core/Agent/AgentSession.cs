@@ -89,6 +89,7 @@ internal sealed class AgentSession(
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private CancellationTokenSource? _drainCancellation;
     private bool _wake;
+    private bool _aborted;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private TaskCompletionSource? _incomingInputWait;
@@ -221,7 +222,7 @@ internal sealed class AgentSession(
             stopping.Dispose();
         }
 
-        if (eventRepository.HasPendingInputs(SessionId))
+        if (!_aborted && eventRepository.HasPendingInputs(SessionId))
         {
             _ = Wake(incomingAvailable: true);
         }
@@ -233,6 +234,17 @@ internal sealed class AgentSession(
     // close.
     public async Task Settled() =>
         _ = await ResultSettled().ConfigureAwait(false);
+
+    internal async Task Abort(CancellationToken cancellationToken)
+    {
+        lock (_drainGate)
+        {
+            _aborted = true;
+            _wake = false;
+        }
+
+        await Interrupt(cancellationToken).ConfigureAwait(false);
+    }
 
     internal void SetCheckpoint(string title, long assistantSequence, string toolCallId)
     {
@@ -784,6 +796,11 @@ internal sealed class AgentSession(
     {
         lock (_drainGate)
         {
+            if (_aborted)
+            {
+                return (false, _drain);
+            }
+
             if (incomingAvailable)
             {
                 _ = _incomingInputWait?.TrySetResult();
@@ -827,7 +844,8 @@ internal sealed class AgentSession(
                 // Admitted after the last promotion looked and before the drain
                 // settled. Check durable input as well as the in-memory wake so
                 // recovered or otherwise pre-existing input cannot be stranded.
-                if (!cancellationToken.IsCancellationRequested
+                if (pass.Status == AgentExecutionStatus.Succeeded
+                    && !cancellationToken.IsCancellationRequested
                     && (_wake || eventRepository.HasPendingInputs(SessionId)))
                 {
                     _wake = false;
@@ -1016,10 +1034,25 @@ internal sealed class AgentSession(
                     continue;
                 }
 
-                _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
                 _messageId = Identifier.MessageId();
                 answer = completed.AssistantText;
+                var modeOutcome = activeSelection.Profile.Complete(SessionId, _messageId);
+                if (modeOutcome.RepairDiagnostic is { } diagnostic)
+                {
+                    var repair = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = diagnostic },
+                    };
+                    eventRepository.AppendPlanValidationRepair(repair, completed.AssistantText, diagnostic);
+                    _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                    _history.Add(LLMMessage.System(diagnostic));
+                    await eventBroker.Publish(repair, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
 
+                _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
                 var ended = new Event
                 {
                     Id = Identifier.EventId(),
@@ -1031,7 +1064,7 @@ internal sealed class AgentSession(
                         OutputTokens = _statistics.OutputTokens,
                     },
                 };
-                if (activeSelection.Profile.Complete(SessionId, _messageId) is { } planCompleted)
+                if (modeOutcome.Completion is { } planCompleted)
                 {
                     var plan = new Event
                     {

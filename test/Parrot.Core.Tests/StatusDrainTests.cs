@@ -100,6 +100,73 @@ internal sealed class StatusDrainTests : IDisposable
     }
 
     [Test]
+    public async Task Blank_markdown_repairs_in_the_same_turn_before_completion(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var modes = Modes();
+        using var provider = new SteppedProvider(Answer("candidate"), Answer("repaired"));
+        var providerModel = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var router = TestModels.Route(providerModel);
+        var sessions = new DirectAgentSessions();
+        sessions.Use(router);
+        await using var session = new Parrot.Agent.UserSession(
+            "repair-user",
+            "main-agent",
+            router.Resolve(providerModel.Selector),
+            ModeRegistry.Plan,
+            Resources(database, "repair-user"),
+            sessions,
+            OwnerModes(modes, "repair-user"),
+            TestModels.ProfileRegistry(),
+            false,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System);
+
+        _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var planArtifact = Directory.GetFiles(
+            Path.Combine(
+                _root,
+                "sessions",
+                "repair-user",
+                "scratch",
+                repository.SessionState("repair-user", ModeRegistry.Build).AgentSessionId,
+                "plan"),
+            "plan-*.md").Single();
+        var taskArtifact = string.Concat(planArtifact.AsSpan(0, planArtifact.Length - 3), ".tasks.json");
+        await File.WriteAllTextAsync(
+            taskArtifact,
+            "{\"schema_version\":1,\"tasks\":[{\"name\":\"work\",\"description\":\"Do work\",\"payload\":\"Implement it\",\"acceptance_criteria\":\"Tests pass\"}]}",
+            cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        var repairing = repository.Replay();
+        _ = await Assert.That(repairing.Count(published =>
+            published.PayloadCase == Event.PayloadOneofCase.PlanValidationRepairInjected)).IsEqualTo(1);
+        _ = await Assert.That(repairing.Any(published =>
+            published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)).IsFalse();
+        _ = await Assert.That(repairing.Any(published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnEnded)).IsFalse();
+
+        await File.WriteAllTextAsync(planArtifact, "# Repaired", cancellationToken);
+        provider.Release();
+        await Settled(session);
+
+        var completed = repository.Replay().ToArray();
+        var repair = Array.FindIndex(completed, published =>
+            published.PayloadCase == Event.PayloadOneofCase.PlanValidationRepairInjected);
+        var plan = Array.FindIndex(completed, published =>
+            published.PayloadCase == Event.PayloadOneofCase.PlanCompleted);
+        var ended = Array.FindIndex(completed, published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnEnded);
+        _ = await Assert.That(repair).IsLessThan(plan);
+        _ = await Assert.That(plan).IsLessThan(ended);
+    }
+
+    [Test]
     public async Task Plan_completion_uses_the_user_session_profile_for_the_main_agent(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -129,6 +196,8 @@ internal sealed class StatusDrainTests : IDisposable
             Path.Combine(_root, "sessions", "user", "scratch", AgentSessionId(repository), "plan"),
             "plan-*.md").Single();
         await File.WriteAllTextAsync(planArtifact, "  # Plan\n", cancellationToken);
+        var taskArtifact = string.Concat(planArtifact.AsSpan(0, planArtifact.Length - 3), ".tasks.json");
+        await File.WriteAllTextAsync(taskArtifact, "{\"schema_version\":1,\"tasks\":[{\"name\":\"work\",\"description\":\"Do work\",\"payload\":\"Implement it\",\"acceptance_criteria\":\"Tests pass\"}]}", cancellationToken);
         provider.Release();
         await Settled(session);
 

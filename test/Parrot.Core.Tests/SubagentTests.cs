@@ -170,27 +170,39 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
         var firstParent = Session(provider, 0, "first-parent", cancellationToken);
         var secondParent = Session(provider, 0, "second-parent", cancellationToken);
-        var first = registry.Spawn(
+        var first = registry.Spawn(new AgentLaunchRequest(
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
             firstParent.Selection().RequestedModel,
             "helper",
-            string.Empty);
-        var sibling = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var sibling = registry.Spawn(new AgentLaunchRequest(
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
             firstParent.Selection().RequestedModel,
             "helper",
-            string.Empty);
-        var otherBranch = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var otherBranch = registry.Spawn(new AgentLaunchRequest(
             secondParent,
             Turn(secondParent, Router(provider)),
             "worker",
             secondParent.Selection().RequestedModel,
             "helper",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await Assert.That(first.Name).IsEqualTo("helper");
         _ = await Assert.That(sibling.Name).IsEqualTo("helper-2");
@@ -211,34 +223,50 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var root = Session(provider, 0, "root", "root-agent", cancellationToken);
-        var planner = registry.Spawn(
+        var planner = registry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
             "  Planner!  ",
-            "Plan the migration.");
-        var worker = registry.Spawn(
+            "Plan the migration.",
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var worker = registry.Spawn(new AgentLaunchRequest(
             planner,
             Turn(planner, Router(provider)),
             "worker",
             planner.Selection().RequestedModel,
             "worker",
-            string.Empty);
-        var reviewer = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var reviewer = registry.Spawn(new AgentLaunchRequest(
             worker,
             Turn(worker, Router(provider)),
             "worker",
             worker.Selection().RequestedModel,
             "reviewer",
-            "Plan the migration.");
-        var implementer = registry.Spawn(
+            "Plan the migration.",
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var implementer = registry.Spawn(new AgentLaunchRequest(
             worker,
             Turn(worker, Router(provider)),
             "worker",
             worker.Selection().RequestedModel,
             "implementer",
-            "Implement the migration.");
+            "Implement the migration.",
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await Assert.That(planner.Name).IsEqualTo("planner");
         _ = await Assert.That(worker.ResolveScope().Format(worker.Depth)).IsEqualTo(
@@ -269,13 +297,17 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
         var firstParent = Session(provider, 0, "first-parent", cancellationToken);
         var secondParent = Session(provider, 0, "second-parent", cancellationToken);
-        var target = registry.Spawn(
+        var target = registry.Spawn(new AgentLaunchRequest(
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
             firstParent.Selection().RequestedModel,
             "helper",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await Assert.That(registry.GetChild(secondParent, target.SessionId)).IsSameReferenceAs(target);
         var unrelated = await Assert.That(() => registry.GetRecipient(secondParent, target.SessionId))
@@ -296,34 +328,50 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var root = Session(provider, 0, "root-id", cancellationToken);
-        var parent = registry.Spawn(
+        var parent = registry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
             "parent-name",
-            string.Empty);
-        var caller = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var caller = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "caller",
-            string.Empty);
-        var parentNameCollision = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var parentNameCollision = registry.Spawn(new AgentLaunchRequest(
             caller,
             Turn(caller, Router(provider)),
             "worker",
             caller.Selection().RequestedModel,
             parent.Name,
-            string.Empty);
-        var canonicalCollision = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var canonicalCollision = registry.Spawn(new AgentLaunchRequest(
             caller,
             Turn(caller, Router(provider)),
             "worker",
             caller.Selection().RequestedModel,
             parentNameCollision.SessionId,
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await Assert.That(registry.GetRecipient(caller, parent.Name)).IsSameReferenceAs(parent);
         _ = await Assert.That(registry.GetChild(caller, parent.Name)).IsSameReferenceAs(parentNameCollision);
@@ -344,27 +392,39 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var root = Session(provider, 0, "root-id", cancellationToken);
-        var grandparent = registry.Spawn(
+        var grandparent = registry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
             "grandparent",
-            string.Empty);
-        var parent = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var parent = registry.Spawn(new AgentLaunchRequest(
             grandparent,
             Turn(grandparent, Router(provider)),
             "worker",
             grandparent.Selection().RequestedModel,
             "parent-agent",
-            string.Empty);
-        var sender = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var sender = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "sender",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         var send = new AgentSendTool(registry, sender);
 
         var result = (await send.Execute(
@@ -392,20 +452,28 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
         var firstParent = Session(provider, 0, "first-parent", cancellationToken);
         var secondParent = Session(provider, 0, "second-parent", cancellationToken);
-        var first = registry.Spawn(
+        var first = registry.Spawn(new AgentLaunchRequest(
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
             firstParent.Selection().RequestedModel,
             string.Empty,
-            string.Empty);
-        var second = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var second = registry.Spawn(new AgentLaunchRequest(
             secondParent,
             Turn(secondParent, Router(provider)),
             "worker",
             secondParent.Selection().RequestedModel,
             first.Name,
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await Assert.That(second.Name).IsEqualTo(first.Name);
         _ = await Assert.That(registry.GetChild(firstParent, first.Name)).IsSameReferenceAs(first);
@@ -424,27 +492,39 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var root = Session(provider, 0, "root-id", "root", cancellationToken);
-        var parent = registry.Spawn(
+        var parent = registry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
             "actual-parent",
-            string.Empty);
-        var caller = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var caller = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "caller",
-            string.Empty);
-        var namedParent = registry.Spawn(
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+        var namedParent = registry.Spawn(new AgentLaunchRequest(
             caller,
             Turn(caller, Router(provider)),
             "worker",
             caller.Selection().RequestedModel,
             "parent",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await Assert.That(registry.GetRecipient(caller, "parent")).IsSameReferenceAs(parent);
         _ = await Assert.That(registry.GetRecipient(caller, parent.SessionId)).IsSameReferenceAs(parent);
@@ -466,13 +546,17 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
         var root = Session(provider, 0, "root-id", "root", cancellationToken);
         var emptyRoot = Session(provider, 0, "empty-root-id", "empty-root", cancellationToken);
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
             "parent",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await Assert.That(registry.GetRecipient(root, "parent")).IsSameReferenceAs(child);
         _ = await Assert.That(registry.GetChild(root, "parent")).IsSameReferenceAs(child);
@@ -530,13 +614,17 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "helper",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await child.Send("do work", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -556,6 +644,43 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Retained_only_completion_preserves_terminal_result_without_steering_the_parent(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "child result", []));
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider), deliversCompletions: true),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var parent = Session(provider, 0, "parent", cancellationToken);
+        var child = registry.Spawn(new AgentLaunchRequest(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "internal-helper",
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.RetainedOnly));
+
+        _ = await child.Send("do work", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        var completed = await child.Wait(0, cancellationToken);
+
+        _ = await Assert.That(completed.Status).IsEqualTo(AgentTaskStatus.Succeeded);
+        _ = await Assert.That(completed.Output).IsEqualTo("child result");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(_repository.Replay().Select(item => item.PayloadCase))
+            .Contains(Event.PayloadOneofCase.AgentStarted)
+            .And.Contains(Event.PayloadOneofCase.AgentFinished);
+    }
+
+    [Test]
     public async Task Nested_completion_starts_an_idle_parent_execution_and_notifies_the_root(
         CancellationToken cancellationToken)
     {
@@ -572,26 +697,34 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var root = Session(provider, 0, "root", cancellationToken);
-        var intermediate = registry.Spawn(
+        var intermediate = registry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, Router(provider)),
             "worker",
             root.Selection().RequestedModel,
             "intermediate",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         _ = await intermediate.Send("prepare", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await root.ResultSettled();
-        var nested = registry.Spawn(
+        var nested = registry.Spawn(new AgentLaunchRequest(
             intermediate,
             Turn(intermediate, Router(provider)),
             "worker",
             intermediate.Selection().RequestedModel,
             "nested",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
 
         _ = await nested.Send("inspect", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -652,13 +785,17 @@ internal sealed class SubagentTests : IDisposable
         var parent = Session(provider, 0, "agent", cancellationToken);
         parent.UpdateSelection(parent.Selection().RequestedModel, Profile("parent", readOnly: true, []));
 
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         var mode = sessions.Profiles.Single();
         var securityProfile = sessions.SecurityProfiles.Single();
 
@@ -668,7 +805,7 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(mode.MaxTurns).IsEqualTo(64);
         _ = await Assert.That(mode.SecurityProfile).IsSameReferenceAs(securityProfile);
         _ = await Assert.That(mode.SecurityProfile.ReadOnly).IsTrue();
-        _ = await Assert.That(mode.Complete(child.SessionId, "message")).IsNull();
+        _ = await Assert.That(mode.Complete(child.SessionId, "message").Completion).IsNull();
 
         _ = await child.Send("work", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -797,13 +934,17 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(
+        var spawned = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry, parent);
 
@@ -865,13 +1006,17 @@ internal sealed class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await parent.Wait(0, cancellationToken);
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         var send = new AgentSendTool(registry, child);
 
         var sent = (await send.Execute(
@@ -906,13 +1051,17 @@ internal sealed class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await parent.Wait(0, cancellationToken);
-        var child = registry.Spawn(
+        var child = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         var send = new AgentSendTool(registry, child);
 
         var sent = (await send.Execute(
@@ -944,13 +1093,17 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(
+        var spawned = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         _ = await spawned.Send("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
@@ -982,13 +1135,17 @@ internal sealed class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
-        var spawned = registry.Spawn(
+        var spawned = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         _ = await spawned.Send("initial", cancellationToken);
         await provider.Arrived(cancellationToken);
         var boundary = new string('x', 32 * 1024);
@@ -1019,13 +1176,17 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var stranger = Session(provider, 0, "stranger", cancellationToken);
-        var spawned = registry.Spawn(
+        var spawned = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(registry, parent);
 
@@ -1100,13 +1261,17 @@ internal sealed class SubagentTests : IDisposable
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "parent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent);
-        var idle = registry.Spawn(
+        var idle = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "idle",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         _ = await idle.Send("become idle", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
@@ -1137,13 +1302,17 @@ internal sealed class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        var spawned = registry.Spawn(
+        var spawned = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty);
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
         _ = await spawned.Send("first", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
@@ -1168,13 +1337,17 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(failed.AgentFailed.ParentAgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(failed.AgentFailed.Name).IsEqualTo("worker");
         _ = await Assert.That(failed.AgentFailed.Message).IsEqualTo("interrupted");
-        _ = await Assert.That(() => registry.Spawn(
+        _ = await Assert.That(() => registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
             parent.Selection().RequestedModel,
             "worker",
-            string.Empty))
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic)))
             .Throws<AgentRegistryException>();
         var rejected = (await send.Execute(
             new ToolInvocation(

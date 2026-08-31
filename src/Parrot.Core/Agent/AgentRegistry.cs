@@ -18,6 +18,7 @@ internal sealed class AgentRegistry(
     private const int MaxDepth = 4;
     private const int MaxRetained = 1024;
     private readonly Dictionary<string, IAgentSessionLease> _entries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AgentCompletionDeliveryPolicy> _completionDeliveryPolicies = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _namesByParent = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AgentSession> _parents = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
@@ -39,39 +40,13 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public AgentSession Spawn(
-        AgentSession parent,
-        AgentTurnSelection selection,
-        string requestedProfile,
-        Llm.ModelSelector model,
-        string requestedName,
-        string requestedScope) =>
-        Spawn(
-            parent,
-            selection,
-            requestedProfile,
-            model,
-            requestedName,
-            requestedScope,
-            HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty);
-
-    public AgentSession Spawn(
-        AgentSession parent,
-        AgentTurnSelection selection,
-        string requestedProfile,
-        Llm.ModelSelector model,
-        string requestedName,
-        string requestedScope,
-        HistoryForkSelection fork,
-        long assistantSequence,
-        string spawnToolCallId)
+    public AgentSession Spawn(AgentLaunchRequest request)
     {
-        ArgumentNullException.ThrowIfNull(parent);
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(requestedScope);
-        var profile = profiles.ResolveChild(requestedProfile);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Parent);
+        ArgumentNullException.ThrowIfNull(request.Selection);
+        ArgumentNullException.ThrowIfNull(request.RequestedScope);
+        var profile = profiles.ResolveChild(request.RequestedProfile);
 
         lock (_gate)
         {
@@ -85,18 +60,18 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent retention limit reached");
             }
 
-            var depth = parent.Depth + 1;
+            var depth = request.Parent.Depth + 1;
 
             if (depth > MaxDepth)
             {
                 throw new AgentRegistryException("subagent depth limit reached");
             }
 
-            _parents[parent.SessionId] = parent;
-            var securityProfile = ResolveSecurityProfile(parent).RestrictWith(profile.SecurityProfile);
+            _parents[request.Parent.SessionId] = request.Parent;
+            var securityProfile = ResolveSecurityProfile(request.Parent).RestrictWith(profile.SecurityProfile);
             var mode = new NoopMode(profile, securityProfile);
 
-            if (ProfileOccurrences(parent, profile.Id) >= profile.RecursionLimit)
+            if (ProfileOccurrences(request.Parent, profile.Id) >= profile.RecursionLimit)
             {
                 throw new AgentRegistryException("subagent profile recursion limit reached");
             }
@@ -104,21 +79,21 @@ internal sealed class AgentRegistry(
             var status = _status
                 ?? throw new AgentRegistryException("the runtime status is not attached");
             var sessionId = Identifier.AgentSession();
-            var names = NamesFor(parent.SessionId);
-            var name = UniqueName(names, requestedName, sessionId);
-            var scope = parent.ResolveScope().DeriveChild(name, depth, requestedScope);
-            var identity = AgentIdentity.Child(sessionId, parent.SessionId, parent.Name, name, depth, scope);
+            var names = NamesFor(request.Parent.SessionId);
+            var name = UniqueName(names, request.RequestedName, sessionId);
+            var scope = request.Parent.ResolveScope().DeriveChild(name, depth, request.RequestedScope);
+            var identity = AgentIdentity.Child(sessionId, request.Parent.SessionId, request.Parent.Name, name, depth, scope);
             eventRepository.InitializeForkedAgentHistory(
-                parent.SessionId,
+                request.Parent.SessionId,
                 sessionId,
-                assistantSequence,
-                spawnToolCallId,
-                fork);
+                request.AssistantSequence,
+                request.SpawnToolCallId,
+                request.Fork);
             try
             {
                 var lease = agentSessions.Create(
                     identity,
-                    model,
+                    request.Model,
                     eventBroker,
                     eventRepository,
                     mode,
@@ -128,6 +103,7 @@ internal sealed class AgentRegistry(
                     _lifetime.Token);
 
                 _entries.Add(sessionId, lease);
+                _completionDeliveryPolicies.Add(sessionId, request.DeliveryPolicy);
                 names.Add(name, sessionId);
                 return lease.Session;
             }
@@ -250,7 +226,9 @@ internal sealed class AgentRegistry(
 
         lock (_gate)
         {
-            parent = _accepting && child.ParentSessionId.Length > 0
+            parent = _accepting
+                && child.ParentSessionId.Length > 0
+                && _completionDeliveryPolicies.GetValueOrDefault(child.SessionId) == AgentCompletionDeliveryPolicy.Automatic
                 ? _parents.GetValueOrDefault(child.ParentSessionId)
                 : null;
         }

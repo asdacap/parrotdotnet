@@ -12,6 +12,16 @@ namespace Parrot.Core.Tests;
 internal sealed class EventPayloadTests
 {
     [Test]
+    public async Task Plan_validation_repair_roundtrips_as_additive_payload()
+    {
+        var source = new Event { PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = "repair tasks" } };
+        var bytes = source.ToByteArray();
+        var restored = Event.Parser.ParseFrom(bytes);
+        _ = await Assert.That(restored.PayloadCase).IsEqualTo(Event.PayloadOneofCase.PlanValidationRepairInjected);
+        _ = await Assert.That(restored.PlanValidationRepairInjected.Diagnostic).IsEqualTo("repair tasks");
+    }
+
+    [Test]
     public async Task Agent_statistics_roundtrip_as_a_protobuf_payload()
     {
         var source = new Event

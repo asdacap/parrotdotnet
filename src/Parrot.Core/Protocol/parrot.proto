@@ -397,6 +397,7 @@ message Event {
     CompactionFailed compaction_failed = 30;
     FinalProviderRequestPromptInjected final_provider_request_prompt_injected = 31;
     ToolAvailabilityRestoredPromptInjected tool_availability_restored_prompt_injected = 32;
+    PlanValidationRepairInjected plan_validation_repair_injected = 33;
   }
 }
 
@@ -625,6 +626,10 @@ message TurnEnded {
   string finish_reason = 1;
   int64  input_tokens  = 2;
   int64  output_tokens = 3;
+}
+
+message PlanValidationRepairInjected {
+  string diagnostic = 1;
 }
 
 message PlanCompleted {
