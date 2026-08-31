@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace Parrot.Cli.Enhanced.Tools;
@@ -11,7 +12,7 @@ internal sealed class QueueTakeToolPresenter : IToolPresenter
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
         var input = QueueTakeInput.Parse(call.ArgumentsJson);
-        return new ToolLiveValue(Label(call.Owner, input.Name), ToolBlock.Empty, Metadata, frame);
+        return new ToolLiveValue(Label(call.Owner, input.Name, input.Count), ToolBlock.Empty, Metadata, frame);
     }
 
     public IScrollbackItem PresentTerminal(ToolCallPresentation call, ToolTerminalPresentation terminal)
@@ -21,7 +22,7 @@ internal sealed class QueueTakeToolPresenter : IToolPresenter
         if (status != ToolTerminalStatus.Succeeded)
         {
             return new ToolScrollbackValue(
-                Label(call.Owner, input.Name),
+                Label(call.Owner, input.Name, input.Count),
                 terminal.DescribeBlock(ToolBlockKind.None),
                 status,
                 Metadata);
@@ -29,23 +30,27 @@ internal sealed class QueueTakeToolPresenter : IToolPresenter
 
         var result = QueueTakeResult.Parse(terminal.Result);
         return new ToolScrollbackValue(
-            Label(call.Owner, result.Name, result.Description, result.Closed),
-            ToolBlock.FromQueue([string.Concat(result.Size.ToString(System.Globalization.CultureInfo.InvariantCulture), " remaining"), .. result.Items]),
+            Label(call.Owner, result.Name, input.Count, result.Description, result.Closed),
+            ToolBlock.FromQueue([string.Concat(result.Size.ToString(CultureInfo.InvariantCulture), " remaining"), .. result.Items]),
             status,
             Metadata);
     }
 
-    private static string Label(string owner, string name) => $"{owner}: Take from queue {name}";
+    private static string Label(string owner, string name, int count)
+    {
+        var unit = count == 1 ? "item" : "items";
+        return $"{owner}: Take from queue {name} · up to {count.ToString(CultureInfo.InvariantCulture)} {unit}";
+    }
 
-    private static string Label(string owner, string name, string description, bool closed)
+    private static string Label(string owner, string name, int count, string description, bool closed)
     {
         var label = description.Length == 0
-            ? Label(owner, name)
-            : $"{Label(owner, name)} · {description}";
+            ? Label(owner, name, count)
+            : $"{Label(owner, name, count)} · {description}";
         return closed ? $"{label} · closed" : label;
     }
 
-    private readonly record struct QueueTakeInput(string Name)
+    private readonly record struct QueueTakeInput(string Name, int Count)
     {
         public static QueueTakeInput Parse(string argumentsJson)
         {
@@ -59,8 +64,15 @@ internal sealed class QueueTakeToolPresenter : IToolPresenter
                 throw new FormatException("Queue take arguments require a name.");
             }
 
+            var countValue = 1;
+            if (root.TryGetProperty("count", out var count)
+                && (!count.TryGetInt32(out countValue) || countValue < 1))
+            {
+                throw new FormatException("Queue take count must be a positive integer.");
+            }
+
             var nameValue = name.GetString() ?? throw new FormatException("Queue take arguments require a name.");
-            return new QueueTakeInput(nameValue);
+            return new QueueTakeInput(nameValue, countValue);
         }
     }
 

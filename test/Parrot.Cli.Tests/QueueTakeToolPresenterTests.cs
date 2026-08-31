@@ -13,7 +13,7 @@ internal sealed class QueueTakeToolPresenterTests
     public async Task Queue_take_renders_remaining_then_taken_items_with_queue_metadata()
     {
         var presenter = new QueueTakeToolPresenter();
-        var call = new ToolCallPresentation("worker", "queue_take", "{\"name\":\"work\"}");
+        var call = new ToolCallPresentation("worker", "queue_take", "{\"name\":\"work\",\"count\":5}");
         var result = "{\"path\":\"/ignored\",\"name\":\"work\",\"description\":\"release tasks\",\"size\":2,\"closed\":true,\"monitored\":true,\"items\":[\"first\",\"second\"]}";
 
         var terminal = presenter.PresentTerminal(
@@ -23,24 +23,28 @@ internal sealed class QueueTakeToolPresenterTests
         var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(static line => line.Text).ToArray();
 
         _ = await Assert.That(string.Join('|', terminal)).IsEqualTo(
-            "✓ worker: Take from queue work · release tasks · closed|  2 remaining|  first|  second");
-        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ worker: Take from queue work");
+            "✓ worker: Take from queue work · up to 5 items · release tasks · closed|  2 remaining|  first|  second");
+        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ worker: Take from queue work · up to 5 items");
     }
 
     [Test]
     public async Task Queue_take_omits_empty_description_and_open_state()
     {
         var presenter = new QueueTakeToolPresenter();
+        var call = new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\"}");
         var rendered = presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\"}"),
+            call,
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
                 "{\"name\":\"work\",\"size\":0,\"closed\":false,\"items\":[]}",
                 string.Empty))
             .Render(ScrollbackContext);
+        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(static line => line.Text).ToArray();
 
-        _ = await Assert.That(string.Join('|', rendered)).IsEqualTo("✓ main: Take from queue work|  0 remaining");
+        _ = await Assert.That(string.Join('|', rendered)).IsEqualTo(
+            "✓ main: Take from queue work · up to 1 item|  0 remaining");
+        _ = await Assert.That(string.Join('|', live)).IsEqualTo("⠋ main: Take from queue work · up to 1 item");
     }
 
     [Test]
@@ -48,7 +52,7 @@ internal sealed class QueueTakeToolPresenterTests
     {
         var presenter = new QueueTakeToolPresenter();
         var rendered = presenter.PresentTerminal(
-            new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\"}"),
+            new ToolCallPresentation("main", "queue_take", "{\"name\":\"work\",\"count\":3}"),
             new ToolTerminalPresentation(
                 ToolTerminalStatus.Succeeded,
                 true,
@@ -56,7 +60,7 @@ internal sealed class QueueTakeToolPresenterTests
                 string.Empty))
             .Render(ScrollbackContext);
 
-        _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: Take from queue work");
+        _ = await Assert.That(rendered[0]).IsEqualTo("✗ main: Take from queue work · up to 3 items");
         _ = await Assert.That(rendered[1]).IsEqualTo("  error: queue: 'work' is unavailable");
     }
 
@@ -88,6 +92,24 @@ internal sealed class QueueTakeToolPresenterTests
         _ = await Assert.That(rendered[^1]).Contains("lines truncated.");
         _ = await Assert.That(string.Join('|', rendered)).DoesNotContain('\u001b');
         _ = await Assert.That(Encoding.UTF8.GetByteCount(string.Concat(large))).IsLessThanOrEqualTo((16 * 1024) + 64);
+    }
+
+    [Test]
+    [Arguments("{\"name\":\"work\",\"count\":0}")]
+    [Arguments("{\"name\":\"work\",\"count\":-1}")]
+    [Arguments("{\"name\":\"work\",\"count\":1.5}")]
+    [Arguments("{\"name\":\"work\",\"count\":\"2\"}")]
+    [Arguments("{\"name\":\"work\",\"count\":2147483648}")]
+    public async Task Queue_take_invalid_count_falls_back_safely_through_the_registry(string arguments)
+    {
+        var registry = new ToolPresenterRegistry([new QueueTakeToolPresenter()], new GenericToolPresenter());
+        var rendered = (registry.PresentTerminal(
+            new ToolCallPresentation("main", "queue_take", arguments),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, false, string.Empty, string.Empty))
+            ?? throw new InvalidOperationException("Fallback presentation missing."))
+            .Render(ScrollbackContext);
+
+        _ = await Assert.That(rendered[0]).IsEqualTo("✓ main: tool call queue_take");
     }
 
     [Test]
