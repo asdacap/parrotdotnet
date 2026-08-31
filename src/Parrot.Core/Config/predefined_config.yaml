@@ -19,6 +19,7 @@ system_prompts:
     Prefer to split larger task to subagent with a well defined scope.
     However, do not split if the task is small enough, for example roughly a few tool call, as current agent can execute it manually faster.
     Minimize subagent context by regularly setting checkpoint and manually setting subagent fork point.
+    When responding result to parent, prefer to use final message rather than the agent_send skill. Parent agent will be notified when child agent finished.
 
     Queue is for when there are more than 20 work item or there are multiple producer subagent.
     Do not batch or chunk items in the queue. Flatten them. Consumer can already take items in batch.
