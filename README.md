@@ -532,6 +532,29 @@ Implementation-specific provider adapters and model-list decoders remain in
 code, as does the ChatGPT OAuth transport; the YAML contains only their
 serializable defaults and catalog metadata.
 
+OpenRouter provider-routing criteria are configured as an open-ended mapping at
+`providers.openrouter.provider_preferences`. The predefined policy enables
+fallbacks, requires every selected endpoint to support all request parameters,
+denies providers that may collect request data, and requires zero-data-retention
+endpoints:
+
+```yaml
+providers:
+  openrouter:
+    provider_preferences:
+      allow_fallbacks: true
+      require_parameters: true
+      data_collection: deny
+      zdr: true
+```
+
+Fallbacks remain limited to endpoints eligible under the parameter and privacy
+filters. A user mapping can override one criterion without repeating the others;
+for example, `providers.openrouter.provider_preferences.allow_fallbacks: false`
+disables fallbacks while inheriting the three remaining defaults. Weakening
+`require_parameters`, `data_collection`, or `zdr` changes the endpoint
+eligibility or privacy contract for subsequent OpenRouter requests.
+
 The predefined file also ships the complete model-facing definition for every
 built-in tool under `tools`: its description and its standard JSON Schema
 `parameters` object. The schema includes property descriptions and all

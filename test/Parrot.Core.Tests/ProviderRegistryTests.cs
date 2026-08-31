@@ -29,6 +29,65 @@ internal sealed class ProviderRegistryTests
     }
 
     [Test]
+    public async Task Openrouter_predefined_preferences_reach_the_request_body(CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-openrouter-preferences", Guid.NewGuid().ToString("n"));
+        var store = new InMemoryCredentialStore();
+        await store.Set("openrouter", Credential.ForApiKey("key"), cancellationToken);
+        using var handler = new OpenRouterHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+
+        try
+        {
+            var configurationPath = Path.Combine(directory, "config.yaml");
+            _ = Directory.CreateDirectory(directory);
+            const string userConfiguration = """
+                providers:
+                  kimi-api:
+                    api_key_env: ''
+                  kimi-code:
+                    api_key_env: ''
+                  opencode-go:
+                    api_key_env: ''
+                """;
+            await File.WriteAllTextAsync(configurationPath, userConfiguration, cancellationToken);
+            var configuration = Configuration.Load(
+                configurationPath,
+                Path.Combine(directory, "predefined_config.yaml"));
+            var registry = await new ProviderRegistryBuilder(
+                configuration,
+                store,
+                client,
+                new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
+            var provider = registry.List().Single(item => item.Id == "openrouter");
+            var request = new LLMRequest
+            {
+                Model = "vendor/model",
+                Messages = [LLMMessage.User("hello")],
+            };
+
+            await foreach (var item in provider.Call(request, cancellationToken))
+            {
+                _ = item;
+            }
+
+            using var document = JsonDocument.Parse(handler.RequestBody);
+            var root = document.RootElement;
+            var preferences = root.GetProperty("provider");
+            _ = await Assert.That(preferences.EnumerateObject().Count()).IsEqualTo(4);
+            _ = await Assert.That(preferences.GetProperty("allow_fallbacks").GetBoolean()).IsTrue();
+            _ = await Assert.That(preferences.GetProperty("require_parameters").GetBoolean()).IsTrue();
+            _ = await Assert.That(preferences.GetProperty("data_collection").GetString()).IsEqualTo("deny");
+            _ = await Assert.That(preferences.GetProperty("zdr").GetBoolean()).IsTrue();
+            _ = await Assert.That(root.GetProperty("include_router_metadata").GetBoolean()).IsTrue();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Resolve_selects_defaults_and_keeps_the_vendor_prefix()
     {
         var registry = Build(
@@ -381,6 +440,41 @@ internal sealed class ProviderRegistryTests
 
         _ = defaultSelector;
         return new ProviderRegistry(builtProviders, catalogues);
+    }
+
+    private sealed class OpenRouterHandler : HttpMessageHandler
+    {
+        public string RequestBody { get; private set; } = string.Empty;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"data":[{"id":"vendor/model"}]}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            var content = request.Content ?? throw new InvalidOperationException("OpenRouter request content is missing");
+            RequestBody = await content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    data: {"choices":[{"index":0,"finish_reason":"stop","delta":{}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}
+
+                    data: [DONE]
+
+                    """,
+                    Encoding.UTF8,
+                    "text/event-stream"),
+            };
+        }
     }
 
     private sealed class ChatGptModelsHandler : HttpMessageHandler

@@ -78,9 +78,17 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Providers["openai"].ModelDefaults.Keys.SequenceEqual(
             ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
             StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(configuration.Providers["openrouter"].Protocol).IsEqualTo("chat-completions");
-        _ = await Assert.That(configuration.Providers["openrouter"].BaseUrl).IsEqualTo("https://openrouter.ai/api/v1");
-        _ = await Assert.That(configuration.Providers["openrouter"].ApiKeyEnv).IsEqualTo("OPENROUTER_API_KEY");
+        var openRouter = configuration.Providers["openrouter"];
+        _ = await Assert.That(openRouter.Protocol).IsEqualTo("chat-completions");
+        _ = await Assert.That(openRouter.BaseUrl).IsEqualTo("https://openrouter.ai/api/v1");
+        _ = await Assert.That(openRouter.ApiKeyEnv).IsEqualTo("OPENROUTER_API_KEY");
+        using var preferences = JsonDocument.Parse(openRouter.ProviderPreferences);
+        var providerPreferences = preferences.RootElement;
+        _ = await Assert.That(providerPreferences.EnumerateObject().Count()).IsEqualTo(4);
+        _ = await Assert.That(providerPreferences.GetProperty("allow_fallbacks").GetBoolean()).IsTrue();
+        _ = await Assert.That(providerPreferences.GetProperty("require_parameters").GetBoolean()).IsTrue();
+        _ = await Assert.That(providerPreferences.GetProperty("data_collection").GetString()).IsEqualTo("deny");
+        _ = await Assert.That(providerPreferences.GetProperty("zdr").GetBoolean()).IsTrue();
         _ = await Assert.That(configuration.Providers["opencode-go"].ModelDefaults).Count().IsEqualTo(22);
         _ = await Assert.That(configuration.Providers["kimi-code"].ModelDefaults["kimi-for-coding"].Context).IsEqualTo(262144);
         _ = await Assert.That(configuration.Providers["kimi-api"].ModelDefaults.Keys.SequenceEqual(
@@ -149,6 +157,30 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(provider.ModelDefaults.Keys).DoesNotContain("declared");
         _ = await Assert.That(provider.Models.Keys).Contains("declared");
         _ = await Assert.That(provider.Models.Keys).DoesNotContain("seeded");
+    }
+
+    [Test]
+    public async Task Openrouter_provider_preferences_partially_override_predefined_privacy_defaults(
+        CancellationToken cancellationToken)
+    {
+        const string userConfiguration = """
+            providers:
+              openrouter:
+                provider_preferences:
+                  allow_fallbacks: false
+            """;
+        var path = Write(userConfiguration);
+
+        var configuration = Load(path);
+
+        using var preferences = JsonDocument.Parse(configuration.Providers["openrouter"].ProviderPreferences);
+        var providerPreferences = preferences.RootElement;
+        _ = await Assert.That(providerPreferences.EnumerateObject().Count()).IsEqualTo(4);
+        _ = await Assert.That(providerPreferences.GetProperty("allow_fallbacks").GetBoolean()).IsFalse();
+        _ = await Assert.That(providerPreferences.GetProperty("require_parameters").GetBoolean()).IsTrue();
+        _ = await Assert.That(providerPreferences.GetProperty("data_collection").GetString()).IsEqualTo("deny");
+        _ = await Assert.That(providerPreferences.GetProperty("zdr").GetBoolean()).IsTrue();
+        _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo(userConfiguration);
     }
 
     [Test]
