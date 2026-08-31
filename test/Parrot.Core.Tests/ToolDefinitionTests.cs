@@ -53,6 +53,11 @@ internal sealed class ToolDefinitionTests : IDisposable
         using var wait = JsonDocument.Parse(definitions["wait"].ParametersJson);
         _ = await Assert.That(wait.RootElement.GetProperty("properties").GetProperty("duration_ms")
             .GetProperty("maximum").GetInt64()).IsEqualTo(4_294_967_294);
+        using var edit = JsonDocument.Parse(definitions["edit"].ParametersJson);
+        _ = await Assert.That(edit.RootElement.GetProperty("required").EnumerateArray()
+            .Select(item => item.GetString())).DoesNotContain("replace_all");
+        _ = await Assert.That(edit.RootElement.GetProperty("properties").GetProperty("replace_all")
+            .GetProperty("default").GetBoolean()).IsFalse();
     }
 
     private static async Task AssertDescriptions(JsonElement schema)

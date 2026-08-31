@@ -417,12 +417,12 @@ tools:
           description: Text that replaces each selected match.
         replace_all:
           type: boolean
+          default: false
           description: Whether to replace every match instead of requiring exactly one.
       required:
       - path
       - old_string
       - new_string
-      - replace_all
       additionalProperties: false
   exec_command:
     description: Run a sandboxed shell command. Optionally reserve a name unique among this agent session's running processes

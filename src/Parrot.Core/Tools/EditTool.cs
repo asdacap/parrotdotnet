@@ -30,8 +30,7 @@ internal sealed class EditTool(
                 ?? throw new FormatException("Tool arguments require a string 'old_string'.");
             var newString = input.NewString
                 ?? throw new FormatException("Tool arguments require a string 'new_string'.");
-            var replaceAll = input.ReplaceAll
-                ?? throw new FormatException("Tool arguments require a boolean 'replace_all'.");
+            var replaceAll = input.ReplaceAll;
             if (path.Length == 0)
             {
                 throw new FormatException("Tool argument 'path' must not be empty.");
@@ -142,6 +141,6 @@ internal sealed class EditTool(
         public string? NewString { get; init; }
 
         [JsonPropertyName("replace_all")]
-        public bool? ReplaceAll { get; init; }
+        public bool ReplaceAll { get; init; }
     }
 }

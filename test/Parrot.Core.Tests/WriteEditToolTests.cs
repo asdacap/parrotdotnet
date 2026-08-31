@@ -59,7 +59,6 @@ internal sealed class WriteEditToolTests : IDisposable
     [Arguments("edit", "null")]
     [Arguments("edit", "[]")]
     [Arguments("edit", "{\"path\":null,\"old_string\":\"old\",\"new_string\":\"new\",\"replace_all\":false}")]
-    [Arguments("edit", "{\"path\":\"untouched.txt\",\"old_string\":\"old\",\"new_string\":\"new\"}")]
     [Arguments("edit", "{\"path\":\"untouched.txt\",\"old_string\":\"old\",\"new_string\":null,\"replace_all\":false}")]
     [Arguments("edit", "{\"path\":\"untouched.txt\",\"old_string\":\"old\",\"new_string\":\"new\",\"replace_all\":false,\"extra\":true}")]
     public async Task Strict_argument_failures_have_no_side_effects(string toolName, string arguments, CancellationToken cancellationToken)
@@ -152,12 +151,12 @@ internal sealed class WriteEditToolTests : IDisposable
     }
 
     [Test]
-    public async Task Edit_requires_one_match_unless_replace_all_is_true(CancellationToken cancellationToken)
+    public async Task Edit_requires_one_match_by_default_unless_replace_all_is_true(CancellationToken cancellationToken)
     {
         var path = Path.Combine(_root, "matches.txt");
         await File.WriteAllTextAsync(path, "one one", cancellationToken);
-        var multiple = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("matches.txt", "one", "two", false)), Turn(WritableProfile()), cancellationToken)).Text;
-        var zero = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("matches.txt", "missing", "two", false)), Turn(WritableProfile()), cancellationToken)).Text;
+        var multiple = (await EditTool().Execute(new ToolInvocation("test-call", EditArgumentsWithoutReplaceAll("matches.txt", "one", "two")), Turn(WritableProfile()), cancellationToken)).Text;
+        var zero = (await EditTool().Execute(new ToolInvocation("test-call", EditArgumentsWithoutReplaceAll("matches.txt", "missing", "two")), Turn(WritableProfile()), cancellationToken)).Text;
         var allZero = (await EditTool().Execute(new ToolInvocation("test-call", EditArguments("matches.txt", "missing", "two", true)), Turn(WritableProfile()), cancellationToken)).Text;
         _ = await Assert.That(multiple).StartsWith("error: ");
         _ = await Assert.That(multiple).Contains("2");
@@ -501,6 +500,8 @@ internal sealed class WriteEditToolTests : IDisposable
     private static string WriteArguments(string path, string content) => $"{{\"path\":\"{Encode(path)}\",\"content\":\"{Encode(content)}\"}}";
 
     private static string EditArguments(string path, string oldString, string newString, bool replaceAll) => $"{{\"path\":\"{Encode(path)}\",\"old_string\":\"{Encode(oldString)}\",\"new_string\":\"{Encode(newString)}\",\"replace_all\":{replaceAll.ToString().ToLowerInvariant()}}}";
+
+    private static string EditArgumentsWithoutReplaceAll(string path, string oldString, string newString) => $"{{\"path\":\"{Encode(path)}\",\"old_string\":\"{Encode(oldString)}\",\"new_string\":\"{Encode(newString)}\"}}";
 
     private static string Encode(string value) => JsonEncodedText.Encode(value).ToString();
 
