@@ -877,7 +877,7 @@ internal sealed class AgentSession(
         {
             while (true)
             {
-                await ReconcileToolBatches(cancellationToken).ConfigureAwait(false);
+                await ReconcileToolBatchesUsingCurrentConfiguration(cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // Looking is not consuming. A pending status remains pending
@@ -1140,7 +1140,7 @@ internal sealed class AgentSession(
                 .Where(factory => factory.Supports(this))
                 .Select(factory => factory.Create(this))]);
 
-    private async Task ReconcileToolBatches(CancellationToken cancellationToken)
+    private async Task ReconcileToolBatchesUsingCurrentConfiguration(CancellationToken cancellationToken)
     {
         var captured = ResolveSelection();
         var resolved = router.Resolve(captured.RequestedModel.Value);
