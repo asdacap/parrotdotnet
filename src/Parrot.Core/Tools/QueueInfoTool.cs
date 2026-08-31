@@ -1,15 +1,12 @@
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Queues;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueueInfoTool(AgentQueues queues) : ITool
+internal sealed class QueueInfoTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_info";
-
-    public string ParametersJson => Input.Descriptor;
 
     public Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken) => QueueToolExecution.Execute(() =>
     {
@@ -17,12 +14,9 @@ internal sealed partial class QueueInfoTool(AgentQueues queues) : ITool
         return QueueToolExecution.Serialize(queues.Get(QueueToolExecution.RequireName(input.Name)));
     });
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("name")]
-        [ToolPattern("^[a-z0-9]+(?:-[a-z0-9]+)*$")]
-        [ToolRequired]
         public string? Name { get; init; }
     }
 }

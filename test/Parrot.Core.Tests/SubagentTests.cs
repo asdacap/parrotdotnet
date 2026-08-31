@@ -498,12 +498,12 @@ internal sealed class SubagentTests : IDisposable
         var configuration = Configuration.Load(
             Path.Combine(root, "config.yaml"),
             Path.Combine(root, "predefined_config.yaml"));
-        var documentation = new ToolDocumentationCatalog(
-            new Dictionary<string, ToolDocumentation>(StringComparer.Ordinal)
+        var definitions = new ToolDefinitionCatalog(
+            new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
             {
-                [send.Name] = configuration.ToolDocumentation.Tools[send.Name],
+                [send.Name] = configuration.ToolDefinitions.Definitions[send.Name],
             });
-        var definition = documentation.Document([send]).Single();
+        var definition = definitions.Document([send]).Single();
         using var schema = JsonDocument.Parse(definition.ParametersJson);
         var sessionIdDescription = schema.RootElement.GetProperty("properties").GetProperty("session_id")
             .GetProperty("description").GetString();
@@ -1249,7 +1249,7 @@ internal sealed class SubagentTests : IDisposable
             _broker,
             _repository,
             [],
-            TestModels.EmptyToolDocumentation,
+            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection(identity.SessionId, _repository, _broker),
             new ToolOutputBlobStore(Path.GetTempPath()),
@@ -1344,7 +1344,7 @@ internal sealed class SubagentTests : IDisposable
                 eventBroker,
                 eventRepository,
                 [],
-                TestModels.EmptyToolDocumentation,
+                TestModels.EmptyToolDefinitions,
                 TestModels.MaterializePrompt(identity, ".", "."),
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),

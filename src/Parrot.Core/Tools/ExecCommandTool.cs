@@ -2,20 +2,17 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Process;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
 // The one tool that reaches outside the process. It runs under the sandbox, so
 // a failure to sandbox is reported to the model rather than run unconfined --
 // the fail-closed property, surfaced as a tool error the model can react to.
-internal sealed partial class ExecCommandTool(
+internal sealed class ExecCommandTool(
     ShellProcessOwner processes,
     AgentSession session) : ITool
 {
     public string Name => "exec_command";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -85,11 +82,9 @@ internal sealed partial class ExecCommandTool(
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("command")]
-        [ToolRequired]
         public string? Command { get; init; }
 
         [JsonPropertyName("env")]
@@ -100,11 +95,9 @@ internal sealed partial class ExecCommandTool(
         public string? Name { get; init; }
 
         [JsonPropertyName("yield_after_ms")]
-        [ToolMinimum(0)]
         public long? YieldAfterMilliseconds { get; init; }
 
         [JsonPropertyName("tty")]
-        [ToolDefaultBool(false)]
         public bool Terminal { get; init; }
     }
 }

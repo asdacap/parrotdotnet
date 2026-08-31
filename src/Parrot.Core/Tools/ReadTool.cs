@@ -3,19 +3,16 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Security;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
+internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 {
     private const int MaxLines = 2000;
     private const int MaxOutputBytes = 1 << 20;
     private const int BinaryProbeSize = 8192;
 
     public string Name => "read";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -187,19 +184,15 @@ internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
         return output.ToString();
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("path")]
-        [ToolRequired]
         public string? Path { get; init; }
 
         [JsonPropertyName("offset")]
-        [ToolMinimum(1)]
         public int? Offset { get; init; }
 
         [JsonPropertyName("limit")]
-        [ToolMinimum(1)]
         public int? Limit { get; init; }
     }
 }

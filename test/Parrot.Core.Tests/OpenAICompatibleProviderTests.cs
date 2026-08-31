@@ -40,14 +40,14 @@ internal sealed class OpenAICompatibleProviderTests
         """;
 
     [Test]
-    public async Task Encode_carries_hydrated_tool_documentation_overrides_and_shipped_siblings(
+    public async Task Encode_carries_configured_tool_schema_overrides_and_shipped_siblings(
         CancellationToken cancellationToken)
     {
         const string overriddenDescription = "Read configured content.";
         const string overriddenPathDescription = "Configured path prose.";
         const string shippedSiblingDescription =
             "Find paths beneath an optional root with deterministic glob matching, including **. Relative roots resolve within the workspace.";
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-chat-tool-documentation", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-chat-tool-definitions", Guid.NewGuid().ToString("N"));
 
         try
         {
@@ -56,20 +56,23 @@ internal sealed class OpenAICompatibleProviderTests
                   read:
                     description: {overriddenDescription}
                     parameters:
-                      path:
-                        description: {overriddenPathDescription}
+                      properties:
+                        path:
+                          type: integer
+                          minimum: 7
+                          description: {overriddenPathDescription}
                 """;
             var configurationPath = WriteConfiguration(directory, overrideConfiguration);
             var configuration = Configuration.Load(
                 configurationPath,
                 Path.Combine(directory, "predefined_config.yaml"));
-            var documentation = new ToolDocumentationCatalog(
-                new Dictionary<string, ToolDocumentation>(StringComparer.Ordinal)
+            var definitions = new ToolDefinitionCatalog(
+                new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal)
                 {
-                    ["read"] = configuration.ToolDocumentation.Tools["read"],
-                    ["glob"] = configuration.ToolDocumentation.Tools["glob"],
+                    ["read"] = configuration.ToolDefinitions.Definitions["read"],
+                    ["glob"] = configuration.ToolDefinitions.Definitions["glob"],
                 });
-            var tools = documentation.Document([
+            var tools = definitions.Document([
                 new ReadTool(new ToolWorkspace(directory)),
                 new GlobTool(new ToolWorkspace(directory)),
             ]);
@@ -90,6 +93,10 @@ internal sealed class OpenAICompatibleProviderTests
             _ = await Assert.That(read.GetProperty("description").GetString()).IsEqualTo(overriddenDescription);
             _ = await Assert.That(read.GetProperty("parameters").GetProperty("properties").GetProperty("path")
                 .GetProperty("description").GetString()).IsEqualTo(overriddenPathDescription);
+            _ = await Assert.That(read.GetProperty("parameters").GetProperty("properties").GetProperty("path")
+                .GetProperty("type").GetString()).IsEqualTo("integer");
+            _ = await Assert.That(read.GetProperty("parameters").GetProperty("properties").GetProperty("path")
+                .GetProperty("minimum").GetInt32()).IsEqualTo(7);
             _ = await Assert.That(glob.GetProperty("description").GetString()).IsEqualTo(shippedSiblingDescription);
             _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
         }

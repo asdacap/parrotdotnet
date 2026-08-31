@@ -12,11 +12,6 @@ internal sealed class RequestWritePermissionTool(
 {
     public string Name => "request_write_permission";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"paths":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"reason":{"type":"string","minLength":1}},"required":["paths","reason"],"additionalProperties":false}
-        """;
-
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

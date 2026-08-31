@@ -2,19 +2,16 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class AgentSendTool(
+internal sealed class AgentSendTool(
     AgentRegistry agents,
     AgentSession session) : ITool
 {
     private const int MaximumMessageBytes = 32 * 1024;
 
     public string Name => "agent_send";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -60,17 +57,12 @@ internal sealed partial class AgentSendTool(
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("session_id")]
-        [ToolMinLength(1)]
-        [ToolRequired]
         public string? SessionId { get; init; }
 
         [JsonPropertyName("message")]
-        [ToolMinLength(1)]
-        [ToolRequired]
         public string? Message { get; init; }
     }
 }

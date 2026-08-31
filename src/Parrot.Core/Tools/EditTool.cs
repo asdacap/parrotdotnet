@@ -2,11 +2,10 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class EditTool(
+internal sealed class EditTool(
     ToolWorkspace workspace) : ITool
 {
     private static readonly byte[] Utf8Preamble = [0xef, 0xbb, 0xbf];
@@ -14,8 +13,6 @@ internal sealed partial class EditTool(
     private static readonly UTF8Encoding Utf8WithoutBom = new(false);
 
     public string Name => "edit";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -133,25 +130,18 @@ internal sealed partial class EditTool(
         return string.Concat(text.AsSpan(0, index), newString, text.AsSpan(index + oldString.Length));
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("path")]
-        [ToolRequired]
-        [ToolMinLength(1)]
         public string? Path { get; init; }
 
         [JsonPropertyName("old_string")]
-        [ToolRequired]
-        [ToolMinLength(1)]
         public string? OldString { get; init; }
 
         [JsonPropertyName("new_string")]
-        [ToolRequired]
         public string? NewString { get; init; }
 
         [JsonPropertyName("replace_all")]
-        [ToolRequired]
         public bool? ReplaceAll { get; init; }
     }
 }

@@ -2,15 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Questions;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QuestionTool(QuestionBroker broker) : ITool
+internal sealed class QuestionTool(QuestionBroker broker) : ITool
 {
     public string Name => "question";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
@@ -55,29 +52,20 @@ internal sealed partial class QuestionTool(QuestionBroker broker) : ITool
         question.Multiple,
         question.Custom);
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("questions")]
-        [ToolMinItems(1)]
-        [ToolMaxItems(32)]
-        [ToolRequired]
         public Question[]? Questions { get; init; }
 
-        [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-        internal sealed partial class Question
+        internal sealed class Question
         {
             [JsonPropertyName("id")]
-            [ToolMinLength(1)]
-            [ToolRequired]
             public string? Id { get; init; }
 
             [JsonPropertyName("header")]
             public string? Header { get; init; }
 
             [JsonPropertyName("prompt")]
-            [ToolMinLength(1)]
-            [ToolRequired]
             public string? Prompt { get; init; }
 
             [JsonPropertyName("options")]
@@ -90,17 +78,12 @@ internal sealed partial class QuestionTool(QuestionBroker broker) : ITool
             public bool Custom { get; init; }
         }
 
-        [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-        internal sealed partial class Option
+        internal sealed class Option
         {
             [JsonPropertyName("id")]
-            [ToolMinLength(1)]
-            [ToolRequired]
             public string? Id { get; init; }
 
             [JsonPropertyName("label")]
-            [ToolMinLength(1)]
-            [ToolRequired]
             public string? Label { get; init; }
         }
     }

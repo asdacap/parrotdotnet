@@ -18,7 +18,7 @@ internal interface IAgentSessionScopeFactory
         EventBroker eventBroker,
         EventRepository eventRepository,
         IReadOnlyList<IToolFactory> toolFactories,
-        ToolDocumentationCatalog toolDocumentation,
+        ToolDefinitionCatalog toolDefinitions,
         ShellProcessOwners shellProcesses,
         ISystemPromptProvider systemPromptProvider,
         AgentScratchDirectory scratch,

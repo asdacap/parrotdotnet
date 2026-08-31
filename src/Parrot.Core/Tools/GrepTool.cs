@@ -4,11 +4,10 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Parrot.Agent;
 using Parrot.Security;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
+internal sealed class GrepTool(ToolWorkspace workspace) : ITool
 {
     private const int MaxMatches = 1000;
     private const int MaxLineLength = 512;
@@ -17,8 +16,6 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
     public string Name => "grep";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -371,11 +368,9 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("pattern")]
-        [ToolRequired]
         public string? Pattern { get; init; }
 
         [JsonPropertyName("path")]

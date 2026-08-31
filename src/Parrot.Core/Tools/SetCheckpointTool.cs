@@ -1,15 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class SetCheckpointTool(AgentSession session) : ITool
+internal sealed class SetCheckpointTool(AgentSession session) : ITool
 {
     public string Name => "set_checkpoint";
-
-    public string ParametersJson => Input.Descriptor;
 
     public Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -30,12 +27,9 @@ internal sealed partial class SetCheckpointTool(AgentSession session) : ITool
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("title")]
-        [ToolMinLength(1)]
-        [ToolRequired]
         public string? Title { get; init; }
     }
 }

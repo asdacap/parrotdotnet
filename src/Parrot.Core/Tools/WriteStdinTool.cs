@@ -2,15 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Process;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class WriteStdinTool(ShellProcessOwner processes) : ITool
+internal sealed class WriteStdinTool(ShellProcessOwner processes) : ITool
 {
     public string Name => "write_stdin";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -43,20 +40,15 @@ internal sealed partial class WriteStdinTool(ShellProcessOwner processes) : IToo
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("name")]
-        [ToolRequired]
         public string? Name { get; init; }
 
         [JsonPropertyName("input")]
-        [ToolRequired]
         public string? Text { get; init; }
 
         [JsonPropertyName("yield_after_ms")]
-        [ToolMinimum(0)]
-        [ToolDefaultLong(250)]
         public long? YieldAfterMilliseconds { get; init; }
     }
 }

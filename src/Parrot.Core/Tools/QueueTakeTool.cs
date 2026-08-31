@@ -2,15 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Queues;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueueTakeTool(AgentQueues queues) : ITool
+internal sealed class QueueTakeTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_take";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
@@ -69,27 +66,18 @@ internal sealed partial class QueueTakeTool(AgentQueues queues) : ITool
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("name")]
-        [ToolPattern("^[a-z0-9]+(?:-[a-z0-9]+)*$")]
-        [ToolRequired]
         public string? Name { get; init; }
 
         [JsonPropertyName("count")]
-        [ToolDefaultLong(1)]
-        [ToolMinimum(1)]
         public int? Count { get; init; }
 
         [JsonPropertyName("direction")]
-        [ToolDefaultString("front")]
-        [ToolStringEnum("front", "back")]
         public string? Direction { get; init; }
 
         [JsonPropertyName("yield_after_ms")]
-        [ToolDefaultLong(30_000)]
-        [ToolMinimum(0)]
         public long? YieldAfterMilliseconds { get; init; }
     }
 }

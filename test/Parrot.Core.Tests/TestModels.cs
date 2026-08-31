@@ -61,18 +61,16 @@ internal static class TestModels
                 []),
         };
 
-    public static ToolDocumentationCatalog EmptyToolDocumentation { get; } = new(
-        new Dictionary<string, ToolDocumentation>(StringComparer.Ordinal));
+    public static ToolDefinitionCatalog EmptyToolDefinitions { get; } = new(
+        new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
 
-    public static ToolDocumentationCatalog DocumentTools(
-        params (string Name, IReadOnlyDictionary<string, ToolParameterDocumentation> Parameters)[] tools) => new(
-        tools.ToDictionary(
-            tool => tool.Name,
-            tool => new ToolDocumentation("Test tool.", tool.Parameters),
+    public static ToolDefinitionCatalog DocumentTools(params string[] names) => new(
+        names.ToDictionary(
+            name => name,
+            _ => new ConfiguredToolDefinition(
+                "Test tool.",
+                """{"type":"object","additionalProperties":false}"""),
             StringComparer.Ordinal));
-
-    public static IReadOnlyDictionary<string, ToolParameterDocumentation> NoToolParameters() =>
-        new Dictionary<string, ToolParameterDocumentation>(StringComparer.Ordinal);
 
     public static AgentQueues Queues(AgentIdentity identity)
     {

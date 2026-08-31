@@ -1,16 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
-using Parrot.Tools.Schema;
 using Parrot.Web;
 
 namespace Parrot.Tools;
 
-internal sealed partial class WebFetchTool(WebFetcher fetcher) : ITool
+internal sealed class WebFetchTool(WebFetcher fetcher) : ITool
 {
     public string Name => "web_fetch";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
@@ -54,11 +51,9 @@ internal sealed partial class WebFetchTool(WebFetcher fetcher) : ITool
         return (WebFetcher.NormalizeAddress(address), method);
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("url")]
-        [ToolRequired]
         public string? Url { get; init; }
 
         [JsonPropertyName("method")]

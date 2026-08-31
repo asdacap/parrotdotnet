@@ -14,11 +14,6 @@ internal sealed class WaitTool(
 
     public string Name => "wait";
 
-    public string ParametersJson =>
-        """
-        {"type":"object","properties":{"duration_ms":{"type":"integer","minimum":10000,"maximum":4294967294,"default":10000}},"additionalProperties":false}
-        """;
-
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

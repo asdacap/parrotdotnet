@@ -538,14 +538,14 @@ internal sealed class DrainTests : IDisposable
             provider,
             repository,
             [new FixedToolFactory(new SettledTool("settled"))],
-            TestModels.EmptyToolDocumentation,
+            TestModels.EmptyToolDefinitions,
             cancellationToken);
 
         _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
         var execution = await session.ResultSettled();
 
         _ = await Assert.That(execution.Status).IsEqualTo(AgentExecutionStatus.Failed);
-        _ = await Assert.That(execution.Error).Contains("tools.settled is not documented");
+        _ = await Assert.That(execution.Error).Contains("tools.settled is not defined");
         _ = await Assert.That(provider.Requests).IsEmpty();
     }
 
@@ -649,9 +649,8 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | queued prompt");
     }
 
-    private static ToolDocumentationCatalog Document(IReadOnlyList<IToolFactory> factories) =>
-        TestModels.DocumentTools([.. factories.Select(factory =>
-            (((ITestToolFactory)factory).Tool.Name, TestModels.NoToolParameters()))]);
+    private static ToolDefinitionCatalog Document(IReadOnlyList<IToolFactory> factories) =>
+        TestModels.DocumentTools([.. factories.Select(factory => ((ITestToolFactory)factory).Tool.Name)]);
 
     private static string BlobPath(string notice)
     {
@@ -751,9 +750,9 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
-        ToolDocumentationCatalog documentation,
+        ToolDefinitionCatalog definitions,
         CancellationToken lifetime) =>
-        Session(provider, repository, toolFactories, documentation, profile: null, 0, 0, 0, 0, lifetime);
+        Session(provider, repository, toolFactories, definitions, profile: null, 0, 0, 0, 0, lifetime);
 
     private AgentSession Session(
         ILLMProvider provider,
@@ -802,7 +801,7 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
-        ToolDocumentationCatalog documentation,
+        ToolDefinitionCatalog definitions,
         IMode? profile,
         int contextWindow,
         double inputPrice,
@@ -829,7 +828,7 @@ internal sealed class DrainTests : IDisposable
             _broker,
             repository,
             toolFactories,
-            documentation,
+            definitions,
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(_blobDirectory),
@@ -886,8 +885,6 @@ internal sealed class DrainTests : IDisposable
     {
         public string Name => name;
 
-        public string ParametersJson => """{"type":"object","properties":{}}""";
-
         public Task<ToolExecutionResult> Execute(
             ToolInvocation invocation,
             AgentTurnSelection selection,
@@ -915,8 +912,6 @@ internal sealed class DrainTests : IDisposable
         private readonly List<AgentTurnSelection> _selections = [];
 
         public string Name => "record";
-
-        public string ParametersJson => """{"type":"object","properties":{}}""";
 
         public IReadOnlyList<AgentTurnSelection> Selections => _selections;
 

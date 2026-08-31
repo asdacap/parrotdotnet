@@ -1,17 +1,14 @@
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Statuses;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class StatusTool(
+internal sealed class StatusTool(
     RuntimeStatus status,
     AgentSession session) : ITool
 {
     public string Name => "status";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -32,6 +29,5 @@ internal sealed partial class StatusTool(
         return string.IsNullOrWhiteSpace(runtime) ? "No runtime status is currently available." : runtime;
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input;
+    internal sealed class Input;
 }

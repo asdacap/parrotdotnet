@@ -10,7 +10,7 @@ internal sealed class AgentSessionFactorySource(
     ProcessRunner processes,
     Compactor compactor,
     WebFetcher webFetcher,
-    ToolDocumentationCatalog toolDocumentation,
+    ToolDefinitionCatalog toolDefinitions,
     Llm.ModelRouter router,
     ISystemPromptProvider systemPromptProvider,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactorySource
@@ -21,7 +21,7 @@ internal sealed class AgentSessionFactorySource(
             owner.Resources.Workspace.LaunchDirectory,
             compactor,
             webFetcher,
-            toolDocumentation,
+            toolDefinitions,
             router,
             new CompositeSystemPromptProvider(
                 "runtime:user-session-system-prompt",

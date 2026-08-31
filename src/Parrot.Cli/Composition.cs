@@ -177,7 +177,7 @@ internal partial class Composition
                     processes,
                     compactor,
                     webFetcher,
-                    configuration.ToolDocumentation,
+                    configuration.ToolDefinitions,
                     router,
                     systemPromptProvider,
                     scopes);

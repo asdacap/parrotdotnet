@@ -424,7 +424,7 @@ internal sealed class EventPayloadTests
             events,
             repository,
             [],
-            TestModels.EmptyToolDocumentation,
+            TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("session", repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),

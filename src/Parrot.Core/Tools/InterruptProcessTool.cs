@@ -2,15 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Process;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) : ITool
+internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
 {
     public string Name => "interrupt_process";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -56,17 +53,12 @@ internal sealed partial class InterruptProcessTool(ShellProcessOwner processes) 
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Omitted)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("name")]
-        [ToolRequired]
         public string? Name { get; init; }
 
         [JsonPropertyName("signal")]
-        [ToolDefaultLong(2)]
-        [ToolMinimum(1)]
-        [ToolMaximum(64)]
         public int? Signal { get; init; }
     }
 }

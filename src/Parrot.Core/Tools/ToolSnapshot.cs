@@ -18,17 +18,17 @@ internal sealed class ToolSnapshot
     public static ToolSnapshot Document(
         IReadOnlyList<ITool> tools,
         IReadOnlyList<bool> supported,
-        ToolDocumentationCatalog documentation)
+        ToolDefinitionCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(supported);
-        ArgumentNullException.ThrowIfNull(documentation);
+        ArgumentNullException.ThrowIfNull(catalog);
         if (tools.Count != supported.Count)
         {
             throw new ArgumentException("Tool support flags must match the tool inventory.", nameof(supported));
         }
 
-        var definitions = documentation.Document(tools);
+        var definitions = catalog.Document(tools);
         var entries = new List<ToolEntry>(tools.Count);
         for (var index = 0; index < tools.Count; index++)
         {

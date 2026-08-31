@@ -2,15 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Process;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class WaitProcessTool(ShellProcessOwner processes) : ITool
+internal sealed class WaitProcessTool(ShellProcessOwner processes) : ITool
 {
     public string Name => "wait_process";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -43,15 +40,12 @@ internal sealed partial class WaitProcessTool(ShellProcessOwner processes) : ITo
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Omitted)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("name")]
-        [ToolRequired]
         public string? Name { get; init; }
 
         [JsonPropertyName("yield_after_ms")]
-        [ToolMinimum(0)]
         public long? YieldAfterMilliseconds { get; init; }
     }
 }

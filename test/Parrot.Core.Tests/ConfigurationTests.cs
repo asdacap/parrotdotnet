@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Parrot.Config;
 using Parrot.Security;
 
@@ -1324,30 +1325,62 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Tool_documentation_is_loaded_and_partial_user_overrides_inherit_predefined_values()
+    public async Task Tool_definitions_are_loaded_and_user_overrides_replace_structure_and_prose()
     {
         var path = Write(
             """
             tools:
               question:
                 parameters:
-                  questions:
-                    properties:
-                      prompt:
-                        description: Custom question prompt.
+                  properties:
+                    questions:
+                      minItems: 2
+                      items:
+                        properties:
+                          prompt:
+                            description: Custom question prompt.
+                  required: [questions, custom]
             """);
 
-        var documentation = Load(path).ToolDocumentation.Tools;
+        var definitions = Load(path).ToolDefinitions.Definitions;
 
-        _ = await Assert.That(documentation.Count).IsEqualTo(26);
-        _ = await Assert.That(documentation["question"].Description)
+        _ = await Assert.That(definitions.Count).IsEqualTo(26);
+        _ = await Assert.That(definitions["question"].Description)
             .StartsWith("Ask the user structured questions");
-        var question = documentation["question"].Parameters["questions"];
-        _ = await Assert.That(question.Description).IsEqualTo("Structured questions to ask the user.");
-        _ = await Assert.That(question.Properties["prompt"].Description).IsEqualTo("Custom question prompt.");
-        _ = await Assert.That(question.Properties["id"].Description)
-            .StartsWith("Stable identifier used to match");
-        _ = await Assert.That(documentation["status"].Parameters.Count).IsEqualTo(0);
+        using var question = JsonDocument.Parse(definitions["question"].ParametersJson);
+        var schema = question.RootElement;
+        _ = await Assert.That(schema.GetProperty("properties").GetProperty("questions")
+            .GetProperty("minItems").GetInt32()).IsEqualTo(2);
+        _ = await Assert.That(schema.GetProperty("properties").GetProperty("questions").GetProperty("items")
+            .GetProperty("properties").GetProperty("prompt").GetProperty("description").GetString())
+            .IsEqualTo("Custom question prompt.");
+        _ = await Assert.That(string.Join(",", schema.GetProperty("required").EnumerateArray().Select(item => item.GetString())))
+            .IsEqualTo("questions,custom");
+        using var status = JsonDocument.Parse(definitions["status"].ParametersJson);
+        _ = await Assert.That(status.RootElement.GetProperty("type").GetString()).IsEqualTo("object");
+    }
+
+    [Test]
+    public async Task Tool_schema_numbers_and_semantic_description_fields_are_preserved()
+    {
+        var path = Write(
+            """
+            tools:
+              read:
+                parameters:
+                  properties:
+                    offset:
+                      maximum: 1e100
+                      default:
+                        description: ''
+            """);
+
+        using var schema = JsonDocument.Parse(
+            Load(path).ToolDefinitions.Definitions["read"].ParametersJson);
+        var offset = schema.RootElement.GetProperty("properties").GetProperty("offset");
+        _ = await Assert.That(offset.GetProperty("maximum").GetRawText()).IsEqualTo("1e100");
+        _ = await Assert.That(offset.GetProperty("default").GetProperty("description").GetString())
+            .IsEqualTo(string.Empty);
     }
 
     [Test]
@@ -1355,7 +1388,7 @@ internal sealed class ConfigurationTests : IDisposable
     [Arguments("description: null", "tools.read.description must be a non-empty string")]
     [Arguments("parameters: []", "tools.read.parameters must be a mapping")]
     [Arguments("unsupported: value", "tools.read contains an unsupported key")]
-    public async Task Invalid_tool_documentation_overrides_are_rejected(string overrideYaml, string message)
+    public async Task Invalid_tool_definition_overrides_are_rejected(string overrideYaml, string message)
     {
         var path = Write($"tools:\n  read:\n    {overrideYaml}\n");
 

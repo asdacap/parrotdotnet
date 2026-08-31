@@ -3,11 +3,10 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Parrot.Agent;
 using Parrot.Security;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
+internal sealed class GlobTool(ToolWorkspace workspace) : ITool
 {
     private const int MaxResults = 1000;
     private const int MaxVisited = 100_000;
@@ -21,8 +20,6 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
     }
 
     public string Name => "glob";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -284,11 +281,9 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
         return regex.ToString();
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("pattern")]
-        [ToolRequired]
         public string? Pattern { get; init; }
 
         [JsonPropertyName("path")]

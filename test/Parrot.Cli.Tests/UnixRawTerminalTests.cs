@@ -33,7 +33,7 @@ internal sealed class UnixRawTerminalTests
     // echoes to stdout, not to the descriptor it reads. What catches it is the byte arriving
     // without a newline, which no canonical-mode emulation would deliver.
     [Test]
-    [Timeout(30000)]
+    [Timeout(5000)]
     public async Task Linux_raw_terminal_reads_a_pseudo_terminal_byte_without_line_buffering_or_echo(
         CancellationToken cancellationToken)
     {

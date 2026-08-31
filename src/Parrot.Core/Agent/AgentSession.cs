@@ -30,7 +30,7 @@ internal sealed class AgentSession(
     EventBroker eventBroker,
     EventRepository eventRepository,
     IReadOnlyList<IToolFactory> toolFactories,
-    ToolDocumentationCatalog toolDocumentation,
+    ToolDefinitionCatalog toolDefinitions,
     ISystemPrompt systemPrompt,
     TodoCollection todos,
     ToolOutputBlobStore toolOutputBlobs,
@@ -1150,7 +1150,7 @@ internal sealed class AgentSession(
             tools.Add(factory.Create(this));
         }
 
-        _tools = ToolSnapshot.Document(tools, supported, toolDocumentation);
+        _tools = ToolSnapshot.Document(tools, supported, toolDefinitions);
         return _tools;
     }
 

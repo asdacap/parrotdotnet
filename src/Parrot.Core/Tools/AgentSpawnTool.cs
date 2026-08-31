@@ -3,18 +3,15 @@ using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Llm;
 using Parrot.Store;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class AgentSpawnTool(
+internal sealed class AgentSpawnTool(
     AgentRegistry agents,
     ModelRouter router,
     AgentSession session) : ITool
 {
     public string Name => "agent_spawn";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -68,17 +65,12 @@ internal sealed partial class AgentSpawnTool(
         }
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("prompt")]
-        [ToolMinLength(1)]
-        [ToolRequired]
         public string? Prompt { get; init; }
 
         [JsonPropertyName("agent")]
-        [ToolMinLength(1)]
-        [ToolRequired]
         public string? Agent { get; init; }
 
         [JsonPropertyName("model")]
@@ -91,7 +83,6 @@ internal sealed partial class AgentSpawnTool(
         public string? Scope { get; init; }
 
         [JsonPropertyName("fork")]
-        [ToolDefaultString("empty")]
         public string? Fork { get; init; }
     }
 }

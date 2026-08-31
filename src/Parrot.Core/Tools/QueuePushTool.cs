@@ -3,18 +3,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Queues;
-using Parrot.Tools.Schema;
 
 namespace Parrot.Tools;
 
-internal sealed partial class QueuePushTool(AgentQueues queues, ToolWorkspace workspace) : ITool
+internal sealed class QueuePushTool(AgentQueues queues, ToolWorkspace workspace) : ITool
 {
     private const int MaximumSourceFileBytes = 16 << 20;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     public string Name => "queue_push";
-
-    public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
@@ -182,12 +179,9 @@ internal sealed partial class QueuePushTool(AgentQueues queues, ToolWorkspace wo
         return items;
     }
 
-    [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
-    internal sealed partial class Input
+    internal sealed class Input
     {
         [JsonPropertyName("name")]
-        [ToolPattern("^[a-z0-9]+(?:-[a-z0-9]+)*$")]
-        [ToolRequired]
         public string? Name { get; init; }
 
         [JsonPropertyName("items")]
@@ -197,12 +191,9 @@ internal sealed partial class QueuePushTool(AgentQueues queues, ToolWorkspace wo
         public string? SourceFile { get; init; }
 
         [JsonPropertyName("direction")]
-        [ToolDefaultString("back")]
-        [ToolStringEnum("front", "back")]
         public string? Direction { get; init; }
 
         [JsonPropertyName("close")]
-        [ToolDefaultBool(false)]
         public bool? Close { get; init; }
     }
 }
