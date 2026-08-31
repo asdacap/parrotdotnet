@@ -131,6 +131,11 @@ internal sealed class AgentRegistry(
 
         lock (_gate)
         {
+            if (sessionIdOrName.Contains('/', StringComparison.Ordinal))
+            {
+                return ResolveDescendantPath(sender.SessionId, sessionIdOrName);
+            }
+
             if (_entries.TryGetValue(sessionIdOrName, out var canonical))
             {
                 if (string.Equals(canonical.Session.SessionId, sender.ParentSessionId, StringComparison.Ordinal)
@@ -368,6 +373,28 @@ internal sealed class AgentRegistry(
         }
 
         return names;
+    }
+
+    private AgentSession ResolveDescendantPath(string senderSessionId, string path)
+    {
+        var currentSessionId = senderSessionId;
+        AgentSession? descendant = null;
+
+        foreach (var segment in path.Split('/', StringSplitOptions.None))
+        {
+            if (segment.Length == 0
+                || !_namesByParent.TryGetValue(currentSessionId, out var names)
+                || !names.TryGetValue(segment, out var sessionId)
+                || !_entries.TryGetValue(sessionId, out var entry))
+            {
+                throw new AgentRegistryException($"child agent not found: {path}");
+            }
+
+            descendant = entry.Session;
+            currentSessionId = sessionId;
+        }
+
+        return descendant ?? throw new AgentRegistryException($"child agent not found: {path}");
     }
 
     private AgentSession ResolveChild(string callerSessionId, string sessionIdOrName)

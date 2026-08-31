@@ -772,16 +772,19 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   **the lifetime of every spawned child session**.
 - **Inbound** resolve an agent profile; create and retrieve a child session.
   Friendly names are unique and resolvable only among one caller's direct
-  children. `agent_send` is restricted to the sender's direct parent and direct
-  children; canonical session ids are accepted only when they identify one of
-  those eligible neighbors, not an arbitrary agent elsewhere in the user
-  session. For a sender with a registered direct parent, the case-sensitive
-  literal `parent`, actual parent id, or actual parent friendly name resolves to
-  that parent and takes precedence over a colliding direct-child friendly name;
-  direct-child names resolve last. A root therefore falls through and may
-  resolve its direct child named `parent`. `wait_agent` remains child-only and
-  retains its ordinary child resolution: a canonical child id or direct-child
-  friendly name, without a parent alias.
+  children. `agent_send` can address the sender's direct parent or a descendant
+  within the sender's own descendant tree and user session. Descendants use
+  relative, slash-separated friendly-name paths such as `child/grandchild`;
+  these paths travel only downward, cannot traverse upward, and do not authorize
+  arbitrary canonical ids for descendants. Exact canonical session ids remain
+  accepted only for the direct parent or direct children, not arbitrary agents
+  elsewhere in the user session. For a sender with a registered direct parent,
+  the case-sensitive literal `parent`, actual parent id, or actual parent
+  friendly name resolves to that parent and takes precedence over a colliding
+  direct-child friendly name; direct-child names resolve last. A root therefore
+  falls through and may resolve its direct child named `parent`. `wait_agent`
+  remains direct-child-only and retains its ordinary child resolution: a
+  canonical child id or direct-child friendly name, without a parent alias.
 - **Outbound** `Configuration`, `AgentSession`.
 - **Boundary** no.
 - **Security inheritance.** A spawned child restricts its configured profile

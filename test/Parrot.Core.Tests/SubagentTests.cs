@@ -592,13 +592,92 @@ internal sealed class SubagentTests : IDisposable
         var sessionIdDescription = schema.RootElement.GetProperty("properties").GetProperty("session_id")
             .GetProperty("description").GetString();
 
-        _ = await Assert.That(definition.Description).Contains("direct parent or direct child");
-        _ = await Assert.That(definition.Description).Contains("literal 'parent'");
-        _ = await Assert.That(definition.Description).Contains("Exact canonical session IDs for those recipients");
-        _ = await Assert.That(definition.Description).Contains("Direct-child friendly names");
+        _ = await Assert.That(definition.Description).Contains("direct parent or to a descendant");
+        _ = await Assert.That(definition.Description).Contains("descendant tree and user session");
+        _ = await Assert.That(definition.Description).Contains("slash-separated friendly-name paths");
+        _ = await Assert.That(definition.Description).Contains("child/grandchild");
+        _ = await Assert.That(definition.Description).Contains("only travel downward, never upward");
+        _ = await Assert.That(definition.Description).Contains("do not authorize arbitrary canonical IDs for descendants");
         _ = await Assert.That(sessionIdDescription).Contains("direct parent or direct child");
         _ = await Assert.That(sessionIdDescription).Contains("literal 'parent'");
         _ = await Assert.That(sessionIdDescription).Contains("direct-child friendly name");
+        _ = await Assert.That(sessionIdDescription).Contains("slash-separated relative");
+        _ = await Assert.That(sessionIdDescription).Contains("child/grandchild");
+        _ = await Assert.That(sessionIdDescription).Contains("do not accept canonical IDs for descendants");
+        _ = await Assert.That(sessionIdDescription).Contains("direct-parent alias precedence");
+    }
+
+    [Test]
+    public async Task Send_resolves_descendant_paths_only_through_branch_local_friendly_names(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            cancellationToken);
+        var root = Session(provider, 0, "root-id", cancellationToken);
+
+        AgentSession Spawn(AgentSession parent, string profile, string name) => registry.Spawn(new AgentLaunchRequest(
+            parent,
+            Turn(parent, Router(provider)),
+            profile,
+            parent.Selection().RequestedModel,
+            name,
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic));
+
+        var first = Spawn(root, "worker", "first");
+        var duplicate = Spawn(root, "worker", "duplicate");
+        var nestedDuplicate = Spawn(first, "explorer", "duplicate");
+        var parentNamed = Spawn(nestedDuplicate, "worker", "parent");
+        var target = Spawn(parentNamed, "explorer", "target");
+        var unrelatedTarget = Spawn(duplicate, "explorer", "target");
+
+        _ = await Assert.That(registry.GetRecipient(root, "first/duplicate/parent/target"))
+            .IsSameReferenceAs(target);
+        _ = await Assert.That(registry.GetRecipient(first, "duplicate/parent/target"))
+            .IsSameReferenceAs(target);
+        _ = await Assert.That(registry.GetRecipient(root, "duplicate/target"))
+            .IsSameReferenceAs(unrelatedTarget);
+        _ = await Assert.That(registry.GetRecipient(nestedDuplicate, "parent/target"))
+            .IsSameReferenceAs(target);
+
+        var sent = (await new AgentSendTool(registry, root).Execute(
+            new ToolInvocation(
+                "test-call",
+                """{"session_id":"first/duplicate/parent/target","message":"deep work"}"""),
+            Turn(root, Router(provider)),
+            cancellationToken)).Text;
+        using var sentResult = JsonDocument.Parse(sent);
+        _ = await Assert.That(sentResult.RootElement.GetProperty("session_id").GetString())
+            .IsEqualTo(target.SessionId);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests.Single().Messages.Select(message => message.Content))
+            .Contains("deep work");
+        provider.Release();
+        _ = await target.Wait(0, cancellationToken);
+
+        foreach (var path in new[]
+                 {
+                     "/first", "first/", "first//duplicate", "first/missing", "First/duplicate",
+                     "first/./target", "first/../target", "duplicate/parent/target",
+                     $"first/{nestedDuplicate.SessionId}", $"{first.SessionId}/duplicate",
+                 })
+        {
+            var error = await Assert.That(() => registry.GetRecipient(root, path)).Throws<AgentRegistryException>();
+            _ = await Assert.That(error?.Message).IsEqualTo($"child agent not found: {path}");
+            _ = await Assert.That(error?.Message).DoesNotContain(target.SessionId);
+            _ = await Assert.That(error?.Message).DoesNotContain(unrelatedTarget.SessionId);
+        }
+
+        _ = await Assert.That(() => registry.GetChild(root, "first/duplicate"))
+            .Throws<AgentRegistryException>();
     }
 
     [Test]
