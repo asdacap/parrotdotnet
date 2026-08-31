@@ -6,7 +6,7 @@ namespace Parrot.Core.Tests;
 
 internal sealed record AgentSessionDependencies(
     ActiveWorkCompletionReminder ActiveWorkReminder,
-    IAgentProfile Profile,
+    IMode Profile,
     RuntimeStatus Status,
     AgentRegistry Registry,
     AgentQueues Queues);

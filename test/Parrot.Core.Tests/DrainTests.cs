@@ -674,7 +674,7 @@ internal sealed class DrainTests : IDisposable
                 _ => null,
             }).Where(value => value is not null));
 
-    private static AgentProfile Profile(int maxTurns) =>
+    private static NoopMode Profile(int maxTurns) =>
         Profile(
             "test",
             maxTurns,
@@ -682,23 +682,27 @@ internal sealed class DrainTests : IDisposable
             new HashSet<string>(StringComparer.Ordinal),
             readOnly: false);
 
-    private static AgentProfile Profile(
+    private static NoopMode Profile(
         int maxTurns,
         IReadOnlyList<string>? allowedTools,
         IReadOnlySet<string> disabledTools) =>
         Profile("test", maxTurns, allowedTools, disabledTools, readOnly: false);
 
-    private static AgentProfile Profile(
+    private static NoopMode Profile(
         string id,
         int maxTurns,
         IReadOnlyList<string>? allowedTools,
         IReadOnlySet<string> disabledTools,
-        bool readOnly) => new(
+        bool readOnly)
+    {
+        var profile = new AgentProfile(
             id,
             new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, []),
             [],
             [],
             disabledTools);
+        return new NoopMode(profile, profile.SecurityProfile);
+    }
 
     private static string SelectionSummary(AgentTurnSelection selection) =>
         $"{selection.Profile?.Id}:{selection.SecurityProfile.ReadOnly}";
@@ -714,7 +718,7 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
-        IAgentProfile profile,
+        IMode profile,
         CancellationToken lifetime) =>
         Session(provider, repository, toolFactories, profile, 0, 0, 0, 0, lifetime);
 
@@ -733,7 +737,7 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
-        IAgentProfile? profile,
+        IMode? profile,
         int contextWindow,
         double inputPrice,
         double cachedInputPrice,

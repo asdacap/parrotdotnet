@@ -49,8 +49,8 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(string.Join(" | ", profiles.Children.Select(profile => profile.Id)))
             .IsEqualTo("explorer | review | thinker | worker");
         _ = await Assert.That(profiles.ResolveChild("explore").Id).IsEqualTo("explorer");
-        IAgentProfile worker = profiles.ResolveChild("worker");
-        _ = await Assert.That(worker is IMode).IsFalse();
+        var worker = profiles.ResolveChild("worker");
+        _ = await Assert.That(worker.Id).IsEqualTo("worker");
         _ = await Assert.That(() => profiles.ResolveChild("build")).Throws<AgentRegistryException>();
         _ = await Assert.That(() => modes.Resolve("worker")).Throws<ModeRegistryException>();
 

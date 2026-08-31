@@ -791,7 +791,7 @@ internal sealed class CompactorAndContextTests : IDisposable
 
     private static AgentTurnSelection Selection() => Selection(TestModels.Profile());
 
-    private static AgentTurnSelection Selection(IAgentProfile profile)
+    private static AgentTurnSelection Selection(IMode profile)
     {
         var provider = new UnusedProvider();
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
@@ -806,15 +806,19 @@ internal sealed class CompactorAndContextTests : IDisposable
             SecurityProfile.Compose(readOnly: false, [], [], []));
     }
 
-    private static AgentProfile Profile(
+    private static NoopMode Profile(
         IReadOnlyList<string>? allowedTools,
-        IReadOnlySet<string> disabledTools) => new(
+        IReadOnlySet<string> disabledTools)
+    {
+        var profile = new AgentProfile(
             "test",
             new Parrot.Config.ProfileConfig(
                 "Test prompt", "Test profile.", allowedTools, 2, 3, false, true, []),
             [],
             [],
             disabledTools);
+        return new NoopMode(profile, profile.SecurityProfile);
+    }
 
     private CompositeSystemPromptProvider ComposeSystemContextProvider() =>
         new(

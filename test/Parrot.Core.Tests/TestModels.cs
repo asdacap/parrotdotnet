@@ -81,7 +81,11 @@ internal static class TestModels
     public static ProfileRegistry ProfileRegistry() =>
         new(Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
 
-    public static IAgentProfile Profile() => ProfileRegistry().ResolveChild("test");
+    public static IMode Profile()
+    {
+        var profile = ProfileRegistry().ResolveChild("test");
+        return new NoopMode(profile, profile.SecurityProfile);
+    }
 
     public static AgentRegistry Registry(
         IAgentSessionFactory agentSessions,
@@ -213,7 +217,7 @@ internal static class TestModels
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IAgentProfile profile,
+            IMode profile,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,

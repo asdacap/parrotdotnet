@@ -429,7 +429,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         ShellProcessOwners processes,
         AgentQueueCatalog queueCatalog,
         RuntimeStatus status,
-        IAgentProfile profile,
+        IMode profile,
         CancellationToken lifetime)
     {
         var owner = processes.Prepare(sessionId);
@@ -562,7 +562,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IAgentProfile profile,
+            IMode profile,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,
@@ -583,7 +583,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IAgentProfile profile,
+            IMode profile,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,

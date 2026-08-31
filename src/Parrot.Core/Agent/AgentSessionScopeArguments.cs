@@ -20,7 +20,7 @@ internal sealed record AgentSessionScopeArguments(
     ISystemPromptProvider SystemPromptProvider,
     AgentScratchDirectory Scratch,
     Compactor Compactor,
-    IAgentProfile Profile,
+    IMode Profile,
     AgentSessionSecurity Security,
     RuntimeStatus Status,
     AgentRegistry Registry,

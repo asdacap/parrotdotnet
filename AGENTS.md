@@ -26,6 +26,7 @@ read or write other user session data.
 - Tools or any permission check should check the security profiles rather than specific directory.
 - Do not make unnecessary change in prod for test.
 - No method overload. Use different method name instead.
+- Using `as` or typecheck tend to be an antipattern. Rather than a T1 as T2, make a T3 or expand T1 to include T2 interface.
 
 ## Async lifecycle
 

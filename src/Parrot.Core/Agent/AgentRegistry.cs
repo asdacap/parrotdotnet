@@ -94,6 +94,7 @@ internal sealed class AgentRegistry(
 
             _parents[parent.SessionId] = parent;
             var securityProfile = ResolveSecurityProfile(parent).RestrictWith(profile.SecurityProfile);
+            var mode = new NoopMode(profile, securityProfile);
 
             if (ProfileOccurrences(parent, profile.Id) >= profile.RecursionLimit)
             {
@@ -120,7 +121,7 @@ internal sealed class AgentRegistry(
                     model,
                     eventBroker,
                     eventRepository,
-                    profile,
+                    mode,
                     securityProfile,
                     status,
                     this,

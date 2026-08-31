@@ -35,7 +35,7 @@ internal sealed class AgentSession(
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
     ActiveWorkCompletionReminder activeWorkReminder,
-    IAgentProfile profile,
+    IMode profile,
     AgentSessionSecurity security,
     RuntimeStatus status,
     AgentRegistry registry,
@@ -142,7 +142,7 @@ internal sealed class AgentSession(
 
     public void ApproveWrites(IReadOnlyList<Security.SecurityWriteTarget> targets) => security.Approve(targets);
 
-    public void UpdateSelection(ModelSelector selectedModel, IAgentProfile? profile)
+    public void UpdateSelection(ModelSelector selectedModel, IMode? profile)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
 
@@ -890,7 +890,7 @@ internal sealed class AgentSession(
                 if (!turnOpen)
                 {
                     var captured = ResolveSelection();
-                    (captured.Profile as IMode)?.Prepare();
+                    captured.Profile.Prepare();
                     var resolved = router.Resolve(captured.RequestedModel.Value);
                     activeSelection = new AgentTurnSelection(
                         resolved.RequestedSelector,
@@ -1030,7 +1030,7 @@ internal sealed class AgentSession(
                         OutputTokens = _statistics.OutputTokens,
                     },
                 };
-                if ((activeSelection.Profile as IMode)?.Complete(SessionId, _messageId) is { } planCompleted)
+                if (activeSelection.Profile.Complete(SessionId, _messageId) is { } planCompleted)
                 {
                     var plan = new Event
                     {
@@ -1386,7 +1386,7 @@ internal sealed class AgentSession(
             if (!string.Equals(profile.Id, pending.Mode, StringComparison.Ordinal))
             {
                 selection = RefreshSelection(selection);
-                (selection.Profile as IMode)?.Prepare();
+                selection.Profile.Prepare();
                 await Task.Yield();
                 continue;
             }
@@ -1401,7 +1401,7 @@ internal sealed class AgentSession(
             if (!eventRepository.AppendStatusPrompt(published, pending, content))
             {
                 selection = RefreshSelection(selection);
-                (selection.Profile as IMode)?.Prepare();
+                selection.Profile.Prepare();
                 continue;
             }
 

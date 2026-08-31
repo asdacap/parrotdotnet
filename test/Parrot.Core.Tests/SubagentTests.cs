@@ -632,6 +632,45 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Spawn_adapts_child_profile_to_a_noop_mode_with_restricted_security(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        var sessions = new TestAgentSessions(Router(provider), deliversCompletions: false);
+        await using var registry = TestModels.Registry(
+            sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
+        var parent = Session(provider, 0, "agent", cancellationToken);
+        parent.UpdateSelection(parent.Selection().RequestedModel, Profile("parent", readOnly: true, []));
+
+        var child = registry.Spawn(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "worker",
+            string.Empty);
+        var mode = sessions.Profiles.Single();
+        var securityProfile = sessions.SecurityProfiles.Single();
+
+        mode.Prepare();
+        _ = await Assert.That(mode.Id).IsEqualTo("worker");
+        _ = await Assert.That(mode.Prompt).IsEqualTo("You are a worker agent.");
+        _ = await Assert.That(mode.MaxTurns).IsEqualTo(64);
+        _ = await Assert.That(mode.SecurityProfile).IsSameReferenceAs(securityProfile);
+        _ = await Assert.That(mode.SecurityProfile.ReadOnly).IsTrue();
+        _ = await Assert.That(mode.Complete(child.SessionId, "message")).IsNull();
+
+        _ = await child.Send("work", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await child.Settled();
+
+        _ = await Assert.That(_repository.Replay().Any(published =>
+            published.AgentSessionId == child.SessionId
+            && published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)).IsFalse();
+    }
+
+    [Test]
     public async Task Spawn_uses_the_selection_captured_before_parent_selection_changes(
         CancellationToken cancellationToken)
     {
@@ -1136,18 +1175,19 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(rejected).IsEqualTo("error: the user session is shutting down");
     }
 
-    private static TestAgentProfile Profile(
+    private static NoopMode Profile(
         string id,
         bool readOnly,
-        IReadOnlyList<SandboxRule> runtimeCapabilities) =>
-        new(
-            new AgentProfile(
-                id,
-                new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, true, []),
-                [],
-                [],
-                new HashSet<string>(StringComparer.Ordinal)),
-            SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities));
+        IReadOnlyList<SandboxRule> runtimeCapabilities)
+    {
+        var profile = new AgentProfile(
+            id,
+            new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, true, []),
+            [],
+            [],
+            new HashSet<string>(StringComparer.Ordinal));
+        return new NoopMode(profile, SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities));
+    }
 
     private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
     {
@@ -1212,23 +1252,6 @@ internal sealed class SubagentTests : IDisposable
             cancellationToken);
     }
 
-    private sealed class TestAgentProfile(IAgentProfile profile, SecurityProfile securityProfile) : IAgentProfile
-    {
-        public string Id => profile.Id;
-
-        public string Prompt => profile.Prompt;
-
-        public IReadOnlyList<string>? AllowedTools => profile.AllowedTools;
-
-        public IReadOnlyList<string> DisabledTools => profile.DisabledTools;
-
-        public int MaxTurns => profile.MaxTurns;
-
-        public bool EnforceActiveWorkCompletion => profile.EnforceActiveWorkCompletion;
-
-        public SecurityProfile SecurityProfile => securityProfile;
-    }
-
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
         public IAgentSessionLease Create(
@@ -1236,7 +1259,7 @@ internal sealed class SubagentTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IAgentProfile profile,
+            IMode profile,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,
@@ -1256,7 +1279,7 @@ internal sealed class SubagentTests : IDisposable
 
         public IReadOnlyList<ModelSelector> Models => _models;
 
-        public List<IAgentProfile> Profiles { get; } = [];
+        public List<IMode> Profiles { get; } = [];
 
         public List<SecurityProfile> SecurityProfiles { get; } = [];
 
@@ -1265,7 +1288,7 @@ internal sealed class SubagentTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IAgentProfile profile,
+            IMode profile,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,
