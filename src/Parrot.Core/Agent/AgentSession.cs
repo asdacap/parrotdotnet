@@ -35,7 +35,7 @@ internal sealed class AgentSession(
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
     ActiveWorkCompletionReminder activeWorkReminder,
-    IMode profile,
+    IMode mode,
     AgentSessionSecurity security,
     RuntimeStatus status,
     AgentRegistry registry,
@@ -80,7 +80,7 @@ internal sealed class AgentSession(
 
     private string _messageId = string.Empty;
 
-    private AgentSelection _selection = new(model, profile, security.Policy());
+    private AgentSelection _selection = new(model, mode, security.Policy());
     private ToolSnapshot? _tools;
 
     private bool _epochInitialized;
@@ -142,17 +142,17 @@ internal sealed class AgentSession(
 
     public void ApproveWrites(IReadOnlyList<Security.SecurityWriteTarget> targets) => security.Approve(targets);
 
-    public void UpdateSelection(ModelSelector selectedModel, IMode? profile)
+    public void UpdateSelection(ModelSelector selectedModel, IMode mode)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
+        ArgumentNullException.ThrowIfNull(mode);
 
         lock (_selectionGate)
         {
-            var nextProfile = profile ?? _selection.Profile;
             _selection = new AgentSelection(
                 selectedModel,
-                nextProfile,
-                nextProfile.SecurityProfile);
+                mode,
+                mode.SecurityProfile);
         }
     }
 

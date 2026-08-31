@@ -77,7 +77,7 @@ internal partial class AgentSessionComposition
                     toolOutputBlobs,
                     arguments.Compactor,
                     activeWorkReminder,
-                    arguments.Profile,
+                    arguments.Mode,
                     arguments.Security,
                     arguments.Status,
                     arguments.Registry,

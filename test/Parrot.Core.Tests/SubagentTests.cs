@@ -684,7 +684,7 @@ internal sealed class SubagentTests : IDisposable
         var capturedSelection = Turn(parent, Router(provider));
         parent.UpdateSelection(
             new ModelSelector("stepped/replacement"),
-            profile: null);
+            parent.Selection().Profile);
 
         _ = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"do the subtask","agent":"worker"}"""), capturedSelection, cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
@@ -712,7 +712,7 @@ internal sealed class SubagentTests : IDisposable
         var sessions = new TestAgentSessions(router, deliversCompletions: false);
         await using var registry = TestModels.Registry(sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
-        parent.UpdateSelection(new ModelSelector("fast"), profile: null);
+        parent.UpdateSelection(new ModelSelector("fast"), parent.Selection().Profile);
         var spawn = new AgentSpawnTool(registry, router, parent);
 
         foreach (var arguments in new[]
@@ -1259,7 +1259,7 @@ internal sealed class SubagentTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IMode profile,
+            IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,
@@ -1288,7 +1288,7 @@ internal sealed class SubagentTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IMode profile,
+            IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,
@@ -1296,7 +1296,7 @@ internal sealed class SubagentTests : IDisposable
         {
             _identities.Add(identity);
             _models.Add(model);
-            Profiles.Add(profile);
+            Profiles.Add(mode);
             SecurityProfiles.Add(securityProfile);
             var root = Directory.CreateDirectory(
                 Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"))).FullName;
@@ -1338,7 +1338,7 @@ internal sealed class SubagentTests : IDisposable
                 new ToolOutputBlobStore(Path.GetTempPath()),
                 new Compactor(90, 30, 60_000, 1024),
                 new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner),
-                profile,
+                mode,
                 SecurityProfileTestFactory.Create(securityProfile),
                 new RuntimeStatus(queueCatalog, processes, registry),
                 completionRegistry,

@@ -22,7 +22,7 @@ internal interface IAgentSessionScopeFactory
         ISystemPromptProvider systemPromptProvider,
         AgentScratchDirectory scratch,
         Compactor compactor,
-        IMode profile,
+        IMode mode,
         AgentSessionSecurity security,
         RuntimeStatus status,
         AgentRegistry registry,

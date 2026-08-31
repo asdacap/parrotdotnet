@@ -429,7 +429,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         ShellProcessOwners processes,
         AgentQueueCatalog queueCatalog,
         RuntimeStatus status,
-        IMode profile,
+        IMode mode,
         CancellationToken lifetime)
     {
         var owner = processes.Prepare(sessionId);
@@ -448,8 +448,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             new Compactor(90, 30, 60_000, 1024),
             new ActiveWorkCompletionReminder(sessionId, registry, owner),
-            profile,
-            SecurityProfileTestFactory.Create(profile.SecurityProfile),
+            mode,
+            SecurityProfileTestFactory.Create(mode.SecurityProfile),
             status,
             registry,
             queues,
@@ -471,7 +471,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
     {
         var identity = AgentIdentity.Main(sessionId, sessionId);
         var queues = queueCatalog.Register(identity);
-        var profile = TestModels.Profile();
+        var mode = TestModels.Profile();
         var session = new AgentSession(
             identity,
             new ModelSelector($"{provider.Id}/model"),
@@ -484,8 +484,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             new Compactor(90, 30, 60_000, 1024),
             new ActiveWorkCompletionReminder(sessionId, registry, processes),
-            profile,
-            SecurityProfileTestFactory.Create(profile.SecurityProfile),
+            mode,
+            SecurityProfileTestFactory.Create(mode.SecurityProfile),
             status,
             registry,
             queues,
@@ -562,7 +562,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IMode profile,
+            IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,
@@ -583,7 +583,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
-            IMode profile,
+            IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
             AgentRegistry registry,
@@ -604,7 +604,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 new ToolOutputBlobStore(workspace),
                 new Compactor(90, 30, 60_000, 1024),
                 new ActiveWorkCompletionReminder(identity.SessionId, registry, owner),
-                profile,
+                mode,
                 SecurityProfileTestFactory.Create(securityProfile),
                 status,
                 TestModels.Registry(

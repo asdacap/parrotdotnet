@@ -17,7 +17,7 @@ internal interface IAgentSessionFactory
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        IMode profile,
+        IMode mode,
         SecurityProfile securityProfile,
         RuntimeStatus status,
         AgentRegistry registry,
