@@ -1117,6 +1117,11 @@ providers:
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
     header_timeout_ms: 10000
+    provider_preferences:
+      allow_fallbacks: true
+      require_parameters: true
+      data_collection: deny
+      zdr: true
   opencode-go:
     protocol: chat-completions
     base_url: https://opencode.ai/zen/go/v1
@@ -1235,12 +1240,13 @@ providers:
 #     allow_insecure_localhost: false
 #     # Milliseconds to wait for response headers; zero disables.
 #     header_timeout_ms: 10000
-#     # OpenRouter-style provider routing preferences.
+#     # OpenRouter provider routing preferences. The OpenRouter adapter forwards
+#     # this open-ended mapping as the request body's provider object.
 #     provider_preferences:
-#       order:
-#         - anthropic
-#       allow_fallbacks: false
-#       sort: price
+#       allow_fallbacks: true
+#       require_parameters: true
+#       data_collection: deny
+#       zdr: true
 #     # Built-in seed catalog, normally supplied only by predefined configuration.
 #     model_defaults:
 #       model:
