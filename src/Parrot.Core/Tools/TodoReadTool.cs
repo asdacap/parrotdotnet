@@ -8,8 +8,6 @@ internal sealed partial class TodoReadTool(AgentSession session) : ITool
 {
     public string Name => "todoread";
 
-    public string Description => "Read the current session's ordered todo list.";
-
     public string ParametersJson => Input.Descriptor;
 
     public Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)

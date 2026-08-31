@@ -1,6 +1,7 @@
 using System.Globalization;
 using Parrot.Context;
 using Parrot.Security;
+using Parrot.Tools;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
@@ -21,6 +22,7 @@ internal sealed class Configuration(string path)
     private const string UserInputTimeoutKey = "user_input_timeout_ms";
     private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
     private const string CompactionKey = "compaction";
+    private const string ToolsKey = "tools";
     private static readonly TagName ReplaceTag = new("!replace");
 
     private readonly Lock _writeLock = new();
@@ -65,6 +67,9 @@ internal sealed class Configuration(string path)
     public TimeSpan UserInputTimeout { get; private set; }
 
     public CompactionConfig Compaction { get; private set; } = new(90, 30, 60_000, 12_000);
+
+    public ToolDocumentationCatalog ToolDocumentation { get; private set; } = new(
+        new Dictionary<string, ToolDocumentation>(StringComparer.Ordinal));
 
     public static Configuration Load(string path, string predefinedPath) =>
         Load(path, predefinedPath, CaptureEnvironment());
@@ -177,6 +182,7 @@ internal sealed class Configuration(string path)
             CliUtilities = ReadCliUtilities(root),
             UserInputTimeout = ReadUserInputTimeout(root, userRoot),
             Compaction = ReadCompaction(root),
+            ToolDocumentation = ReadToolDocumentation(root),
         };
         ProvisionSandboxDirectories(directories);
         return configuration;
@@ -1035,6 +1041,64 @@ internal sealed class Configuration(string path)
             targetPercent,
             PositiveInteger(compaction, "maximum_input_tokens", $"{CompactionKey}.maximum_input_tokens"),
             PositiveInteger(compaction, "summary_output_tokens", $"{CompactionKey}.summary_output_tokens"));
+    }
+
+    private static ToolDocumentationCatalog ReadToolDocumentation(YamlMappingNode root)
+    {
+        if (!Child(root, ToolsKey, out var node) || node is not YamlMappingNode tools)
+        {
+            throw new InvalidDataException($"{ToolsKey} must be a mapping");
+        }
+
+        var result = new Dictionary<string, ToolDocumentation>(StringComparer.Ordinal);
+        foreach (var entry in tools.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { Length: > 0 } name } ||
+                entry.Value is not YamlMappingNode tool)
+            {
+                throw new InvalidDataException($"each {ToolsKey} entry must be a named mapping");
+            }
+
+            var path = $"{ToolsKey}.{name}";
+            ValidateKeys(tool, path, "description", "parameters");
+            result[name] = new ToolDocumentation(
+                NonEmptyScalar(tool, "description", $"{path}.description"),
+                ReadToolParameters(tool, "parameters", $"{path}.parameters"));
+        }
+
+        return new ToolDocumentationCatalog(result);
+    }
+
+    private static Dictionary<string, ToolParameterDocumentation> ReadToolParameters(
+        YamlMappingNode parent,
+        string key,
+        string path)
+    {
+        if (!Child(parent, key, out var node) || node is not YamlMappingNode parameters)
+        {
+            throw new InvalidDataException($"{path} must be a mapping");
+        }
+
+        var result = new Dictionary<string, ToolParameterDocumentation>(StringComparer.Ordinal);
+        foreach (var entry in parameters.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { Length: > 0 } name } ||
+                entry.Value is not YamlMappingNode parameter)
+            {
+                throw new InvalidDataException($"each {path} entry must be a named mapping");
+            }
+
+            var parameterPath = $"{path}.{name}";
+            ValidateKeys(parameter, parameterPath, "description", "properties");
+            var properties = Child(parameter, "properties", out _)
+                ? ReadToolParameters(parameter, "properties", $"{parameterPath}.properties")
+                : new Dictionary<string, ToolParameterDocumentation>(StringComparer.Ordinal);
+            result[name] = new ToolParameterDocumentation(
+                NonEmptyScalar(parameter, "description", $"{parameterPath}.description"),
+                properties);
+        }
+
+        return result;
     }
 
     private static TimeSpan ReadUserInputTimeout(YamlMappingNode root, YamlMappingNode userRoot)

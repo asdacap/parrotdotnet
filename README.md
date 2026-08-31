@@ -532,6 +532,15 @@ Implementation-specific provider adapters and model-list decoders remain in
 code, as does the ChatGPT OAuth transport; the YAML contains only their
 serializable defaults and catalog metadata.
 
+The predefined file also ships the model-facing prose for every built-in tool
+under `tools`. Each entry supplies the tool description and descriptions for
+its exact JSON parameter names, including nested object properties. This prose
+is configuration rather than executable tool code: an `ITool` owns its name,
+execution, and structural JSON Schema, while the documentation catalogue owns
+only the prose sent to the model. In particular, the shipped `grep` prose says
+“.NET non-backtracking regular expressions”; it does not claim RE2
+compatibility.
+
 Put personal settings in `config.yaml` in the same directory. It is never
 created or overwritten by loading configuration. Parrot recursively merges its
 mapping over `predefined_config.yaml`: nested mappings combine by key, and
@@ -543,6 +552,19 @@ Thus a `model_aliases.low_llm.model_string` entry can override that target
 without repeating its predefined usage. The predefined file contains all seven
 profile definitions, so a nested `profiles.<id>` mapping can override one
 profile field while inheriting every other field from the active default.
+The same recursive rule applies to `tools`: a user can replace, for example,
+just `tools.question.parameters.questions.properties.prompt.description` and
+inherits all unspecified shipped tool prose.
+
+Before a tool set becomes active, Parrot audits the merged catalogue against
+the complete composed runtime inventory, including tools later removed by
+session-support and profile/global filters. Every registered runtime tool must
+have exactly one documentation entry, and every catalogue entry must correspond
+to a registered runtime tool. Each
+structural schema property must likewise have exactly one prose entry, with no
+extra documented properties; descriptions embedded in executable schemas are
+rejected. Consequently an incomplete, stale, or mismatched user override fails
+closed instead of silently changing what the model is told about a tool.
 
 ## Build And Run
 

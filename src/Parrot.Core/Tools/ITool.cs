@@ -13,8 +13,6 @@ internal interface ITool
 {
     string Name { get; }
 
-    string Description { get; }
-
     string ParametersJson { get; }
 
     Task<ToolExecutionResult> Execute(

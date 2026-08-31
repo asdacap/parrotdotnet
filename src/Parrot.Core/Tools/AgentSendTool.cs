@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,10 +13,6 @@ internal sealed partial class AgentSendTool(
     private const int MaximumMessageBytes = 32 * 1024;
 
     public string Name => "agent_send";
-
-    public string Description =>
-        "Send a message to this agent's direct parent or direct child. Exact canonical session IDs for those recipients resolve first. The case-sensitive literal 'parent', actual parent ID, or actual parent friendly name resolves next and takes precedence over a colliding direct-child friendly name. Direct-child friendly names resolve last. Running agents are steered; "
-        + "idle agents start a follow-up turn.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -68,13 +63,11 @@ internal sealed partial class AgentSendTool(
     [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
     internal sealed partial class Input
     {
-        [Description("Exact canonical session ID for this agent's direct parent or direct child; or the case-sensitive literal 'parent', actual parent ID, actual parent friendly name, or a direct-child friendly name. Resolution follows that precedence.")]
         [JsonPropertyName("session_id")]
         [ToolMinLength(1)]
         [ToolRequired]
         public string? SessionId { get; init; }
 
-        [Description("Message to send. At most 32768 UTF-8 bytes; split larger content into smaller messages.")]
         [JsonPropertyName("message")]
         [ToolMinLength(1)]
         [ToolRequired]

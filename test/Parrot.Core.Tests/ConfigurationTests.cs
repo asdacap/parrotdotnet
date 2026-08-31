@@ -1323,6 +1323,47 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).Contains("theme: dark");
     }
 
+    [Test]
+    public async Task Tool_documentation_is_loaded_and_partial_user_overrides_inherit_predefined_values()
+    {
+        var path = Write(
+            """
+            tools:
+              question:
+                parameters:
+                  questions:
+                    properties:
+                      prompt:
+                        description: Custom question prompt.
+            """);
+
+        var documentation = Load(path).ToolDocumentation.Tools;
+
+        _ = await Assert.That(documentation.Count).IsEqualTo(26);
+        _ = await Assert.That(documentation["question"].Description)
+            .StartsWith("Ask the user structured questions");
+        var question = documentation["question"].Parameters["questions"];
+        _ = await Assert.That(question.Description).IsEqualTo("Structured questions to ask the user.");
+        _ = await Assert.That(question.Properties["prompt"].Description).IsEqualTo("Custom question prompt.");
+        _ = await Assert.That(question.Properties["id"].Description)
+            .StartsWith("Stable identifier used to match");
+        _ = await Assert.That(documentation["status"].Parameters.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments("description: ''", "tools.read.description must be a non-empty string")]
+    [Arguments("description: null", "tools.read.description must be a non-empty string")]
+    [Arguments("parameters: []", "tools.read.parameters must be a mapping")]
+    [Arguments("unsupported: value", "tools.read contains an unsupported key")]
+    public async Task Invalid_tool_documentation_overrides_are_rejected(string overrideYaml, string message)
+    {
+        var path = Write($"tools:\n  read:\n    {overrideYaml}\n");
+
+        var exception = Assert.Throws<InvalidDataException>(() => Load(path));
+
+        _ = await Assert.That(exception.Message).IsEqualTo(message);
+    }
+
     private Configuration Load(string path) =>
         Configuration.Load(path, Path.Combine(_directory, "predefined_config.yaml"));
 

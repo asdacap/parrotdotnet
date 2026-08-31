@@ -168,6 +168,7 @@ internal partial class Composition
                 ctx.Inject<ProcessRunner>(out var processes);
                 ctx.Inject<Compactor>(out var compactor);
                 ctx.Inject<WebFetcher>(out var webFetcher);
+                ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<ModelRouter>(out var router);
                 ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
                 ctx.Inject<IAgentSessionScopeFactory>(out var scopes);
@@ -176,6 +177,7 @@ internal partial class Composition
                     processes,
                     compactor,
                     webFetcher,
+                    configuration.ToolDocumentation,
                     router,
                     systemPromptProvider,
                     scopes);

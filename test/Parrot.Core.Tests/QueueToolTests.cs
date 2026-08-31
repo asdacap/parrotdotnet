@@ -9,7 +9,7 @@ namespace Parrot.Core.Tests;
 internal sealed class QueueToolTests
 {
     [Test]
-    public async Task Generated_descriptors_preserve_queue_contracts_and_describe_every_field()
+    public async Task Generated_structural_descriptors_preserve_queue_contracts()
     {
         await AssertDescriptor(
             QueueCreateTool.Input.Descriptor,
@@ -31,8 +31,6 @@ internal sealed class QueueToolTests
         using var take = JsonDocument.Parse(QueueTakeTool.Input.Descriptor);
         _ = await Assert.That(listen.RootElement.GetProperty("properties").GetProperty("enabled").GetProperty("default").GetBoolean()).IsTrue();
         var pushProperties = push.RootElement.GetProperty("properties");
-        _ = await Assert.That(pushProperties.GetProperty("items").GetProperty("description").GetString()).Contains("Exactly one");
-        _ = await Assert.That(pushProperties.GetProperty("source_file").GetProperty("description").GetString()).Contains("Exactly one");
         _ = await Assert.That(pushProperties.GetProperty("direction").GetProperty("default").GetString()).IsEqualTo("back");
         _ = await Assert.That(pushProperties.GetProperty("close").GetProperty("default").GetBoolean()).IsFalse();
         _ = await Assert.That(take.RootElement.GetProperty("properties").GetProperty("count").GetProperty("minimum").GetInt64()).IsEqualTo(1);
@@ -174,10 +172,5 @@ internal sealed class QueueToolTests
         var properties = root.GetProperty("properties");
         _ = await Assert.That(string.Join(',', properties.EnumerateObject().Select(static property => property.Name))).IsEqualTo(string.Join(',', propertyNames));
         _ = await Assert.That(string.Join(',', root.GetProperty("required").EnumerateArray().Select(static item => item.GetString()))).IsEqualTo(string.Join(',', requiredNames));
-
-        foreach (var property in properties.EnumerateObject())
-        {
-            _ = await Assert.That(property.Value.GetProperty("description").GetString()).IsNotNull().And.IsNotEmpty();
-        }
     }
 }

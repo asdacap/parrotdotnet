@@ -229,6 +229,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             events,
             repository,
             [],
+            TestModels.EmptyToolDocumentation,
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new TodoCollection(sessionId, repository, events),
             new ToolOutputBlobStore(blobDirectory),

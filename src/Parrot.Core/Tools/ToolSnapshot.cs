@@ -2,30 +2,59 @@ using Parrot.Llm;
 
 namespace Parrot.Tools;
 
-// An immutable per-turn view over agent-session tool instances (principle 4).
-// No mutators, so "do not change the tools mid-turn" is a compiler guarantee
-// rather than a comment.
-internal sealed class ToolSnapshot(IReadOnlyList<ITool> tools)
+internal sealed class ToolSnapshot
 {
-    private readonly ITool[] _tools = [.. tools];
+    private readonly ToolEntry[] _entries;
 
-    public IReadOnlyList<ITool> Tools => Array.AsReadOnly(_tools);
+    private ToolSnapshot(IReadOnlyList<ToolEntry> entries) => _entries = [.. entries];
+
+    public static ToolSnapshot Empty { get; } = new([]);
+
+    public IReadOnlyList<ITool> Tools => Array.AsReadOnly(_entries.Select(entry => entry.Tool).ToArray());
 
     public IReadOnlyList<LLMToolDefinition> Definitions =>
-        [.. Tools.Select(tool => new LLMToolDefinition(tool.Name, tool.Description, tool.ParametersJson))];
+        Array.AsReadOnly(_entries.Select(entry => entry.Definition).ToArray());
+
+    public static ToolSnapshot Document(
+        IReadOnlyList<ITool> tools,
+        IReadOnlyList<bool> supported,
+        ToolDocumentationCatalog documentation)
+    {
+        ArgumentNullException.ThrowIfNull(tools);
+        ArgumentNullException.ThrowIfNull(supported);
+        ArgumentNullException.ThrowIfNull(documentation);
+        if (tools.Count != supported.Count)
+        {
+            throw new ArgumentException("Tool support flags must match the tool inventory.", nameof(supported));
+        }
+
+        var definitions = documentation.Document(tools);
+        var entries = new List<ToolEntry>(tools.Count);
+        for (var index = 0; index < tools.Count; index++)
+        {
+            if (supported[index])
+            {
+                entries.Add(new ToolEntry(tools[index], definitions[index]));
+            }
+        }
+
+        return new ToolSnapshot(entries);
+    }
 
     public ITool? Find(string name) =>
-        Tools.FirstOrDefault(tool => string.Equals(tool.Name, name, StringComparison.Ordinal));
+        _entries.FirstOrDefault(entry => string.Equals(entry.Tool.Name, name, StringComparison.Ordinal))?.Tool;
 
     public ToolSnapshot Only(IReadOnlyList<string>? allowedTools) => allowedTools is null
         ? this
-        : new ToolSnapshot([.. _tools.Where(tool => allowedTools.Contains(tool.Name, StringComparer.Ordinal))]);
+        : new ToolSnapshot([.. _entries.Where(entry => allowedTools.Contains(entry.Tool.Name, StringComparer.Ordinal))]);
 
     public ToolSnapshot Without(IReadOnlyList<string> disabledTools)
     {
         ArgumentNullException.ThrowIfNull(disabledTools);
         return disabledTools.Count == 0
             ? this
-            : new ToolSnapshot([.. _tools.Where(tool => !disabledTools.Contains(tool.Name, StringComparer.Ordinal))]);
+            : new ToolSnapshot([.. _entries.Where(entry => !disabledTools.Contains(entry.Tool.Name, StringComparer.Ordinal))]);
     }
+
+    private sealed record ToolEntry(ITool Tool, LLMToolDefinition Definition);
 }

@@ -359,7 +359,7 @@ internal sealed class DrainTests : IDisposable
         session.UpdateSelection(session.Selection().RequestedModel, readOnly);
         provider.Release();
         await provider.Arrived(cancellationToken);
-        _ = await Assert.That(string.Join(" | ", factory.Tool.Selections.Select(SelectionSummary)))
+        _ = await Assert.That(string.Join(" | ", factory.RecordingTool.Selections.Select(SelectionSummary)))
             .IsEqualTo("writable:True");
         provider.Release();
         await session.Settled();
@@ -368,7 +368,7 @@ internal sealed class DrainTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
-        _ = await Assert.That(string.Join(" | ", factory.Tool.Selections.Select(SelectionSummary)))
+        _ = await Assert.That(string.Join(" | ", factory.RecordingTool.Selections.Select(SelectionSummary)))
             .IsEqualTo("writable:True | read-only:True");
         provider.Release();
         await session.Settled();
@@ -529,6 +529,27 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Incomplete_tool_documentation_fails_before_calling_the_provider(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("should not be called");
+        var repository = new EventRepository(_database);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            TestModels.EmptyToolDocumentation,
+            cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        var execution = await session.ResultSettled();
+
+        _ = await Assert.That(execution.Status).IsEqualTo(AgentExecutionStatus.Failed);
+        _ = await Assert.That(execution.Error).Contains("tools.settled is not documented");
+        _ = await Assert.That(provider.Requests).IsEmpty();
+    }
+
+    [Test]
     public async Task Terminal_provider_failures_publish_the_response_body(CancellationToken cancellationToken)
     {
         var provider = new FailingProvider();
@@ -628,6 +649,10 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | queued prompt");
     }
 
+    private static ToolDocumentationCatalog Document(IReadOnlyList<IToolFactory> factories) =>
+        TestModels.DocumentTools([.. factories.Select(factory =>
+            (((ITestToolFactory)factory).Tool.Name, TestModels.NoToolParameters()))]);
+
     private static string BlobPath(string notice)
     {
         const string prefix = "Tool output exceeded 64 KiB and was saved to ";
@@ -726,17 +751,58 @@ internal sealed class DrainTests : IDisposable
         ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
-        int contextWindow,
-        double inputPrice,
-        double cachedInputPrice,
-        double outputPrice,
+        ToolDocumentationCatalog documentation,
         CancellationToken lifetime) =>
-        Session(provider, repository, toolFactories, profile: null, contextWindow, inputPrice, cachedInputPrice, outputPrice, lifetime);
+        Session(provider, repository, toolFactories, documentation, profile: null, 0, 0, 0, 0, lifetime);
 
     private AgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
         IReadOnlyList<IToolFactory> toolFactories,
+        int contextWindow,
+        double inputPrice,
+        double cachedInputPrice,
+        double outputPrice,
+        CancellationToken lifetime) =>
+        Session(
+            provider,
+            repository,
+            toolFactories,
+            Document(toolFactories),
+            profile: null,
+            contextWindow,
+            inputPrice,
+            cachedInputPrice,
+            outputPrice,
+            lifetime);
+
+    private AgentSession Session(
+        ILLMProvider provider,
+        EventRepository repository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        IMode? profile,
+        int contextWindow,
+        double inputPrice,
+        double cachedInputPrice,
+        double outputPrice,
+        CancellationToken lifetime) =>
+        Session(
+            provider,
+            repository,
+            toolFactories,
+            Document(toolFactories),
+            profile,
+            contextWindow,
+            inputPrice,
+            cachedInputPrice,
+            outputPrice,
+            lifetime);
+
+    private AgentSession Session(
+        ILLMProvider provider,
+        EventRepository repository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        ToolDocumentationCatalog documentation,
         IMode? profile,
         int contextWindow,
         double inputPrice,
@@ -763,6 +829,7 @@ internal sealed class DrainTests : IDisposable
             _broker,
             repository,
             toolFactories,
+            documentation,
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(_blobDirectory),
@@ -776,11 +843,13 @@ internal sealed class DrainTests : IDisposable
             lifetime);
     }
 
-    private sealed class CountingToolFactory(string name) : IToolFactory
+    private sealed class CountingToolFactory(string name) : IToolFactory, ITestToolFactory
     {
         private readonly NamedTool _tool = new(name);
 
         public int CreateCount { get; private set; }
+
+        public ITool Tool => _tool;
 
         public ITool Create(AgentSession session)
         {
@@ -817,8 +886,6 @@ internal sealed class DrainTests : IDisposable
     {
         public string Name => name;
 
-        public string Description => "Finishes at once.";
-
         public string ParametersJson => """{"type":"object","properties":{}}""";
 
         public Task<ToolExecutionResult> Execute(
@@ -828,9 +895,11 @@ internal sealed class DrainTests : IDisposable
             Task.FromResult<ToolExecutionResult>(name);
     }
 
-    private sealed class RecordingToolFactory : IToolFactory
+    private sealed class RecordingToolFactory : IToolFactory, ITestToolFactory
     {
-        public RecordingTool Tool { get; } = new();
+        public RecordingTool RecordingTool { get; } = new();
+
+        public ITool Tool => RecordingTool;
 
         public int CreateCount { get; private set; }
 
@@ -846,8 +915,6 @@ internal sealed class DrainTests : IDisposable
         private readonly List<AgentTurnSelection> _selections = [];
 
         public string Name => "record";
-
-        public string Description => "Records the turn selection.";
 
         public string ParametersJson => """{"type":"object","properties":{}}""";
 

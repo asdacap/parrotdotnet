@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
@@ -14,9 +13,6 @@ internal sealed partial class AgentSpawnTool(
     AgentSession session) : ITool
 {
     public string Name => "agent_spawn";
-
-    public string Description =>
-        "Start a child agent in an isolated session and return its session ID immediately. Friendly names are unique among this session's direct children. Its terminal result is automatically sent to this session.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -75,31 +71,25 @@ internal sealed partial class AgentSpawnTool(
     [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
     internal sealed partial class Input
     {
-        [Description("The subtask for the child agent")]
         [JsonPropertyName("prompt")]
         [ToolMinLength(1)]
         [ToolRequired]
         public string? Prompt { get; init; }
 
-        [Description("Configured child profile to run")]
         [JsonPropertyName("agent")]
         [ToolMinLength(1)]
         [ToolRequired]
         public string? Agent { get; init; }
 
-        [Description("Optional configured alias or canonical provider/model[/variant] selector; omitted or empty inherits the parent's complete requested selector.")]
         [JsonPropertyName("model")]
         public string? Model { get; init; }
 
-        [Description("Optional friendly name. It is lowercased and sanitized to letters, digits, and hyphens; omitted or empty names are generated.")]
         [JsonPropertyName("name")]
         public string? Name { get; init; }
 
-        [Description("Optional problem-space scope for the child; omitted or empty inherits the parent's effective scope.")]
         [JsonPropertyName("scope")]
         public string? Scope { get; init; }
 
-        [Description("Conversation history for the child: omitted, empty, or `empty` gives no history; `full` gives the parent's effective history; a checkpoint title gives history from that checkpoint.")]
         [JsonPropertyName("fork")]
         [ToolDefaultString("empty")]
         public string? Fork { get; init; }

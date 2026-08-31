@@ -26,7 +26,6 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
     private const string JsonIgnoreAttributeName = "System.Text.Json.Serialization.JsonIgnoreAttribute";
     private const string JsonExtensionDataAttributeName = "System.Text.Json.Serialization.JsonExtensionDataAttribute";
     private const string JsonIncludeAttributeName = "System.Text.Json.Serialization.JsonIncludeAttribute";
-    private const string DescriptionAttributeName = "System.ComponentModel.DescriptionAttribute";
 
     private static readonly DiagnosticDescriptor PartialModelRule = new(
         "PARROT1001",
@@ -88,14 +87,6 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
         "PARROT1008",
         "Tool input model graph is recursive",
         "Tool input model '{0}' recursively contains itself",
-        "Parrot.Generation",
-        DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    private static readonly DiagnosticDescriptor MissingDescriptionRule = new(
-        "PARROT1009",
-        "Tool input property requires a description",
-        "Property '{0}' must have a non-empty DescriptionAttribute",
         "Parrot.Generation",
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -245,16 +236,6 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
                 continue;
             }
 
-            if (!HasDescription(property))
-            {
-                diagnostics.Add(Diagnostic.Create(
-                    MissingDescriptionRule,
-                    property.Locations.FirstOrDefault(),
-                    property.Name));
-                valid = false;
-                continue;
-            }
-
             var schema = BuildProperty(property, path, diagnostics, cancellationToken);
             if (schema is null)
             {
@@ -277,7 +258,6 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
 
         var builder = new StringBuilder();
         _ = builder.Append("{\"type\":\"object\"");
-        AppendDescription(builder, model);
         if (propertySchemas.Count > 0)
         {
             _ = builder.Append(",\"properties\":{");
@@ -413,7 +393,6 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
         }
 
         var valid = AppendConstraints(builder, property, kind, diagnostics);
-        AppendDescription(builder, property);
         return valid ? builder.Append('}').ToString() : null;
     }
 
@@ -810,21 +789,6 @@ public sealed class ToolInputDescriptorGenerator : IIncrementalGenerator
 
         ReportInvalidConstraint(property, "JsonPropertyName requires a non-empty name", diagnostics);
         return null;
-    }
-
-    private static bool HasDescription(ISymbol symbol) =>
-        FindAttribute(symbol, DescriptionAttributeName) is { } attribute &&
-        TryGetString(attribute, out var description) &&
-        !string.IsNullOrWhiteSpace(description);
-
-    private static void AppendDescription(StringBuilder builder, ISymbol symbol)
-    {
-        var attribute = FindAttribute(symbol, DescriptionAttributeName);
-        if (attribute is not null && TryGetString(attribute, out var description) && description.Length > 0)
-        {
-            _ = builder.Append(",\"description\":");
-            AppendJsonString(builder, description);
-        }
     }
 
     private static void AppendJsonString(StringBuilder builder, string value)

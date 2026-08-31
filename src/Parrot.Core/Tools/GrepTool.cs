@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -18,10 +17,6 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
     public string Name => "grep";
-
-    public string Description =>
-        "Search text files with .NET non-backtracking regular expressions. "
-        + "Relative paths resolve within the workspace; absolute paths require read permission.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -380,16 +375,13 @@ internal sealed partial class GrepTool(ToolWorkspace workspace) : ITool
     internal sealed partial class Input
     {
         [JsonPropertyName("pattern")]
-        [Description(".NET non-backtracking regular expression to search for.")]
         [ToolRequired]
         public string? Pattern { get; init; }
 
         [JsonPropertyName("path")]
-        [Description("Optional workspace-relative or authorized absolute file or directory to search.")]
         public string? Path { get; init; }
 
         [JsonPropertyName("include")]
-        [Description("Optional root-relative glob pattern restricting searched files, including **.")]
         public string? Include { get; init; }
     }
 

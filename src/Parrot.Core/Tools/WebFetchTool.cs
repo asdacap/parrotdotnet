@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
@@ -10,9 +9,6 @@ namespace Parrot.Tools;
 internal sealed partial class WebFetchTool(WebFetcher fetcher) : ITool
 {
     public string Name => "web_fetch";
-
-    public string Description =>
-        "Fetch bounded HTTP or HTTPS text with GET or HEAD after exact network permission review.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -62,12 +58,10 @@ internal sealed partial class WebFetchTool(WebFetcher fetcher) : ITool
     internal sealed partial class Input
     {
         [JsonPropertyName("url")]
-        [Description("HTTP or HTTPS URL to fetch.")]
         [ToolRequired]
         public string? Url { get; init; }
 
         [JsonPropertyName("method")]
-        [Description("HTTP method, either GET or HEAD.")]
         public string? Method { get; init; }
     }
 }

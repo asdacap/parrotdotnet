@@ -30,6 +30,7 @@ internal sealed class AgentSession(
     EventBroker eventBroker,
     EventRepository eventRepository,
     IReadOnlyList<IToolFactory> toolFactories,
+    ToolDocumentationCatalog toolDocumentation,
     ISystemPrompt systemPrompt,
     TodoCollection todos,
     ToolOutputBlobStore toolOutputBlobs,
@@ -954,7 +955,7 @@ internal sealed class AgentSession(
 
                 var finalProviderRequest = providerRequests + 1 == maxTurns;
                 var snapshot = finalProviderRequest
-                    ? new ToolSnapshot([])
+                    ? ToolSnapshot.Empty
                     : activeTools;
                 if (finalProviderRequest)
                 {
@@ -1134,11 +1135,24 @@ internal sealed class AgentSession(
     // part-way through: a provider rejects a history holding a call with no
     // answer, so an interrupt that left one behind would break every later
     // prompt rather than only this turn (principle 6).
-    private ToolSnapshot MaterializeTools() =>
-        _tools ??= new ToolSnapshot(
-            [.. toolFactories
-                .Where(factory => factory.Supports(this))
-                .Select(factory => factory.Create(this))]);
+    private ToolSnapshot MaterializeTools()
+    {
+        if (_tools is not null)
+        {
+            return _tools;
+        }
+
+        var tools = new List<ITool>(toolFactories.Count);
+        var supported = new List<bool>(toolFactories.Count);
+        foreach (var factory in toolFactories)
+        {
+            supported.Add(factory.Supports(this));
+            tools.Add(factory.Create(this));
+        }
+
+        _tools = ToolSnapshot.Document(tools, supported, toolDocumentation);
+        return _tools;
+    }
 
     private async Task ReconcileToolBatchesUsingCurrentConfiguration(CancellationToken cancellationToken)
     {

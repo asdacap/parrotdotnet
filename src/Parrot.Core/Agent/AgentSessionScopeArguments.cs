@@ -16,6 +16,7 @@ internal sealed record AgentSessionScopeArguments(
     EventBroker EventBroker,
     EventRepository EventRepository,
     IReadOnlyList<IToolFactory> ToolFactories,
+    ToolDocumentationCatalog ToolDocumentation,
     ShellProcessOwners ShellProcesses,
     ISystemPromptProvider SystemPromptProvider,
     AgentScratchDirectory Scratch,

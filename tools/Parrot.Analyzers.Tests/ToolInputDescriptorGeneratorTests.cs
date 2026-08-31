@@ -9,7 +9,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
     private const string Preamble = """
         using System;
         using System.Collections.Generic;
-        using System.ComponentModel;
         using System.Text.Json.Serialization;
 
         namespace Parrot.Tools.Schema
@@ -59,7 +58,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
             [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
             internal sealed partial class Input
             {
-                [Description("A value")]
                 public string Value { get; set; } = string.Empty;
             }
             """);
@@ -70,7 +68,7 @@ internal sealed class ToolInputDescriptorGeneratorTests
             compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
         _ = await Assert.That(generatedSources).Count().IsEqualTo(1);
         _ = await Assert.That(generatedSources[0].Value).Contains("internal sealed partial class Input");
-        _ = await Assert.That(ExtractDescriptor(generatedSources[0].Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"string\",\"description\":\"A value\"}},\"additionalProperties\":false}");
+        _ = await Assert.That(ExtractDescriptor(generatedSources[0].Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"string\"}},\"additionalProperties\":false}");
     }
 
     [Test]
@@ -84,7 +82,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
                     [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
                     private sealed partial record class Input
                     {
-                        [Description("A value")]
                         public string Value { get; set; } = string.Empty;
                     }
                 }
@@ -100,7 +97,7 @@ internal sealed class ToolInputDescriptorGeneratorTests
         _ = await Assert.That(generatedSources[0].Value).Contains("internal readonly partial record struct Middle");
         _ = await Assert.That(generatedSources[0].Value).Contains("private sealed partial record class Input");
         _ = await Assert.That(generatedSources[0].Value).Contains("private static string Descriptor");
-        _ = await Assert.That(ExtractDescriptor(generatedSources[0].Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"string\",\"description\":\"A value\"}},\"additionalProperties\":false}");
+        _ = await Assert.That(ExtractDescriptor(generatedSources[0].Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"string\"}},\"additionalProperties\":false}");
     }
 
     [Test]
@@ -112,20 +109,17 @@ internal sealed class ToolInputDescriptorGeneratorTests
                 [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
                 internal sealed partial class Input
                 {
-                    [Description("Questions to ask")]
                     public Question[]? Questions { get; set; }
 
                     [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
                     internal sealed partial class Question
                     {
-                        [Description("Available options")]
                         public Option[]? Options { get; set; }
                     }
 
                     [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
                     internal sealed partial class Option
                     {
-                        [Description("Option label")]
                         public string Label { get; set; } = string.Empty;
                     }
                 }
@@ -139,7 +133,7 @@ internal sealed class ToolInputDescriptorGeneratorTests
         _ = await Assert.That(generatedSources).Count().IsEqualTo(3);
         var inputSource = generatedSources.Single(source =>
             source.Key.EndsWith("_Input.Descriptor.g.cs", StringComparison.Ordinal));
-        _ = await Assert.That(ExtractDescriptor(inputSource.Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Questions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"Options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"Label\":{\"type\":\"string\",\"description\":\"Option label\"}},\"additionalProperties\":false},\"description\":\"Available options\"}},\"additionalProperties\":false},\"description\":\"Questions to ask\"}},\"additionalProperties\":false}");
+        _ = await Assert.That(ExtractDescriptor(inputSource.Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Questions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"Options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"Label\":{\"type\":\"string\"}},\"additionalProperties\":false}}},\"additionalProperties\":false}}},\"additionalProperties\":false}");
     }
 
     [Test]
@@ -197,9 +191,9 @@ internal sealed class ToolInputDescriptorGeneratorTests
     }
 
     [Test]
-    public async Task A_property_without_a_description_reports_PARROT1009()
+    public async Task A_property_without_a_description_generates_a_structural_schema()
     {
-        var diagnostics = Generate("""
+        var (generatorDiagnostics, compilationDiagnostics, generatedSources) = RunGeneration("""
             [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
             internal sealed partial class Input
             {
@@ -207,22 +201,12 @@ internal sealed class ToolInputDescriptorGeneratorTests
             }
             """);
 
-        await AssertSingleDiagnostic(diagnostics, "PARROT1009", "Property 'Value' must have a non-empty DescriptionAttribute");
-    }
-
-    [Test]
-    public async Task A_property_with_an_empty_description_reports_PARROT1009()
-    {
-        var diagnostics = Generate("""
-            [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
-            internal sealed partial class Input
-            {
-                [Description("")]
-                public string Value { get; set; } = string.Empty;
-            }
-            """);
-
-        await AssertSingleDiagnostic(diagnostics, "PARROT1009", "Property 'Value' must have a non-empty DescriptionAttribute");
+        _ = await Assert.That(generatorDiagnostics).Count().IsEqualTo(0);
+        _ = await Assert.That(string.Join(
+            Environment.NewLine,
+            compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
+        _ = await Assert.That(ExtractDescriptor(generatedSources.Single().Value))
+            .IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"string\"}},\"additionalProperties\":false}");
     }
 
     [Test]
@@ -237,7 +221,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
             internal sealed partial class Input
             {
                 {{attribute}}
-                [Description("A value")]
                 public {{type}} Value { get; set; } = {{initializer}};
             }
             """);
@@ -252,7 +235,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
             [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
             internal sealed partial class Input
             {
-                [Description("A value")]
                 public string Value { get; } = string.Empty;
             }
             """);
@@ -290,7 +272,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
             [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
             internal sealed partial class Input
             {
-                [Description("A value")]
                 [Parrot.Tools.Schema.ToolMaximum(42)]
                 public long Value { get; set; }
             }
@@ -300,7 +281,7 @@ internal sealed class ToolInputDescriptorGeneratorTests
         _ = await Assert.That(string.Join(
             Environment.NewLine,
             compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
-        _ = await Assert.That(ExtractDescriptor(generatedSources.Single().Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"integer\",\"maximum\":42,\"description\":\"A value\"}},\"additionalProperties\":false}");
+        _ = await Assert.That(ExtractDescriptor(generatedSources.Single().Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"integer\",\"maximum\":42}},\"additionalProperties\":false}");
     }
 
     [Test]
@@ -310,7 +291,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
             [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
             internal sealed partial class Input
             {
-                [Description("A value")]
                 [Parrot.Tools.Schema.ToolMinimum(-10)]
                 [Parrot.Tools.Schema.ToolMaximum(10)]
                 public int Value { get; set; }
@@ -321,7 +301,7 @@ internal sealed class ToolInputDescriptorGeneratorTests
         _ = await Assert.That(string.Join(
             Environment.NewLine,
             compilationDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))).IsEqualTo(string.Empty);
-        _ = await Assert.That(ExtractDescriptor(generatedSources.Single().Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"integer\",\"minimum\":-10,\"maximum\":10,\"description\":\"A value\"}},\"additionalProperties\":false}");
+        _ = await Assert.That(ExtractDescriptor(generatedSources.Single().Value)).IsEqualTo("{\"type\":\"object\",\"properties\":{\"Value\":{\"type\":\"integer\",\"minimum\":-10,\"maximum\":10}},\"additionalProperties\":false}");
     }
 
     [Test]
@@ -331,7 +311,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
             [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
             internal sealed partial class Input
             {
-                [Description("A value")]
                 [Parrot.Tools.Schema.ToolMinimum(11)]
                 [Parrot.Tools.Schema.ToolMaximum(10)]
                 public long Value { get; set; }
@@ -351,7 +330,6 @@ internal sealed class ToolInputDescriptorGeneratorTests
             [Parrot.Tools.Schema.ToolInputModel(Parrot.Tools.Schema.AdditionalPropertiesPolicy.Reject)]
             internal sealed partial class Input
             {
-                [Description("A value")]
                 [Parrot.Tools.Schema.ToolMaximum(10)]
                 public string Value { get; set; } = string.Empty;
             }

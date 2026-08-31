@@ -11,8 +11,6 @@ internal sealed partial class StatusTool(
 {
     public string Name => "status";
 
-    public string Description => "Query current runtime status without adding it to the system prompt.";
-
     public string ParametersJson => Input.Descriptor;
 
     public async Task<ToolExecutionResult> Execute(

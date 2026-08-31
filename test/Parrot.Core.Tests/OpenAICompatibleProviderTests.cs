@@ -1,7 +1,9 @@
 using System.Text;
 using System.Text.Json;
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Llm.Wire;
+using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
 
@@ -38,24 +40,66 @@ internal sealed class OpenAICompatibleProviderTests
         """;
 
     [Test]
-    public async Task Encode_preserves_tool_and_generated_field_descriptions(CancellationToken cancellationToken)
+    public async Task Encode_carries_hydrated_tool_documentation_overrides_and_shipped_siblings(
+        CancellationToken cancellationToken)
     {
-        var request = new LLMRequest
-        {
-            Model = "vendor/model",
-            Messages = [LLMMessage.User("hello")],
-            Tools = [new LLMToolDefinition("write", "Creates or replaces a file.", Parrot.Tools.WriteTool.Input.Descriptor)],
-        };
-        using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
-        var function = document.RootElement.GetProperty("tools")[0].GetProperty("function");
+        const string overriddenDescription = "Read configured content.";
+        const string overriddenPathDescription = "Configured path prose.";
+        const string shippedSiblingDescription =
+            "Find paths beneath an optional root with deterministic glob matching, including **. Relative roots resolve within the workspace.";
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-chat-tool-documentation", Guid.NewGuid().ToString("N"));
 
-        _ = await Assert.That(function.GetProperty("description").GetString())
-            .IsEqualTo("Creates or replaces a file.");
-        _ = await Assert.That(
-            function.GetProperty("parameters").GetProperty("properties").GetProperty("path")
-                .GetProperty("description").GetString())
-            .IsEqualTo("Path of the file to create or replace.");
-        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+        try
+        {
+            var overrideConfiguration = $"""
+                tools:
+                  read:
+                    description: {overriddenDescription}
+                    parameters:
+                      path:
+                        description: {overriddenPathDescription}
+                """;
+            var configurationPath = WriteConfiguration(directory, overrideConfiguration);
+            var configuration = Configuration.Load(
+                configurationPath,
+                Path.Combine(directory, "predefined_config.yaml"));
+            var documentation = new ToolDocumentationCatalog(
+                new Dictionary<string, ToolDocumentation>(StringComparer.Ordinal)
+                {
+                    ["read"] = configuration.ToolDocumentation.Tools["read"],
+                    ["glob"] = configuration.ToolDocumentation.Tools["glob"],
+                });
+            var tools = documentation.Document([
+                new ReadTool(new ToolWorkspace(directory)),
+                new GlobTool(new ToolWorkspace(directory)),
+            ]);
+            var request = new LLMRequest
+            {
+                Model = "vendor/model",
+                Messages = [LLMMessage.User("hello")],
+                Tools = tools,
+            };
+
+            using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
+            var encodedTools = document.RootElement.GetProperty("tools");
+            var read = encodedTools.EnumerateArray().Single(tool =>
+                tool.GetProperty("function").GetProperty("name").GetString() == "read").GetProperty("function");
+            var glob = encodedTools.EnumerateArray().Single(tool =>
+                tool.GetProperty("function").GetProperty("name").GetString() == "glob").GetProperty("function");
+
+            _ = await Assert.That(read.GetProperty("description").GetString()).IsEqualTo(overriddenDescription);
+            _ = await Assert.That(read.GetProperty("parameters").GetProperty("properties").GetProperty("path")
+                .GetProperty("description").GetString()).IsEqualTo(overriddenPathDescription);
+            _ = await Assert.That(glob.GetProperty("description").GetString()).IsEqualTo(shippedSiblingDescription);
+            _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
     }
 
     [Test]
@@ -211,6 +255,14 @@ internal sealed class OpenAICompatibleProviderTests
         _ = await Assert.That(LLMEvent.Retry(2, TimeSpan.FromSeconds(1), "429").ToolCallId).IsEmpty();
         _ = _ = await Assert.That(LLMEvent.Completed("stop", 1, 0, 2, "hi", []).Text).IsEmpty();
         _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    private static string WriteConfiguration(string directory, string content)
+    {
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+        File.WriteAllText(path, content);
+        return path;
     }
 
     private static async Task<List<LLMEvent>> Drain(CancellationToken cancellationToken)

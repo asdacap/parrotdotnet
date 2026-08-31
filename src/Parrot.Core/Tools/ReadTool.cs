@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -15,10 +14,6 @@ internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
     private const int BinaryProbeSize = 8192;
 
     public string Name => "read";
-
-    public string Description =>
-        "Read a bounded line range from a text file or list a directory. "
-        + "Relative paths resolve within the workspace; absolute paths require read permission.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -196,17 +191,14 @@ internal sealed partial class ReadTool(ToolWorkspace workspace) : ITool
     internal sealed partial class Input
     {
         [JsonPropertyName("path")]
-        [Description("Workspace-relative or authorized absolute file or directory path.")]
         [ToolRequired]
         public string? Path { get; init; }
 
         [JsonPropertyName("offset")]
-        [Description("One-based first line to read.")]
         [ToolMinimum(1)]
         public int? Offset { get; init; }
 
         [JsonPropertyName("limit")]
-        [Description("Maximum number of lines to read.")]
         [ToolMinimum(1)]
         public int? Limit { get; init; }
     }

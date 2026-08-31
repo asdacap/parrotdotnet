@@ -10,6 +10,7 @@ using Parrot.Security;
 using Parrot.State;
 using Parrot.Statuses;
 using Parrot.Store;
+using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
 
@@ -59,6 +60,19 @@ internal static class TestModels
                 false,
                 []),
         };
+
+    public static ToolDocumentationCatalog EmptyToolDocumentation { get; } = new(
+        new Dictionary<string, ToolDocumentation>(StringComparer.Ordinal));
+
+    public static ToolDocumentationCatalog DocumentTools(
+        params (string Name, IReadOnlyDictionary<string, ToolParameterDocumentation> Parameters)[] tools) => new(
+        tools.ToDictionary(
+            tool => tool.Name,
+            tool => new ToolDocumentation("Test tool.", tool.Parameters),
+            StringComparer.Ordinal));
+
+    public static IReadOnlyDictionary<string, ToolParameterDocumentation> NoToolParameters() =>
+        new Dictionary<string, ToolParameterDocumentation>(StringComparer.Ordinal);
 
     public static AgentQueues Queues(AgentIdentity identity)
     {

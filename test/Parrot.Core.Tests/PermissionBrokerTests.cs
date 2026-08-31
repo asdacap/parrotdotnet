@@ -289,6 +289,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             events,
             repository,
             [],
+            TestModels.EmptyToolDocumentation,
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection(id, repository, events),
             new ToolOutputBlobStore(Path.GetTempPath()),

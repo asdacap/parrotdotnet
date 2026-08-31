@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -22,10 +21,6 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
     }
 
     public string Name => "glob";
-
-    public string Description =>
-        "Find paths beneath an optional root with deterministic glob matching, including **. "
-        + "Relative roots resolve within the workspace.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -293,12 +288,10 @@ internal sealed partial class GlobTool(ToolWorkspace workspace) : ITool
     internal sealed partial class Input
     {
         [JsonPropertyName("pattern")]
-        [Description("Root-relative glob pattern, including ** for recursive matching.")]
         [ToolRequired]
         public string? Pattern { get; init; }
 
         [JsonPropertyName("path")]
-        [Description("Optional workspace-relative or authorized absolute directory to search.")]
         public string? Path { get; init; }
     }
 }

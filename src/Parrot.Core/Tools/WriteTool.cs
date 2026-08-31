@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -13,10 +12,6 @@ internal sealed partial class WriteTool(
     private static readonly UTF8Encoding Utf8WithoutBom = new(false);
 
     public string Name => "write";
-
-    public string Description =>
-        "Create or replace a file with exact UTF-8 content. Relative paths resolve within the workspace; "
-        + "absolute paths require explicit write authorization.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -77,13 +72,11 @@ internal sealed partial class WriteTool(
     internal sealed partial class Input
     {
         [JsonPropertyName("path")]
-        [Description("Path of the file to create or replace.")]
         [ToolRequired]
         [ToolMinLength(1)]
         public string? Path { get; init; }
 
         [JsonPropertyName("content")]
-        [Description("Exact UTF-8 content to write.")]
         [ToolRequired]
         public string? Content { get; init; }
     }

@@ -17,5 +17,4 @@ PARROT1005 | Parrot.Generation | Error | Tool input constraint is invalid.
 PARROT1006 | Parrot.Generation | Error | Additional-properties policy is invalid.
 PARROT1007 | Parrot.Generation | Error | Tool input property name is duplicated.
 PARROT1008 | Parrot.Generation | Error | Tool input model graph is recursive.
-PARROT1009 | Parrot.Generation | Error | Tool input property requires a non-empty description.
 PARROT1010 | Parrot.Generation | Error | Tool input model shape is unsupported by descriptor generation.

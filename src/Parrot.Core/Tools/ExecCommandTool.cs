@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
@@ -15,11 +14,6 @@ internal sealed partial class ExecCommandTool(
     AgentSession session) : ITool
 {
     public string Name => "exec_command";
-
-    public string Description =>
-        "Run a sandboxed shell command. Optionally reserve a name unique among this agent session's running processes and yield "
-        + "without stopping it; completed process names can be reused and omitted names are generated. Completion after a yield "
-        + "is steered back to this agent unless wait_process claims it.";
 
     public string ParametersJson => Input.Descriptor;
 
@@ -94,26 +88,21 @@ internal sealed partial class ExecCommandTool(
     [ToolInputModel(AdditionalPropertiesPolicy.Closed)]
     internal sealed partial class Input
     {
-        [Description("The shell command to run")]
         [JsonPropertyName("command")]
         [ToolRequired]
         public string? Command { get; init; }
 
-        [Description("Environment variables for the command. Values override the inherited environment.")]
         [JsonPropertyName("env")]
         [JsonConverter(typeof(ProcessEnvironmentJsonConverter))]
         public Dictionary<string, string>? Environment { get; init; }
 
-        [Description("Name unique among running processes; completed names can be reused and omitted names are generated")]
         [JsonPropertyName("name")]
         public string? Name { get; init; }
 
-        [Description("Return the process name if still running after this many milliseconds")]
         [JsonPropertyName("yield_after_ms")]
         [ToolMinimum(0)]
         public long? YieldAfterMilliseconds { get; init; }
 
-        [Description("Run the command in a pseudo-terminal so its standard input can accept later write_stdin calls")]
         [JsonPropertyName("tty")]
         [ToolDefaultBool(false)]
         public bool Terminal { get; init; }
