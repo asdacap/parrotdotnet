@@ -33,11 +33,15 @@ internal readonly record struct ToolTerminalPresentation(
             return status;
         }
 
-        var lineEnd = Result.IndexOf('\n', exitPrefix.Length);
-        var exitCode = lineEnd < 0
+        var codeEnd = Result.IndexOfAny([' ', '\n'], exitPrefix.Length);
+        var exitCode = codeEnd < 0
             ? Result.AsSpan(exitPrefix.Length)
-            : Result.AsSpan(exitPrefix.Length, lineEnd - exitPrefix.Length);
-        return int.TryParse(exitCode, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var value)
+            : Result.AsSpan(exitPrefix.Length, codeEnd - exitPrefix.Length);
+        var validSuffix = codeEnd < 0
+            || Result[codeEnd] == '\n'
+            || Result.AsSpan(codeEnd).StartsWith(" after ", StringComparison.Ordinal);
+        return validSuffix
+            && int.TryParse(exitCode, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var value)
             && value != 0
                 ? ToolTerminalStatus.ReportedFailure
                 : status;

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 
 namespace Parrot.Process;
@@ -16,6 +17,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly int _masterDescriptor;
     private readonly int _slaveDescriptor;
+    private readonly long _startedTimestamp;
     private readonly CancellationTokenRegistration _cancellationRegistration;
     private ProcessResult? _completedResult;
     private int _disposed;
@@ -26,6 +28,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         System.Diagnostics.Process process,
         IProcessSignalTarget signalTarget,
         string blobDirectory,
+        long startedTimestamp,
         CancellationToken cancellationToken)
     {
         _process = process;
@@ -34,6 +37,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         _cleanupPath = string.Empty;
         _masterDescriptor = -1;
         _slaveDescriptor = -1;
+        _startedTimestamp = startedTimestamp;
         _cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _cancellationRegistration = _cancellation.Token.Register(() => Kill(_process));
         Result = RunPipe();
@@ -44,6 +48,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         IProcessSignalTarget signalTarget,
         string blobDirectory,
         string cleanupPath,
+        long startedTimestamp,
         CancellationToken cancellationToken)
     {
         _process = process;
@@ -52,6 +57,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         _cleanupPath = cleanupPath;
         _masterDescriptor = -1;
         _slaveDescriptor = -1;
+        _startedTimestamp = startedTimestamp;
         _cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _cancellationRegistration = _cancellation.Token.Register(() => Kill(_process));
         Result = RunPipe();
@@ -63,6 +69,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         int masterDescriptor,
         int slaveDescriptor,
         string blobDirectory,
+        long startedTimestamp,
         CancellationToken cancellationToken)
     {
         _process = process;
@@ -71,6 +78,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         _cleanupPath = string.Empty;
         _masterDescriptor = masterDescriptor;
         _slaveDescriptor = slaveDescriptor;
+        _startedTimestamp = startedTimestamp;
         _transcript = new PtyTranscript(blobDirectory);
         _cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _cancellationRegistration = _cancellation.Token.Register(() => Kill(_process));
@@ -158,7 +166,12 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
         if (!output.Spilled)
         {
-            var result = new ProcessResult(completed.ExitCode, output.Text, string.Empty, string.Empty);
+            var result = new ProcessResult(
+                completed.ExitCode,
+                completed.ElapsedMilliseconds,
+                output.Text,
+                string.Empty,
+                string.Empty);
 
             if (Encoding.UTF8.GetByteCount(ProcessResultFormatter.Format(result)) <= MaxFormattedOutputBytes)
             {
@@ -167,8 +180,13 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         }
 
         var blobPath = new ProcessOutputBlobStore(_blobDirectory)
-            .PersistImmediately(completed.ExitCode, output);
-        return (cursor, new ProcessResult(completed.ExitCode, string.Empty, string.Empty, blobPath));
+            .PersistImmediately(completed.ExitCode, completed.ElapsedMilliseconds, output);
+        return (cursor, new ProcessResult(
+            completed.ExitCode,
+            completed.ElapsedMilliseconds,
+            string.Empty,
+            string.Empty,
+            blobPath));
     }
 
     public async ValueTask DisposeAsync()
@@ -201,6 +219,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     private static async Task<ProcessResult> FormatResult(
         int exitCode,
+        long elapsedMilliseconds,
         ProcessOutput stdout,
         ProcessOutput stderr,
         string blobDirectory,
@@ -210,7 +229,12 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         {
             if (!stdout.Spilled && !stderr.Spilled)
             {
-                var result = new ProcessResult(exitCode, stdout.Text, stderr.Text, string.Empty);
+                var result = new ProcessResult(
+                    exitCode,
+                    elapsedMilliseconds,
+                    stdout.Text,
+                    stderr.Text,
+                    string.Empty);
 
                 if (Encoding.UTF8.GetByteCount(ProcessResultFormatter.Format(result)) <= MaxFormattedOutputBytes)
                 {
@@ -219,9 +243,9 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
             }
 
             var blobPath = await new ProcessOutputBlobStore(blobDirectory)
-                .Persist(exitCode, stdout, stderr, cancellationToken)
+                .Persist(exitCode, elapsedMilliseconds, stdout, stderr, cancellationToken)
                 .ConfigureAwait(false);
-            return new ProcessResult(exitCode, string.Empty, string.Empty, blobPath);
+            return new ProcessResult(exitCode, elapsedMilliseconds, string.Empty, string.Empty, blobPath);
         }
         finally
         {
@@ -339,10 +363,11 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
         try
         {
-            await AwaitProcessAndOutput(stdoutTask, stderrTask).ConfigureAwait(false);
+            var elapsedMilliseconds = await AwaitProcessAndOutput(stdoutTask, stderrTask).ConfigureAwait(false);
             var output = await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
             var result = await FormatResult(
                     _process.ExitCode,
+                    elapsedMilliseconds,
                     output[0],
                     output[1],
                     _blobDirectory,
@@ -380,6 +405,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
             var bridgeErrors = _process.StandardError.ReadToEndAsync(CancellationToken.None);
             drainTask = Task.Run(() => DrainPseudoTerminal(transcript), CancellationToken.None);
             await _process.WaitForExitAsync(_cancellation.Token).ConfigureAwait(false);
+            var elapsedMilliseconds = GetElapsedMilliseconds();
             await drainTask.ConfigureAwait(false);
             var bridgeError = await bridgeErrors.ConfigureAwait(false);
 
@@ -392,6 +418,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
             var (_, output) = transcript.ReadOutput(0);
             var result = await FormatResult(
                     _process.ExitCode,
+                    elapsedMilliseconds,
                     output,
                     new ProcessOutput(string.Empty, string.Empty),
                     _blobDirectory,
@@ -443,18 +470,29 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         }
     }
 
-    private async Task AwaitProcessAndOutput(params Task<ProcessOutput>[] outputs)
+    private async Task<long> AwaitProcessAndOutput(params Task<ProcessOutput>[] outputs)
     {
         var exitTask = _process.WaitForExitAsync(_cancellation.Token);
         var pending = new List<Task>(outputs) { exitTask };
+        var elapsedMilliseconds = 0L;
 
         while (pending.Count > 0)
         {
             var completed = await Task.WhenAny(pending).ConfigureAwait(false);
             _ = pending.Remove(completed);
             await completed.ConfigureAwait(false);
+
+            if (completed == exitTask)
+            {
+                elapsedMilliseconds = GetElapsedMilliseconds();
+            }
         }
+
+        return elapsedMilliseconds;
     }
+
+    private long GetElapsedMilliseconds() =>
+        Math.Max(0, checked((long)Stopwatch.GetElapsedTime(_startedTimestamp).TotalMilliseconds));
 
     private async Task AwaitCompletionForDisposal()
     {

@@ -22,19 +22,19 @@ internal sealed class ProcessOutputBlobStoreTests : IDisposable
         var stdout = new ProcessOutput("out", string.Empty);
         var stderr = new ProcessOutput("err", string.Empty);
 
-        var path = await store.Persist(7, stdout, stderr, cancellationToken);
+        var path = await store.Persist(7, 1234, stdout, stderr, cancellationToken);
 
         _ = await Assert.That(path).IsEqualTo(Path.Combine(_directory, "bold-river-arse.dat"));
         _ = await Assert.That(await File.ReadAllTextAsync(collision, cancellationToken)).IsEqualTo("existing");
         _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken))
-            .IsEqualTo("Process exited with code 7\n[stdout]\nout\n[stderr]\nerr");
+            .IsEqualTo("Process exited with code 7 after 1.23s\n[stdout]\nout\n[stderr]\nerr");
 
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
         var canceledStore = new ProcessOutputBlobStore(
             _directory, static () => "lost-cloud-arse.dat");
         _ = await Assert.That(async () =>
-                await canceledStore.Persist(0, stdout, stderr, canceled.Token))
+                await canceledStore.Persist(0, 0, stdout, stderr, canceled.Token))
             .Throws<OperationCanceledException>();
         _ = await Assert.That(File.Exists(Path.Combine(_directory, "lost-cloud-arse.dat"))).IsFalse();
     }

@@ -57,6 +57,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
 
         try
         {
+            var startedTimestamp = Stopwatch.GetTimestamp();
             started = process.Start();
             if (!started)
             {
@@ -69,6 +70,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
                 signalTarget,
                 scratch.BlobDirectory,
                 profilePath,
+                startedTimestamp,
                 cancellationToken);
         }
         catch

@@ -15,7 +15,7 @@ internal sealed class ProcessToolPresenterTests
         [
             new ExecCommandToolPresenter(),
             new ToolCallPresentation("main", "exec_command", "{\"command\":\"compile\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 7", string.Empty),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 7 after 1.23s", string.Empty),
             "$ compile",
             "✗ main: $ compile",
         ];
@@ -31,7 +31,7 @@ internal sealed class ProcessToolPresenterTests
         [
             new InterruptProcessToolPresenter(),
             new ToolCallPresentation("main", "interrupt_process", "{\"name\":\"build\"}"),
-            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2", string.Empty),
+            new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "Process exited with code 2 after 0.42s", string.Empty),
             "signal 2 build",
             "✗ main: signal 2 build",
         ];
@@ -91,7 +91,7 @@ internal sealed class ProcessToolPresenterTests
         var terminal = new ToolTerminalPresentation(
             ToolTerminalStatus.Succeeded,
             true,
-            $"Process exited with code 7\nTool output exceeded 64 KiB and was saved to {outputPath}.",
+            $"Process exited with code 7 after 3.14s\nTool output exceeded 64 KiB and was saved to {outputPath}.",
             string.Empty);
 
         var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException()).Render(ScrollbackContext);

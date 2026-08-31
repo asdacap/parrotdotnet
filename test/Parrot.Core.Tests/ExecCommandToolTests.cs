@@ -111,17 +111,21 @@ internal sealed class ExecCommandToolTests : IDisposable
         var invalidEnvironmentName = await Execute(tool, """{"command":"true","env":{"INVALID=NAME":"value"}}""", selection, cancellationToken);
         var invalidEnvironmentValue = await Execute(tool, """{"command":"true","env":{"VALUE":"\u0000"}}""", selection, cancellationToken);
 
-        _ = await Assert.That(result.Text).IsEqualTo("Process exited with code 7\n[stdout]\nout\n[stderr]\nerr");
+        _ = await Assert.That(result.Text).StartsWith("Process exited with code 7 after ");
+        _ = await Assert.That(result.Text).EndsWith("s\n[stdout]\nout\n[stderr]\nerr");
         _ = await Assert.That(missing.Text).IsEqualTo("error: Tool arguments require a string 'command'.");
         _ = await Assert.That(malformed.Text).IsEqualTo("error: Tool arguments require a string 'command'.");
         _ = await Assert.That(invalidEnvironment.Text)
             .IsEqualTo("error: Tool argument 'env' must contain only string values.");
         _ = await Assert.That(malformedEnvironment.Text)
             .IsEqualTo("error: Tool argument 'env' must be an object containing string values.");
-        _ = await Assert.That(environment.Text).IsEqualTo("Process exited with code 0\n[stdout]\navailable");
-        _ = await Assert.That(emptyEnvironment.Text).IsEqualTo("Process exited with code 0\n[stdout]\n<>");
+        _ = await Assert.That(environment.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(environment.Text).EndsWith("s\n[stdout]\navailable");
+        _ = await Assert.That(emptyEnvironment.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(emptyEnvironment.Text).EndsWith("s\n[stdout]\n<>");
+        _ = await Assert.That(inheritedPath.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(inheritedPath.Text)
-            .IsEqualTo($"Process exited with code 0\n[stdout]\n{Environment.GetEnvironmentVariable("PATH")}");
+            .EndsWith($"s\n[stdout]\n{Environment.GetEnvironmentVariable("PATH")}");
         _ = await Assert.That(emptyEnvironmentName.Text)
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
         _ = await Assert.That(invalidEnvironmentName.Text)
@@ -130,11 +134,12 @@ internal sealed class ExecCommandToolTests : IDisposable
             .IsEqualTo("error: Tool argument 'env' contains an invalid environment value.");
 
         var spilled = await Execute(tool, """{"command":"awk 'BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }'"}""", selection, cancellationToken);
-        const string spilledPrefix =
-            "Process exited with code 0\nTool output exceeded 64 KiB and was saved to ";
+        const string spillNotice = "\nTool output exceeded 64 KiB and was saved to ";
         const string spilledSuffix = ".";
-        var spilledPath = spilled.Text[spilledPrefix.Length..^spilledSuffix.Length];
-        _ = await Assert.That(spilled.Text).IsEqualTo(spilledPrefix + spilledPath + spilledSuffix);
+        var noticeStart = spilled.Text.IndexOf(spillNotice, StringComparison.Ordinal);
+        _ = await Assert.That(spilled.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(noticeStart).IsGreaterThan(0);
+        var spilledPath = spilled.Text[(noticeStart + spillNotice.Length)..^spilledSuffix.Length];
         _ = await Assert.That(Path.IsPathFullyQualified(spilledPath)).IsTrue();
         _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(scratch.BlobDirectory);
 
@@ -184,8 +189,10 @@ internal sealed class ExecCommandToolTests : IDisposable
             cancellationToken);
 
         _ = await Assert.That(yielded.Text).IsEqualTo("later");
-        _ = await Assert.That(waited.Text).IsEqualTo("Process exited with code 0\n[stdout]\nlater");
-        _ = await Assert.That(reusedAfterCompletion.Text).IsEqualTo("Process exited with code 0\n[stdout]\nreused");
+        _ = await Assert.That(waited.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(waited.Text).EndsWith("s\n[stdout]\nlater");
+        _ = await Assert.That(reusedAfterCompletion.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(reusedAfterCompletion.Text).EndsWith("s\n[stdout]\nreused");
         _ = await Assert.That(unknown.Text).IsEqualTo("error: Unknown shell process 'missing'.");
         _ = await Assert.That(defaultSignalProcess.Text).IsEqualTo("default-signal");
         _ = await Assert.That(defaultSignaled.Text).IsEqualTo("Signal 2 sent to shell process 'default-signal'.");
@@ -196,7 +203,8 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(signaled.Text).IsEqualTo("Signal 17 sent to shell process 'running'.");
         _ = await Assert.That(killed.Text).IsEqualTo("Signal 9 sent to shell process 'running'.");
         _ = await Assert.That(waitedAfterKill.Text).StartsWith("Process exited with code ");
-        _ = await Assert.That(reusedAfterKill.Text).IsEqualTo("Process exited with code 0\n[stdout]\nrestarted");
+        _ = await Assert.That(reusedAfterKill.Text).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(reusedAfterKill.Text).EndsWith("s\n[stdout]\nrestarted");
         _ = await Assert.That(invalidLowSignal.Text)
             .IsEqualTo("error: Tool argument 'signal' must be between 1 and 64.");
         _ = await Assert.That(invalidHighSignal.Text)

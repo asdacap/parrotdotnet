@@ -279,9 +279,15 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
 
         try
         {
+            var startedTimestamp = Stopwatch.GetTimestamp();
             started = process.Start();
             signalTarget = OpenSignalTarget(process);
-            return new ShellProcessExecution(process, signalTarget, scratch.BlobDirectory, cancellationToken);
+            return new ShellProcessExecution(
+                process,
+                signalTarget,
+                scratch.BlobDirectory,
+                startedTimestamp,
+                cancellationToken);
         }
         catch
         {
@@ -349,6 +355,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             }
 
             process = new System.Diagnostics.Process { StartInfo = startInfo };
+            var startedTimestamp = Stopwatch.GetTimestamp();
             started = process.Start();
             signalTarget = OpenSignalTarget(process);
             return new ShellProcessExecution(
@@ -357,6 +364,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                 master,
                 slave,
                 scratch.BlobDirectory,
+                startedTimestamp,
                 cancellationToken);
         }
         catch

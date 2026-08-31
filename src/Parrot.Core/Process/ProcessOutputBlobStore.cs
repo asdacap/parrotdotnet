@@ -22,6 +22,7 @@ internal sealed class ProcessOutputBlobStore
 
     public async Task<string> Persist(
         int exitCode,
+        long elapsedMilliseconds,
         ProcessOutput stdout,
         ProcessOutput stderr,
         CancellationToken cancellationToken)
@@ -58,7 +59,8 @@ internal sealed class ProcessOutputBlobStore
 
                 try
                 {
-                    await Write(stream, exitCode, stdout, stderr, cancellationToken).ConfigureAwait(false);
+                    await Write(stream, exitCode, elapsedMilliseconds, stdout, stderr, cancellationToken)
+                        .ConfigureAwait(false);
                     return path;
                 }
                 catch
@@ -88,7 +90,7 @@ internal sealed class ProcessOutputBlobStore
         }
     }
 
-    internal string PersistImmediately(int exitCode, ProcessOutput stdout)
+    internal string PersistImmediately(int exitCode, long elapsedMilliseconds, ProcessOutput stdout)
     {
         EnsureDirectory(_directory);
 
@@ -120,7 +122,8 @@ internal sealed class ProcessOutputBlobStore
                 using (stream)
                 using (var writer = new StreamWriter(stream, Utf8WithoutBom))
                 {
-                    writer.Write($"Process exited with code {exitCode}\n[stdout]\n");
+                    writer.Write(ProcessResultFormatter.FormatCompletion(exitCode, elapsedMilliseconds));
+                    writer.Write("\n[stdout]\n");
                     stdout.CopyTo(writer);
                 }
 
@@ -155,13 +158,15 @@ internal sealed class ProcessOutputBlobStore
     private static async Task Write(
         Stream stream,
         int exitCode,
+        long elapsedMilliseconds,
         ProcessOutput stdout,
         ProcessOutput stderr,
         CancellationToken cancellationToken)
     {
         await using var writer = new StreamWriter(stream, Utf8WithoutBom, leaveOpen: true);
         await writer.WriteAsync(
-            $"Process exited with code {exitCode}".AsMemory(), cancellationToken).ConfigureAwait(false);
+            ProcessResultFormatter.FormatCompletion(exitCode, elapsedMilliseconds).AsMemory(),
+            cancellationToken).ConfigureAwait(false);
         await WriteOutput(writer, "stdout", stdout, cancellationToken).ConfigureAwait(false);
         await WriteOutput(writer, "stderr", stderr, cancellationToken).ConfigureAwait(false);
         await writer.FlushAsync(cancellationToken).ConfigureAwait(false);

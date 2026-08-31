@@ -472,14 +472,14 @@ internal sealed class EnhancedCliTests
                 {
                     ToolCallId = "call-1",
                     ToolName = "exec_command",
-                    Result = "Process exited with code 0\nall tests passed",
+                    Result = "Process exited with code 0 after 1.23s\nall tests passed",
                 },
             },
             cancellationToken);
 
         var rendered = output.ToString();
         _ = await Assert.That(rendered).Contains("✓ $ dotnet test\r\n");
-        _ = await Assert.That(rendered).Contains("Process exited with code 0\r\nall tests passed\r\n");
+        _ = await Assert.That(rendered).Contains("Process exited with code 0 after 1.23s\r\nall tests passed\r\n");
         _ = await Assert.That(rendered).DoesNotContain("exec_command finished");
     }
 

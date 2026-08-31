@@ -71,8 +71,9 @@ internal sealed class ProcessRunnerTests : IDisposable
         _ = await Assert.That(Path.GetFileName(result.BlobPath)).EndsWith("-arse.dat");
 
         var output = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
-        _ = await Assert.That(output).IsEqualTo(
-            $"Process exited with code 7\n[stdout]\n{new string('o', 70000)}"
+        _ = await Assert.That(output).StartsWith("Process exited with code 7 after ");
+        _ = await Assert.That(output).EndsWith(
+            $"s\n[stdout]\n{new string('o', 70000)}"
             + $"\n[stderr]\n{new string('e', 70000)}");
         _ = await Assert.That(Directory.EnumerateFiles(Scratch(_workspace).BlobDirectory, ".process-*.tmp"))
             .IsEmpty();
@@ -100,8 +101,9 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         _ = await Assert.That(result.Spilled).IsTrue();
         var output = await File.ReadAllTextAsync(result.BlobPath, cancellationToken);
-        _ = await Assert.That(output).IsEqualTo(
-            $"Process exited with code 0\n[stdout]\n{new string('€', 11000)}"
+        _ = await Assert.That(output).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(output).EndsWith(
+            $"s\n[stdout]\n{new string('€', 11000)}"
             + $"\n[stderr]\n{new string('€', 11000)}");
     }
 
