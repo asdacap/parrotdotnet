@@ -344,9 +344,10 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         var script = "#!/bin/sh\nhelper=\nwhile [ \"$1\" != \"--\" ]; do\n"
             + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
             + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; "
-            + "elif [ \"$1\" = \"--ro-bind\" ] && [ \"$3\" = \"/run/parrot/parrot-pty-attach\" ]; "
+            + "elif [ \"$1\" = \"--ro-bind\" ] && [ \"$2\" = \"$3\" ] "
+            + "&& [ \"$(basename \"$2\")\" = \"parrot-pty-attach\" ]; "
             + "then helper=$2; shift 2; fi\n  shift\ndone\nshift\n"
-            + "if [ \"$1\" = \"/run/parrot/parrot-pty-attach\" ]; then shift; exec \"$helper\" \"$@\"; fi\n"
+            + "if [ \"$1\" = \"$helper\" ] && [ -n \"$helper\" ]; then shift; exec \"$helper\" \"$@\"; fi\n"
             + "exec \"$@\"\n";
         File.WriteAllText(path, script);
         File.SetUnixFileMode(

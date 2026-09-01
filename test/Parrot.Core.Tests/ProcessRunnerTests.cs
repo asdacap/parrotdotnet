@@ -618,6 +618,36 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Pseudo_terminal_starts_in_the_real_sandbox(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var runner = ProcessRunner.Locate();
+
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        var resources = Resources(_workspace);
+        await using var execution = runner.Start(
+            "printf pty-ready",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            WritableProfile(resources),
+            ShellProcessTerminalMode.PseudoTerminal,
+            cancellationToken);
+        var result = await execution.Result;
+
+        _ = await Assert.That(result.ExitCode).IsEqualTo(0);
+        _ = await Assert.That(result.Stdout).Contains("pty-ready");
+    }
+
+    [Test]
     public async Task The_workspace_is_writable_and_the_host_is_read_only(CancellationToken cancellationToken)
     {
         var runner = ProcessRunner.Locate();

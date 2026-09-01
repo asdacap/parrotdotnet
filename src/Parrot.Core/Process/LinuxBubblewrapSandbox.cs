@@ -8,7 +8,6 @@ namespace Parrot.Process;
 internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool requireTrustedPath) : IProcessSandbox
 {
     private const int WriteAccess = 2;
-    private const string SandboxHelperPath = "/run/parrot/parrot-pty-attach";
     private readonly string _bubblewrapPath = ValidateBubblewrapPath(bubblewrapPath, requireTrustedPath);
 
     public bool SandboxAvailable => _bubblewrapPath.Length > 0;
@@ -99,7 +98,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         AddSecurityRules(arguments, resources, securityProfile);
         if (pseudoTerminalHelperPath.Length > 0)
         {
-            arguments.AddRange(["--ro-bind", pseudoTerminalHelperPath, SandboxHelperPath]);
+            arguments.AddRange(["--ro-bind", pseudoTerminalHelperPath, pseudoTerminalHelperPath]);
         }
 
         // must be AFTER other mount
@@ -109,7 +108,7 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
 
         if (pseudoTerminalHelperPath.Length > 0)
         {
-            arguments.AddRange([SandboxHelperPath, "--attach", "--"]);
+            arguments.AddRange([pseudoTerminalHelperPath, "--attach", "--"]);
         }
 
         arguments.AddRange(["/bin/sh", "-c", command]);
