@@ -15,7 +15,12 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
 
     private StringBuilder? _unnamedSummary;
     private string? _currentTool;
+    private long? _currentProviderRequestStarted;
+    private TimeSpan? _lastProviderRequestDuration;
     private long? _latestProviderActivity;
+    private long? _requestSessionStarted;
+    private TimeSpan? _requestSessionDuration;
+    private long _requestSessionExecution;
     private long _toolExecution;
     private DrainState _state;
     private AgentExecution? _terminalOutcome;
@@ -43,10 +48,24 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
         }
     }
 
+    public void BeginProviderRequest()
+    {
+        lock (_gate)
+        {
+            _currentProviderRequestStarted = _timeProvider.GetTimestamp();
+        }
+    }
+
     public void FinishProviderRequest()
     {
         lock (_gate)
         {
+            if (_currentProviderRequestStarted is { } started)
+            {
+                _lastProviderRequestDuration = GetElapsedTime(started, _timeProvider.GetTimestamp());
+                _currentProviderRequestStarted = null;
+            }
+
             _namedSummaries.Clear();
             _unnamedSummary = null;
         }
@@ -97,20 +116,35 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
         }
     }
 
-    public void BeginExecution()
+    public long BeginExecution()
     {
         lock (_gate)
         {
+            _requestSessionExecution++;
+            _requestSessionStarted = _timeProvider.GetTimestamp();
+            _requestSessionDuration = null;
             _terminalOutcome = null;
+            return _requestSessionExecution;
         }
     }
 
-    public void FinishExecution(AgentExecution outcome)
+    public void FinishExecution(long execution, AgentExecution outcome)
     {
         ArgumentNullException.ThrowIfNull(outcome);
 
         lock (_gate)
         {
+            if (_requestSessionExecution != execution)
+            {
+                return;
+            }
+
+            if (_requestSessionStarted is { } started)
+            {
+                _requestSessionDuration = GetElapsedTime(started, _timeProvider.GetTimestamp());
+                _requestSessionStarted = null;
+            }
+
             _terminalOutcome = outcome;
         }
     }
@@ -133,9 +167,18 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
             TimeSpan? providerActivityAge = _latestProviderActivity is { } providerActivity
                 ? GetElapsedTime(providerActivity, timestamp)
                 : null;
+            var requestSessionDuration = _requestSessionStarted is { } requestStarted
+                ? GetElapsedTime(requestStarted, timestamp)
+                : _requestSessionDuration;
+            TimeSpan? currentProviderRequestDuration = _currentProviderRequestStarted is { } providerStarted
+                ? GetElapsedTime(providerStarted, timestamp)
+                : null;
             return new AgentSessionActivitySnapshot(
                 _state,
                 _currentTool,
+                requestSessionDuration,
+                currentProviderRequestDuration,
+                _lastProviderRequestDuration,
                 providerActivityAge,
                 _terminalOutcome,
                 Array.AsReadOnly(recent));

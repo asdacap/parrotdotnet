@@ -80,6 +80,69 @@ internal sealed class AgentSessionActivityTests
     }
 
     [Test]
+    public async Task Request_session_duration_advances_while_active_and_stops_at_completion()
+    {
+        var time = new ControlledTimeProvider();
+        var activity = new AgentSessionActivity(time);
+
+        _ = await Assert.That(activity.Capture().RequestSessionDuration).IsNull();
+        var execution = activity.BeginExecution();
+        time.Advance(TimeSpan.FromSeconds(1));
+        _ = await Assert.That(activity.Capture().RequestSessionDuration).IsEqualTo(TimeSpan.FromSeconds(1));
+
+        activity.FinishExecution(execution, AgentExecution.Succeeded(string.Empty));
+        time.Advance(TimeSpan.FromSeconds(2));
+
+        _ = await Assert.That(activity.Capture().RequestSessionDuration).IsEqualTo(TimeSpan.FromSeconds(1));
+    }
+
+    [Test]
+    public async Task Older_execution_completion_does_not_finish_newer_request_session()
+    {
+        var time = new ControlledTimeProvider();
+        var activity = new AgentSessionActivity(time);
+
+        var older = activity.BeginExecution();
+        time.Advance(TimeSpan.FromSeconds(1));
+        var current = activity.BeginExecution();
+        time.Advance(TimeSpan.FromSeconds(2));
+        activity.FinishExecution(older, AgentExecution.Succeeded(string.Empty));
+
+        var active = activity.Capture();
+        _ = await Assert.That(active.RequestSessionDuration).IsEqualTo(TimeSpan.FromSeconds(2));
+        _ = await Assert.That(active.TerminalOutcome).IsNull();
+
+        activity.FinishExecution(current, AgentExecution.Canceled());
+        _ = await Assert.That(activity.Capture().TerminalOutcome?.Status)
+            .IsEqualTo(AgentExecutionStatus.Canceled);
+    }
+
+    [Test]
+    public async Task Provider_request_durations_distinguish_current_and_last_completed_requests()
+    {
+        var time = new ControlledTimeProvider();
+        var activity = new AgentSessionActivity(time);
+
+        activity.BeginProviderRequest();
+        time.Advance(TimeSpan.FromSeconds(1));
+        var active = activity.Capture();
+        _ = await Assert.That(active.CurrentProviderRequestDuration).IsEqualTo(TimeSpan.FromSeconds(1));
+        _ = await Assert.That(active.LastProviderRequestDuration).IsNull();
+
+        activity.FinishProviderRequest();
+        time.Advance(TimeSpan.FromSeconds(2));
+        var completed = activity.Capture();
+        _ = await Assert.That(completed.CurrentProviderRequestDuration).IsNull();
+        _ = await Assert.That(completed.LastProviderRequestDuration).IsEqualTo(TimeSpan.FromSeconds(1));
+
+        activity.BeginProviderRequest();
+        time.Advance(TimeSpan.FromSeconds(3));
+        var next = activity.Capture();
+        _ = await Assert.That(next.CurrentProviderRequestDuration).IsEqualTo(TimeSpan.FromSeconds(3));
+        _ = await Assert.That(next.LastProviderRequestDuration).IsEqualTo(TimeSpan.FromSeconds(1));
+    }
+
+    [Test]
     public async Task Assistant_and_summary_entries_share_oldest_to_newest_five_entry_bound()
     {
         var time = new ControlledTimeProvider();
@@ -157,15 +220,16 @@ internal sealed class AgentSessionActivityTests
         activity.FinishTool(current);
         activity.ChangeState(DrainState.Interrupting);
         activity.ChangeState(DrainState.Idle);
+        var execution = activity.BeginExecution();
         var outcome = AgentExecution.Canceled();
-        activity.FinishExecution(outcome);
+        activity.FinishExecution(execution, outcome);
 
         var terminal = activity.Capture();
         _ = await Assert.That(terminal.CurrentTool).IsNull();
         _ = await Assert.That(terminal.State).IsEqualTo(DrainState.Idle);
         _ = await Assert.That(terminal.TerminalOutcome).IsEqualTo(outcome);
 
-        activity.BeginExecution();
+        _ = activity.BeginExecution();
         _ = await Assert.That(activity.Capture().TerminalOutcome).IsNull();
     }
 

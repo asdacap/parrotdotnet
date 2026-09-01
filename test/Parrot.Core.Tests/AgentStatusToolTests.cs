@@ -65,6 +65,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             cancellationToken);
         var child = registry.Spawn(Request(parent, router, "child"));
         var grandchild = registry.Spawn(Request(child, router, "grandchild"));
+        _ = await child.Send("work", cancellationToken);
+        await provider.Arrived(cancellationToken);
         _ = await grandchild.Send("work", cancellationToken);
         await provider.Arrived(cancellationToken);
         child.Activity.ObserveProviderEvent(LLMEvent.TextDelta("token"));
@@ -83,6 +85,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             cancellationToken)).Text;
 
         _ = await Assert.That(report).Contains($"Session: {child.SessionId}");
+        _ = await Assert.That(report).Contains("Request session duration: 2.0s");
+        _ = await Assert.That(report).Contains("Current provider request duration: 2.0s");
         _ = await Assert.That(report).Contains("Current tool: wait");
         _ = await Assert.That(report).Contains($"- grandchild ({grandchild.SessionId})");
         _ = await Assert.That(report).Contains("assistant message (2.0s ago): line one\n  line two");
