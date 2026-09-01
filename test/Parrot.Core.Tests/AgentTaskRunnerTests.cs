@@ -44,6 +44,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Tasks.Single().AttemptCount).IsEqualTo(1);
         _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("contract evidence");
         _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(3);
+        _ = await Assert.That(string.Join(',', runtime.Sessions.Identities.Select(identity => identity.Name)))
+            .IsEqualTo("leaf-research,leaf,leaf-accept");
         _ = await Assert.That(runtime.Sessions.Identities.All(identity => identity.ParentSessionId == runtime.Parent.SessionId)).IsTrue();
         _ = await Assert.That(provider.Requests.All(request => request.Messages.Count(message => message.Role != LLMRole.System) == 1)).IsTrue();
         _ = await Assert.That(provider.Requests[1].Messages.Select(message => message.Content)).Contains(message => message.Contains("contract evidence", StringComparison.Ordinal));

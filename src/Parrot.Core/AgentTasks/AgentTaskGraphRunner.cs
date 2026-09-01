@@ -20,7 +20,6 @@ internal sealed class AgentTaskGraphRunner(
     private readonly Lock _gate = new();
     private readonly HashSet<AgentSession> _activeChildren = [];
     private bool _stopping;
-    private int _launchSequence;
 
     internal async Task<AgentTaskGraphResult> Run(
         AgentTaskArtifact artifact,
@@ -641,13 +640,13 @@ internal sealed class AgentTaskGraphRunner(
 
             if (retainedAgent is null)
             {
-                var sequence = Interlocked.Increment(ref _launchSequence);
+                var requestedName = role == "execute" ? taskName : $"{taskName}-{role}";
                 child = agents.Spawn(new AgentLaunchRequest(
                     owner,
                     selection,
                     "worker",
                     model,
-                    $"task-{role}-{taskName}-{sequence}",
+                    requestedName,
                     $"AgentTask {role} for {taskName}",
                     HistoryForkSelection.Parse(string.Empty),
                     0,
