@@ -642,7 +642,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                     eventBroker,
                     eventRepository,
                     [new WaitToolFactory(status, timeProvider)],
-                    TestModels.EmptyToolDefinitions,
+                    TestModels.DocumentTools("wait"),
                     TestModels.MaterializePrompt(identity, root, root),
                     new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                     new ToolOutputBlobStore(Path.Combine(root, "blobs")),

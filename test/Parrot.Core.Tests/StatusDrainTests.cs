@@ -82,6 +82,14 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(provider.Requests[2].Messages.Count(message =>
                 message.Role == LLMRole.System && message.Content.Contains("Active profile:", StringComparison.Ordinal)))
                 .IsEqualTo(2);
+            var planArtifact = Directory.GetFiles(
+                Path.Combine(_root, "sessions", "user", "scratch", agentSessionId, "plan"),
+                "plan-*.md").Single();
+            await File.WriteAllTextAsync(planArtifact, "# Plan", cancellationToken);
+            await File.WriteAllTextAsync(
+                string.Concat(planArtifact.AsSpan(0, planArtifact.Length - 3), ".tasks.json"),
+                "{\"schema_version\":1,\"tasks\":[{\"name\":\"work\",\"description\":\"Do work\",\"payload\":\"Implement it\",\"acceptance_criteria\":\"Tests pass\"}]}",
+                cancellationToken);
             provider.Release();
             await Settled(session);
 
@@ -159,7 +167,7 @@ internal sealed class StatusDrainTests : IDisposable
         time.Advance(TimeSpan.FromSeconds(2));
         await File.WriteAllTextAsync(planArtifact, "# Repaired", cancellationToken);
         provider.Release();
-        await Settled(session);
+        await WaitForRecentActivity(sessions.Sessions.Single(), 2, cancellationToken);
 
         var completed = repository.Replay().ToArray();
         var repair = Array.FindIndex(completed, published =>
@@ -341,6 +349,17 @@ internal sealed class StatusDrainTests : IDisposable
         while (session.History().Count == 0 || !session.History()[^1].StartsWith("assistant:", StringComparison.Ordinal))
         {
             await Task.Delay(1).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task WaitForRecentActivity(
+        AgentSession session,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        while (session.Activity.Capture().Recent.Count < count)
+        {
+            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
         }
     }
 

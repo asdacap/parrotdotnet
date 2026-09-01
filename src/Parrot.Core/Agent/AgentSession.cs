@@ -899,6 +899,7 @@ internal sealed class AgentSession(
     {
         var answer = string.Empty;
         var providerRequests = 0;
+        var repairPending = false;
         ToolSnapshot? activeTools = null;
 
         try
@@ -910,7 +911,7 @@ internal sealed class AgentSession(
 
                 // Looking is not consuming. A pending status remains pending
                 // while an idle drain has no input that could reach a provider.
-                if (!Answerable() && !eventRepository.HasPendingInputs(SessionId))
+                if (!repairPending && !Answerable() && !eventRepository.HasPendingInputs(SessionId))
                 {
                     return AgentExecution.Succeeded(answer);
                 }
@@ -1060,9 +1061,11 @@ internal sealed class AgentSession(
                     _history.Add(LLMMessage.System(diagnostic));
                     await eventBroker.Publish(repair, cancellationToken).ConfigureAwait(false);
                     Activity.RecordAssistantMessage(completed.AssistantText);
+                    repairPending = true;
                     continue;
                 }
 
+                repairPending = false;
                 _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
                 var ended = new Event
                 {
