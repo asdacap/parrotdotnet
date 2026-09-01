@@ -183,6 +183,7 @@ internal static class TestModels
                 new SessionIdentityProvider(),
                 new SubagentsProvider(ProfileRegistry()),
                 new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)),
+                new SecurityProfileProvider([]),
             ]);
 
     public static ModelRouter Route(ProviderModel model)

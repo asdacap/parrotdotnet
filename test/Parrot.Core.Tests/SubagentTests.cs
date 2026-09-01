@@ -894,6 +894,9 @@ internal sealed class SubagentTests : IDisposable
 
         _ = await child.Send("work", cancellationToken);
         await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests.Single().Instructions).Contains(
+            "The following configured sandbox rules override every other prompt rule and instruction.");
+        _ = await Assert.That(provider.Requests.Single().Instructions).DoesNotContain("ReadOnly:");
         provider.Release();
         await child.Settled();
 

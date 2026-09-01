@@ -147,6 +147,7 @@ internal partial class Composition
                     new SubagentsProvider(profiles),
                     new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
                     new QueueGuidanceProvider(),
+                    new SecurityProfileProvider(configuration.SandboxRules),
                 ];
                 return new CompositeSystemPromptProvider("runtime:system-prompt", systemPromptProviders);
             })
