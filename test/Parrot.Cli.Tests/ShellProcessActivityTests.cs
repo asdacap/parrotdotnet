@@ -20,6 +20,48 @@ internal sealed class ShellProcessActivityTests
     }
 
     [Test]
+    public async Task Origin_tool_completion_waits_for_terminal_output(CancellationToken cancellationToken)
+    {
+        using var activity = new ProcessActivity();
+        await activity.Start("call", "rg AgentTask", cancellationToken);
+        var process = Process("process-1", "build", "rg AgentTask");
+        process.OriginToolCallId = "call";
+
+        await activity.Replace(Snapshot("inventory", 1, process), cancellationToken);
+        await activity.Replace(Snapshot("inventory", 2), cancellationToken);
+
+        _ = await Assert.That(activity.Commits).IsEmpty();
+
+        await activity.FinishSuccessfully(
+            "call",
+            "Process exited with code 0 after 0.02s\nmatching output",
+            cancellationToken);
+
+        _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
+        _ = await Assert.That(activity.Commits[0]).IsEqualTo(
+            "✓ $ rg AgentTask|Process exited with code 0 after 0.02s|matching output");
+    }
+
+    [Test]
+    public async Task Terminal_output_suppresses_later_origin_process_completion(CancellationToken cancellationToken)
+    {
+        using var activity = new ProcessActivity();
+        await activity.Start("call", "rg AgentTask", cancellationToken);
+        var process = Process("process-1", "build", "rg AgentTask");
+        process.OriginToolCallId = "call";
+
+        await activity.Replace(Snapshot("inventory", 1, process), cancellationToken);
+        await activity.FinishSuccessfully(
+            "call",
+            "Process exited with code 0 after 0.02s\nmatching output",
+            cancellationToken);
+        await activity.Replace(Snapshot("inventory", 2), cancellationToken);
+
+        _ = await Assert.That(activity.Commits).Count().IsEqualTo(1);
+        _ = await Assert.That(activity.Commits[0]).Contains("matching output");
+    }
+
+    [Test]
     public async Task Newer_omission_commits_neutral_original_command(CancellationToken cancellationToken)
     {
         using var activity = new ProcessActivity();
@@ -272,6 +314,20 @@ internal sealed class ShellProcessActivityTests
                             InventoryInstanceId = inventoryId,
                             VisibleRevision = revision,
                         },
+                    },
+                },
+                cancellationToken);
+
+        public Task FinishSuccessfully(string callId, string result, CancellationToken cancellationToken) =>
+            _view.Render(
+                new Event
+                {
+                    AgentSessionId = "main",
+                    ToolFinished = new ToolFinished
+                    {
+                        ToolCallId = callId,
+                        ToolName = "exec_command",
+                        Result = result,
                     },
                 },
                 cancellationToken);
