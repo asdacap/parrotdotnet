@@ -398,7 +398,30 @@ message Event {
     FinalProviderRequestPromptInjected final_provider_request_prompt_injected = 31;
     ToolAvailabilityRestoredPromptInjected tool_availability_restored_prompt_injected = 32;
     PlanValidationRepairInjected plan_validation_repair_injected = 33;
+    AgentTaskProgressSnapshot agent_task_progress_snapshot = 34;
   }
+}
+
+enum AgentTaskProgressStatus {
+  AGENT_TASK_PROGRESS_STATUS_UNSPECIFIED = 0;
+  AGENT_TASK_PROGRESS_STATUS_PENDING = 1;
+  AGENT_TASK_PROGRESS_STATUS_RUNNING = 2;
+  AGENT_TASK_PROGRESS_STATUS_SUCCEEDED = 3;
+  AGENT_TASK_PROGRESS_STATUS_FAILED = 4;
+  AGENT_TASK_PROGRESS_STATUS_BLOCKED = 5;
+  AGENT_TASK_PROGRESS_STATUS_CANCELED = 6;
+}
+
+message AgentTaskProgressNode {
+  string name = 1;
+  AgentTaskProgressStatus status = 2;
+  repeated AgentTaskProgressNode children = 3;
+}
+
+message AgentTaskProgressSnapshot {
+  string origin_tool_call_id = 1;
+  uint64 revision = 2;
+  repeated AgentTaskProgressNode root_nodes = 3;
 }
 
 message ActiveShellProcess {

@@ -428,6 +428,48 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(error).Contains("{\"child\":true}");
     }
 
+    [Test]
+    public async Task Agent_task_progress_snapshots_commit_complete_sanitized_trees_without_live_replacement(
+        CancellationToken cancellationToken)
+    {
+        var first = Snapshot(AgentTaskProgressStatus.Running, "work\u001b[2J\t日本");
+        var second = Snapshot(AgentTaskProgressStatus.Succeeded, "work\u001b[2J\t日本");
+        var (completed, output, error) = await Render(
+            [
+                new Event { AgentTaskProgressSnapshot = first },
+                new Event { AgentTaskProgressSnapshot = second },
+            ],
+            cancellationToken);
+
+        _ = await Assert.That(completed).IsFalse();
+        _ = await Assert.That(error).IsEmpty();
+        _ = await Assert.That(Count(output, "Agent ta")).IsEqualTo(2);
+        _ = await Assert.That(Count(output, "sks:")).IsEqualTo(2);
+        _ = await Assert.That(output).Contains("◐ work[2");
+        _ = await Assert.That(output).Contains("✓ work[2");
+        _ = await Assert.That(output).Contains("├── ○ pe");
+        _ = await Assert.That(output).Contains("├── ✓ su");
+        _ = await Assert.That(output).Contains("├── ✗ fa");
+        _ = await Assert.That(output).Contains("├── ⊘ bl");
+        _ = await Assert.That(output).Contains("└── ■ ca");
+        _ = await Assert.That(output).Contains("日\r\n本");
+        _ = await Assert.That(output).DoesNotContain("\u001b[2J");
+        _ = await Assert.That(UntrustedEscape(output)).IsFalse();
+    }
+
+    private static AgentTaskProgressSnapshot Snapshot(AgentTaskProgressStatus rootStatus, string rootName)
+    {
+        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
+        var root = new AgentTaskProgressNode { Name = rootName, Status = rootStatus };
+        root.Children.Add(new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending });
+        root.Children.Add(new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded });
+        root.Children.Add(new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed });
+        root.Children.Add(new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked });
+        root.Children.Add(new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled });
+        snapshot.RootNodes.Add(root);
+        return snapshot;
+    }
+
     private static async Task<(bool Completed, string Output, string Error)> Render(
         IEnumerable<Event> events,
         CancellationToken cancellationToken)
