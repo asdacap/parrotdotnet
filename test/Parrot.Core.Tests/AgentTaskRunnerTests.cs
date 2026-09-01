@@ -169,7 +169,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Successful_retry_retains_ordered_feedback(CancellationToken cancellationToken)
+    public async Task Successful_retry_reuses_leaf_executor_and_reviewer_with_ordered_feedback(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"stable research\"}",
@@ -193,6 +193,11 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         _ = await Assert.That(task.AttemptCount).IsEqualTo(3);
         _ = await Assert.That(string.Join(",", task.RetryFeedback ?? [])).IsEqualTo("fix first,fix second");
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[4].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[5].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(5);
+        _ = await Assert.That(provider.Requests[6].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(5);
         using var serialized = System.Text.Json.JsonDocument.Parse(result.Serialize());
         _ = await Assert.That(string.Join(",", serialized.RootElement.GetProperty("tasks")[0]
             .GetProperty("retry_feedback").EnumerateArray().Select(item => item.GetString())))
@@ -219,10 +224,10 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("replacement context");
-        var secondExecution = provider.Requests[3].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var secondExecution = provider.Requests[3].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(secondExecution).Contains("replacement context");
         _ = await Assert.That(secondExecution).DoesNotContain("initial context");
-        var secondAcceptance = provider.Requests[4].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var secondAcceptance = provider.Requests[4].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(secondAcceptance).Contains("replacement context");
         _ = await Assert.That(secondAcceptance).DoesNotContain("initial context");
     }
@@ -247,7 +252,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("initial context");
-        var secondExecution = provider.Requests[3].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var secondExecution = provider.Requests[3].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(secondExecution).Contains("initial context");
     }
 
@@ -363,6 +368,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("replacement parent context");
         _ = await Assert.That(result.Tasks.Single().Tasks?.Single().Context).IsEqualTo("retry child context");
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(6);
+        _ = await Assert.That(provider.Requests[^1].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
         var childExecution = provider.Requests[4].Messages.Single(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(childExecution).Contains("replacement parent context");
         _ = await Assert.That(childExecution).Contains("retry child context");

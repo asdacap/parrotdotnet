@@ -385,12 +385,14 @@ internal sealed class AgentTaskGraphRunner(
     {
         var effective = EffectiveAgentTask.FromArtifact(approved);
         var childHandles = progress.GetChildren(handle);
-        var research = await RunRole(
+        var researchRun = await RunRole(
             effective.Model,
             "research",
             approved.Name,
+            null,
             BuildResearchPrompt(effective, ancestors, inheritedContexts, dependencies, path),
             cancellationToken).ConfigureAwait(false);
+        var research = researchRun.Execution;
         if (research.Status != AgentExecutionStatus.Succeeded)
         {
             return Failed(approved.Name, RoleFailure("research", research));
@@ -432,6 +434,8 @@ internal sealed class AgentTaskGraphRunner(
             .Append(new AgentTaskAncestor(path, effective.Description))
             .ToArray();
         var feedback = new List<string>();
+        AgentSession? executionAgent = null;
+        AgentSession? acceptanceAgent = null;
         string? execution = null;
         IReadOnlyList<AgentTaskResult>? nested = null;
         AcceptanceVerdict? verdict = null;
@@ -445,12 +449,15 @@ internal sealed class AgentTaskGraphRunner(
             verdict = null;
             if (effective.Payload.Instruction is not null)
             {
-                var executed = await RunRole(
+                var executionRun = await RunRole(
                     effective.Model,
                     "execute",
                     approved.Name,
+                    executionAgent,
                     BuildExecutionPrompt(effective, ancestors, currentContexts, dependencies, feedback),
                     cancellationToken).ConfigureAwait(false);
+                executionAgent = executionRun.Agent;
+                var executed = executionRun.Execution;
                 if (executed.Status != AgentExecutionStatus.Succeeded)
                 {
                     return CompletedFailure(
@@ -470,6 +477,7 @@ internal sealed class AgentTaskGraphRunner(
             }
             else
             {
+                executionAgent = null;
                 var nestedTasks = effective.Payload.Tasks
                     ?? throw new InvalidOperationException("A composite payload requires nested tasks.");
                 nested = await RunSiblings(
@@ -483,12 +491,15 @@ internal sealed class AgentTaskGraphRunner(
                 execution = $"nested task graph: {succeeded}/{nested.Count} tasks succeeded";
             }
 
-            var reviewed = await RunRole(
+            var acceptanceRun = await RunRole(
                 effective.Model,
                 "accept",
                 approved.Name,
+                acceptanceAgent,
                 BuildAcceptancePrompt(effective, ancestors, currentContexts, dependencies, feedback, execution, nested),
                 cancellationToken).ConfigureAwait(false);
+            acceptanceAgent = acceptanceRun.Agent;
+            var reviewed = acceptanceRun.Execution;
             if (reviewed.Status != AgentExecutionStatus.Succeeded)
             {
                 return CompletedFailure(
@@ -608,10 +619,11 @@ internal sealed class AgentTaskGraphRunner(
         throw new InvalidOperationException("The attempt loop terminated unexpectedly.");
     }
 
-    private async Task<AgentExecution> RunRole(
+    private async Task<AgentRoleRun> RunRole(
         string? requestedModel,
         string role,
         string taskName,
+        AgentSession? retainedAgent,
         string prompt,
         CancellationToken cancellationToken)
     {
@@ -627,18 +639,26 @@ internal sealed class AgentTaskGraphRunner(
                 throw new OperationCanceledException(cancellationToken);
             }
 
-            var sequence = Interlocked.Increment(ref _launchSequence);
-            child = agents.Spawn(new AgentLaunchRequest(
-                owner,
-                selection,
-                "worker",
-                model,
-                $"task-{role}-{taskName}-{sequence}",
-                $"AgentTask {role} for {taskName}",
-                HistoryForkSelection.Parse(string.Empty),
-                0,
-                string.Empty,
-                AgentCompletionDeliveryPolicy.RetainedOnly));
+            if (retainedAgent is null)
+            {
+                var sequence = Interlocked.Increment(ref _launchSequence);
+                child = agents.Spawn(new AgentLaunchRequest(
+                    owner,
+                    selection,
+                    "worker",
+                    model,
+                    $"task-{role}-{taskName}-{sequence}",
+                    $"AgentTask {role} for {taskName}",
+                    HistoryForkSelection.Parse(string.Empty),
+                    0,
+                    string.Empty,
+                    AgentCompletionDeliveryPolicy.RetainedOnly));
+            }
+            else
+            {
+                child = retainedAgent;
+            }
+
             _ = _activeChildren.Add(child);
         }
 
@@ -646,12 +666,13 @@ internal sealed class AgentTaskGraphRunner(
         {
             _ = await child.Send(prompt, cancellationToken).ConfigureAwait(false);
             var waited = await child.Wait(0, cancellationToken).ConfigureAwait(false);
-            return waited.Status switch
+            var execution = waited.Status switch
             {
                 AgentTaskStatus.Succeeded => AgentExecution.Succeeded(waited.Output),
                 AgentTaskStatus.Canceled => AgentExecution.Canceled(),
                 _ => AgentExecution.Failed(waited.Error),
             };
+            return new AgentRoleRun(child, execution);
         }
         catch (OperationCanceledException)
         {
@@ -695,4 +716,6 @@ internal sealed class AgentTaskGraphRunner(
             _ = _activeChildren.Remove(child);
         }
     }
+
+    private sealed record AgentRoleRun(AgentSession Agent, AgentExecution Execution);
 }
