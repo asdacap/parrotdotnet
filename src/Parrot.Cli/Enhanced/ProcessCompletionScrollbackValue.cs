@@ -10,6 +10,5 @@ internal sealed class ProcessCompletionScrollbackValue(string command) : IScroll
 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context) =>
         [.. TerminalText.Layout(TerminalText.Sanitize(command), context.Columns)
-            .Take(10)
             .Select(context.Palette.Muted.Apply)];
 }

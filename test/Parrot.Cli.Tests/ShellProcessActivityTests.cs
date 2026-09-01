@@ -76,6 +76,20 @@ internal sealed class ShellProcessActivityTests
     }
 
     [Test]
+    public async Task Completed_process_flushes_the_entire_multiline_command(CancellationToken cancellationToken)
+    {
+        using var activity = new ProcessActivity();
+        var command = string.Join("\\n", Enumerable.Range(1, 12).Select(static line => $"echo line-{line}"));
+        await activity.Yield("call", command, "build", "process-1", "inventory", 1, cancellationToken);
+
+        await activity.Replace(Snapshot("inventory", 2), cancellationToken);
+
+        _ = await Assert.That(activity.Commits).HasSingleItem();
+        _ = await Assert.That(activity.Commits[0]).Contains("$ echo line-1|echo line-2");
+        _ = await Assert.That(activity.Commits[0]).EndsWith("echo line-12");
+    }
+
+    [Test]
     public async Task Snapshot_before_yielded_completion_commits_without_showing_process(CancellationToken cancellationToken)
     {
         using var activity = new ProcessActivity();
