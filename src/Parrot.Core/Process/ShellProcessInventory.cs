@@ -26,7 +26,7 @@ internal sealed class ShellProcessInventory : IDisposable
             _feed.Publish(snapshot);
         }
 
-        return new YieldedShellProcess(process.ProcessId, process.Name, InstanceId, visibleRevision);
+        return new YieldedShellProcess(process.ProcessId, process.Name, InstanceId, visibleRevision, null, null);
     }
 
     public void Remove(string processId)

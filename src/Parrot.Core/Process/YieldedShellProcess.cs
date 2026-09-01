@@ -4,4 +4,6 @@ internal sealed record YieldedShellProcess(
     string ProcessId,
     string Name,
     string InventoryInstanceId,
-    ulong VisibleRevision);
+    ulong VisibleRevision,
+    string? StdoutPath,
+    string? StderrPath);

@@ -613,14 +613,28 @@ which agents can access that queue. This activity wait is distinct from the
 specialized `wait_agent`, which reads a retained direct-child result,
 and `wait_process`, which waits for one named process.
 
-When `exec_command` yields, its result carries a typed yielded-process handoff
-rather than requiring clients to recognize text. The service also publishes
-complete snapshots of the user session's currently active shell processes from
-its authoritative in-memory owners. Enhanced clients replace their local process
-inventory with each snapshot, including the initial snapshot after reconnect,
-so a dropped stream cannot leave stale rows or lose surviving processes. A
-process row remains live after the originating tool call yields and is removed
-only when a later snapshot reports that the process has actually exited.
+When `exec_command` or `wait_process` yields, its result carries the
+authoritative typed yielded-process handoff rather than requiring clients to
+recognize or parse result text. For a normal non-PTY pipe run, that handoff
+provides distinct absolute paths to UTF-8 text stdout and stderr files in the
+owning agent's scratch blob area. Newly received Parrot chunks are flushed with
+an approximately 100 ms visibility target under normal local load, so the files
+can be read while the process runs. Child-process buffering remains outside
+Parrot's control. PTY runs are excluded and provide no such paths.
+
+The normal completed-result formatting and overflow notices remain compatible.
+All normal-pipe output is retained in the two files after completion and across
+session resume; oversized completed output may additionally create the legacy
+formatted blob. This deliberately trades disk space for live and retained
+output. Quotas and garbage collection are not included.
+
+The service also publishes complete snapshots of the user session's currently
+active shell processes from its authoritative in-memory owners. Enhanced clients
+replace their local process inventory with each snapshot, including the initial
+snapshot after reconnect, so a dropped stream cannot leave stale rows or lose
+surviving processes. A process row remains live after the originating tool call
+yields and is removed only when a later snapshot reports that the process has
+actually exited.
 
 Configured aliases may be used anywhere a model selector is accepted,
 including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits

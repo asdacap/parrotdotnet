@@ -75,7 +75,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
     private static async Task<string> ReadFile(
         string full, int offset, int limit, CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(full);
+        await using var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
 
         var probe = new byte[BinaryProbeSize];
         var probeRead = await stream.ReadAsync(probe, cancellationToken).ConfigureAwait(false);

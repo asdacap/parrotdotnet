@@ -986,13 +986,20 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   not wait, escalate, consume output, or retire the process. If the wrapper survives,
   the process stays reserved and running, and ordinary later completion handles
   its result. User-session lifetime cancellation and disposal still force-kill
-  the entire process tree. A yield returns a typed yielded-process handoff
-  containing the reserved process identity without stopping it; clients do not
-  infer the handoff by parsing ordinary result text. A later completion is
-  delivered to the invoking agent through its durable steer queue unless a
-  successful wait claims it. Non-yielded executions retain their ordinary
-  terminal result behavior. `wait_process` replaces the earlier `wait_shell`
-  name so the lifecycle tools use process terminology.
+  the entire process tree. A yield from `exec_command` or `wait_process` returns
+  the authoritative typed yielded-process handoff without stopping the process;
+  clients do not infer the handoff by parsing ordinary result text. For a normal
+  non-PTY pipe run, the handoff contains distinct absolute paths to UTF-8 text
+  stdout and stderr files in the owning agent's scratch blob area. The files are
+  concurrently readable, and each newly received Parrot chunk is flushed with
+  an approximately 100 ms visibility target under normal local load. Child
+  process buffering is outside Parrot's control. PTY runs are excluded and have
+  no output-file paths. A later completion is delivered to the invoking agent
+  through its durable steer queue unless a successful wait claims it.
+  Non-yielded executions retain their ordinary terminal result behavior, and
+  normal completed-result formatting and overflow notices remain compatible.
+  `wait_process` replaces the earlier `wait_shell` name so the lifecycle tools
+  use process terminology.
 - **Generic activity wait.** `wait` pauses the invoking agent for incoming
   activity and returns early for a new message, direct-child completion,
   unclaimed yielded-process completion, or an item from an accessible queue the
@@ -1083,11 +1090,15 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   after inherited profile restrictions; it does not extend to another user
   session or non-scratch session infrastructure. Parrot does not override
   `HOME`, `XDG_CACHE_HOME`, or `TMPDIR`. The rest of the host remains read-only.
-  Stdout and stderr retain at most 65,536 characters each in memory; if either
-  exceeds that bound, the complete result is persisted in the owning agent's
-  scratch blob directory and the tool returns its full absolute path. The
-  readable host baseline also does not make scratch contents confidential from
-  filesystem reads.
+  Stdout and stderr retain at most 65,536 characters each in memory. Every
+  normal-pipe run retains all decoded output in separate UTF-8 text stdout and
+  stderr files in the owning agent's scratch blob directory; those files persist
+  after completion and across session resume. If either completed stream exceeds that
+  bound, the complete result may additionally be persisted as the legacy
+  formatted blob and the compatible result reports its full absolute path. This
+  retention deliberately costs disk space; quotas and garbage collection are
+  not included. The readable host baseline also does not make scratch contents
+  confidential from filesystem reads.
   Process names are ordinal and unique among running processes within their
   owning agent session: supplied duplicates fail before launch while the current
   binding is running, completed bindings can be replaced atomically, and omitted

@@ -176,16 +176,21 @@ internal sealed class ExecCommandToolTests : IDisposable
             selection,
             cancellationToken);
 
-        _ = await Assert.That(yielded.Text).IsEqualTo("later");
+        _ = await Assert.That(yielded.Text).StartsWith("later\nProcess output is streaming.\nstdout: ");
+        _ = await Assert.That(yielded.Text).Contains("\nstderr: ");
+        _ = await Assert.That(yielded.YieldedProcess?.StdoutPath).IsNotNull();
+        _ = await Assert.That(yielded.YieldedProcess?.StderrPath).IsNotNull();
         _ = await Assert.That(waited.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(waited.Text).EndsWith("s\n[stdout]\nlater");
         _ = await Assert.That(reusedAfterCompletion.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(reusedAfterCompletion.Text).EndsWith("s\n[stdout]\nreused");
         _ = await Assert.That(unknown.Text).IsEqualTo("error: Unknown shell process 'missing'.");
-        _ = await Assert.That(defaultSignalProcess.Text).IsEqualTo("default-signal");
+        _ = await Assert.That(defaultSignalProcess.Text)
+            .StartsWith("default-signal\nProcess output is streaming.\nstdout: ");
         _ = await Assert.That(defaultSignaled.Text).IsEqualTo("Signal 2 sent to shell process 'default-signal'.");
         _ = await Assert.That(defaultCompletion.Text).StartsWith("Process exited with code ");
-        _ = await Assert.That(running.Text).IsEqualTo("running");
+        _ = await Assert.That(running.Text)
+            .StartsWith("running\nProcess output is streaming.\nstdout: ");
         _ = await Assert.That(runningDuplicate.Text)
             .IsEqualTo("error: Shell process name 'running' is already reserved.");
         _ = await Assert.That(signaled.Text).IsEqualTo("Signal 17 sent to shell process 'running'.");

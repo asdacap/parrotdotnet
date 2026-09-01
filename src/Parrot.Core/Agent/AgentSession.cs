@@ -1586,13 +1586,24 @@ internal sealed class AgentSession(
             var terminal = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name, Result = text };
             if (result.YieldedProcess is { } yielded)
             {
-                terminal.YieldedProcess = new Protocol.YieldedShellProcess
+                var protocolYielded = new Protocol.YieldedShellProcess
                 {
                     ProcessId = yielded.ProcessId,
                     Name = yielded.Name,
                     InventoryInstanceId = yielded.InventoryInstanceId,
                     VisibleRevision = yielded.VisibleRevision,
                 };
+                if (yielded.StdoutPath is { } stdoutPath)
+                {
+                    protocolYielded.StdoutPath = stdoutPath;
+                }
+
+                if (yielded.StderrPath is { } stderrPath)
+                {
+                    protocolYielded.StderrPath = stderrPath;
+                }
+
+                terminal.YieldedProcess = protocolYielded;
             }
 
             var finished = new Event

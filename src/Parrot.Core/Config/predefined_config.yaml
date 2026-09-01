@@ -457,8 +457,13 @@ tools:
       additionalProperties: false
   exec_command:
     description: Run a sandboxed shell command. Optionally reserve a name unique among this agent session's running processes
-      and yield without stopping it; completed process names can be reused and omitted names are generated. Completion after
-      a yield is steered back to this agent unless wait_process claims it.
+      and yield without stopping it; completed process names can be reused and omitted names are generated. A normal non-PTY
+      pipe yield's authoritative typed handoff includes distinct absolute UTF-8 text stdout and stderr paths in this agent's
+      scratch blob area; do not parse result text. New Parrot chunks are flushed with an approximately 100 ms normal-local-load
+      visibility target, but child-process buffering is outside Parrot's control. The files remain after completion and session
+      resume. PTY runs are excluded and pathless. Completed formatting and overflow notices remain compatible. All normal-pipe
+      output is retained, and oversized completed output may additionally create the legacy formatted blob; quotas and garbage
+      collection are not included. Completion after a yield is steered back to this agent unless wait_process claims it.
     parameters:
       type: object
       properties:
@@ -933,8 +938,13 @@ tools:
       - session_id
       additionalProperties: false
   wait_process:
-    description: Wait for a shell process owned by this agent session. A timeout returns its name without stopping it, allowing
-      a later wait.
+    description: Wait for a shell process owned by this agent session. A timeout returns its authoritative typed yielded-process
+      handoff without stopping it, allowing a later wait. Normal non-PTY pipe handoffs include distinct absolute UTF-8 text
+      stdout and stderr paths in this agent's scratch blob area; do not parse result text. New Parrot chunks have an approximately
+      100 ms normal-local-load visibility target, subject to child-process buffering. Files persist after completion and session
+      resume. PTY is excluded and pathless; completed formatting and overflow notices remain compatible. All normal-pipe output
+      is retained, oversized completed output may also have the legacy formatted blob, and quotas and garbage collection are not
+      included.
     parameters:
       type: object
       properties:

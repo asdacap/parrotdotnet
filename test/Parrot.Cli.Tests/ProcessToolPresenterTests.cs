@@ -61,6 +61,8 @@ internal sealed class ProcessToolPresenterTests
                 Name = "shell-42",
                 InventoryInstanceId = "inventory",
                 VisibleRevision = 1,
+                StdoutPath = "/state/stdout",
+                StderrPath = "/state/stderr",
             });
 
         _ = await Assert.That(presenter.PresentTerminal(call, terminal)).IsNull();
