@@ -77,11 +77,8 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         const string arguments =
             "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"ready\"}",
-            "first execution",
-            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
-            "second execution",
-            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
+            "{\"context\":\"ready\",\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
+            "{\"context\":\"ready\",\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -92,9 +89,63 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         using var document = System.Text.Json.JsonDocument.Parse(result.Text);
         var task = document.RootElement.GetProperty("tasks")[0];
         _ = await Assert.That(task.GetProperty("attempt_count").GetInt32()).IsEqualTo(2);
-        _ = await Assert.That(provider.Requests).Count().IsEqualTo(5);
+        _ = await Assert.That(task.GetProperty("context").GetString()).IsEqualTo("ready");
+        _ = await Assert.That(task.GetProperty("verdict").GetString()).IsEqualTo("reject_and_retry");
+        _ = await Assert.That(string.Join(",", task.GetProperty("retry_feedback").EnumerateArray().Select(item => item.GetString())))
+            .IsEqualTo("try again,try again");
+        _ = await Assert.That(runtime.Sessions.ProfileIds.Single()).IsEqualTo("agent-task-payload");
+        _ = await Assert.That(task.GetProperty("evidence").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+        _ = await Assert.That(task.GetProperty("task_patch").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+        _ = await Assert.That(task.GetProperty("execution").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+        _ = await Assert.That(string.Join(",", provider.Requests.Select(request => request.Messages.Count(message => message.Role != LLMRole.System))))
+            .IsEqualTo("1,3");
+        _ = await Assert.That(provider.Requests.All(request =>
+            request.Messages.Select(message => message.Content).Any(content => content.Contains("AgentTask role: payload executor", StringComparison.Ordinal))
+            && request.Messages.Select(message => message.Content).Any(content => content.Contains("Inspect, implement, and verify this instruction:", StringComparison.Ordinal))))
+            .IsTrue();
+        _ = await Assert.That(provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content)
+            .Contains("ready");
+        _ = await Assert.That(provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content)
+            .Contains("try again");
+        _ = await Assert.That(provider.Requests.Any(request => request.Messages.Select(message => message.Content)
+            .Any(content => content.Contains("agent-task-validation", StringComparison.Ordinal)))).IsFalse();
         _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
-            .Any(content => content.Contains("research pre-hook", StringComparison.Ordinal)))).IsEqualTo(1);
+            .Any(content => content.Contains("research pre-hook", StringComparison.Ordinal)))).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Leaf_retry_task_array_uses_composite_roles_and_retains_feedback(CancellationToken cancellationToken)
+    {
+        const string arguments =
+            "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"leaf context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"child\",\"description\":\"Child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child done\"}],\"replacement_context\":\"replacement context\"}",
+            "{\"context\":\"composite context\"}",
+            "{\"context\":\"child context\",\"verdict\":\"accept\",\"evidence\":\"child done\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var tool = Tool(registry, runtime);
+
+        var result = await tool.Execute(new ToolInvocation("transition-call", arguments), runtime.Selection, cancellationToken);
+
+        using var document = System.Text.Json.JsonDocument.Parse(result.Text);
+        var task = document.RootElement.GetProperty("tasks")[0];
+        _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
+        _ = await Assert.That(task.GetProperty("attempt_count").GetInt32()).IsEqualTo(2);
+        _ = await Assert.That(task.GetProperty("context").GetString()).IsEqualTo("replacement context");
+        _ = await Assert.That(task.GetProperty("retry_feedback").EnumerateArray().Single().GetString()).IsEqualTo("split it");
+        _ = await Assert.That(task.GetProperty("evidence").GetString()).IsEqualTo("parent done");
+        _ = await Assert.That(task.GetProperty("tasks")[0].GetProperty("evidence").GetString()).IsEqualTo("child done");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
+        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
+            .Any(content => content.Contains("AgentTask role: research pre-hook", StringComparison.Ordinal)))).IsEqualTo(1);
+        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
+            .Any(content => content.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal)))).IsEqualTo(1);
+        var childPrompt = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(childPrompt).Contains("replacement context");
     }
 
     [Test]
@@ -103,9 +154,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         const string arguments =
             "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"ready\"}",
-            "executed",
-            "{\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"context\":\"ready\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -119,6 +168,16 @@ internal sealed class RunAgentTasksToolTests : IDisposable
 
         using var document = System.Text.Json.JsonDocument.Parse(result.Text);
         _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
+        var task = document.RootElement.GetProperty("tasks")[0];
+        _ = await Assert.That(task.GetProperty("context").GetString()).IsEqualTo("ready");
+        _ = await Assert.That(task.GetProperty("verdict").GetString()).IsEqualTo("accept");
+        _ = await Assert.That(task.GetProperty("evidence").GetString()).IsEqualTo("done");
+        _ = await Assert.That(task.GetProperty("task_patch").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+        _ = await Assert.That(task.GetProperty("execution").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+        var prompt = provider.Requests.Single().Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(prompt).Contains("AgentTask role: payload executor");
+        _ = await Assert.That(prompt).Contains("Inspect, implement, and verify this instruction:");
         _ = await Assert.That(runtime.Repository.Replay().Any(published =>
             published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot
             && published.AgentTaskProgressSnapshot.OriginToolCallId == "embedded-call")).IsTrue();
@@ -179,9 +238,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             artifactJson,
             cancellationToken);
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"ready\"}",
-            "executed",
-            "{\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"context\":\"ready\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -310,6 +367,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var selected = parent.Selection();
         return new RuntimeContext(
             router,
+            sessions,
             registry,
             parent,
             repository,
@@ -322,6 +380,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
 
     private sealed record RuntimeContext(
         ModelRouter Router,
+        AgentTaskTestSessionFactory Sessions,
         AgentRegistry Registry,
         AgentSession Parent,
         EventRepository Repository,

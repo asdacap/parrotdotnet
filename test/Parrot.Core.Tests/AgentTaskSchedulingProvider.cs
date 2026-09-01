@@ -4,10 +4,10 @@ namespace Parrot.Core.Tests;
 
 internal sealed class AgentTaskSchedulingProvider : ILLMProvider
 {
-    private readonly TaskCompletionSource _initialResearchBarrier = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _initialPayloadBarrier = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _slowRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _active;
-    private int _initialResearch;
+    private int _initialPayload;
     private int _maximumActive;
     private int _slowExecuting;
     private int _dependentStartedBeforeSlowFinished;
@@ -31,22 +31,24 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
         SetMaximum(active);
         var prompt = string.Join('\n', request.Messages.Select(message => message.Content));
         var research = prompt.Contains("AgentTask role: research pre-hook", StringComparison.Ordinal);
-        var initialResearch = research
+        var combinedPayload = prompt.Contains("AgentTask role: payload executor", StringComparison.Ordinal)
+            && prompt.Contains("Inspect, implement, and verify this instruction:", StringComparison.Ordinal);
+        var initialPayload = combinedPayload
             && (prompt.Contains("Task: fast", StringComparison.Ordinal)
                 || prompt.Contains("Task: slow", StringComparison.Ordinal));
         try
         {
-            if (initialResearch)
+            if (initialPayload)
             {
-                if (Interlocked.Increment(ref _initialResearch) == 2)
+                if (Interlocked.Increment(ref _initialPayload) == 2)
                 {
-                    _ = _initialResearchBarrier.TrySetResult();
+                    _ = _initialPayloadBarrier.TrySetResult();
                 }
 
-                await _initialResearchBarrier.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await _initialPayloadBarrier.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            if (research && prompt.Contains("Task: dependent", StringComparison.Ordinal))
+            if (combinedPayload && prompt.Contains("Task: dependent", StringComparison.Ordinal))
             {
                 if (Volatile.Read(ref _slowExecuting) != 0)
                 {
@@ -56,8 +58,7 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
                 _ = _slowRelease.TrySetResult();
             }
 
-            if (prompt.Contains("AgentTask role: payload executor", StringComparison.Ordinal)
-                && prompt.Contains("Task: slow", StringComparison.Ordinal))
+            if (combinedPayload && prompt.Contains("Task: slow", StringComparison.Ordinal))
             {
                 _ = Interlocked.Exchange(ref _slowExecuting, 1);
                 await _slowRelease.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -66,9 +67,11 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
 
             var answer = research
                 ? "{\"context\":\"research ready\"}"
-                : prompt.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal)
-                    ? "{\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
-                    : "executed";
+                : combinedPayload
+                    ? "{\"context\":\"payload ready\",\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
+                    : prompt.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal)
+                        ? "{\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
+                        : "executed";
             yield return LLMEvent.Completed("stop", 1, 0, 1, answer, []);
         }
         finally

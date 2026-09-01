@@ -60,8 +60,56 @@ internal static class AgentTaskParser
         };
     }
 
+    internal static AgentTaskLeafResponse ParseLeafResponse(string json)
+    {
+        _ = Deserialize<AgentTaskLeafResponseWire>(json, AgentTaskWireJsonContext.Default.AgentTaskLeafResponseWire);
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        RequireObject(root, "leaf response");
+        var context = RequiredString(root, "context", "leaf response");
+        return new(context, ParseLeafVerdict(root));
+    }
+
     internal static void ValidateEffective(EffectiveAgentTask task) =>
         _ = ParseTask(task.Name, task.Dependencies, task.Description, task.Payload, task.AcceptanceCriteria, task.Model, "effective task");
+
+    private static AcceptanceVerdict ParseLeafVerdict(JsonElement root)
+    {
+        var verdict = RequiredString(root, "verdict", "leaf response");
+        return verdict switch
+        {
+            "accept" => LeafAccept(root),
+            "reject_and_halt" => LeafRejectAndHalt(root),
+            "reject_and_retry" => LeafRejectAndRetry(root),
+            _ => throw Invalid("leaf response verdict must be accept, reject_and_halt, or reject_and_retry."),
+        };
+    }
+
+    private static AcceptanceVerdict LeafAccept(JsonElement root)
+    {
+        RejectUnknown(root, "leaf response", "context", "verdict", "evidence");
+        return new(AcceptanceVerdictKind.Accept, RequiredString(root, "evidence", "leaf response"), null, null, null);
+    }
+
+    private static AcceptanceVerdict LeafRejectAndHalt(JsonElement root)
+    {
+        RejectUnknown(root, "leaf response", "context", "verdict", "feedback");
+        return new(AcceptanceVerdictKind.RejectAndHalt, null, RequiredString(root, "feedback", "leaf response"), null, null);
+    }
+
+    private static AcceptanceVerdict LeafRejectAndRetry(JsonElement root)
+    {
+        RejectUnknown(root, "leaf response", "context", "verdict", "feedback", "payload", "replacement_context");
+        var replacementContext = root.TryGetProperty("replacement_context", out var replacementContextElement)
+            ? Nonblank(RequireString(replacementContextElement, "leaf response replacement_context"), "leaf response replacement_context")
+            : null;
+        return new(
+            AcceptanceVerdictKind.RejectAndRetry,
+            null,
+            RequiredString(root, "feedback", "leaf response"),
+            ParsePayload(RequiredProperty(root, "payload", JsonValueKind.String, JsonValueKind.Array), "leaf response payload"),
+            replacementContext);
+    }
 
     private static AcceptanceVerdict Accept(JsonElement root)
     {

@@ -60,8 +60,8 @@ internal static class TestModels
                 true,
                 []),
             ["agent-task-payload"] = new ProfileConfig(
-                "You are an AgentTask payload executor.",
-                "Execute an AgentTask payload and report its result.",
+                "You are an AgentTask payload executor. Implement and verify the assigned task. For an instruction leaf, use this one retained session to emit the strict combined JSON result with nonblank context and exactly one verdict.",
+                "Implement and verify an AgentTask payload and report its observable result. For an instruction leaf, return only strict JSON: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction or task array.",
                 null,
                 128,
                 4,

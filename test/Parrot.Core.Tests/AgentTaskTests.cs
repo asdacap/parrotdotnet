@@ -61,6 +61,36 @@ internal sealed class AgentTaskTests
     }
 
     [Test]
+    [Arguments("{\"context\":\"work context\",\"verdict\":\"accept\",\"evidence\":\"done\"}", "work context", "Accept", null)]
+    [Arguments("{\"context\":\"work context\",\"verdict\":\"reject_and_halt\",\"feedback\":\"no\"}", "work context", "RejectAndHalt", null)]
+    [Arguments("{\"context\":\"work context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"replacement_context\":\"new context\"}", "work context", "RejectAndRetry", "new context")]
+    [Arguments("{\"context\":\"work context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":[{\"name\":\"child\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}]}", "work context", "RejectAndRetry", null)]
+    public async Task Leaf_responses_parse_context_and_verdict(string json, string context, string kind, string? replacementContext)
+    {
+        var response = AgentTaskParser.ParseLeafResponse(json);
+
+        _ = await Assert.That(response.Context).IsEqualTo(context);
+        _ = await Assert.That(response.Verdict.Kind.ToString()).IsEqualTo(kind);
+        _ = await Assert.That(response.Verdict.Context).IsEqualTo(replacementContext);
+    }
+
+    [Test]
+    [Arguments("{\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("{\"context\":\"   \",\"verdict\":\"accept\",\"evidence\":\"done\"}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"accept\",\"evidence\":\"   \"}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"accept\",\"evidence\":\"done\",\"feedback\":\"no\"}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"reject_and_halt\",\"feedback\":\"   \"}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"reject_and_halt\",\"feedback\":\"no\",\"payload\":\"forbidden\"}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\"}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":[]}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"   \"}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"replacement_context\":\"   \"}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"unknown\":true}")]
+    [Arguments("{\"context\":\"x\",\"verdict\":\"retry\",\"feedback\":\"fix\",\"payload\":\"again\"}")]
+    public async Task Leaf_responses_reject_invalid_unions_and_fields(string json) =>
+        _ = await Assert.That(() => AgentTaskParser.ParseLeafResponse(json)).Throws<ArgumentException>();
+
+    [Test]
     public async Task Verdicts_parse_and_result_serializes_deterministically()
     {
         var accept = AgentTaskParser.ParseVerdict("{\"verdict\":\"accept\",\"evidence\":\"done\"}");

@@ -101,6 +101,26 @@ internal sealed class AgentTaskGraphRunner(
         return ComposePrompt(prefix, suffix);
     }
 
+    private static string BuildLeafPrompt(
+        EffectiveAgentTask task,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskResult> dependencies,
+        IReadOnlyList<string> feedback)
+    {
+        var prefix = Header("payload executor", task, ancestors, contexts, dependencies);
+        AppendFeedback(prefix, feedback);
+        var suffix = new StringBuilder("\nInspect, implement, and verify this instruction:\n")
+            .Append(task.Payload.Instruction)
+            .Append("\nReturn only one strict JSON object with no prose or code fence: ")
+            .Append("{\"context\":\"nonblank\",\"verdict\":\"accept\",\"evidence\":\"nonblank\"}, ")
+            .Append("{\"context\":\"nonblank\",\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}, or ")
+            .Append("{\"context\":\"nonblank\",\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"replacement_context\":\"optional nonblank replacement context\"}. ")
+            .Append("Omit replacement_context to carry the returned current context into the next attempt.")
+            .ToString();
+        return ComposePrompt(prefix, suffix);
+    }
+
     private static string BuildAcceptancePrompt(
         EffectiveAgentTask task,
         IReadOnlyList<AgentTaskAncestor> ancestors,
@@ -164,7 +184,12 @@ internal sealed class AgentTaskGraphRunner(
             foreach (var dependency in dependencies)
             {
                 _ = prompt.Append("\n[").Append(dependency.Name).Append("] ")
-                    .Append(Bound(dependency.Execution ?? dependency.Failure ?? dependency.Status.ToString(), MaxSummaryCharacters));
+                    .Append(Bound(
+                        dependency.Execution
+                        ?? dependency.Verdict?.Evidence
+                        ?? dependency.Failure
+                        ?? dependency.Status.ToString(),
+                        MaxSummaryCharacters));
             }
         }
 
@@ -232,8 +257,8 @@ internal sealed class AgentTaskGraphRunner(
     private static AgentTaskResult CompletedFailure(
         string name,
         int attempt,
-        ResearchHookResult hook,
-        string context,
+        AgentTaskPatch? taskPatch,
+        string? context,
         string? execution,
         AcceptanceVerdict? verdict,
         IReadOnlyList<string>? retryFeedback,
@@ -243,7 +268,7 @@ internal sealed class AgentTaskGraphRunner(
             AgentTaskExecutionStatus.Failed,
             attempt,
             context,
-            hook.TaskPatch,
+            taskPatch,
             execution,
             verdict,
             retryFeedback,
@@ -392,6 +417,19 @@ internal sealed class AgentTaskGraphRunner(
         CancellationToken cancellationToken)
     {
         var effective = EffectiveAgentTask.FromArtifact(approved);
+        if (effective.Payload.Instruction is not null)
+        {
+            return await RunLeafTask(
+                approved,
+                effective,
+                handle,
+                ancestors,
+                inheritedContexts,
+                dependencies,
+                path,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         var childHandles = progress.GetChildren(handle);
         var researchRun = await RunRole(
             effective.Model,
@@ -436,12 +474,281 @@ internal sealed class AgentTaskGraphRunner(
         }
 
         var currentContexts = inheritedContexts
-            .Append(new AgentTaskResearchContext(path, Bound(hook.Context, MaxContextCharacters)))
+            .Append(new AgentTaskResearchContext(path, hook.Context))
             .ToArray();
         var currentAncestors = ancestors
             .Append(new AgentTaskAncestor(path, effective.Description))
             .ToArray();
+        return await RunLegacyAttempts(
+            approved,
+            effective,
+            handle,
+            childHandles,
+            ancestors,
+            currentAncestors,
+            currentContexts,
+            dependencies,
+            path,
+            hook.TaskPatch,
+            [],
+            1,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<AgentTaskResult> RunLeafTask(
+        AgentTask approved,
+        EffectiveAgentTask effective,
+        AgentTaskProgress.NodeHandle handle,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskResearchContext> inheritedContexts,
+        IReadOnlyList<AgentTaskResult> dependencies,
+        string path,
+        CancellationToken cancellationToken)
+    {
         var feedback = new List<string>();
+        AgentSession? payloadAgent = null;
+        string? currentContext = null;
+        var maximumAttempts = configuration.MaximumAttempts;
+
+        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var promptContexts = currentContext is null
+                ? inheritedContexts
+                : Array.AsReadOnly(
+                    inheritedContexts.Append(new AgentTaskResearchContext(path, currentContext)).ToArray());
+            var payloadRun = await RunRole(
+                effective.Model,
+                "execute",
+                approved.Name,
+                payloadAgent,
+                BuildLeafPrompt(effective, ancestors, promptContexts, dependencies, feedback),
+                cancellationToken).ConfigureAwait(false);
+            payloadAgent = payloadRun.Agent;
+            var executed = payloadRun.Execution;
+            if (executed.Status != AgentExecutionStatus.Succeeded)
+            {
+                return CompletedFailure(
+                    approved.Name,
+                    attempt,
+                    null,
+                    currentContext,
+                    null,
+                    null,
+                    RetainFeedback(feedback),
+                    null,
+                    RoleFailure("execution", executed));
+            }
+
+            AgentTaskLeafResponse response;
+            try
+            {
+                response = AgentTaskParser.ParseLeafResponse(executed.Output);
+                response = response with { Context = Bound(response.Context, MaxContextCharacters) };
+            }
+            catch (ArgumentException failure)
+            {
+                return CompletedFailure(
+                    approved.Name,
+                    attempt,
+                    null,
+                    currentContext,
+                    null,
+                    null,
+                    RetainFeedback(feedback),
+                    null,
+                    $"leaf response invalid: {failure.Message}");
+            }
+
+            var verdict = response.Verdict with
+            {
+                Feedback = response.Verdict.Feedback is null
+                    ? null
+                    : Bound(response.Verdict.Feedback, MaxSummaryCharacters),
+            };
+            currentContext = response.Context;
+            if (verdict.Kind == AcceptanceVerdictKind.Accept)
+            {
+                return new AgentTaskResult(
+                    approved.Name,
+                    AgentTaskExecutionStatus.Succeeded,
+                    attempt,
+                    currentContext,
+                    null,
+                    null,
+                    verdict,
+                    RetainFeedback(feedback),
+                    null,
+                    null,
+                    null);
+            }
+
+            if (verdict.Kind == AcceptanceVerdictKind.RejectAndHalt)
+            {
+                var rejection = verdict.Feedback
+                    ?? throw new InvalidOperationException("A reject_and_halt verdict requires feedback.");
+                return CompletedFailure(
+                    approved.Name,
+                    attempt,
+                    null,
+                    currentContext,
+                    null,
+                    verdict,
+                    RetainFeedback(feedback),
+                    null,
+                    rejection);
+            }
+
+            var retryFeedback = verdict.Feedback
+                ?? throw new InvalidOperationException("A reject_and_retry verdict requires feedback.");
+            var replacementPayload = verdict.Payload
+                ?? throw new InvalidOperationException("A reject_and_retry verdict requires a replacement payload.");
+            currentContext = Bound(verdict.Context ?? response.Context, MaxContextCharacters);
+            feedback.Add(retryFeedback);
+            if (attempt == maximumAttempts)
+            {
+                return CompletedFailure(
+                    approved.Name,
+                    attempt,
+                    null,
+                    currentContext,
+                    null,
+                    verdict,
+                    RetainFeedback(feedback),
+                    null,
+                    "acceptance requested reject_and_retry after the final attempt");
+            }
+
+            var replacement = effective with { Payload = replacementPayload };
+            try
+            {
+                AgentTaskParser.ValidateEffective(replacement);
+            }
+            catch (ArgumentException failure)
+            {
+                return CompletedFailure(
+                    approved.Name,
+                    attempt,
+                    null,
+                    currentContext,
+                    null,
+                    verdict,
+                    RetainFeedback(feedback),
+                    null,
+                    $"retry payload invalid: {failure.Message}");
+            }
+
+            effective = replacement;
+            var childHandles = progress.ReplaceChildren(handle, effective.Payload, cancellationToken);
+            if (effective.Payload.Tasks is null)
+            {
+                continue;
+            }
+
+            var retryContexts = inheritedContexts
+                .Append(new AgentTaskResearchContext(path, currentContext))
+                .ToArray();
+            var researchRun = await RunRole(
+                effective.Model,
+                "research",
+                approved.Name,
+                null,
+                BuildResearchPrompt(effective, ancestors, retryContexts, dependencies, path),
+                cancellationToken).ConfigureAwait(false);
+            var research = researchRun.Execution;
+            if (research.Status != AgentExecutionStatus.Succeeded)
+            {
+                return CompletedFailure(
+                    approved.Name,
+                    attempt,
+                    null,
+                    currentContext,
+                    null,
+                    verdict,
+                    RetainFeedback(feedback),
+                    null,
+                    RoleFailure("research", research));
+            }
+
+            ResearchHookResult hook;
+            try
+            {
+                hook = AgentTaskParser.ParseResearchHook(research.Output);
+                hook = hook with { Context = Bound(hook.Context, MaxContextCharacters) };
+                if (hook.TaskPatch is not null)
+                {
+                    var patched = effective.Apply(hook.TaskPatch);
+                    AgentTaskParser.ValidateEffective(patched);
+                    if (patched.Model is not null)
+                    {
+                        _ = router.Resolve(patched.Model);
+                    }
+
+                    effective = patched;
+                    if (hook.TaskPatch.Payload is not null)
+                    {
+                        childHandles = progress.ReplaceChildren(
+                            handle,
+                            effective.Payload,
+                            cancellationToken);
+                    }
+                }
+            }
+            catch (Exception failure) when (failure is ArgumentException or LLMProviderException)
+            {
+                return CompletedFailure(
+                    approved.Name,
+                    attempt,
+                    null,
+                    currentContext,
+                    null,
+                    verdict,
+                    RetainFeedback(feedback),
+                    null,
+                    $"research response invalid: {failure.Message}");
+            }
+
+            var currentContexts = inheritedContexts
+                .Append(new AgentTaskResearchContext(path, hook.Context))
+                .Append(new AgentTaskResearchContext(path, currentContext))
+                .ToArray();
+            var currentAncestors = ancestors
+                .Append(new AgentTaskAncestor(path, effective.Description))
+                .ToArray();
+            return await RunLegacyAttempts(
+                approved,
+                effective,
+                handle,
+                childHandles,
+                ancestors,
+                currentAncestors,
+                currentContexts,
+                dependencies,
+                path,
+                hook.TaskPatch,
+                feedback,
+                attempt + 1,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException("The attempt loop terminated unexpectedly.");
+    }
+
+    private async Task<AgentTaskResult> RunLegacyAttempts(
+        AgentTask approved,
+        EffectiveAgentTask effective,
+        AgentTaskProgress.NodeHandle handle,
+        IReadOnlyList<AgentTaskProgress.NodeHandle> childHandles,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskAncestor> currentAncestors,
+        AgentTaskResearchContext[] currentContexts,
+        IReadOnlyList<AgentTaskResult> dependencies,
+        string path,
+        AgentTaskPatch? taskPatch,
+        List<string> feedback,
+        int firstAttempt,
+        CancellationToken cancellationToken)
+    {
         AgentSession? executionAgent = null;
         AgentSession? acceptanceAgent = null;
         string? execution = null;
@@ -449,7 +756,7 @@ internal sealed class AgentTaskGraphRunner(
         AcceptanceVerdict? verdict = null;
         var maximumAttempts = configuration.MaximumAttempts;
 
-        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        for (var attempt = firstAttempt; attempt <= maximumAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             execution = null;
@@ -471,7 +778,7 @@ internal sealed class AgentTaskGraphRunner(
                     return CompletedFailure(
                         approved.Name,
                         attempt,
-                        hook,
+                        taskPatch,
                         currentContexts[^1].Context,
                         execution,
                         verdict,
@@ -513,7 +820,7 @@ internal sealed class AgentTaskGraphRunner(
                 return CompletedFailure(
                     approved.Name,
                     attempt,
-                    hook,
+                    taskPatch,
                     currentContexts[^1].Context,
                     execution,
                     verdict,
@@ -531,7 +838,7 @@ internal sealed class AgentTaskGraphRunner(
                 return CompletedFailure(
                     approved.Name,
                     attempt,
-                    hook,
+                    taskPatch,
                     currentContexts[^1].Context,
                     execution,
                     verdict,
@@ -547,7 +854,7 @@ internal sealed class AgentTaskGraphRunner(
                     AgentTaskExecutionStatus.Succeeded,
                     attempt,
                     currentContexts[^1].Context,
-                    hook.TaskPatch,
+                    taskPatch,
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -563,7 +870,7 @@ internal sealed class AgentTaskGraphRunner(
                 return CompletedFailure(
                     approved.Name,
                     attempt,
-                    hook,
+                    taskPatch,
                     currentContexts[^1].Context,
                     execution,
                     verdict,
@@ -587,7 +894,7 @@ internal sealed class AgentTaskGraphRunner(
                 return CompletedFailure(
                     approved.Name,
                     attempt,
-                    hook,
+                    taskPatch,
                     currentContexts[^1].Context,
                     execution,
                     verdict,
@@ -607,7 +914,7 @@ internal sealed class AgentTaskGraphRunner(
                 return CompletedFailure(
                     approved.Name,
                     attempt,
-                    hook,
+                    taskPatch,
                     currentContexts[^1].Context,
                     execution,
                     verdict,

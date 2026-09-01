@@ -155,43 +155,62 @@ read or read-permission check. Both forms use the same strict parser; supplying
 both or neither is invalid. Plan-approved execution continues to use `path`.
 
 **Execution context.** `run_agent_tasks` synchronously creates fresh
-retained-only children using `agent-task-pre-hook` for research,
-`agent-task-payload` for execution, and `agent-task-validation` for acceptance.
-They have no inherited conversation, and retained-only delivery prevents their
-internal completions from steering the tool-owning parent. They retain the same
-workspace and user-session-scoped runtime resources. These predefined profiles
-are spawn-visible like other child profiles. A task-specific model is resolved
-normally; otherwise each role uses the invoking turn's requested model.
+retained-only children. Composite tasks use `agent-task-pre-hook` for research,
+recursively execute nested work, and use `agent-task-validation` for separate
+acceptance. A fresh instruction leaf creates one `agent-task-payload` child;
+that child implements and verifies the instruction and remains retained for the
+whole leaf invocation. It has no inherited conversation. Each retry sends a new
+user prompt to that same session while retaining the prior exchange, so retained
+non-system messages grow 1, 3, 5, ... across attempts. Its combined response is
+parsed directly rather than producing a separate execution transcript.
+Retained-only delivery prevents internal completions from steering the tool-owning
+parent. Children retain the same workspace and user-session-scoped runtime
+resources. These predefined profiles are spawn-visible like other child profiles.
+A task-specific model is resolved normally; otherwise the selected child uses the
+invoking turn's requested model.
 
-**Research and inheritance.** Every task begins with a mandatory research hook
-that returns strict JSON containing nonblank context and, optionally, a sparse
-patch to `description`, `payload`, `acceptance_criteria`, or `model`. The patch
-changes only the effective in-memory task for that run, preserves omitted
+**Research and inheritance.** Composite work begins with a mandatory research
+hook that returns strict JSON containing nonblank context and, optionally, a
+sparse patch to `description`, `payload`, `acceptance_criteria`, or `model`. The
+patch changes only the effective in-memory task for that run, preserves omitted
 fields, is revalidated, and never persists into the approved artifact. Nested
 work receives labelled ancestor declarations in root-to-parent order and
 research contexts in root-to-current order. It receives no sibling or cousin
-research. A ready task additionally receives bounded direct-dependency
-summaries.
+research. A ready task additionally receives bounded direct-dependency summaries.
 
-**Acceptance, scheduling, and outcome.** An instruction is executed then
-reviewed by a separate acceptance child. The reviewer must return exactly one
+**Acceptance, scheduling, and outcome.** A composite's nested result is reviewed
+by a separate acceptance child. Every instruction-leaf response must return exactly one
 strict verdict: `accept` with nonblank evidence, `reject_and_halt` with nonblank
 feedback, or `reject_and_retry` with nonblank feedback and a replacement
-payload. Its exact JSON forms are
-`{"verdict":"accept","evidence":"nonblank"}`,
-`{"verdict":"reject_and_halt","feedback":"nonblank"}`, and
-`{"verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","context":"optional nonblank replacement research context"}`;
-the `context` member is optional only in the final form. Legacy `reject` and
-`retry` verdict strings are intentionally incompatible. `accept` is authoritative
+payload. The separate acceptance child retains the existing verdict JSON forms;
+a leaf's combined response additionally requires nonblank `context`:
+`{"context":"nonblank","verdict":"accept","evidence":"nonblank"}`,
+`{"context":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}`, and
+`{"context":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_context":"optional nonblank replacement context"}`.
+The `replacement_context` member is optional only in the final form. Legacy
+`reject` and `retry` verdict strings are intentionally incompatible. `accept` is authoritative
 and marks its task successful even when a composite's retained nested results
 include failures. `reject_and_halt` fails immediately. Only
-`reject_and_retry` initiates another attempt; optional nonblank context replaces
-the current task research context for later attempts and descendants, while
-omitted context retains it.
+`reject_and_retry` initiates another attempt; optional nonblank replacement
+context replaces the current task context for later attempts and descendants.
+When an instruction leaf omits it, the response's required current context is
+carried forward. A retry payload may be either an instruction or a task array:
+an instruction continues in the same retained leaf session, while a task array
+transitions to the composite research pre-hook, nested sibling execution, and
+separate validation lifecycle, supplying retry context to descendants.
+
+Leaf mapping is direct: response `context` becomes result context, accepted
+`evidence` is serialized as top-level `evidence`, and retry `feedback` is
+retained and may be exposed as failure feedback. Leaf `task_patch` and
+`execution` are intentionally null or absent because there is no leaf execution
+transcript. Composite research/patch, nested execution, and validation fields
+remain populated as applicable. The AgentTask v1 artifact envelope and schema
+are unchanged.
 
 `agent_tasks.maximum_attempts` is global runtime configuration enforced
 independently per task invocation. It accepts any positive `Int32`, defaults to
-5, and includes the first payload execution. Research runs once per invocation.
+5, and includes the first payload execution. Composite research runs once per
+invocation.
 When the final attempt returns `reject_and_retry`, its feedback and replacement
 context are retained as the latest effective result, but its replacement payload
 does not run and the task fails. Composite payloads rerun their nested sibling
