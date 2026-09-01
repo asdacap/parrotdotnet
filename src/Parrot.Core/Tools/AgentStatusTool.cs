@@ -60,13 +60,33 @@ internal sealed class AgentStatusTool(
 
     private static void AppendActivity(StringBuilder report, AgentSessionActivitySnapshot activity)
     {
+        _ = report.Append("\nRequest session duration: ")
+            .Append(activity.RequestSessionDuration is { } requestDuration
+                ? FormatDuration(requestDuration)
+                : "none");
+
+        if (activity.CurrentProviderRequestDuration is { } currentProviderDuration)
+        {
+            _ = report.Append("\nCurrent provider request duration: ")
+                .Append(FormatDuration(currentProviderDuration));
+        }
+        else if (activity.LastProviderRequestDuration is { } lastProviderDuration)
+        {
+            _ = report.Append("\nLast provider request duration: ")
+                .Append(FormatDuration(lastProviderDuration));
+        }
+        else
+        {
+            _ = report.Append("\nProvider request duration: none");
+        }
+
         if (activity.CurrentTool is { } tool)
         {
             _ = report.Append("\nCurrent tool: ").Append(tool);
         }
         else if (activity.LatestProviderActivityAge is { } age)
         {
-            _ = report.Append("\nLatest provider activity: ").Append(FormatAge(age)).Append(" ago");
+            _ = report.Append("\nLatest provider activity: ").Append(FormatDuration(age)).Append(" ago");
         }
         else
         {
@@ -95,19 +115,19 @@ internal sealed class AgentStatusTool(
                 .Append(entry.Kind == AgentSessionActivityEntryKind.ReasoningSummary
                     ? "reasoning summary"
                     : "assistant message")
-                .Append(" (").Append(FormatAge(entry.Age)).Append(" ago): ")
+                .Append(" (").Append(FormatDuration(entry.Age)).Append(" ago): ")
                 .Append(content);
         }
     }
 
-    private static string FormatAge(TimeSpan age)
+    private static string FormatDuration(TimeSpan duration)
     {
-        if (age.TotalSeconds >= 1)
+        if (duration.TotalSeconds >= 1)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"{age.TotalSeconds:F1}s");
+            return string.Create(CultureInfo.InvariantCulture, $"{duration.TotalSeconds:F1}s");
         }
 
-        return string.Create(CultureInfo.InvariantCulture, $"{age.TotalMilliseconds:F0}ms");
+        return string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:F0}ms");
     }
 
     private string Format(AgentSession child, AgentSessionActivitySnapshot activity)

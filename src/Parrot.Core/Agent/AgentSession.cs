@@ -721,7 +721,7 @@ internal sealed class AgentSession(
         Task<AgentExecution>? selectedDrain,
         CancellationToken cancellationToken)
     {
-        Activity.BeginExecution();
+        var activityExecution = Activity.BeginExecution();
         await Task.Yield();
 
         AgentExecution completed;
@@ -782,7 +782,7 @@ internal sealed class AgentSession(
             completed = AgentExecution.Failed(BoundResult(failure.Message));
         }
 
-        Activity.FinishExecution(completed);
+        Activity.FinishExecution(activityExecution, completed);
         await registry.Deliver(identity, completed).ConfigureAwait(false);
 
         return completed;
@@ -1547,6 +1547,7 @@ internal sealed class AgentSession(
 
         try
         {
+            Activity.BeginProviderRequest();
             await foreach (var llmEvent in selectedModel.Provider
                 .Call(request, cancellationToken).ConfigureAwait(false))
             {

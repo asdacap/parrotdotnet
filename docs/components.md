@@ -867,9 +867,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   child by its canonical session id or direct-child friendly name; it never
   accepts a parent alias, descendant path, sibling, cousin, or arbitrary
   user-session agent id. Each `AgentSession` owns a concurrency-safe live
-  activity record for its retained runtime lifetime. The report names an
-  executing tool when present, otherwise gives the elapsed age of the latest
-  provider stream activity, and includes only active direct subagents, directly
+  activity record for its retained runtime lifetime. The report gives the
+  current or completed request-session duration, distinguishes the current
+  provider-request duration from the last completed provider-request duration,
+  names an executing tool when present, otherwise gives the elapsed age of the
+  latest provider stream activity, and includes only active direct subagents, directly
   owned active shell processes, and the five latest completed reasoning-summary
   or assistant-message entries in emission order. Raw and incomplete reasoning
   is never reported. This observation is model-facing text, not an external

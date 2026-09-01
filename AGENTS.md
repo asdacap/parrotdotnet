@@ -117,3 +117,8 @@ are any, do not commit.
 A good software is like a nice garden. There are distinct clear trees, each tree can be of different shape, 
 and size, but its clearly itself, and there are roads to clearly move around the garden. The purpose of the garden
 is the tree, not the road, but without the road, its hard to plant tree. 
+
+## Nomenclature
+
+- A user-conversation-turn is from first message to final message.
+- A tool-call-cycle is the provider request -> response.
