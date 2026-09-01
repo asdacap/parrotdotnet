@@ -322,6 +322,43 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Restricted_shared_write_grant_is_materialized_as_a_writable_bind(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var shared = Directory.CreateDirectory(Path.Combine(_workspace, "shared")).FullName;
+        var argumentsPath = Path.Combine(_workspace, "arguments");
+        var runner = new ProcessRunner(CreateArgumentCapturingSandbox(_workspace, argumentsPath));
+        var resources = Resources(_workspace);
+        var parent = SecurityProfile.Compose(
+            readOnly: false,
+            modeRules: [new SandboxRule(shared, SandboxRuleAction.AllowWrite)],
+            globalRules: [],
+            mandatoryRules: []);
+        var child = SecurityProfile.Compose(
+            readOnly: false,
+            modeRules: [new SandboxRule(shared, SandboxRuleAction.AllowWrite)],
+            globalRules: [],
+            mandatoryRules: []);
+        var profile = AgentProfile(resources, parent.RestrictWith(child), []);
+
+        _ = await runner.Run(
+            "true",
+            ProcessEnvironmentOverrides.Empty,
+            resources,
+            Scratch(resources),
+            profile,
+            cancellationToken);
+
+        var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
+        _ = await Assert.That(string.Join(',', FindMounts(arguments, shared))).IsEqualTo("--bind");
+    }
+
+    [Test]
     public async Task Security_profile_controls_baseline_and_applies_rules_in_order(
         CancellationToken cancellationToken)
     {
@@ -361,9 +398,9 @@ internal sealed class ProcessRunnerTests : IDisposable
         var hiddenRules = FindMounts(arguments, hidden);
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-        _ = await Assert.That(string.Join(',', workspaceRules)).IsEqualTo("--bind,--ro-bind");
+        _ = await Assert.That(string.Join(',', workspaceRules)).IsEqualTo("--ro-bind");
         _ = await Assert.That(string.Join(',', nestedRules)).IsEqualTo("--bind");
-        _ = await Assert.That(string.Join(',', hiddenRules)).IsEqualTo("--tmpfs,--ro-bind");
+        _ = await Assert.That(string.Join(',', hiddenRules)).IsEqualTo("--ro-bind");
         _ = await Assert.That(Array.IndexOf(arguments, _workspace))
             .IsLessThan(Array.LastIndexOf(arguments, _workspace));
         _ = await Assert.That(FindSources(arguments, nested)).Contains("--bind");
@@ -431,7 +468,7 @@ internal sealed class ProcessRunnerTests : IDisposable
 
         var arguments = await File.ReadAllLinesAsync(argumentsPath, cancellationToken);
         _ = await Assert.That(string.Join(',', FindMounts(arguments, granted)))
-            .IsEqualTo("--bind,--ro-bind");
+            .IsEqualTo("--ro-bind");
 
         _ = await runner.Run(
             "true",

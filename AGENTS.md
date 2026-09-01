@@ -21,6 +21,8 @@
 - Prefer async workflow over manual state machine.
 - No optional parameter.
 - Robust lazy validation. Try not to validate early, rather make later validation handling robust.
+- Lazy materialization. This follows the same spirit as lazy validation. Do not pre-optimize state, only compile them
+right before the information is needed.
 - A user session (and all its component including all agent sessions) data is scoped within that user session. Do not
 read or write other user session data.
 - Tools or any permission check should check the security profiles rather than specific directory.

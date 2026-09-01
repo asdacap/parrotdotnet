@@ -140,33 +140,19 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         UserSessionResources resources,
         SecurityProfile securityProfile)
     {
-        var applied = new List<SandboxRule>();
-
-        foreach (var rule in securityProfile.Rules)
+        foreach (var rule in securityProfile.Materialize().Rules)
         {
-            applied.Add(rule);
-            var path = Path.GetFullPath(rule.Path);
-            AddSyntheticParents(arguments, resources, path);
-            var (read, write) = EvaluateAccess(path, securityProfile.ReadOnly, applied);
+            AddSyntheticParents(arguments, resources, rule.Path);
 
-            if (!read)
+            if (!rule.Read)
             {
-                AddReadMask(arguments, path);
+                AddReadMask(arguments, rule.Path);
             }
             else
             {
-                arguments.AddRange([write ? "--bind" : "--ro-bind", path, path]);
+                arguments.AddRange([rule.Write ? "--bind" : "--ro-bind", rule.Path, rule.Path]);
             }
         }
-    }
-
-    private static (bool Read, bool Write) EvaluateAccess(
-        string path,
-        bool readOnly,
-        IEnumerable<SandboxRule> rules)
-    {
-        var profile = SecurityProfile.Compose(readOnly, rules, [], []);
-        return (profile.AllowsRead(path), profile.AllowsWrite(path));
     }
 
     private static bool Contains(string root, string path)

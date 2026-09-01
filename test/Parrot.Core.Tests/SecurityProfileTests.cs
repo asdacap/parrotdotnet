@@ -65,6 +65,81 @@ internal sealed class SecurityProfileTests
     }
 
     [Test]
+    public async Task Restriction_preserves_shared_write_grants_for_agent_profiles()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        try
+        {
+            var shared = Directory.CreateDirectory(Path.Combine(root.FullName, "shared")).FullName;
+            var scratch = Directory.CreateDirectory(Path.Combine(root.FullName, "session", "scratch")).FullName;
+            var parent = SecurityProfile.Compose(
+                readOnly: false,
+                modeRules: [new SandboxRule(shared, SandboxRuleAction.AllowWrite)],
+                globalRules: [],
+                mandatoryRules: []);
+            var child = SecurityProfile.Compose(
+                readOnly: false,
+                modeRules: [new SandboxRule(shared, SandboxRuleAction.AllowWrite)],
+                globalRules: [],
+                mandatoryRules: []);
+
+            var effective = SecurityProfile.ForAgent(
+                parent.RestrictWith(child),
+                writableRoots: [],
+                userSessionScratchRoot: scratch,
+                approvals: []);
+
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(shared, "file"))).IsTrue();
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Restriction_keeps_parent_and_child_denials_monotonic_for_agent_profiles()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        try
+        {
+            var parentDenied = Directory.CreateDirectory(Path.Combine(root.FullName, "parent-denied")).FullName;
+            var childDenied = Directory.CreateDirectory(Path.Combine(root.FullName, "child-denied")).FullName;
+            var scratch = Directory.CreateDirectory(Path.Combine(root.FullName, "session", "scratch")).FullName;
+            var parent = SecurityProfile.Compose(
+                readOnly: false,
+                modeRules: [new SandboxRule(parentDenied, SandboxRuleAction.DenyWrite)],
+                globalRules: [],
+                mandatoryRules: []);
+            var child = SecurityProfile.Compose(
+                readOnly: false,
+                modeRules: [new SandboxRule(childDenied, SandboxRuleAction.DenyRead)],
+                globalRules: [],
+                mandatoryRules: []);
+            var furtherRestricted = parent.RestrictWith(child).RestrictWith(
+                SecurityProfile.Compose(
+                    readOnly: false,
+                    modeRules:
+                    [
+                        new SandboxRule(parentDenied, SandboxRuleAction.AllowWrite),
+                        new SandboxRule(childDenied, SandboxRuleAction.AllowWrite),
+                    ],
+                    globalRules: [],
+                    mandatoryRules: []));
+            var effective = SecurityProfile.ForAgent(furtherRestricted, [], scratch, []);
+
+            _ = await Assert.That(effective.AllowsRead(Path.Combine(parentDenied, "file"))).IsTrue();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(parentDenied, "file"))).IsFalse();
+            _ = await Assert.That(effective.AllowsRead(Path.Combine(childDenied, "file"))).IsFalse();
+            _ = await Assert.That(effective.AllowsWrite(Path.Combine(childDenied, "file"))).IsFalse();
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Agent_profile_applies_ordered_roots_approvals_policy_and_shared_scratch()
     {
         var root = Directory.CreateTempSubdirectory();
@@ -98,6 +173,31 @@ internal sealed class SecurityProfileTests
             _ = await Assert.That(effective.AllowsWrite(Path.Combine(ownScratch, "file"))).IsTrue();
             _ = await Assert.That(effective.AllowsWrite(Path.Combine(siblingScratch, "file"))).IsTrue();
             _ = await Assert.That(effective.AllowsWrite(Path.Combine(otherSessionScratch, "file"))).IsFalse();
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Nested_agent_boundaries_do_not_restore_writes_denied_by_an_inner_boundary()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        try
+        {
+            var innerWorkspace = Directory.CreateDirectory(Path.Combine(root.FullName, "inner-workspace")).FullName;
+            var outerWorkspace = Directory.CreateDirectory(Path.Combine(root.FullName, "outer-workspace")).FullName;
+            var innerScratch = Directory.CreateDirectory(Path.Combine(root.FullName, "inner-scratch")).FullName;
+            var outerScratch = Directory.CreateDirectory(Path.Combine(root.FullName, "outer-scratch")).FullName;
+            var policy = SecurityProfile.Compose(false, [], [], []);
+            var inner = SecurityProfile.ForAgent(policy, [innerWorkspace], innerScratch, []);
+            var outer = SecurityProfile.ForAgent(inner, [outerWorkspace], outerScratch, []);
+
+            _ = await Assert.That(outer.AllowsWrite(Path.Combine(innerWorkspace, "file"))).IsFalse();
+            _ = await Assert.That(outer.AllowsWrite(Path.Combine(innerScratch, "file"))).IsTrue();
+            _ = await Assert.That(outer.AllowsWrite(Path.Combine(outerWorkspace, "file"))).IsFalse();
+            _ = await Assert.That(outer.AllowsWrite(Path.Combine(outerScratch, "file"))).IsTrue();
         }
         finally
         {

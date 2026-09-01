@@ -147,34 +147,21 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
 
     private static void AddSecurityRules(SeatbeltPolicy profile, SecurityProfile securityProfile)
     {
-        var applied = new List<SandboxRule>();
-
-        foreach (var rule in securityProfile.Rules)
+        foreach (var rule in securityProfile.Materialize().Rules)
         {
-            applied.Add(rule);
-            AddEffectiveRule(profile, rule.Path, securityProfile.ReadOnly, applied);
-        }
-    }
-
-    private static void AddEffectiveRule(
-        SeatbeltPolicy profile,
-        string path,
-        bool readOnly,
-        IEnumerable<SandboxRule> rules)
-    {
-        var effective = SecurityProfile.Compose(readOnly, rules, [], []);
-        if (!effective.AllowsRead(path))
-        {
-            profile.DenyRead(path);
-        }
-        else if (effective.AllowsWrite(path))
-        {
-            profile.AllowWrite(path);
-        }
-        else
-        {
-            profile.AllowRead(path);
-            profile.DenyWrite(path);
+            if (!rule.Read)
+            {
+                profile.DenyRead(rule.Path);
+            }
+            else if (rule.Write)
+            {
+                profile.AllowWrite(rule.Path);
+            }
+            else
+            {
+                profile.AllowRead(rule.Path);
+                profile.DenyWrite(rule.Path);
+            }
         }
     }
 
