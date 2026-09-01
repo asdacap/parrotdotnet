@@ -9,6 +9,8 @@ internal sealed class EnhancedTerminalFoundationTests
     [Arguments(1, 0, "0.03i/s 0o/s")]
     [Arguments(0, 1, "0i/s 0.03o/s")]
     [Arguments(30, 60, "1i/s 2o/s")]
+    [Arguments(30_000, 3_000_000, "1ki/s 100ko/s")]
+    [Arguments(30_000_000, 60_000_000, "1Mi/s 2Mo/s")]
     [Arguments(0, 0, "")]
     public async Task Runtime_usage_formats_rates_invariantly(long input, long output, string expected)
     {

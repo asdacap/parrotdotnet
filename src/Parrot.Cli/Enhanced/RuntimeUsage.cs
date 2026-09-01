@@ -30,8 +30,7 @@ internal readonly record struct RuntimeUsage(
             : string.Empty;
 
     public static string FormatRate(TokenRate rate) => rate.HasTokens
-        ? $"{rate.InputTokensPerSecond.ToString("0.##", CultureInfo.InvariantCulture)}i/s "
-          + $"{rate.OutputTokensPerSecond.ToString("0.##", CultureInfo.InvariantCulture)}o/s"
+        ? $"{FormatTokenRate(rate.InputTokensPerSecond)}i/s {FormatTokenRate(rate.OutputTokensPerSecond)}o/s"
         : string.Empty;
 
     public string FormatCost() => Cost switch
@@ -46,5 +45,12 @@ internal readonly record struct RuntimeUsage(
         >= 1_000_000 => (count / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "M",
         >= 1_000 => (count / 1_000d).ToString("0.#", CultureInfo.InvariantCulture) + "k",
         _ => count.ToString(CultureInfo.InvariantCulture),
+    };
+
+    private static string FormatTokenRate(decimal rate) => Math.Abs(rate) switch
+    {
+        >= 1_000_000 => (rate / 1_000_000m).ToString("0.#", CultureInfo.InvariantCulture) + "M",
+        >= 1_000 => (rate / 1_000m).ToString("0.#", CultureInfo.InvariantCulture) + "k",
+        _ => rate.ToString("0.##", CultureInfo.InvariantCulture),
     };
 }
