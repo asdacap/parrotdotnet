@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
+using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -59,16 +60,69 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Retries_payload_three_times_without_repeating_research(CancellationToken cancellationToken)
+    public async Task Acceptance_prompt_describes_the_strict_verdict_contract(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"contract evidence\"}",
+            "implemented output",
+            "{\"verdict\":\"accept\",\"evidence\":\"tests passed\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
+            """);
+
+        _ = await Runner(registry, runtime, "acceptance-contract")
+            .Run(artifact, cancellationToken);
+
+        var prompt = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(prompt).Contains("Return only one strict JSON object with no prose or code fence:");
+        _ = await Assert.That(prompt).Contains("{\"verdict\":\"accept\",\"evidence\":\"nonblank\"}");
+        _ = await Assert.That(prompt).Contains("{\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}");
+        _ = await Assert.That(prompt).Contains("{\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\"");
+    }
+
+    [Test]
+    public async Task Halt_rejection_does_not_start_a_second_attempt(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"contract evidence\"}",
+            "implemented output",
+            "{\"verdict\":\"reject_and_halt\",\"feedback\":\"not done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
+            """);
+
+        var result = await RunnerWithAttempts(registry, runtime, "halt-contract", 2)
+            .Run(artifact, cancellationToken);
+
+        var task = result.Tasks.Single();
+        _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(task.AttemptCount).IsEqualTo(1);
+        _ = await Assert.That(task.Verdict?.Kind).IsEqualTo(AcceptanceVerdictKind.RejectAndHalt);
+        _ = await Assert.That(task.Failure).IsEqualTo("not done");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task Retries_payload_five_times_without_repeating_research(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"stable research\"}",
             "first output",
-            "{\"verdict\":\"retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
             "second output",
-            "{\"verdict\":\"retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
             "third output",
-            "{\"verdict\":\"retry\",\"feedback\":\"still bad\",\"payload\":\"fourth payload\"}",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fourth payload\"}",
+            "fourth output",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fifth payload\"}",
+            "fifth output",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"sixth payload\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -81,10 +135,37 @@ internal sealed class AgentTaskRunnerTests : IDisposable
 
         var task = result.Tasks.Single();
         _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
-        _ = await Assert.That(task.AttemptCount).IsEqualTo(3);
+        _ = await Assert.That(task.AttemptCount).IsEqualTo(5);
         _ = await Assert.That(task.Context).IsEqualTo("stable research");
-        _ = await Assert.That(provider.Requests).Count().IsEqualTo(7);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(11);
         _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content).Any(content => content.Contains("research pre-hook", StringComparison.Ordinal)))).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Configured_attempt_budget_limits_each_task_without_repeating_research(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"stable research\"}",
+            "first output",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "second output",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
+            """);
+
+        var result = await RunnerWithAttempts(registry, runtime, "runner-call", 2)
+            .Run(artifact, cancellationToken);
+
+        var task = result.Tasks.Single();
+        _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(task.AttemptCount).IsEqualTo(2);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(5);
+        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
+            .Any(content => content.Contains("research pre-hook", StringComparison.Ordinal)))).IsEqualTo(1);
     }
 
     [Test]
@@ -93,9 +174,9 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"stable research\"}",
             "first output",
-            "{\"verdict\":\"retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
             "second output",
-            "{\"verdict\":\"retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
             "third output",
             "{\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
@@ -119,13 +200,87 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Retry_context_replaces_later_prompt_and_final_result(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"initial context\"}",
+            "first output",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"second payload\",\"context\":\"replacement context\"}",
+            "second output",
+            "{\"verdict\":\"accept\",\"evidence\":\"done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
+            """);
+
+        var result = await Runner(registry, runtime, "replacement-context")
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("replacement context");
+        var secondExecution = provider.Requests[3].Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(secondExecution).Contains("replacement context");
+        _ = await Assert.That(secondExecution).DoesNotContain("initial context");
+        var secondAcceptance = provider.Requests[4].Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(secondAcceptance).Contains("replacement context");
+        _ = await Assert.That(secondAcceptance).DoesNotContain("initial context");
+    }
+
+    [Test]
+    public async Task Retry_without_context_retains_prior_context(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"initial context\"}",
+            "first output",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"second payload\"}",
+            "second output",
+            "{\"verdict\":\"accept\",\"evidence\":\"done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
+            """);
+
+        var result = await Runner(registry, runtime, "retained-context")
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("initial context");
+        var secondExecution = provider.Requests[3].Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(secondExecution).Contains("initial context");
+    }
+
+    [Test]
+    public async Task Final_retry_retains_replacement_context_without_further_execution(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"initial context\"}",
+            "output",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"replacement\",\"context\":\"final context\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
+            """);
+
+        var result = await RunnerWithAttempts(registry, runtime, "final-context", 1)
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Tasks.Single().Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("final context");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
+    }
+
+    [Test]
     public async Task Composite_acceptance_receives_failed_child_evidence(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"parent context\"}",
             "{\"context\":\"child context\"}",
             "child output",
-            "{\"verdict\":\"reject\",\"feedback\":\"child proof failed\"}",
+            "{\"verdict\":\"reject_and_halt\",\"feedback\":\"child proof failed\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"parent explicitly accepts failure\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
@@ -190,7 +345,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"parent context\"}",
             "first output",
-            "{\"verdict\":\"retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"retry-child\",\"description\":\"Retry child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child proof\"}]}",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"retry-child\",\"description\":\"Retry child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child proof\"}],\"context\":\"replacement parent context\"}",
             "{\"context\":\"retry child context\"}",
             "retry child output",
             "{\"verdict\":\"accept\",\"evidence\":\"child done\"}",
@@ -206,6 +361,12 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("replacement parent context");
+        _ = await Assert.That(result.Tasks.Single().Tasks?.Single().Context).IsEqualTo("retry child context");
+        var childExecution = provider.Requests[4].Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(childExecution).Contains("replacement parent context");
+        _ = await Assert.That(childExecution).Contains("retry child context");
+        _ = await Assert.That(childExecution).DoesNotContain("\n[task/parent] parent context");
         var snapshots = ProgressEvents("retry-replacement");
         _ = await Assert.That(snapshots.TakeWhile(snapshot => snapshot.RootNodes[0].Children.Count == 0))
             .IsNotEmpty();
@@ -223,7 +384,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"prerequisite context\"}",
             "prerequisite output",
-            "{\"verdict\":\"reject\",\"feedback\":\"not done\"}",
+            "{\"verdict\":\"reject_and_halt\",\"feedback\":\"not done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -314,7 +475,13 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     private AgentTaskGraphRunner Runner(
         AgentRegistry registry,
         RuntimeContext runtime,
-        string originToolCallId) => new(
+        string originToolCallId) => RunnerWithAttempts(registry, runtime, originToolCallId, 5);
+
+    private AgentTaskGraphRunner RunnerWithAttempts(
+        AgentRegistry registry,
+        RuntimeContext runtime,
+        string originToolCallId,
+        int maximumAttempts) => new(
             registry,
             runtime.Router,
             runtime.Parent,
@@ -323,7 +490,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
                 _broker,
                 _repository,
                 runtime.Parent.SessionId,
-                originToolCallId));
+                originToolCallId),
+            new AgentTaskConfig(maximumAttempts));
 
     private RuntimeContext Runtime(ILLMProvider provider, CancellationToken cancellationToken)
     {

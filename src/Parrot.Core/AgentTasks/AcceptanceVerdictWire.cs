@@ -7,4 +7,5 @@ internal sealed record AcceptanceVerdictWire(
     [property: JsonPropertyName("verdict")] string? Verdict,
     [property: JsonPropertyName("evidence")] JsonElement Evidence,
     [property: JsonPropertyName("feedback")] JsonElement Feedback,
-    [property: JsonPropertyName("payload")] JsonElement Payload);
+    [property: JsonPropertyName("payload")] JsonElement Payload,
+    [property: JsonPropertyName("context")] JsonElement Context);

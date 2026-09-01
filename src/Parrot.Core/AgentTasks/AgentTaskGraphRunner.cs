@@ -1,5 +1,6 @@
 using System.Text;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Store;
 
@@ -10,9 +11,9 @@ internal sealed class AgentTaskGraphRunner(
     ModelRouter router,
     AgentSession owner,
     AgentTurnSelection selection,
-    AgentTaskProgress progress)
+    AgentTaskProgress progress,
+    AgentTaskConfig configuration)
 {
-    private const int MaxAttempts = 3;
     private const int MaxContextCharacters = 16 * 1024;
     private const int MaxSummaryCharacters = 16 * 1024;
     private const int MaxPromptCharacters = 256 * 1024;
@@ -112,8 +113,9 @@ internal sealed class AgentTaskGraphRunner(
 
         _ = suffix.Append("\nAssess the completed attempt. Return only one strict JSON object with no prose or code fence: ")
             .Append("{\"verdict\":\"accept\",\"evidence\":\"nonblank\"}, ")
-            .Append("{\"verdict\":\"reject\",\"feedback\":\"nonblank\"}, or ")
-            .Append("{\"verdict\":\"retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\"}.");
+            .Append("{\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}, or ")
+            .Append("{\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"context\":\"optional nonblank replacement research context\"}. ")
+            .Append("A reject_and_retry context replaces this task's research context for later attempts and descendants; omit it to retain the existing context.");
         return ComposePrompt(prefix, suffix.ToString());
     }
 
@@ -223,6 +225,7 @@ internal sealed class AgentTaskGraphRunner(
         string name,
         int attempt,
         ResearchHookResult hook,
+        string context,
         string? execution,
         AcceptanceVerdict? verdict,
         IReadOnlyList<string>? retryFeedback,
@@ -231,7 +234,7 @@ internal sealed class AgentTaskGraphRunner(
             name,
             AgentTaskExecutionStatus.Failed,
             attempt,
-            hook.Context,
+            context,
             hook.TaskPatch,
             execution,
             verdict,
@@ -432,8 +435,9 @@ internal sealed class AgentTaskGraphRunner(
         string? execution = null;
         IReadOnlyList<AgentTaskResult>? nested = null;
         AcceptanceVerdict? verdict = null;
+        var maximumAttempts = configuration.MaximumAttempts;
 
-        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             execution = null;
@@ -453,6 +457,7 @@ internal sealed class AgentTaskGraphRunner(
                         approved.Name,
                         attempt,
                         hook,
+                        currentContexts[^1].Context,
                         execution,
                         verdict,
                         RetainFeedback(feedback),
@@ -490,6 +495,7 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     hook,
+                    currentContexts[^1].Context,
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -507,6 +513,7 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     hook,
+                    currentContexts[^1].Context,
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -520,7 +527,7 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     AgentTaskExecutionStatus.Succeeded,
                     attempt,
-                    hook.Context,
+                    currentContexts[^1].Context,
                     hook.TaskPatch,
                     execution,
                     verdict,
@@ -530,14 +537,15 @@ internal sealed class AgentTaskGraphRunner(
                     nested);
             }
 
-            if (verdict.Kind == AcceptanceVerdictKind.Reject)
+            if (verdict.Kind == AcceptanceVerdictKind.RejectAndHalt)
             {
                 var rejection = verdict.Feedback
-                    ?? throw new InvalidOperationException("A reject verdict requires feedback.");
+                    ?? throw new InvalidOperationException("A reject_and_halt verdict requires feedback.");
                 return CompletedFailure(
                     approved.Name,
                     attempt,
                     hook,
+                    currentContexts[^1].Context,
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -546,32 +554,34 @@ internal sealed class AgentTaskGraphRunner(
             }
 
             var retryFeedback = verdict.Feedback
-                ?? throw new InvalidOperationException("A retry verdict requires feedback.");
-            feedback.Add(Bound(retryFeedback, MaxSummaryCharacters));
-            if (attempt == MaxAttempts)
+                ?? throw new InvalidOperationException("A reject_and_retry verdict requires feedback.");
+            var replacementPayload = verdict.Payload
+                ?? throw new InvalidOperationException("A reject_and_retry verdict requires a replacement payload.");
+            var replacementContext = verdict.Context is null
+                ? currentContexts[^1].Context
+                : Bound(verdict.Context, MaxContextCharacters);
+
+            if (attempt == maximumAttempts)
             {
+                feedback.Add(Bound(retryFeedback, MaxSummaryCharacters));
+                currentContexts[^1] = new AgentTaskResearchContext(path, replacementContext);
                 return CompletedFailure(
                     approved.Name,
                     attempt,
                     hook,
+                    currentContexts[^1].Context,
                     execution,
                     verdict,
                     RetainFeedback(feedback),
                     nested,
-                    "acceptance requested retry after the third and final attempt");
+                    "acceptance requested reject_and_retry after the final attempt");
             }
 
-            var replacementPayload = verdict.Payload
-                ?? throw new InvalidOperationException("A retry verdict requires a replacement payload.");
             var replacement = effective with { Payload = replacementPayload };
+            feedback.Add(Bound(retryFeedback, MaxSummaryCharacters));
             try
             {
                 AgentTaskParser.ValidateEffective(replacement);
-                effective = replacement;
-                childHandles = progress.ReplaceChildren(
-                    handle,
-                    effective.Payload,
-                    cancellationToken);
             }
             catch (ArgumentException failure)
             {
@@ -579,12 +589,20 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     hook,
+                    currentContexts[^1].Context,
                     execution,
                     verdict,
                     RetainFeedback(feedback),
                     nested,
                     $"retry payload invalid: {failure.Message}");
             }
+
+            currentContexts[^1] = new AgentTaskResearchContext(path, replacementContext);
+            effective = replacement;
+            childHandles = progress.ReplaceChildren(
+                handle,
+                effective.Payload,
+                cancellationToken);
         }
 
         throw new InvalidOperationException("The attempt loop terminated unexpectedly.");

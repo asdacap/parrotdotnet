@@ -173,13 +173,32 @@ research. A ready task additionally receives bounded direct-dependency
 summaries.
 
 **Acceptance, scheduling, and outcome.** An instruction is executed then
-reviewed by a separate acceptance child. `accept` plus evidence is authoritative
+reviewed by a separate acceptance child. The reviewer must return exactly one
+strict verdict: `accept` with nonblank evidence, `reject_and_halt` with nonblank
+feedback, or `reject_and_retry` with nonblank feedback and a replacement
+payload. Its exact JSON forms are
+`{"verdict":"accept","evidence":"nonblank"}`,
+`{"verdict":"reject_and_halt","feedback":"nonblank"}`, and
+`{"verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","context":"optional nonblank replacement research context"}`;
+the `context` member is optional only in the final form. Legacy `reject` and
+`retry` verdict strings are intentionally incompatible. `accept` is authoritative
 and marks its task successful even when a composite's retained nested results
-include failures. `reject` fails immediately; `retry` carries feedback and a
-replacement payload, with three attempts total. Composite payloads rerun their
-nested sibling graph on each attempt. Ready siblings run in parallel. An
-unsuccessful dependency blocks only its descendants while independent branches
-continue. Results preserve the hierarchy and include graph/task status, attempts,
+include failures. `reject_and_halt` fails immediately. Only
+`reject_and_retry` initiates another attempt; optional nonblank context replaces
+the current task research context for later attempts and descendants, while
+omitted context retains it.
+
+`agent_tasks.maximum_attempts` is global runtime configuration enforced
+independently per task invocation. It accepts any positive `Int32`, defaults to
+5, and includes the first payload execution. Research runs once per invocation.
+When the final attempt returns `reject_and_retry`, its feedback and replacement
+context are retained as the latest effective result, but its replacement payload
+does not run and the task fails. Composite payloads rerun their nested sibling
+graph on each retry. Large limits and composite retries can repeat costly or
+side-effecting work; use a small bound and explicit mutation dependencies.
+Ready siblings run in parallel. An unsuccessful dependency blocks only its
+descendants while independent branches continue. Results preserve the hierarchy
+and include graph/task status, attempts,
 research context, effective patch, execution, verdict/evidence, failures or
 blocking dependencies, and nested results. Cancellation aborts and joins every
 runner-owned child before it propagates. There is deliberately no rollback or

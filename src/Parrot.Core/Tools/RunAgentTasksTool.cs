@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.AgentTasks;
+using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Store;
@@ -14,7 +15,8 @@ internal sealed class RunAgentTasksTool(
     ModelRouter router,
     AgentSession session,
     EventBroker eventBroker,
-    EventRepository eventRepository) : ITool
+    EventRepository eventRepository,
+    AgentTaskConfig agentTasks) : ITool
 {
     public string Name => "run_agent_tasks";
 
@@ -109,7 +111,7 @@ internal sealed class RunAgentTasksTool(
                 eventRepository,
                 session.SessionId,
                 invocation.CallId);
-            var runner = new AgentTaskGraphRunner(agents, router, session, selection, progress);
+            var runner = new AgentTaskGraphRunner(agents, router, session, selection, progress, agentTasks);
             return (await runner.Run(artifact, cancellationToken).ConfigureAwait(false)).Serialize();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

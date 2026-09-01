@@ -54,9 +54,9 @@ internal static class AgentTaskParser
         return verdict switch
         {
             "accept" => Accept(root),
-            "reject" => Reject(root),
-            "retry" => Retry(root),
-            _ => throw Invalid("acceptance verdict verdict must be accept, reject, or retry."),
+            "reject_and_halt" => RejectAndHalt(root),
+            "reject_and_retry" => RejectAndRetry(root),
+            _ => throw Invalid("acceptance verdict verdict must be accept, reject_and_halt, or reject_and_retry."),
         };
     }
 
@@ -66,23 +66,27 @@ internal static class AgentTaskParser
     private static AcceptanceVerdict Accept(JsonElement root)
     {
         RejectUnknown(root, "acceptance verdict", "verdict", "evidence");
-        return new(AcceptanceVerdictKind.Accept, RequiredString(root, "evidence", "acceptance verdict"), null, null);
+        return new(AcceptanceVerdictKind.Accept, RequiredString(root, "evidence", "acceptance verdict"), null, null, null);
     }
 
-    private static AcceptanceVerdict Reject(JsonElement root)
+    private static AcceptanceVerdict RejectAndHalt(JsonElement root)
     {
         RejectUnknown(root, "acceptance verdict", "verdict", "feedback");
-        return new(AcceptanceVerdictKind.Reject, null, RequiredString(root, "feedback", "acceptance verdict"), null);
+        return new(AcceptanceVerdictKind.RejectAndHalt, null, RequiredString(root, "feedback", "acceptance verdict"), null, null);
     }
 
-    private static AcceptanceVerdict Retry(JsonElement root)
+    private static AcceptanceVerdict RejectAndRetry(JsonElement root)
     {
-        RejectUnknown(root, "acceptance verdict", "verdict", "feedback", "payload");
+        RejectUnknown(root, "acceptance verdict", "verdict", "feedback", "payload", "context");
+        var context = root.TryGetProperty("context", out var contextElement)
+            ? Nonblank(RequireString(contextElement, "acceptance verdict context"), "acceptance verdict context")
+            : null;
         return new(
-            AcceptanceVerdictKind.Retry,
+            AcceptanceVerdictKind.RejectAndRetry,
             null,
             RequiredString(root, "feedback", "acceptance verdict"),
-            ParsePayload(RequiredProperty(root, "payload", JsonValueKind.String, JsonValueKind.Array), "acceptance verdict payload"));
+            ParsePayload(RequiredProperty(root, "payload", JsonValueKind.String, JsonValueKind.Array), "acceptance verdict payload"),
+            context);
     }
 
     private static List<AgentTask> ParseTasks(JsonElement element, string path)
@@ -317,8 +321,14 @@ internal static class AgentTaskParser
 
     private static void RejectUnknown(JsonElement element, string path, params string[] allowed)
     {
+        var encountered = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
         {
+            if (!encountered.Add(property.Name))
+            {
+                throw Invalid($"{path} contains duplicate field '{property.Name}'.");
+            }
+
             if (!allowed.Contains(property.Name, StringComparer.Ordinal))
             {
                 throw Invalid($"{path} contains unknown field '{property.Name}'.");

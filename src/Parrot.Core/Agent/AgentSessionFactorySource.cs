@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Process;
 using Parrot.Queues;
@@ -11,6 +12,7 @@ internal sealed class AgentSessionFactorySource(
     Compactor compactor,
     WebFetcher webFetcher,
     ToolDefinitionCatalog toolDefinitions,
+    AgentTaskConfig agentTasks,
     Llm.ModelRouter router,
     ISystemPromptProvider systemPromptProvider,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactorySource
@@ -22,6 +24,7 @@ internal sealed class AgentSessionFactorySource(
             compactor,
             webFetcher,
             toolDefinitions,
+            agentTasks,
             router,
             new CompositeSystemPromptProvider(
                 "runtime:user-session-system-prompt",

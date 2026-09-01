@@ -25,6 +25,7 @@ internal sealed class Configuration(string path)
     private const string UserInputTimeoutKey = "user_input_timeout_ms";
     private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
     private const string CompactionKey = "compaction";
+    private const string AgentTasksKey = "agent_tasks";
     private const string ToolsKey = "tools";
     private static readonly TagName ReplaceTag = new("!replace");
 
@@ -70,6 +71,8 @@ internal sealed class Configuration(string path)
     public TimeSpan UserInputTimeout { get; private set; }
 
     public CompactionConfig Compaction { get; private set; } = new(90, 30, 60_000, 12_000);
+
+    public AgentTaskConfig AgentTasks { get; private set; } = new(5);
 
     public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
@@ -185,6 +188,7 @@ internal sealed class Configuration(string path)
             CliUtilities = ReadCliUtilities(root),
             UserInputTimeout = ReadUserInputTimeout(root, userRoot),
             Compaction = ReadCompaction(root),
+            AgentTasks = ReadAgentTasks(root),
             ToolDefinitions = ReadToolDefinitions(root),
         };
         ProvisionSandboxDirectories(directories);
@@ -1044,6 +1048,20 @@ internal sealed class Configuration(string path)
             targetPercent,
             PositiveInteger(compaction, "maximum_input_tokens", $"{CompactionKey}.maximum_input_tokens"),
             PositiveInteger(compaction, "summary_output_tokens", $"{CompactionKey}.summary_output_tokens"));
+    }
+
+    private static AgentTaskConfig ReadAgentTasks(YamlMappingNode root)
+    {
+        if (!Child(root, AgentTasksKey, out var node) || node is not YamlMappingNode agentTasks)
+        {
+            throw new InvalidDataException($"{AgentTasksKey} must be a mapping");
+        }
+
+        ValidateKeys(agentTasks, AgentTasksKey, "maximum_attempts");
+        return new AgentTaskConfig(PositiveInteger(
+            agentTasks,
+            "maximum_attempts",
+            $"{AgentTasksKey}.maximum_attempts"));
     }
 
     private static ToolDefinitionCatalog ReadToolDefinitions(YamlMappingNode root)

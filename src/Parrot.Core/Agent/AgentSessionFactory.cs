@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -15,6 +16,7 @@ internal sealed class AgentSessionFactory(
     Compactor compactor,
     WebFetcher webFetcher,
     ToolDefinitionCatalog toolDefinitions,
+    AgentTaskConfig agentTasks,
     ModelRouter router,
     ISystemPromptProvider systemPromptProvider,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactory
@@ -86,7 +88,7 @@ internal sealed class AgentSessionFactory(
         new EditToolFactory(workspace),
         new WebFetchToolFactory(webFetcher),
         new AgentSpawnToolFactory(owner.Registry, router),
-        new RunAgentTasksToolFactory(workspace, owner.Registry, router, eventBroker, eventRepository),
+        new RunAgentTasksToolFactory(workspace, owner.Registry, router, eventBroker, eventRepository, agentTasks),
         new SetCheckpointToolFactory(),
         new AgentSendToolFactory(owner.Registry),
         new AgentStatusToolFactory(owner.Registry, owner.ShellProcesses),
