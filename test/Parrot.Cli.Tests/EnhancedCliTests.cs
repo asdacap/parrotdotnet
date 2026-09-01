@@ -102,7 +102,8 @@ internal sealed class EnhancedCliTests
         using var stopping = new CancellationTokenSource();
         using var http = new HttpClient();
         var invoker = new ScriptedInvoker();
-        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        using var loadedConfiguration = new LoadedConfiguration(string.Empty);
+        var configuration = loadedConfiguration.Value;
         var presenters = Presenters();
         var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
         var cli = new EnhancedCli(
@@ -861,6 +862,42 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Loaded_live_buffer_row_budget_clips_oldest_activity(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(true, "live_buffer_rows: 2\n");
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("prompt");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnStarted = new TurnStarted { Model = "model" },
+        });
+        var oldest = $"oldest-tail {new string('o', 70)}\n";
+        var newest = $"newest-tail {new string('n', 70)}";
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TextChunk = new TextChunk { Fragment = oldest + newest },
+        });
+        _ = await driver.FlushedOutputContainsAfter(0, "newest-tail", cancellationToken);
+
+        driver.Resize(81);
+        var liveFrameStart = driver.Output.Length;
+        driver.Input.Type("x");
+        var liveFrame = await driver.FlushedOutputContainsAfter(liveFrameStart, "newest-tail", cancellationToken);
+
+        _ = await Assert.That(liveFrame).DoesNotContain("oldest-tail");
+        _ = await Assert.That(liveFrame).Contains("newest-tail");
+        _ = await Assert.That(liveFrame).Contains("model");
+        _ = await Assert.That(liveFrame).Contains("❯ x");
+
+        driver.Input.End();
+        _ = await driving;
+    }
+
+    [Test]
     public async Task Interactive_chat_updates_the_prompt_while_a_turn_is_busy(CancellationToken cancellationToken)
     {
         using var driver = new CliLifecycleDriver(enhanced: true);
@@ -885,7 +922,8 @@ internal sealed class EnhancedCliTests
         using var stopping = new CancellationTokenSource();
         using var http = new HttpClient();
         var invoker = new ScriptedInvoker();
-        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        using var loadedConfiguration = new LoadedConfiguration(string.Empty);
+        var configuration = loadedConfiguration.Value;
         var presenters = Presenters();
         var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
         var cli = new EnhancedCli(
@@ -1259,6 +1297,26 @@ internal sealed class EnhancedCliTests
         {
             await Task.Delay(5, cancellationToken);
         }
+    }
+
+    private sealed class LoadedConfiguration : IDisposable
+    {
+        private readonly string _directory = Path.Combine(
+            Path.GetTempPath(),
+            "parrot-cli-tests",
+            Guid.NewGuid().ToString("N"));
+
+        public LoadedConfiguration(string content)
+        {
+            _ = Directory.CreateDirectory(_directory);
+            var path = Path.Combine(_directory, "config.yaml");
+            File.WriteAllText(path, content);
+            Value = Configuration.Load(path, Path.Combine(_directory, "predefined_config.yaml"));
+        }
+
+        public Configuration Value { get; }
+
+        public void Dispose() => Directory.Delete(_directory, recursive: true);
     }
 
     private sealed class ControlledSubmitDelay

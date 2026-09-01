@@ -292,6 +292,44 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Live_buffer_rows_defaults_from_and_is_documented_in_the_generated_reference(
+        CancellationToken cancellationToken)
+    {
+        var predefined = Path.Combine(_directory, "predefined_config.yaml");
+        var configuration = Load(Path.Combine(_directory, "config.yaml"));
+
+        _ = await Assert.That(configuration.LiveBufferRows).IsEqualTo(20);
+        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
+            .Contains("live_buffer_rows: 20");
+    }
+
+    [Test]
+    [Arguments(1)]
+    [Arguments(25)]
+    public async Task Live_buffer_rows_accepts_positive_user_configuration(int rows)
+    {
+        var configuration = Load(Write($"live_buffer_rows: {rows}\n"));
+
+        _ = await Assert.That(configuration.LiveBufferRows).IsEqualTo(rows);
+    }
+
+    [Test]
+    [Arguments("0")]
+    [Arguments("-1")]
+    [Arguments("1.5")]
+    [Arguments("true")]
+    [Arguments("null")]
+    [Arguments("words")]
+    [Arguments("2147483648")]
+    [Arguments("[]")]
+    public async Task Live_buffer_rows_requires_a_positive_integer(string value)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => Load(Write($"live_buffer_rows: {value}\n")));
+
+        _ = await Assert.That(exception.Message).IsEqualTo("live_buffer_rows must be a positive integer");
+    }
+
+    [Test]
     public async Task User_input_timeout_defaults_to_twenty_minutes_and_accepts_positive_milliseconds()
     {
         var missing = Load(Path.Combine(_directory, "missing.yaml"));

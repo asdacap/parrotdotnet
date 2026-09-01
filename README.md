@@ -82,6 +82,10 @@ Parrot writes an agent-readable `predefined_config.yaml` alongside the
 user-owned `config.yaml`. The user file is recursively layered over the
 predefined defaults and is never rewritten except by an interactive setting.
 
+`live_buffer_rows` must be a positive integer. Its predefined default is `20`; it
+budgets only the enhanced CLI's transient Tail rows, excluding the fixed
+inventory/modeline rows and caret-retained input rows.
+
 Top-level `system_prompts` is a mapping from namespaced system-provider keys to
 nonblank prompt strings. Its entries configure static system-prompt providers;
 for example:
