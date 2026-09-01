@@ -3,16 +3,22 @@ namespace Parrot.Security;
 internal sealed class SecurityProfile
 {
     private readonly SandboxRule[] _rules;
+    private readonly SecurityProfile[] _innerProfiles;
+    private readonly AgentSecurityBoundary? _agentBoundary;
 
-    private SecurityProfile(bool readOnly, IEnumerable<SandboxRule> rules)
+    private SecurityProfile(
+        bool readOnly,
+        IEnumerable<SandboxRule> rules,
+        IEnumerable<SecurityProfile> innerProfiles,
+        AgentSecurityBoundary? agentBoundary)
     {
         ReadOnly = readOnly;
         _rules = [.. rules];
+        _innerProfiles = [.. innerProfiles];
+        _agentBoundary = agentBoundary;
     }
 
     public bool ReadOnly { get; }
-
-    public IReadOnlyList<SandboxRule> Rules => _rules;
 
     public static SecurityProfile Compose(
         bool readOnly,
@@ -25,10 +31,9 @@ internal sealed class SecurityProfile
         var configured = globalRules.Select(Normalize);
         var rules = configured.Concat(overrides)
             .OrderBy(rule => rule.Path.Length)
-            .Concat(mandatory)
-            .ToArray();
+            .Concat(mandatory);
 
-        return new(readOnly, rules);
+        return new(readOnly, rules, [], null);
     }
 
     public static SecurityProfile ForAgent(
@@ -48,21 +53,11 @@ internal sealed class SecurityProfile
             target.Validate();
         }
 
-        var root = Path.GetPathRoot(Path.GetFullPath(userSessionScratchRoot))
-            ?? throw new ArgumentException(
-                "The user session scratch root must have a filesystem root.",
-                nameof(userSessionScratchRoot));
-        var rules = new List<SandboxRule> { new(root, SandboxRuleAction.DenyWrite) };
-        if (!policy.ReadOnly)
-        {
-            rules.AddRange(writableRoots.Select(path => new SandboxRule(path, SandboxRuleAction.AllowWrite)));
-            rules.AddRange(approvalTargets.Select(target => new SandboxRule(target.Path, SandboxRuleAction.AllowWrite)));
-        }
-
-        var scratchRule = Normalize(new(userSessionScratchRoot, SandboxRuleAction.AllowWrite));
-        rules.AddRange(policy._rules.Where(rule => !Contains(scratchRule.Path, rule.Path)));
-        rules.Add(scratchRule);
-        return new(policy.ReadOnly, rules.Select(Normalize));
+        var boundary = new AgentSecurityBoundary(
+            policy.ReadOnly ? [] : writableRoots.Select(NormalizePath),
+            NormalizePath(userSessionScratchRoot),
+            policy.ReadOnly ? [] : approvalTargets.Select(target => NormalizePath(target.Path)));
+        return new(policy.ReadOnly, [], [policy], boundary);
     }
 
     public bool AllowsRead(string path) => Evaluate(path).Read;
@@ -72,15 +67,7 @@ internal sealed class SecurityProfile
     public SecurityProfile RestrictWith(SecurityProfile child)
     {
         ArgumentNullException.ThrowIfNull(child);
-
-        var readOnly = ReadOnly || child.ReadOnly;
-        var paths = _rules.Concat(child._rules).Select(rule => rule.Path);
-        var rules = CompileRules(
-            readOnly,
-            paths,
-            path => Intersect(Evaluate(path), child.Evaluate(path)));
-
-        return new(readOnly, rules);
+        return new(ReadOnly || child.ReadOnly, [], [this, child], null);
     }
 
     public bool AllowsDelegationTo(SecurityProfile target)
@@ -92,8 +79,7 @@ internal sealed class SecurityProfile
             return false;
         }
 
-        var paths = _rules.Concat(target._rules)
-            .Select(rule => rule.Path)
+        var paths = Paths().Concat(target.Paths())
             .Append(Path.DirectorySeparatorChar.ToString())
             .Distinct(StringComparer.Ordinal);
 
@@ -102,53 +88,39 @@ internal sealed class SecurityProfile
             (!target.AllowsWrite(path) || AllowsWrite(path)));
     }
 
-    private static SandboxRule[] CompileRules(
-        bool readOnly,
-        IEnumerable<string> paths,
-        Func<string, (bool Read, bool Write)> evaluate)
+    internal MaterializedSecurityProfile Materialize()
     {
-        var compiled = new List<SandboxRule>();
-
-        foreach (var path in paths.Distinct(StringComparer.Ordinal).OrderBy(path => path.Length))
+        var root = Path.DirectorySeparatorChar.ToString();
+        var paths = Paths()
+            .Where(path => _agentBoundary is null || !Contains(_agentBoundary.ScratchRoot, path))
+            .Append(_agentBoundary?.ScratchRoot ?? root)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path.Length);
+        var materialized = new List<MaterializedSandboxRule>();
+        foreach (var path in paths)
         {
-            var current = Evaluate(path, readOnly, compiled);
-            var required = evaluate(path);
-            if (current == required)
+            var required = EvaluateForSandbox(path);
+            if (!string.Equals(path, root, StringComparison.Ordinal)
+                || EvaluateMaterialized(path, materialized) != required)
             {
-                continue;
+                materialized.Add(new(path, required.Read, required.Write));
             }
-
-            compiled.Add(new(path, SelectAction(current, required)));
         }
 
-        return [.. compiled];
+        return new(materialized);
     }
 
-    private static SandboxRuleAction SelectAction(
-        (bool Read, bool Write) current,
-        (bool Read, bool Write) required) =>
-        (current, required) switch
-        {
-            (_, (false, false)) => SandboxRuleAction.DenyRead,
-            (_, (true, true)) => SandboxRuleAction.AllowWrite,
-            ((false, false), (true, false)) => SandboxRuleAction.AllowRead,
-            ((true, true), (true, false)) => SandboxRuleAction.DenyWrite,
-            _ => throw new InvalidOperationException("Security profiles cannot grant write access without read access."),
-        };
+    private static SandboxRule Normalize(SandboxRule rule) =>
+        rule with { Path = NormalizePath(rule.Path) };
 
-    private static (bool Read, bool Write) Intersect(
-        (bool Read, bool Write) parent,
-        (bool Read, bool Write) child) =>
-        (parent.Read && child.Read, parent.Write && child.Write);
-
-    private static SandboxRule Normalize(SandboxRule rule)
+    private static string NormalizePath(string path)
     {
-        if (!TryCanonicalize(rule.Path, out var canonical) || !Path.IsPathFullyQualified(rule.Path))
+        if (!TryCanonicalize(path, out var canonical) || !Path.IsPathFullyQualified(path))
         {
-            throw new ArgumentException("Sandbox rule paths must be absolute.", nameof(rule));
+            throw new ArgumentException("Sandbox rule paths must be absolute.", nameof(path));
         }
 
-        return rule with { Path = canonical };
+        return canonical;
     }
 
     private static bool TryCanonicalize(string path, out string canonical)
@@ -174,37 +146,127 @@ internal sealed class SecurityProfile
              !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
     }
 
-    private static (bool Read, bool Write) Evaluate(
+    private static (bool Read, bool Write) EvaluateMaterialized(
         string path,
-        bool readOnly,
-        IEnumerable<SandboxRule> rules)
+        IEnumerable<MaterializedSandboxRule> rules)
     {
-        var access = (Read: true, Write: !readOnly);
-
-        if (!TryCanonicalize(path, out var canonicalPath))
-        {
-            return (false, false);
-        }
-
+        var access = (Read: true, Write: false);
         foreach (var rule in rules)
         {
-            if (!Contains(rule.Path, canonicalPath))
+            if (Contains(rule.Path, path))
+            {
+                access = (rule.Read, rule.Write);
+            }
+        }
+
+        return access;
+    }
+
+    private Access Evaluate(string path)
+    {
+        if (!TryCanonicalize(path, out var canonicalPath))
+        {
+            return Access.Denied;
+        }
+
+        return _agentBoundary is null
+            ? EvaluatePolicy(canonicalPath)
+            : EvaluateAgent(canonicalPath, _agentBoundary);
+    }
+
+    private Access EvaluateCanonical(string path) => _agentBoundary is null
+        ? EvaluatePolicy(path)
+        : EvaluateAgent(path, _agentBoundary);
+
+    private Access EvaluatePolicy(string path)
+    {
+        if (_innerProfiles.Length > 0)
+        {
+            var inner = _innerProfiles.Select(profile => profile.EvaluateCanonical(path)).ToArray();
+            var read = inner.All(access => access.Read);
+            var write = inner.All(access => access.Write);
+            return new(read, write, write && inner.Any(access => access.WriteAuthorized));
+        }
+
+        var access = new Access(true, !ReadOnly, false);
+        foreach (var rule in _rules)
+        {
+            if (!Contains(rule.Path, path))
             {
                 continue;
             }
 
             access = rule.Action switch
             {
-                SandboxRuleAction.AllowWrite => (true, true),
-                SandboxRuleAction.DenyRead => (false, false),
-                SandboxRuleAction.AllowRead => (true, access.Write),
-                SandboxRuleAction.DenyWrite => (access.Read, false),
-                _ => (false, false),
+                SandboxRuleAction.AllowWrite => new(true, true, true),
+                SandboxRuleAction.DenyRead => Access.Denied,
+                SandboxRuleAction.AllowRead => access with { Read = true },
+                SandboxRuleAction.DenyWrite => access with { Write = false, WriteAuthorized = false },
+                _ => Access.Denied,
             };
         }
 
         return access;
     }
 
-    private (bool Read, bool Write) Evaluate(string path) => Evaluate(path, ReadOnly, _rules);
+    private Access EvaluateAgent(string path, AgentSecurityBoundary boundary)
+    {
+        var policy = _innerProfiles[0].EvaluateCanonical(path);
+        if (Contains(boundary.ScratchRoot, path))
+        {
+            return policy with { Write = true, WriteAuthorized = true };
+        }
+
+        var boundaryAllowsWrite = boundary.WritablePaths.Any(root => Contains(root, path));
+        return policy with { Write = policy.Write && (policy.WriteAuthorized || boundaryAllowsWrite) };
+    }
+
+    private (bool Read, bool Write) EvaluateForSandbox(string path)
+    {
+        var access = Evaluate(path);
+        return _agentBoundary is null
+            ? (access.Read, access.Write && access.WriteAuthorized)
+            : (access.Read, access.Write);
+    }
+
+    private IEnumerable<string> Paths()
+    {
+        foreach (var inner in _innerProfiles)
+        {
+            foreach (var path in inner.Paths())
+            {
+                yield return path;
+            }
+        }
+
+        foreach (var rule in _rules)
+        {
+            yield return rule.Path;
+        }
+
+        if (_agentBoundary is not null)
+        {
+            foreach (var path in _agentBoundary.WritablePaths)
+            {
+                yield return path;
+            }
+
+            yield return _agentBoundary.ScratchRoot;
+        }
+    }
+
+    private readonly record struct Access(bool Read, bool Write, bool WriteAuthorized)
+    {
+        public static Access Denied => new(false, false, false);
+    }
+
+    private sealed class AgentSecurityBoundary(
+        IEnumerable<string> writableRoots,
+        string scratchRoot,
+        IEnumerable<string> approvals)
+    {
+        public string[] WritablePaths { get; } = [.. writableRoots, .. approvals];
+
+        public string ScratchRoot { get; } = scratchRoot;
+    }
 }
