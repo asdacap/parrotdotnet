@@ -359,6 +359,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             dependencies.Status,
             registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
         var selected = parent.Selection();
         var selection = new AgentTurnSelection(

@@ -65,6 +65,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             CancellationToken.None);
         using var inventory = new ShellProcessInventory();
         var processes = new ShellProcessOwner(

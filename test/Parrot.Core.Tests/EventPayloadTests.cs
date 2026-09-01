@@ -528,6 +528,7 @@ internal sealed class EventPayloadTests
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             CancellationToken.None);
 
         var llmEvent = source switch

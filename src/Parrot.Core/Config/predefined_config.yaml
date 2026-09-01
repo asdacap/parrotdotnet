@@ -371,6 +371,18 @@ tools:
       - session_id
       - message
       additionalProperties: false
+  agent_status:
+    description: Report the current human-readable activity of one direct child agent without adding it to the system prompt.
+    parameters:
+      type: object
+      properties:
+        session_id:
+          type: string
+          minLength: 1
+          description: Exact canonical session ID or friendly name of this agent's direct child.
+      required:
+      - session_id
+      additionalProperties: false
   agent_spawn:
     description: Start a child agent in an isolated session and return its session ID immediately. Friendly names are unique
       among this session's direct children. Its terminal result is automatically sent to this session.

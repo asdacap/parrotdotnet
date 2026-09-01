@@ -6,8 +6,25 @@ internal sealed class ControlledTimeProvider : TimeProvider
     private readonly List<ControlledTimer> _timers = [];
     private TaskCompletionSource _timerCreated = NewSignal();
     private DateTimeOffset _utcNow = DateTimeOffset.UnixEpoch;
+    private long _timestamp;
 
-    public override DateTimeOffset GetUtcNow() => _utcNow;
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        lock (_gate)
+        {
+            return _utcNow;
+        }
+    }
+
+    public override long GetTimestamp()
+    {
+        lock (_gate)
+        {
+            return _timestamp;
+        }
+    }
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
@@ -39,6 +56,7 @@ internal sealed class ControlledTimeProvider : TimeProvider
         lock (_gate)
         {
             _utcNow += duration;
+            _timestamp += duration.Ticks;
             due = [.. _timers.Where(timer => !timer.Disposed && timer.Due <= _utcNow)];
             _timerCreated = NewSignal();
         }

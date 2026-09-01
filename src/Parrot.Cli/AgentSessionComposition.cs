@@ -59,10 +59,16 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return new AgentSessionActivity(arguments.TimeProvider);
+            })
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<TodoCollection>(out var todos);
                 ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
                 ctx.Inject<ShellProcessOwner>(out var processes);
                 ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
+                ctx.Inject<AgentSessionActivity>(out var activity);
                 ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
                 ctx.Inject<ISystemPrompt>(out var systemPrompt);
                 var session = new AgentSession(
@@ -83,6 +89,7 @@ internal partial class AgentSessionComposition
                     arguments.Status,
                     arguments.Registry,
                     arguments.Queues,
+                    activity,
                     arguments.Lifetime);
                 arguments.Queues.Attach(session);
                 arguments.ShellProcesses.Register(processes);

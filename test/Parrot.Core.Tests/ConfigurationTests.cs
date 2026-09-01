@@ -1376,7 +1376,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         var definitions = Load(path).ToolDefinitions.Definitions;
 
-        _ = await Assert.That(definitions.Count).IsEqualTo(27);
+        _ = await Assert.That(definitions.Count).IsEqualTo(28);
         _ = await Assert.That(definitions["question"].Description)
             .StartsWith("Ask the user structured questions");
         using var question = JsonDocument.Parse(definitions["question"].ParametersJson);

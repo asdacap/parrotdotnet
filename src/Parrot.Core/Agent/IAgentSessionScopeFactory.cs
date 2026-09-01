@@ -29,5 +29,6 @@ internal interface IAgentSessionScopeFactory
         AgentRegistry registry,
         AgentQueues queues,
         UserSession owner,
+        TimeProvider timeProvider,
         CancellationToken lifetime);
 }

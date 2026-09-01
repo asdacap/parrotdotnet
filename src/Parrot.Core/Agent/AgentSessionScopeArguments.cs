@@ -27,4 +27,5 @@ internal sealed record AgentSessionScopeArguments(
     AgentRegistry Registry,
     AgentQueues Queues,
     UserSession Owner,
+    TimeProvider TimeProvider,
     CancellationToken Lifetime);
