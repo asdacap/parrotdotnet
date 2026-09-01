@@ -41,7 +41,8 @@ internal sealed class ToolScrollbackValue(
     public IReadOnlyList<string> Render(ScrollbackRenderContext context)
     {
         var (marker, style) = DescribeStatus(context);
-        var header = TerminalText.Layout($"{marker} {Report.Label}", context.Columns).Take(10).ToArray();
+        var activityLabel = HierarchicalActivityValue.RemoveOwner(Report.Label, context.ActivityOwner);
+        var header = TerminalText.Layout($"{marker} {activityLabel}", context.Columns).Take(10).ToArray();
         var lines = header.Select(style.Apply).ToList();
         var maximumLines = Report.Block.Kind switch
         {

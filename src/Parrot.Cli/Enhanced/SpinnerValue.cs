@@ -6,7 +6,7 @@ internal readonly record struct SpinnerValue(string Activity, int Frame) : ILive
         $"{TerminalIcons.SpinnerFrames[Frame % TerminalIcons.SpinnerFrames.Length]} {TerminalText.Sanitize(Activity)}";
 
     public MultiLine Render(LiveBufferRenderContext context) => new(
-        [new TerminalLine(Render(), context.Palette.Marker)],
+        [new TerminalLine(TerminalText.Clip(Render(), context.Columns), context.Palette.Marker)],
         null,
         LiveBufferRetention.Tail);
 }

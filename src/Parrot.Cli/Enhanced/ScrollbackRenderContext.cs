@@ -6,4 +6,6 @@ internal readonly record struct ScrollbackRenderContext(int Columns, TerminalPal
         : this(columns, palette, true)
     {
     }
+
+    public string ActivityOwner { get; init; } = string.Empty;
 }

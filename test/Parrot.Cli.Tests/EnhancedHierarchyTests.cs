@@ -855,6 +855,37 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    [Arguments(18, "worker")]
+    [Arguments(18, "界界")]
+    [Arguments(8, "a-very-long-agent-label")]
+    public async Task Hierarchical_tool_rows_fit_columns_and_remove_owner_before_layout(int columns, string label)
+    {
+        var palette = new TerminalPalette(false);
+        var live = new HierarchicalLiveValue(
+            new ToolLiveValue($"{label}: $ alpha beta", [], 0),
+            1,
+            label,
+            label,
+            "✓",
+            null).Render(new LiveBufferRenderContext(columns, palette));
+        var scrollback = new HierarchicalScrollbackValue(
+            new ToolScrollbackValue($"{label}: $ alpha beta", ["output value"], ToolTerminalStatus.Succeeded),
+            1,
+            label,
+            label,
+            "✓").Render(new ScrollbackRenderContext(columns, palette));
+
+        _ = await Assert.That(live.Lines.All(line => TerminalText.Width(line.Text) <= columns)).IsTrue();
+        _ = await Assert.That(scrollback.All(line => TerminalText.Width(line) <= columns)).IsTrue();
+        if (columns == 18 && label == "worker")
+        {
+            var rendered = string.Join('|', live.Lines.Select(line => line.Text));
+            _ = await Assert.That(rendered).Contains("$ a");
+            _ = await Assert.That(rendered).DoesNotContain("worker: $");
+        }
+    }
+
+    [Test]
     public async Task Child_model_alias_icon_styles_only_the_glyph_and_reserves_its_cell_width()
     {
         var palette = new TerminalPalette(true);
@@ -872,7 +903,7 @@ internal sealed class EnhancedHierarchyTests
         var labelEnd = line.Text.IndexOf("] ", StringComparison.Ordinal) + 2;
         var glyphStart = line.Text.IndexOf('界', labelEnd);
 
-        _ = await Assert.That(line.Text).StartsWith("  ● [界 worker] 界 ");
+        _ = await Assert.That(line.Text).IsEqualTo("  ● [界 worker] 界 1");
         _ = await Assert.That(TerminalText.Width(line.Text)).IsLessThanOrEqualTo(20);
         _ = await Assert.That(span.StartCell).IsEqualTo(TerminalText.Width(line.Text[..glyphStart]));
         _ = await Assert.That(span.Length).IsEqualTo(2);

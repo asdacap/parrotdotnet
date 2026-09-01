@@ -931,7 +931,9 @@ internal sealed class RawActivityView(
     private readonly record struct NeutralAgentLiveBufferItem(string Name) : ILiveBufferItem
     {
         public MultiLine Render(LiveBufferRenderContext context) => new(
-            [new TerminalLine($"♟ agent {TerminalText.Sanitize(Name)}", context.Palette.LiveMuted)],
+            [new TerminalLine(
+                TerminalText.Clip($"♟ agent {TerminalText.Sanitize(Name)}", context.Columns),
+                context.Palette.LiveMuted)],
             null,
             LiveBufferRetention.Fixed);
     }
