@@ -120,7 +120,51 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 InputAdmitted = new InputAdmitted { InputId = input.Id, MessageId = input.MessageId },
             });
 
-        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken)).Text).IsEqualTo("Incoming activity is available.");
+        _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken)).Text).IsEqualTo("wait interrupted");
+    }
+
+    [Test]
+    public async Task Agent_completion_identifies_the_agent_that_interrupted_wait(CancellationToken cancellationToken)
+    {
+        var provider = new UnusedProvider();
+        using var queueCatalog = QueueCatalog("agent-completion-queues");
+        using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
+        var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
+        var tool = new WaitTool(
+            new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource()),
+            session,
+            TimeProvider.System);
+        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken);
+        await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
+
+        await session.ReceiveAgentCompletion("researcher", "completed", cancellationToken);
+
+        _ = await Assert.That((await waiting).Text)
+            .IsEqualTo("wait interrupted due to researcher completion");
+    }
+
+    [Test]
+    public async Task Process_completion_identifies_the_process_that_interrupted_wait(CancellationToken cancellationToken)
+    {
+        var provider = new UnusedProvider();
+        using var queueCatalog = QueueCatalog("process-completion-queues");
+        using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main"));
+        var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
+        var tool = new WaitTool(
+            new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource()),
+            session,
+            TimeProvider.System);
+        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken);
+        await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
+
+        await session.ReceiveProcessCompletion(
+            "compiler",
+            "completed",
+            Identifier.MessageId(),
+            cancellationToken);
+
+        _ = await Assert.That((await waiting).Text)
+            .IsEqualTo("wait interrupted due to process compiler completion");
     }
 
     [Test]
@@ -173,7 +217,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var request = provider.Requests[1];
         _ = await Assert.That(request.Messages.Count(message => message.Content == "wakeup")).IsEqualTo(1);
         _ = await Assert.That(request.Messages.Single(message => message.Role == LLMRole.Tool).Content)
-            .IsEqualTo("Incoming activity is available.");
+            .IsEqualTo("wait interrupted");
         _ = await Assert.That(session.State).IsEqualTo(DrainState.Running);
 
         provider.Release();
@@ -207,7 +251,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         _ = await parentQueues.Push("parent-work", ["from-parent"], QueueDirection.Back, false, cancellationToken);
 
-        _ = await Assert.That(await waiting).IsTrue();
+        _ = await Assert.That((await waiting)?.Kind).IsEqualTo(IncomingActivityKind.Input);
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join('\n', provider.Requests.Single().Messages.Select(message => message.Content)))
             .Contains("Queue notification from \"parent-work\":\n\nfrom-parent");
@@ -275,7 +319,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         if (firstWaiting.IsCompleted)
         {
-            _ = await Assert.That(await firstWaiting).IsTrue();
+            _ = await Assert.That((await firstWaiting)?.Kind).IsEqualTo(IncomingActivityKind.Input);
             await secondWaitCancellation.CancelAsync();
             _ = await Assert.That(secondWaiting).Throws<OperationCanceledException>();
             firstProvider.Release();
@@ -283,7 +327,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         }
         else
         {
-            _ = await Assert.That(await secondWaiting).IsTrue();
+            _ = await Assert.That((await secondWaiting)?.Kind).IsEqualTo(IncomingActivityKind.Input);
             await firstWaitCancellation.CancelAsync();
             _ = await Assert.That(firstWaiting).Throws<OperationCanceledException>();
             secondProvider.Release();
@@ -332,7 +376,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await parentQueues.Push("shared-work", ["active-item"], QueueDirection.Back, false, cancellationToken);
         _ = await activeQueues.Deliver(cancellationToken);
 
-        _ = await Assert.That(await activeWaiting).IsTrue();
+        _ = await Assert.That((await activeWaiting)?.Kind).IsEqualTo(IncomingActivityKind.Input);
         await activeProvider.Arrived(cancellationToken);
         _ = await Assert.That(disabledWaiting.IsCompleted).IsFalse();
         _ = await Assert.That(disabledProvider.Requests).IsEmpty();

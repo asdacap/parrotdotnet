@@ -93,7 +93,7 @@ internal sealed class AgentSession(
     private bool _aborted;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
-    private TaskCompletionSource? _incomingInputWait;
+    private TaskCompletionSource<IncomingActivity>? _incomingInputWait;
 
     // Set while an interrupt is unwinding a drain. It says who disposes the
     // drain's cancellation: normally the drain does when it settles, but an
@@ -168,9 +168,14 @@ internal sealed class AgentSession(
     // told the prompt was taken, not what the model said about it.
     public async Task<Admission> Admit(
         string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
-        (await AdmitAndWake(text, messageId, delivery, cancellationToken).ConfigureAwait(false)).Admission;
+        (await AdmitPartsAndWake(
+            [ConversationPart.TextPart(text)],
+            messageId,
+            delivery,
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+            cancellationToken).ConfigureAwait(false)).Admission;
 
-    public void Recover() => _ = Wake(incomingAvailable: false);
+    public void Recover() => _ = Wake(null);
 
     // Stops the turn in flight and returns once the drain has unwound, so a
     // caller that sends again cannot race the turn it just stopped.
@@ -229,7 +234,7 @@ internal sealed class AgentSession(
 
         if (!_aborted && eventRepository.HasPendingInputs(SessionId))
         {
-            _ = Wake(incomingAvailable: true);
+            _ = Wake(new IncomingActivity(IncomingActivityKind.Input, string.Empty));
         }
     }
 
@@ -288,11 +293,14 @@ internal sealed class AgentSession(
         }
     }
 
-    internal async Task<bool> WaitForIncomingInput(TimeSpan duration, TimeProvider timeProvider, CancellationToken cancellationToken)
+    internal async Task<IncomingActivity?> WaitForIncomingInput(
+        TimeSpan duration,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         cancellationToken.ThrowIfCancellationRequested();
-        var incoming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var incoming = new TaskCompletionSource<IncomingActivity>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         lock (_drainGate)
         {
@@ -306,7 +314,7 @@ internal sealed class AgentSession(
 
         if (eventRepository.HasPendingInputs(SessionId))
         {
-            _ = incoming.TrySetResult();
+            _ = incoming.TrySetResult(new IncomingActivity(IncomingActivityKind.Input, string.Empty));
         }
 
         try
@@ -331,7 +339,9 @@ internal sealed class AgentSession(
                 _ = await Task.WhenAny(incoming.Task, delay).ConfigureAwait(false);
             }
 
-            var activity = incoming.Task.IsCompleted;
+            var activity = incoming.Task.IsCompletedSuccessfully
+                ? await incoming.Task.ConfigureAwait(false)
+                : null;
             await wait.CancelAsync().ConfigureAwait(false);
 
             if (delivery is not null && !delivery.IsCompleted)
@@ -370,7 +380,12 @@ internal sealed class AgentSession(
         Delivery delivery,
         CancellationToken cancellationToken)
     {
-        var admitted = await AdmitAndWake(parts, messageId, delivery, cancellationToken).ConfigureAwait(false);
+        var admitted = await AdmitPartsAndWake(
+            parts,
+            messageId,
+            delivery,
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+            cancellationToken).ConfigureAwait(false);
         return (admitted.Admission, admitted.FollowUp);
     }
 
@@ -408,7 +423,7 @@ internal sealed class AgentSession(
 
         if (admission.Created || eventRepository.HasPendingInputs(SessionId))
         {
-            _ = Wake(incomingAvailable: true);
+            _ = Wake(new IncomingActivity(IncomingActivityKind.Input, string.Empty));
         }
 
         return true;
@@ -458,13 +473,21 @@ internal sealed class AgentSession(
         return new AgentSendResult(SessionId, Name, messageId, followUp);
     }
 
-    internal async Task ReceiveCompletion(string message, CancellationToken cancellationToken)
+    internal async Task ReceiveAgentCompletion(
+        string name,
+        string message,
+        CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(message);
 
         var messageId = Identifier.MessageId();
-        var admitted = await AdmitAndWake(message, messageId, Delivery.Steer, cancellationToken)
-            .ConfigureAwait(false);
+        var admitted = await AdmitPartsAndWake(
+            [ConversationPart.TextPart(message)],
+            messageId,
+            Delivery.Steer,
+            new IncomingActivity(IncomingActivityKind.AgentCompletion, name),
+            cancellationToken).ConfigureAwait(false);
 
         if (ParentSessionId.Length == 0 || !admitted.FollowUp)
         {
@@ -476,6 +499,23 @@ internal sealed class AgentSession(
             _started = true;
             _execution = Execute(message, messageId, admitted.SelectedDrain, cancellationToken);
         }
+    }
+
+    internal async Task ReceiveProcessCompletion(
+        string name,
+        string message,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(message);
+
+        _ = await AdmitPartsAndWake(
+            [ConversationPart.TextPart(message)],
+            messageId,
+            Delivery.Steer,
+            new IncomingActivity(IncomingActivityKind.ProcessCompletion, name),
+            cancellationToken).ConfigureAwait(false);
     }
 
     internal async Task<WaitAgentResult> Wait(
@@ -748,15 +788,11 @@ internal sealed class AgentSession(
         return completed;
     }
 
-    private async Task<(Admission Admission, bool FollowUp, Task<AgentExecution> SelectedDrain)> AdmitAndWake(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
-        await AdmitAndWake([ConversationPart.TextPart(text)], messageId, delivery, cancellationToken)
-            .ConfigureAwait(false);
-
-    private async Task<(Admission Admission, bool FollowUp, Task<AgentExecution> SelectedDrain)> AdmitAndWake(
+    private async Task<(Admission Admission, bool FollowUp, Task<AgentExecution> SelectedDrain)> AdmitPartsAndWake(
         IReadOnlyList<ConversationPart> parts,
         string messageId,
         Delivery delivery,
+        IncomingActivity activity,
         CancellationToken cancellationToken)
     {
         var admission = eventRepository.Admit(
@@ -790,16 +826,17 @@ internal sealed class AgentSession(
             await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
         }
 
-        var (followUp, selectedDrain) = WakeSelected(admission.Created || eventRepository.HasPendingInputs(SessionId));
+        var incoming = admission.Created || eventRepository.HasPendingInputs(SessionId) ? activity : null;
+        var (followUp, selectedDrain) = WakeSelected(incoming);
         return (admission, followUp, selectedDrain);
     }
 
     // Starts a drain, or tells the one already running that there is more to
     // take. Coalescing rather than starting a second drain is what keeps
     // principle 2: one owner, however many prompts arrive.
-    private bool Wake(bool incomingAvailable) => WakeSelected(incomingAvailable).FollowUp;
+    private bool Wake(IncomingActivity? activity) => WakeSelected(activity).FollowUp;
 
-    private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected(bool incomingAvailable)
+    private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected(IncomingActivity? activity)
     {
         lock (_drainGate)
         {
@@ -808,9 +845,9 @@ internal sealed class AgentSession(
                 return (false, _drain);
             }
 
-            if (incomingAvailable)
+            if (activity is not null)
             {
-                _ = _incomingInputWait?.TrySetResult();
+                _ = _incomingInputWait?.TrySetResult(activity);
             }
 
             if (_drainCancellation is not null)

@@ -1,5 +1,4 @@
 using Parrot.Agent;
-using Parrot.Protocol;
 
 namespace Parrot.Process;
 
@@ -289,14 +288,14 @@ internal sealed class ManagedShellProcess
 
             try
             {
-                _ = await _agent
-                    .Admit(text, messageId, Delivery.Steer, _lifetime)
+                await _agent
+                    .ReceiveProcessCompletion(Name, text, messageId, _lifetime)
                     .ConfigureAwait(false);
             }
             catch
             {
-                _ = await _agent
-                    .Admit(text, messageId, Delivery.Steer, CancellationToken.None)
+                await _agent
+                    .ReceiveProcessCompletion(Name, text, messageId, CancellationToken.None)
                     .ConfigureAwait(false);
             }
 

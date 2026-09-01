@@ -245,7 +245,7 @@ internal sealed class AgentRegistry(
 
         try
         {
-            await parent.ReceiveCompletion(completed.FormatCompletion(child), CancellationToken.None)
+            await parent.ReceiveAgentCompletion(child.Name, completed.FormatCompletion(child), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception)

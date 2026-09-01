@@ -56,9 +56,15 @@ internal sealed class WaitTool(
             TimeSpan.FromMilliseconds(durationMilliseconds),
             timeProvider,
             cancellationToken).ConfigureAwait(false);
-        if (activity)
+        if (activity is not null)
         {
-            return "Incoming activity is available.";
+            return activity.Kind switch
+            {
+                IncomingActivityKind.AgentCompletion => $"wait interrupted due to {activity.Name} completion",
+                IncomingActivityKind.ProcessCompletion => $"wait interrupted due to process {activity.Name} completion",
+                IncomingActivityKind.Input => "wait interrupted",
+                _ => throw new InvalidOperationException($"Unknown incoming activity '{activity.Kind}'."),
+            };
         }
 
         var runtime = await status.ObserveRuntime(session, selection, cancellationToken).ConfigureAwait(false);
