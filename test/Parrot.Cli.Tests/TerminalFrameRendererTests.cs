@@ -1,6 +1,7 @@
 using System.Text;
 using Parrot.Cli.Enhanced;
 using Parrot.Llm;
+using Parrot.Protocol;
 
 namespace Parrot.Cli.Tests;
 
@@ -139,6 +140,38 @@ internal sealed class TerminalFrameRendererTests
         _ = await Assert.That(user).IsGreaterThan(0);
         _ = await Assert.That(redrawn).IsGreaterThan(user);
         _ = await Assert.That(Count(committed[..user], "\u001b[2K")).IsEqualTo(4);
+    }
+
+    [Test]
+    public async Task Agent_task_progress_commits_with_coalesced_block_boundaries(
+        CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        var renderer = new TerminalFrameRenderer(output, static () => 24, new TerminalPalette(false), 10, 12, true);
+        var frame = Items(
+            [],
+            new ModelineValue("chat", string.Empty, "model"),
+            new PromptValue("> ", string.Empty, 0));
+        var snapshot = new AgentTaskProgressSnapshot();
+        snapshot.RootNodes.Add(new AgentTaskProgressNode
+        {
+            Name = "root task",
+            Status = AgentTaskProgressStatus.Succeeded,
+        });
+
+        await renderer.Draw(frame, cancellationToken);
+        await renderer.Commit(ImmediateScrollbackValue.Muted(["before tree"]), frame, cancellationToken);
+        var boundary = output.GetStringBuilder().Length;
+        await renderer.Commit(new AgentTaskProgressScrollbackValue(snapshot), frame, cancellationToken);
+        var tree = output.ToString()[boundary..];
+        boundary = output.GetStringBuilder().Length;
+        await renderer.Commit(ImmediateScrollbackValue.Muted(["after tree"]), frame, cancellationToken);
+        var following = output.ToString()[boundary..];
+
+        _ = await Assert.That(tree).Contains("\r\nAgent tasks:\r\n✓ root task\r\n\r\n");
+        _ = await Assert.That(tree).DoesNotContain("\r\n\r\n\r\nAgent tasks:");
+        _ = await Assert.That(following).Contains("after tree\r\n");
+        _ = await Assert.That(following).DoesNotContain("\r\n\r\nafter tree\r\n");
     }
 
     [Test]

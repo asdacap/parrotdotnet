@@ -30,7 +30,7 @@ internal sealed class ConfigurationTests : IDisposable
         var basePrompt = configuration.SystemPrompts["runtime:system-context:01-base"];
         _ = await Assert.That(basePrompt).StartsWith(
             "You are parrot, a coding agent. You work in the user's project directory.\n"
-            + "Filesystem access is determined by the active security policy.");
+            + "Filesystem access is determined by the active security policy and is enforced via sandboxing.");
         _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:02-delegation"])
             .StartsWith("# Agent delegation\nPrefer to split larger task to subagent with a well defined scope.");
         _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:03-subagent-pattern"])

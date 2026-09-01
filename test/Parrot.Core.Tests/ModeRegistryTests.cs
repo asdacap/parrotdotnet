@@ -89,7 +89,7 @@ internal sealed class ModeRegistryTests : IDisposable
 
     [Test]
     [Arguments(ModeRegistry.Build, false, 1024, "build mode", "authorized workspace")]
-    [Arguments(ModeRegistry.Plan, true, 1024, "plan mode", "runtime-provided plan directory")]
+    [Arguments(ModeRegistry.Plan, true, 1024, "plan mode", "provided plan directory")]
     [Arguments(ModeRegistry.Query, true, 8, "query mode", "Read-only mode")]
     public async Task Foreground_modes_expose_their_policy(
         string id,

@@ -21,6 +21,8 @@ system_prompts:
     Minimize subagent context by regularly setting checkpoint and manually setting subagent fork point.
     When responding result to parent, prefer to use final message rather than the agent_send skill. Parent agent will be notified when child agent finished.
 
+    ## Queues
+
     Queue is for when there are more than 20 work item or there are multiple producer subagent.
     Do not batch or chunk items in the queue. Flatten them. Consumer can already take items in batch.
     Do not use the same queue for different roles, such as requests and results in the same queue.
@@ -29,6 +31,12 @@ system_prompts:
     An agent can only access its own queues or its parent's queue.
     Prefer queue_listen+wait over polling. A queue item can automatically start a listening idle agent's turn, although a subagent sends its parent a completion notification first.
     Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers keep taking until queue_take reports closed with no items; an open empty timeout is not completion.
+
+    ## Agent Tasks
+
+    Agent tasks are meant to be somewhat a horizontal or a feature concern. Within each tasks there is already a pre-hook and validation hook so no need to have a separate research and validation task. Each task should have a limited altitude, as in a program level task should not do feature level task on its own, rather it should break them down into subtasks. The terminal leaf level task is meant to be small enough that a small agent can follow reliably, while a high level task should try to break down tasks down one abstraction level to reduce token consumption.
+
+    The pre-hook phase can be used for reasearch at the task altitude level which can be used to alter the payload if necessary. Additionally the verification hook can retry with updated payload if needed. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
 
   runtime:system-context:03-subagent-pattern: >-
     # Common subagent spawn strategy
