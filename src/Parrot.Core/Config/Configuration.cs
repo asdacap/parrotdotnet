@@ -728,7 +728,19 @@ internal sealed class Configuration(string path)
         List<(string Path, string Field)> directories)
     {
         var result = new Dictionary<string, ProfileConfig>(StringComparer.Ordinal);
-        var ids = new[] { "build", "plan", "query", "explorer", "review", "worker", "thinker" };
+        var ids = new[]
+        {
+            "build",
+            "plan",
+            "query",
+            "explorer",
+            "review",
+            "worker",
+            "agent-task-pre-hook",
+            "agent-task-payload",
+            "agent-task-validation",
+            "thinker",
+        };
 
         if (!Child(root, "profiles", out var node) || node is not YamlMappingNode profiles)
         {

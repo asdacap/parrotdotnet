@@ -105,10 +105,14 @@ mode-specific guidance, and `model_augment_system_prompts`, which augments the
 prompt for selected model selectors.
 
 Profiles are configured under `profiles`. `build`, `plan`, and `query` are
-foreground modes, while `explorer`, `review`, `worker`, and `thinker` are child
-profiles selected by `agent_spawn.agent`. `default_profile` must name a
-foreground profile and is used when no mode is selected explicitly. The
-foreground-mode RPC and slash-command surfaces list only foreground profiles.
+foreground modes, while `explorer`, `review`, `worker`, `thinker`,
+`agent-task-pre-hook`, `agent-task-payload`, and `agent-task-validation` are
+child profiles selected by `agent_spawn.agent`. The three `agent-task-*`
+profiles are used internally by `run_agent_tasks` for research, execution, and
+acceptance validation respectively; all child profiles are spawn-visible.
+`default_profile` must name a foreground profile and is used when no mode is
+selected explicitly. The foreground-mode RPC and slash-command surfaces list
+only foreground profiles.
 
 Every profile has a nonempty `prompt` and `usage`; a positive `max_turns`; a
 nonnegative `recursion_limit`; boolean `read_only`; boolean
@@ -290,9 +294,10 @@ Both forms enter the same strict AgentTask parser, and supplying both or neither
 is rejected. Plan-approved builds continue to use the path form so their
 invocation-time file and security checks are preserved.
 
-`run_agent_tasks` runs the graph synchronously. For every task role it creates a
-fresh, retained-only child using the `worker` profile, so internal research,
-execution, and review completion does not steer the invoking agent.
+`run_agent_tasks` runs the graph synchronously. For each task it creates fresh,
+retained-only children using `agent-task-pre-hook` for research,
+`agent-task-payload` for execution, and `agent-task-validation` for acceptance
+review, so internal completions do not steer the invoking agent.
 These children do not inherit conversational context, but they use the same
 workspace and the normal user-session-scoped runtime resources. A task's
 `model`, when present, is routed through normal model resolution; otherwise its

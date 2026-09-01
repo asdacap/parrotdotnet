@@ -155,12 +155,13 @@ read or read-permission check. Both forms use the same strict parser; supplying
 both or neither is invalid. Plan-approved execution continues to use `path`.
 
 **Execution context.** `run_agent_tasks` synchronously creates fresh
-retained-only `worker` children for each research, execution, and acceptance
-role. They have no inherited conversation, and retained-only delivery prevents
-their internal completions from steering the tool-owning parent. They retain the
-same workspace and user-session-scoped runtime resources. A task-specific model
-is resolved normally; otherwise each role uses the invoking turn's requested
-model.
+retained-only children using `agent-task-pre-hook` for research,
+`agent-task-payload` for execution, and `agent-task-validation` for acceptance.
+They have no inherited conversation, and retained-only delivery prevents their
+internal completions from steering the tool-owning parent. They retain the same
+workspace and user-session-scoped runtime resources. These predefined profiles
+are spawn-visible like other child profiles. A task-specific model is resolved
+normally; otherwise each role uses the invoking turn's requested model.
 
 **Research and inheritance.** Every task begins with a mandatory research hook
 that returns strict JSON containing nonblank context and, optionally, a sparse

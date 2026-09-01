@@ -15,9 +15,31 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
 {
     private static readonly ConcurrentBag<ShellProcessOwners> ProcessOwners = [];
     private static readonly ConcurrentBag<AgentQueueCatalog> QueueCatalogs = [];
+    private readonly Lock _gate = new();
     private readonly List<AgentIdentity> _identities = [];
+    private readonly List<string> _profileIds = [];
 
-    internal IReadOnlyList<AgentIdentity> Identities => _identities;
+    internal IReadOnlyList<AgentIdentity> Identities
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _identities];
+            }
+        }
+    }
+
+    internal IReadOnlyList<string> ProfileIds
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _profileIds];
+            }
+        }
+    }
 
     public IAgentSessionLease Create(
         AgentIdentity identity,
@@ -30,7 +52,12 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         AgentRegistry registry,
         CancellationToken lifetime)
     {
-        _identities.Add(identity);
+        lock (_gate)
+        {
+            _identities.Add(identity);
+            _profileIds.Add(mode.Id);
+        }
+
         var root = Directory.CreateDirectory(
             Path.Combine(Path.GetTempPath(), "parrot-agent-task-tests", Guid.NewGuid().ToString("N"))).FullName;
         var resources = new UserSessionResources(

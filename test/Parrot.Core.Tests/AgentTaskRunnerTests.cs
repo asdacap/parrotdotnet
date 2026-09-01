@@ -46,6 +46,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(3);
         _ = await Assert.That(string.Join(',', runtime.Sessions.Identities.Select(identity => identity.Name)))
             .IsEqualTo("leaf-research,leaf,leaf-accept");
+        _ = await Assert.That(string.Join(',', runtime.Sessions.ProfileIds))
+            .IsEqualTo("agent-task-pre-hook,agent-task-payload,agent-task-validation");
         _ = await Assert.That(runtime.Sessions.Identities.All(identity => identity.ParentSessionId == runtime.Parent.SessionId)).IsTrue();
         _ = await Assert.That(provider.Requests.All(request => request.Messages.Count(message => message.Role != LLMRole.System) == 1)).IsTrue();
         _ = await Assert.That(provider.Requests[1].Messages.Select(message => message.Content)).Contains(message => message.Contains("contract evidence", StringComparison.Ordinal));
@@ -59,6 +61,19 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .IsEqualTo(AgentTaskProgressStatus.Running);
         _ = await Assert.That(snapshots[2].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Succeeded);
+    }
+
+    [Test]
+    public async Task Role_profiles_are_explicit_and_unknown_roles_are_rejected()
+    {
+        _ = await Assert.That(AgentTaskGraphRunner.ResolveRoleProfile("research"))
+            .IsEqualTo("agent-task-pre-hook");
+        _ = await Assert.That(AgentTaskGraphRunner.ResolveRoleProfile("execute"))
+            .IsEqualTo("agent-task-payload");
+        _ = await Assert.That(AgentTaskGraphRunner.ResolveRoleProfile("accept"))
+            .IsEqualTo("agent-task-validation");
+        _ = await Assert.That(() => AgentTaskGraphRunner.ResolveRoleProfile("worker"))
+            .Throws<ArgumentException>();
     }
 
     [Test]

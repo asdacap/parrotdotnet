@@ -43,7 +43,20 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.DisabledTools).Contains("wait_agent");
         _ = await Assert.That(configuration.DisabledTools).Contains("wait_process");
         _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
-        _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(7);
+        _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(10);
+        _ = await Assert.That(configuration.Profiles.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(
+            [
+                "agent-task-payload",
+                "agent-task-pre-hook",
+                "agent-task-validation",
+                "build",
+                "explorer",
+                "plan",
+                "query",
+                "review",
+                "thinker",
+                "worker",
+            ])).IsTrue();
         foreach (var profile in configuration.Profiles.Values)
         {
             _ = await Assert.That(profile.Prompt).IsNotEmpty();
@@ -968,6 +981,19 @@ internal sealed class ConfigurationTests : IDisposable
             ["agent_spawn", "set_checkpoint", "read", "agent_send", "wait_agent", "wait"],
             StringComparer.Ordinal)).IsTrue();
 
+        foreach (var id in new[] { "agent-task-pre-hook", "agent-task-payload", "agent-task-validation" })
+        {
+            var profile = configuration.Profiles[id];
+            _ = await Assert.That(profile.Prompt).IsNotEmpty();
+            _ = await Assert.That(profile.Usage).IsNotEmpty();
+            _ = await Assert.That(profile.AllowedTools).IsNull();
+            _ = await Assert.That(profile.MaxTurns).IsEqualTo(128);
+            _ = await Assert.That(profile.RecursionLimit).IsEqualTo(4);
+            _ = await Assert.That(profile.ReadOnly).IsFalse();
+            _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsTrue();
+            _ = await Assert.That(profile.SandboxRules).IsEmpty();
+        }
+
         var noTools = Load(Write("profiles:\n  worker:\n    allowed_tools: []\n"));
         _ = await Assert.That(noTools.Profiles["worker"].AllowedTools).IsEmpty();
     }
@@ -1004,6 +1030,11 @@ internal sealed class ConfigurationTests : IDisposable
     [Arguments("custom")]
     public async Task Default_profile_rejects_non_foreground_profile_ids(string id) =>
         _ = await Assert.That(() => Load(Write($"default_profile: {id}\n"))).Throws<InvalidDataException>();
+
+    [Test]
+    public async Task Profile_configuration_rejects_unknown_profile_ids() =>
+        _ = await Assert.That(() => Load(Write("profiles:\n  unknown: {}\n")))
+            .Throws<InvalidDataException>().WithMessage("profiles.unknown is not supported");
 
     [Test]
     public async Task Profile_configuration_rejects_the_removed_user_agent_classification() =>

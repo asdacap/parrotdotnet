@@ -17,9 +17,18 @@ internal sealed class AgentTaskGraphRunner(
     private const int MaxContextCharacters = 16 * 1024;
     private const int MaxSummaryCharacters = 16 * 1024;
     private const int MaxPromptCharacters = 256 * 1024;
+
     private readonly Lock _gate = new();
     private readonly HashSet<AgentSession> _activeChildren = [];
     private bool _stopping;
+
+    internal static string ResolveRoleProfile(string role) => role switch
+    {
+        "research" => "agent-task-pre-hook",
+        "execute" => "agent-task-payload",
+        "accept" => "agent-task-validation",
+        _ => throw new ArgumentException($"Unknown AgentTask role: {role}", nameof(role)),
+    };
 
     internal async Task<AgentTaskGraphResult> Run(
         AgentTaskArtifact artifact,
@@ -644,7 +653,7 @@ internal sealed class AgentTaskGraphRunner(
                 child = agents.Spawn(new AgentLaunchRequest(
                     owner,
                     selection,
-                    "worker",
+                    ResolveRoleProfile(role),
                     model,
                     requestedName,
                     $"AgentTask {role} for {taskName}",

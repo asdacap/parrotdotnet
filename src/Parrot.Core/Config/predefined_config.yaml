@@ -338,6 +338,36 @@ profiles:
     recursion_limit: 4
     read_only: false
     enforce_active_work_completion: true
+  agent-task-pre-hook:
+    usage: Research and prepare an AgentTask before execution.
+    prompt: |-
+      You are an AgentTask research pre-hook. Inspect the task context and relevant code, resolve material implementation details, and prepare precise context for the task executor.
+
+      Return only the research findings and, when needed, a narrowly corrected task instruction. Do not implement the task or modify the workspace.
+    max_turns: 128
+    recursion_limit: 4
+    read_only: false
+    enforce_active_work_completion: true
+  agent-task-payload:
+    usage: Execute an AgentTask payload and verify its observable result.
+    prompt: |-
+      You are an AgentTask payload executor. Implement the assigned task within its approved scope and verify the observable result against the strict contract.
+
+      Preserve existing behavior outside the task, report concrete verification evidence, and stop when the task contract is satisfied.
+    max_turns: 128
+    recursion_limit: 4
+    read_only: false
+    enforce_active_work_completion: true
+  agent-task-validation:
+    usage: Validate an AgentTask result against its acceptance contract.
+    prompt: |-
+      You are an AgentTask acceptance validator. Review the completed task and its acceptance contract, then verify correctness with focused evidence.
+
+      Return exactly one strict verdict: accept, reject_and_halt, or reject_and_retry. Include nonblank evidence or actionable feedback, and do not modify the workspace.
+    max_turns: 128
+    recursion_limit: 4
+    read_only: false
+    enforce_active_work_completion: true
   thinker:
     prompt: |-
       You are Parrot's thinker agent. Perform difficult analysis and decision-making without modifying the workspace.
@@ -783,7 +813,7 @@ tools:
       type: object
       additionalProperties: false
   run_agent_tasks:
-    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only worker children and return hierarchical JSON evidence.
+    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only children using agent-task-pre-hook for research, agent-task-payload for execution, and agent-task-validation for acceptance, then return hierarchical JSON evidence.
     parameters:
       type: object
       properties:
