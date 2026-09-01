@@ -117,6 +117,7 @@ internal sealed class EnhancedCliTests
             terminal,
             presenters,
             renderer,
+            TimeProvider.System,
             ImmediateDelay(),
             Attachments());
         var running = cli.Run(cancellationToken);
@@ -937,6 +938,7 @@ internal sealed class EnhancedCliTests
             terminal,
             presenters,
             renderer,
+            TimeProvider.System,
             ImmediateDelay(),
             Attachments());
         var running = cli.Run(cancellationToken);
@@ -1162,6 +1164,35 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Live_rates_appear_expire_and_clip_through_enhanced_cli(CancellationToken cancellationToken)
+    {
+        var time = new ControlledTimeProvider();
+        using var driver = new CliLifecycleDriver(
+            true,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            ImmediateDelay(),
+            time,
+            32);
+        var driving = driver.Drive(cancellationToken);
+
+        await driver.Invoker.Publish(new Event
+        {
+            ProviderCallUsage = new ProviderCallUsage { InputTokens = 300, OutputTokens = 60 },
+        });
+        await driver.Invoker.Publish(new Event { TurnStarted = new TurnStarted { Model = "model" } });
+        await driver.OutputContains("10i/s 2o/s", cancellationToken);
+        _ = await Assert.That(driver.Output).Contains("─ mode: build ─");
+
+        var expiryAt = driver.Output.Length;
+        time.Advance(TimeSpan.FromSeconds(30));
+        await driver.OutputContainsAfter(expiryAt, "provider/model", cancellationToken);
+        _ = await Assert.That(driver.Output[expiryAt..]).DoesNotContain("i/s");
+
+        driver.Input.Type("/exit");
+        _ = await driving.WaitAsync(cancellationToken);
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Slash_dialog_restores_input_rebinds_the_stream_and_exit_unwinds_terminal_cleanup(
@@ -1171,16 +1202,38 @@ internal sealed class EnhancedCliTests
         using var driver = new CliLifecycleDriver(enhanced);
         var driving = driver.Drive(cancellationToken);
 
+        if (enhanced)
+        {
+            await driver.Invoker.Publish(new Event
+            {
+                ProviderCallUsage = new ProviderCallUsage { InputTokens = 300, OutputTokens = 60 },
+            });
+            await driver.OutputContains("10i/s 2o/s", cancellationToken);
+        }
+
+        var replacementOutput = driver.Output.Length;
         driver.Input.Type("/clear");
         if (enhanced)
         {
-            await driver.OutputContains("Select a provider", cancellationToken);
+            await driver.OutputContainsAfter(replacementOutput, "Select a provider", cancellationToken);
         }
 
         driver.Input.Type("provider");
         driver.Input.Type("model");
         driver.Input.Type("query");
         driver.Input.Type(string.Empty);
+        if (enhanced)
+        {
+            await driver.OutputContainsAfter(replacementOutput, "mode: query", cancellationToken);
+            _ = await Assert.That(driver.Output[replacementOutput..]).DoesNotContain("i/s");
+            var replacementRateOutput = driver.Output.Length;
+            await driver.Invoker.Publish("session-2", new Event
+            {
+                ProviderCallUsage = new ProviderCallUsage { InputTokens = 150, OutputTokens = 30 },
+            });
+            await driver.OutputContainsAfter(replacementRateOutput, "5i/s 1o/s", cancellationToken);
+        }
+
         driver.Input.Type("new prompt");
         await driver.Sent(1, cancellationToken);
         driver.Input.Type("/exit");
@@ -1361,6 +1414,47 @@ internal sealed class EnhancedCliTests
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
             }
+        }
+    }
+
+    private sealed class ControlledTimeProvider : TimeProvider
+    {
+        private readonly List<ControlledTimer> _timers = [];
+        private long _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => _timestamp;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new ControlledTimer(callback, state, _timestamp + dueTime.Ticks);
+            _timers.Add(timer);
+            return timer;
+        }
+
+        public void Advance(TimeSpan elapsed)
+        {
+            _timestamp += elapsed.Ticks;
+            foreach (var timer in _timers.Where(timer => timer.DueTimestamp <= _timestamp).ToArray())
+            {
+                timer.Fire();
+            }
+        }
+
+        private sealed class ControlledTimer(TimerCallback callback, object? state, long dueTimestamp) : ITimer
+        {
+            public long DueTimestamp { get; } = dueTimestamp;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period) => throw new NotSupportedException();
+
+            public void Dispose()
+            {
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+            public void Fire() => callback(state);
         }
     }
 }

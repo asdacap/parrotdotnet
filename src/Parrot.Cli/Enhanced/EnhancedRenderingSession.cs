@@ -5,7 +5,7 @@ using Parrot.Protocol;
 
 namespace Parrot.Cli.Enhanced;
 
-internal sealed class EnhancedRenderingSession : IDisposable
+internal sealed class EnhancedRenderingSession : IAsyncDisposable
 {
     private readonly EnhancedTurnRenderer _turnRenderer;
     private readonly ToolPresenterRegistry _toolPresenters;
@@ -20,6 +20,8 @@ internal sealed class EnhancedRenderingSession : IDisposable
     private readonly SemaphoreSlim _composing = new(1, 1);
     private readonly SemaphoreSlim _spinnerLifecycle = new(1, 1);
     private readonly RuntimeUsageTracker _usage = new();
+    private readonly RollingTokenRateWindow _rates;
+    private readonly RollingTokenRateRefreshLifecycle _rateRefresh;
     private readonly ForegroundTurn _foreground = new();
     private readonly HashSet<string> _modelineTools = new(StringComparer.Ordinal);
     private readonly LiveUpdateScheduler _updates;
@@ -45,6 +47,39 @@ internal sealed class EnhancedRenderingSession : IDisposable
         Func<bool> isBusy,
         Func<PlanCompleted, CancellationToken, Task> completePlan,
         bool exitOnFirstCompletion)
+        : this(
+            turnRenderer,
+            toolPresenters,
+            renderer,
+            session,
+            initialInput,
+            observeEvent,
+            startMainTurn,
+            finishTurn,
+            isBusy,
+            completePlan,
+            exitOnFirstCompletion,
+            TimeProvider.System,
+            static (delay, cancellationToken) => Task.Delay(delay, cancellationToken),
+            null)
+    {
+    }
+
+    internal EnhancedRenderingSession(
+        EnhancedTurnRenderer turnRenderer,
+        ToolPresenterRegistry toolPresenters,
+        TerminalFrameRenderer renderer,
+        ISlashSession session,
+        IReadOnlyList<ILiveBufferItem> initialInput,
+        Func<Event, CancellationToken, Task> observeEvent,
+        Func<CancellationToken, Task> startMainTurn,
+        Func<CancellationToken, Task> finishTurn,
+        Func<bool> isBusy,
+        Func<PlanCompleted, CancellationToken, Task> completePlan,
+        bool exitOnFirstCompletion,
+        TimeProvider timeProvider,
+        Func<TimeSpan, CancellationToken, Task> rateDelay,
+        Func<CancellationToken, Task>? rateInvalidate)
     {
         ArgumentNullException.ThrowIfNull(turnRenderer);
         ArgumentNullException.ThrowIfNull(toolPresenters);
@@ -56,6 +91,8 @@ internal sealed class EnhancedRenderingSession : IDisposable
         ArgumentNullException.ThrowIfNull(finishTurn);
         ArgumentNullException.ThrowIfNull(isBusy);
         ArgumentNullException.ThrowIfNull(completePlan);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(rateDelay);
 
         _turnRenderer = turnRenderer;
         _toolPresenters = toolPresenters;
@@ -69,11 +106,17 @@ internal sealed class EnhancedRenderingSession : IDisposable
         _completePlan = completePlan;
         _exitOnFirstCompletion = exitOnFirstCompletion;
         _updates = new LiveUpdateScheduler(DrawScheduled);
+        _rates = new RollingTokenRateWindow(timeProvider);
+        _rateRefresh = new RollingTokenRateRefreshLifecycle(
+            _rates,
+            rateInvalidate ?? InvalidateRate,
+            rateDelay);
         _spinner = new TerminalSpinner(DrawInitialBody);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        await _rateRefresh.ShutdownAsync().ConfigureAwait(false);
         _composing.Dispose();
         _spinnerLifecycle.Dispose();
     }
@@ -83,7 +126,8 @@ internal sealed class EnhancedRenderingSession : IDisposable
     internal Task<bool> Run(IAsyncStreamReader<Event> stream, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        return RunCore(new SessionUsageSnapshotStreamReader(stream, ObserveSessionUsage), cancellationToken);
+        var usageStream = new ProviderCallUsageStreamReader(stream, ObserveProviderCallUsage);
+        return RunCore(new SessionUsageSnapshotStreamReader(usageStream, ObserveSessionUsage), cancellationToken);
     }
 
     internal async Task ReplaceInput(
@@ -183,9 +227,11 @@ internal sealed class EnhancedRenderingSession : IDisposable
 
     internal async Task ResetForSession(CancellationToken cancellationToken)
     {
+        Task rateRefreshReset;
         await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            rateRefreshReset = _rateRefresh.ResetAsync();
             _body = [];
             _usage.Reset();
             _foreground.Reset();
@@ -199,6 +245,7 @@ internal sealed class EnhancedRenderingSession : IDisposable
             _ = _composing.Release();
         }
 
+        await rateRefreshReset.ConfigureAwait(false);
         _ = _updates.Invalidate();
     }
 
@@ -231,6 +278,12 @@ internal sealed class EnhancedRenderingSession : IDisposable
         }
     }
 
+    private Task InvalidateRate(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _updates.Invalidate() ? Task.CompletedTask : Task.CompletedTask;
+    }
+
     private IReadOnlyList<ILiveBufferItem> Snapshot() =>
         [.. _body, CreateModeline(), .. _input];
 
@@ -243,6 +296,7 @@ internal sealed class EnhancedRenderingSession : IDisposable
                 ? $"{_session.Model} ({context})"
                 : _session.Model,
             runtime.FormatTokens(),
+            RuntimeUsage.FormatRate(_rates.Current),
             runtime.FormatCost(),
         };
         var activityLabel = _modelineTools.Count > 0
@@ -375,6 +429,23 @@ internal sealed class EnhancedRenderingSession : IDisposable
         try
         {
             ObserveModelineActivity(published);
+        }
+        finally
+        {
+            _ = _composing.Release();
+        }
+    }
+
+    private async Task ObserveProviderCallUsage(
+        ProviderCallUsage usage,
+        CancellationToken cancellationToken)
+    {
+        await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _rates.Observe(usage.InputTokens, usage.OutputTokens);
+            _rateRefresh.EnsureRefreshing(cancellationToken);
+            _ = _updates.Invalidate();
         }
         finally
         {

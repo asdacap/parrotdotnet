@@ -399,6 +399,7 @@ message Event {
     ToolAvailabilityRestoredPromptInjected tool_availability_restored_prompt_injected = 32;
     PlanValidationRepairInjected plan_validation_repair_injected = 33;
     AgentTaskProgressSnapshot agent_task_progress_snapshot = 34;
+    ProviderCallUsage provider_call_usage = 35;
   }
 }
 
@@ -422,6 +423,11 @@ message AgentTaskProgressSnapshot {
   string origin_tool_call_id = 1;
   uint64 revision = 2;
   repeated AgentTaskProgressNode root_nodes = 3;
+}
+
+message ProviderCallUsage {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
 }
 
 message ActiveShellProcess {

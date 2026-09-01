@@ -126,6 +126,28 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Provider_call_usage_roundtrips_as_additive_field_thirty_five_with_exact_counts()
+    {
+        var source = new Event
+        {
+            ProviderCallUsage = new ProviderCallUsage
+            {
+                InputTokens = 4_294_967_296,
+                OutputTokens = 8_589_934_592,
+            },
+        };
+
+        var bytes = source.ToByteArray();
+        var roundtripped = Event.Parser.ParseFrom(bytes);
+
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.ProviderCallUsage);
+        _ = await Assert.That(roundtripped.ProviderCallUsage.InputTokens).IsEqualTo(4_294_967_296L);
+        _ = await Assert.That(roundtripped.ProviderCallUsage.OutputTokens).IsEqualTo(8_589_934_592L);
+        _ = await Assert.That(bytes[0]).IsEqualTo((byte)0x9a);
+        _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x02);
+    }
+
+    [Test]
     public async Task Agent_task_progress_snapshot_roundtrips_as_field_thirty_four()
     {
         var source = new Event

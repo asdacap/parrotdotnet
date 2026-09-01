@@ -83,6 +83,34 @@ internal sealed class EventBrokerTests
     }
 
     [Test]
+    public async Task Transient_publication_only_displaces_older_transient_events()
+    {
+        using var broker = new EventBroker();
+        using var subscription = broker.Subscribe();
+
+        for (var index = 0; index < 1024; index++)
+        {
+            broker.Publish(new Event { Id = $"retained-{index}" });
+            broker.PublishTransient(new Event { Id = $"transient-{index}" });
+        }
+
+        broker.PublishTransient(new Event { Id = "transient-new" });
+
+        var received = new List<string>();
+        while (subscription.Reader.TryRead(out var published))
+        {
+            received.Add(published.Id);
+        }
+
+        _ = await Assert.That(received).Count().IsEqualTo(2048);
+        _ = await Assert.That(received.Where(id => id.StartsWith("retained-", StringComparison.Ordinal))).Count().IsEqualTo(1024);
+        _ = await Assert.That(received).Contains("retained-0");
+        _ = await Assert.That(received).Contains("retained-1023");
+        _ = await Assert.That(received).DoesNotContain("transient-0");
+        _ = await Assert.That(received).Contains("transient-new");
+    }
+
+    [Test]
     public async Task Two_subscribers_both_receive(CancellationToken cancellationToken)
     {
         using var broker = new EventBroker();

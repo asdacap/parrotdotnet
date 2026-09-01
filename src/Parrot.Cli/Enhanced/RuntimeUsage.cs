@@ -29,6 +29,11 @@ internal readonly record struct RuntimeUsage(
             ? FormatTokenCount(ContextSize)
             : string.Empty;
 
+    public static string FormatRate(TokenRate rate) => rate.HasTokens
+        ? $"{rate.InputTokensPerSecond.ToString("0.##", CultureInfo.InvariantCulture)}i/s "
+          + $"{rate.OutputTokensPerSecond.ToString("0.##", CultureInfo.InvariantCulture)}o/s"
+        : string.Empty;
+
     public string FormatCost() => Cost switch
     {
         <= 0 => string.Empty,

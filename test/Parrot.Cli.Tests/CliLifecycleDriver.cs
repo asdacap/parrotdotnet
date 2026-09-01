@@ -15,6 +15,8 @@ internal sealed class CliLifecycleDriver : IDisposable
     private readonly Func<TimeSpan, CancellationToken, Task> _delaySubmit;
     private readonly Configuration _configuration;
     private readonly string _configurationDirectory;
+    private readonly TimeProvider _timeProvider;
+    private readonly int _columns;
     private readonly SynchronizedStringWriter _output = new();
     private readonly SynchronizedStringWriter _error = new();
     private TestTerminal? _terminal;
@@ -36,7 +38,9 @@ internal sealed class CliLifecycleDriver : IDisposable
             enhanced,
             new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
             static (_, token) => Task.Delay(1, token),
-            LoadConfiguration(configurationContent))
+            LoadConfiguration(configurationContent),
+            TimeProvider.System,
+            80)
     {
     }
 
@@ -44,7 +48,17 @@ internal sealed class CliLifecycleDriver : IDisposable
         bool enhanced,
         EnhancedChatRequest enhancedRequest,
         Func<TimeSpan, CancellationToken, Task> delaySubmit)
-        : this(enhanced, enhancedRequest, delaySubmit, LoadConfiguration(string.Empty))
+        : this(enhanced, enhancedRequest, delaySubmit, LoadConfiguration(string.Empty), TimeProvider.System, 80)
+    {
+    }
+
+    public CliLifecycleDriver(
+        bool enhanced,
+        EnhancedChatRequest enhancedRequest,
+        Func<TimeSpan, CancellationToken, Task> delaySubmit,
+        TimeProvider timeProvider,
+        int columns)
+        : this(enhanced, enhancedRequest, delaySubmit, LoadConfiguration(string.Empty), timeProvider, columns)
     {
     }
 
@@ -52,13 +66,17 @@ internal sealed class CliLifecycleDriver : IDisposable
         bool enhanced,
         EnhancedChatRequest enhancedRequest,
         Func<TimeSpan, CancellationToken, Task> delaySubmit,
-        (Configuration Configuration, string Directory) loadedConfiguration)
+        (Configuration Configuration, string Directory) loadedConfiguration,
+        TimeProvider timeProvider,
+        int columns)
     {
         _enhanced = enhanced;
         _enhancedRequest = enhancedRequest;
         _delaySubmit = delaySubmit;
         _configuration = loadedConfiguration.Configuration;
         _configurationDirectory = loadedConfiguration.Directory;
+        _timeProvider = timeProvider;
+        _columns = columns;
         Interrupts = new Interrupts(Stopping);
     }
 
@@ -131,7 +149,7 @@ internal sealed class CliLifecycleDriver : IDisposable
         var client = new GeneratedParrot.ParrotClient(Invoker);
         if (_enhanced)
         {
-            var terminal = new TestTerminal(Input, _output, _error, 80);
+            var terminal = new TestTerminal(Input, _output, _error, _columns);
             _terminal = terminal;
             var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
             var renderer = new EnhancedTurnRenderer(terminal, _configuration, presenters);
@@ -146,6 +164,7 @@ internal sealed class CliLifecycleDriver : IDisposable
                 terminal,
                 presenters,
                 renderer,
+                _timeProvider,
                 _delaySubmit,
                 Attachments(_configuration)).Run(cancellationToken);
         }

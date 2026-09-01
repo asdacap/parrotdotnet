@@ -1561,6 +1561,17 @@ internal sealed class AgentSession(
                         AgentStatisticsUpdated = statistics.ConvertToPayload(),
                     };
                     await EmitEvent(published, null, null, CancellationToken.None).ConfigureAwait(false);
+                    eventBroker.PublishTransient(
+                        new Event
+                        {
+                            Id = Identifier.EventId(),
+                            AgentSessionId = SessionId,
+                            ProviderCallUsage = new ProviderCallUsage
+                            {
+                                InputTokens = Math.Max(0, llmEvent.InputTokens),
+                                OutputTokens = Math.Max(0, llmEvent.OutputTokens),
+                            },
+                        });
                     _statistics = statistics;
                     completed = llmEvent;
                     continue;

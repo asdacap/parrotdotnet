@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using Parrot.Protocol;
 
 namespace Parrot.Events;
@@ -7,7 +6,7 @@ namespace Parrot.Events;
 internal sealed class EventBroker : IDisposable
 {
     private readonly Lock _gate = new();
-    private readonly List<Channel<Event>> _subscribers = [];
+    private readonly List<EventSubscription> _subscribers = [];
     private bool _disposed;
 
     public ValueTask Publish(Event published, CancellationToken cancellationToken)
@@ -17,42 +16,27 @@ internal sealed class EventBroker : IDisposable
         return ValueTask.CompletedTask;
     }
 
-    public void Publish(Event published)
-    {
-        Channel<Event>[] targets;
-        lock (_gate)
-        {
-            targets = _disposed ? [] : [.. _subscribers];
-        }
+    public void Publish(Event published) => Publish(published, transient: false);
 
-        foreach (var target in targets)
-        {
-            _ = target.Writer.TryWrite(published);
-        }
-    }
+    public void PublishTransient(Event published) => Publish(published, transient: true);
 
     public EventSubscription Subscribe()
     {
-        var channel = Channel.CreateBounded<Event>(
-            new BoundedChannelOptions(1024)
-            {
-                FullMode = BoundedChannelFullMode.DropOldest,
-                SingleReader = true,
-            });
+        var subscription = new EventSubscription(this);
 
         lock (_gate)
         {
             if (_disposed)
             {
-                _ = channel.Writer.TryComplete();
+                subscription.Complete();
             }
             else
             {
-                _subscribers.Add(channel);
+                _subscribers.Add(subscription);
             }
         }
 
-        return new(this, channel);
+        return subscription;
     }
 
     public async IAsyncEnumerable<Event> Subscribe(
@@ -67,7 +51,7 @@ internal sealed class EventBroker : IDisposable
 
     public void Dispose()
     {
-        Channel<Event>[] targets;
+        EventSubscription[] targets;
         lock (_gate)
         {
             if (_disposed)
@@ -82,17 +66,33 @@ internal sealed class EventBroker : IDisposable
 
         foreach (var target in targets)
         {
-            _ = target.Writer.TryComplete();
+            target.Complete();
         }
     }
 
-    internal void Unsubscribe(Channel<Event> channel)
+    internal void Unsubscribe(EventSubscription subscription)
     {
         lock (_gate)
         {
-            _ = _subscribers.Remove(channel);
+            _ = _subscribers.Remove(subscription);
         }
 
-        _ = channel.Writer.TryComplete();
+        subscription.Complete();
+    }
+
+    private void Publish(Event published, bool transient)
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            foreach (var target in _subscribers)
+            {
+                target.Publish(published, transient);
+            }
+        }
     }
 }

@@ -268,6 +268,56 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Completed_provider_calls_publish_live_usage_samples_after_durable_statistics(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed(
+                "tool_calls", 10, 3, 4, string.Empty, [new LLMToolCall("call-1", "settled", "{}")]),
+            LLMEvent.Completed("stop", -7, -2, -1, "done", []));
+        var repository = new EventRepository(_database);
+        using var subscription = _broker.Subscribe();
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            Profile(maxTurns: 2),
+            cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        var published = new List<Event>();
+        while (subscription.Reader.TryRead(out var next))
+        {
+            published.Add(next);
+        }
+
+        var samples = published
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.ProviderCallUsage)
+            .ToArray();
+        _ = await Assert.That(samples.Length).IsEqualTo(2);
+        _ = await Assert.That(string.Join(" | ", samples.Select(sample =>
+            $"{sample.AgentSessionId}:{sample.ProviderCallUsage.InputTokens}:{sample.ProviderCallUsage.OutputTokens}")))
+            .IsEqualTo("agent:10:4 | agent:0:0");
+        _ = await Assert.That(samples.All(sample => sample.Id.Length > 0)).IsTrue();
+        _ = await Assert.That(repository.Replay().Any(published =>
+            published.PayloadCase == Event.PayloadOneofCase.ProviderCallUsage)).IsFalse();
+
+        foreach (var sample in samples)
+        {
+            var sampleIndex = published.IndexOf(sample);
+            var statistics = published.Take(sampleIndex).Last(published =>
+                published.PayloadCase == Event.PayloadOneofCase.AgentStatisticsUpdated);
+            _ = await Assert.That(repository.Replay().Any(published => published.Id == statistics.Id)).IsTrue();
+        }
+    }
+
+    [Test]
     public async Task Statistics_charge_cached_tokens_at_input_price_when_cache_price_is_omitted(
         CancellationToken cancellationToken)
     {

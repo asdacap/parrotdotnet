@@ -824,6 +824,16 @@ submits after 100ms of quiet; typing or editing during that grace period instead
 inserts a newline, allowing fast unbracketed multiline messages. The basic CLI
 remains line-based.
 
+The enhanced modeline's `i/s` and `o/s` are live client-side rates. On receipt
+of each provider completion, they add that call's exact provider-reported input
+and output totals to 30 one-second buckets, then always divide the retained
+totals by 30 (including before all buckets have elapsed). Cached input is
+already included in input. These samples are transient: they are neither
+persisted nor replayed, so a late attachment, reconnect, or session replacement
+has no previous rate and sees only later completions. They describe local
+completion receipt, not provider-side token-generation timing, and are distinct
+from durable session metered usage.
+
 > **`git add` new files before `nix build`/`nix run`.** A flake sees only
 > git-tracked files, so an untracked `.cs` file is silently dropped from the
 > build — which surfaces as a spurious "type not found" from the sandbox

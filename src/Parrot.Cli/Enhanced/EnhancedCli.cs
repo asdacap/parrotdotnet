@@ -20,6 +20,7 @@ internal sealed class EnhancedCli(
     ITerminal terminal,
     ToolPresenterRegistry toolPresenters,
     EnhancedTurnRenderer turnRenderer,
+    TimeProvider timeProvider,
     Func<TimeSpan, CancellationToken, Task> delaySubmit,
     PromptAttachmentUploader attachments) : IInterruptListener, ISlashSessionBinding
 {
@@ -206,7 +207,7 @@ internal sealed class EnhancedCli(
             await pending.Answered.Task.WaitAsync(eventToken).ConfigureAwait(false);
         }
 
-        using var renderingSession = new EnhancedRenderingSession(
+        await using var renderingSession = new EnhancedRenderingSession(
             turnRenderer,
             toolPresenters,
             new TerminalFrameRenderer(
@@ -223,7 +224,10 @@ internal sealed class EnhancedCli(
             FinishRenderingTurn,
             () => _busy,
             CompleteRenderingPlan,
-            exitOnFirstCompletion);
+            exitOnFirstCompletion,
+            timeProvider,
+            (delay, delayCancellationToken) => Task.Delay(delay, timeProvider, delayCancellationToken),
+            null);
         var updating = renderingSession.RunUpdates(listening.Token);
 
         async Task StartTurn(string entered)

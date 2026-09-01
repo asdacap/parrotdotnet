@@ -921,7 +921,8 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   sessions for as long as they belong to this user session. The user-session
   aggregate is calculated by summing that projection; it is not a separately
   persisted second total, so there is no aggregate row to reconcile after a
-  crash or child completion.
+  crash or child completion. This durable `SessionUsageSnapshot`/metered usage
+  is distinct from EnhancedCli's transient modeline rates.
 
 ### `SessionCatalog` — rank 10, M6
 
@@ -1344,8 +1345,16 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   task boxes, thematic rules, tables, inline emphasis/code/links, and fenced code.
   Known fence languages use an embedded, AOT-safe lexical colorizer with the
   upstream ANSI token palette; unknown/plain and no-color output remain plain.
-  Highlighting is bounded at 512 KiB and 10,000 lines. Picker, modal prompts, and
-  richer multi-row activity frames remain deferred M7 work.
+  Highlighting is bounded at 512 KiB and 10,000 lines. The modeline's `i/s` and
+  `o/s` retain exact provider-reported input/output totals only when this local
+  client receives a provider completion; cached input is already part of input.
+  Their 30 one-second buckets always normalize retained totals by 30, including
+  before the window is full. These completion-receipt samples are local,
+  transient, and neither persisted nor replayed: a late attach, reconnect, or
+  session replacement begins without a prior rate and sees only subsequent
+  completions. They are not provider-side token-generation timing and are
+  separate from durable `SessionUsageSnapshot` metered usage. Picker, modal
+  prompts, and richer multi-row activity frames remain deferred M7 work.
 
 - **Divergence.** Chroma has no .NET port, and adding a reflection-discovered
   grammar package would violate Native AOT. The embedded colorizer recognizes a

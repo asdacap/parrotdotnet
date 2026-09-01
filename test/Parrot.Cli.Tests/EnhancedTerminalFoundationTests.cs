@@ -6,6 +6,17 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedTerminalFoundationTests
 {
     [Test]
+    [Arguments(1, 0, "0.03i/s 0o/s")]
+    [Arguments(0, 1, "0i/s 0.03o/s")]
+    [Arguments(30, 60, "1i/s 2o/s")]
+    [Arguments(0, 0, "")]
+    public async Task Runtime_usage_formats_rates_invariantly(long input, long output, string expected)
+    {
+        _ = await Assert.That(RuntimeUsage.FormatRate(new TokenRate((decimal)input / 30, (decimal)output / 30)))
+            .IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task Runtime_usage_prefers_newer_durable_session_snapshots()
     {
         var tracker = new RuntimeUsageTracker();
