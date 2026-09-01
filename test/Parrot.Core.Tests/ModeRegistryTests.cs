@@ -2,6 +2,7 @@ using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
@@ -245,6 +246,32 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Prompt)
             .IsEqualTo($"Implement the approved Markdown plan at {artifact}. Call run_agent_tasks with the approved task JSON path {TaskArtifactFor(artifact)}.");
         _ = await Assert.That(emitted.Dialog.EmptyMessage).IsEqualTo("enter yes, no, or feedback");
+    }
+
+    [Test]
+    public async Task Plan_completion_projects_validated_tasks_as_an_ordered_pending_tree()
+    {
+        var profile = OwnerModes("tree").Resolve(ModeRegistry.Plan);
+        profile.Prepare();
+        var artifact = PlanArtifact("tree");
+        await File.WriteAllTextAsync(artifact, "# Plan");
+        await File.WriteAllTextAsync(
+            TaskArtifactFor(artifact),
+            "{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":[{\"name\":\"child-first\",\"description\":\"Child first\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"},{\"name\":\"child-second\",\"description\":\"Child second\",\"payload\":[{\"name\":\"grandchild\",\"description\":\"Grandchild\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"},{\"name\":\"second\",\"description\":\"Second\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}]}");
+
+        var completed = profile.Complete("session", "message").Completion
+            ?? throw new InvalidOperationException("plan completion was not emitted");
+        var tree = completed.TaskTree ?? throw new InvalidOperationException("task tree was not emitted");
+
+        _ = await Assert.That(tree.OriginToolCallId).IsEmpty();
+        _ = await Assert.That(tree.Revision).IsEqualTo(0UL);
+        _ = await Assert.That(string.Join(',', tree.RootNodes.Select(node => node.Name))).IsEqualTo("first,second");
+        _ = await Assert.That(string.Join(',', tree.RootNodes.Select(node => node.Status)))
+            .IsEqualTo("Pending,Pending");
+        _ = await Assert.That(string.Join(',', tree.RootNodes[0].Children.Select(node => node.Name)))
+            .IsEqualTo("child-first,child-second");
+        _ = await Assert.That(tree.RootNodes[0].Children[1].Children[0].Name).IsEqualTo("grandchild");
+        _ = await Assert.That(tree.RootNodes[0].Children[1].Children[0].Status).IsEqualTo(AgentTaskProgressStatus.Pending);
     }
 
     [Test]

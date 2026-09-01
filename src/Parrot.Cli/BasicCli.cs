@@ -91,6 +91,26 @@ internal sealed class BasicCli(
         return _interrupts.Writer.TryWrite(true);
     }
 
+    internal static async Task WritePlanReport(
+        PlanCompleted completed,
+        TextWriter output,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(completed);
+        ArgumentNullException.ThrowIfNull(output);
+
+        await output.WriteLineAsync(completed.Markdown.AsMemory(), cancellationToken).ConfigureAwait(false);
+        if (completed.TaskTree is not { RootNodes.Count: > 0 })
+        {
+            return;
+        }
+
+        foreach (var line in AgentTaskProgressFormatter.Format(completed.TaskTree))
+        {
+            await output.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     internal static Task<bool> RenderTurn(
         IAsyncStreamReader<Event> stream,
         TextWriter output,
@@ -527,7 +547,7 @@ internal sealed class BasicCli(
             return;
         }
 
-        await output.WriteLineAsync(completed.Markdown.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await WritePlanReport(completed, output, cancellationToken).ConfigureAwait(false);
         await output.WriteLineAsync(completed.Dialog.Prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
         await output.WriteAsync("> ".AsMemory(), cancellationToken).ConfigureAwait(false);
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);

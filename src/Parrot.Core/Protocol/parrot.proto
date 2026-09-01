@@ -660,6 +660,7 @@ message PlanCompleted {
   string message_id = 2;
   string markdown = 3;
   TurnCompleteDialog dialog = 4;
+  AgentTaskProgressSnapshot task_tree = 5;
 }
 
 message TurnCompleteDialog {

@@ -126,10 +126,14 @@ is attributed differently.
 **Plan/approval pair.** Plan mode writes one correlated pair at runtime-designated
 private paths: a readable Markdown plan and strict AgentTask v1 JSON. Completion
 requires both files to be nonblank and the JSON to validate. The `PlanCompleted`
-dialog presents the Markdown and, on approval, enters build mode with both paths;
-the build prompt directs `run_agent_tasks` to the approved JSON path. The tool
-reopens a readable regular non-symbolic-link file and validates it immediately,
-so approval is not authority for a subsequently altered artifact.
+dialog presents the Markdown followed by the validated approved pending task
+hierarchy for approval. This is the approved declaration before execution, not a
+later `AgentTaskProgressSnapshot` execution tree: research patches and retry
+payloads can replace a run's effective subtree without changing that approved
+hierarchy. On approval, it enters build mode with both paths; the build prompt
+directs `run_agent_tasks` to the approved JSON path. The tool reopens a readable
+regular non-symbolic-link file and validates it immediately, so approval is not
+authority for a subsequently altered artifact.
 
 **Schema and scope.** The JSON envelope is
 `{"schema_version":1,"tasks":[...]}`. A sibling list is nonempty. Each task

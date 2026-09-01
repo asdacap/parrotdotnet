@@ -221,11 +221,15 @@ It is not profile guidance and is never injected into a prompt.
 
 Plan mode produces a correlated pair of private, runtime-designated artifacts:
 a human-readable Markdown plan and an AgentTask JSON artifact. It completes only
-when both files are nonblank and the JSON validates. The plan-completion dialog
-shows the Markdown for approval. Choosing implementation changes to build mode
-with both approved paths and directs it to call `run_agent_tasks` with the JSON
-path. The tool reopens and validates that regular, non-symbolic-link file at
-invocation time; approval does not make a later changed artifact trusted.
+when both files are nonblank and the JSON validates. The `PlanCompleted` dialog
+presents the Markdown followed by the validated approved pending task hierarchy
+for approval. This is the approved declaration before execution, not one of the
+later `AgentTaskProgressSnapshot` execution trees: research patches and retry
+payloads can replace a run's effective subtree without changing that approved
+hierarchy. Choosing implementation changes to build mode with both approved
+paths and directs it to call `run_agent_tasks` with the JSON path. The tool
+reopens and validates that regular, non-symbolic-link file at invocation time;
+approval does not make a later changed artifact trusted.
 
 The v1 artifact has this strict envelope:
 

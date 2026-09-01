@@ -22,6 +22,43 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Plan_completed_task_tree_roundtrips_and_absence_remains_valid()
+    {
+        var source = new PlanCompleted
+        {
+            AgentSessionId = "session",
+            MessageId = "message",
+            Markdown = "# Plan",
+            TaskTree = new AgentTaskProgressSnapshot
+            {
+                RootNodes =
+                {
+                    new AgentTaskProgressNode
+                    {
+                        Name = "first",
+                        Status = AgentTaskProgressStatus.Pending,
+                        Children =
+                        {
+                            new AgentTaskProgressNode { Name = "child", Status = AgentTaskProgressStatus.Pending },
+                        },
+                    },
+                    new AgentTaskProgressNode { Name = "second", Status = AgentTaskProgressStatus.Pending },
+                },
+            },
+        };
+
+        var roundtripped = PlanCompleted.Parser.ParseFrom(source.ToByteArray());
+        var absent = PlanCompleted.Parser.ParseFrom(new PlanCompleted { Markdown = "# Plan" }.ToByteArray());
+
+        _ = await Assert.That(roundtripped.TaskTree).IsNotNull();
+        _ = await Assert.That(string.Join(',', roundtripped.TaskTree.RootNodes.Select(node => node.Name)))
+            .IsEqualTo("first,second");
+        _ = await Assert.That(roundtripped.TaskTree.RootNodes[0].Children[0].Name).IsEqualTo("child");
+        _ = await Assert.That(roundtripped.TaskTree.RootNodes[0].Status).IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(absent.TaskTree).IsNull();
+    }
+
+    [Test]
     public async Task Agent_statistics_roundtrip_as_a_protobuf_payload()
     {
         var source = new Event

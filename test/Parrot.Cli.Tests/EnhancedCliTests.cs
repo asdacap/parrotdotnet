@@ -186,6 +186,7 @@ internal sealed class EnhancedCliTests
 
         await driver.OutputContains("Written plan", cancellationToken);
         await driver.OutputContains("Plan complete:", cancellationToken);
+        _ = await Assert.That(driver.Output).DoesNotContain("Agent tasks:");
         var outputBeforeApproval = driver.Output.Length;
         driver.Input.Type("yes");
         await driver.Sent(2, cancellationToken);
@@ -196,6 +197,71 @@ internal sealed class EnhancedCliTests
         _ = await Assert.That(driver.Invoker.Sent[1]).IsEqualTo("Implement the approved plan.");
         _ = await Assert.That(driver.Invoker.Updated).Count().IsEqualTo(1);
         _ = await Assert.That(driver.Invoker.Updated[0].Mode).IsEqualTo("build");
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    public async Task Plan_completion_renders_task_tree_after_markdown_and_before_picker(
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("draft plan");
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnStarted = new TurnStarted { Model = "model" },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            PlanCompleted = new PlanCompleted
+            {
+                Markdown = "# Written plan",
+                TaskTree = TaskTree(),
+                Dialog = new TurnCompleteDialog
+                {
+                    Prompt = "Plan complete: ",
+                    Choices =
+                    {
+                        new DialogChoice
+                        {
+                            Value = "yes",
+                            Description = "Implement it",
+                            Action = new ChoiceAction { Mode = "build", Prompt = "Implement the approved plan." },
+                        },
+                    },
+                },
+            },
+        });
+        await driver.Invoker.Publish(new Event
+        {
+            AgentSessionId = "agent",
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
+        });
+
+        await driver.OutputContains("Plan complete:", cancellationToken);
+        var output = driver.Output;
+        var markdown = output.IndexOf("Written plan", StringComparison.Ordinal);
+        var tree = output.IndexOf("Agent tasks:", StringComparison.Ordinal);
+        var firstRoot = output.IndexOf("○ first root", StringComparison.Ordinal);
+        var child = output.IndexOf("└── ○ nested task", StringComparison.Ordinal);
+        var secondRoot = output.IndexOf("○ second root", StringComparison.Ordinal);
+        var picker = output.IndexOf("Plan complete:", StringComparison.Ordinal);
+        _ = await Assert.That(markdown).IsGreaterThanOrEqualTo(0);
+        _ = await Assert.That(tree).IsGreaterThan(markdown);
+        _ = await Assert.That(firstRoot).IsGreaterThan(tree);
+        _ = await Assert.That(child).IsGreaterThan(firstRoot);
+        _ = await Assert.That(secondRoot).IsGreaterThan(child);
+        _ = await Assert.That(picker).IsGreaterThan(secondRoot);
+
+        driver.Input.Type("yes");
+        await driver.Sent(2, cancellationToken);
+        _ = await Assert.That(driver.Invoker.Updated.Single().Mode).IsEqualTo("build");
+        _ = await Assert.That(driver.Invoker.Sent[1]).IsEqualTo("Implement the approved plan.");
 
         driver.Input.End();
         _ = await running;
@@ -1101,6 +1167,28 @@ internal sealed class EnhancedCliTests
     }
 
     private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, []);
+
+    private static AgentTaskProgressSnapshot TaskTree()
+    {
+        var tree = new AgentTaskProgressSnapshot { OriginToolCallId = "plan", Revision = 1 };
+        var first = new AgentTaskProgressNode
+        {
+            Name = "first root",
+            Status = AgentTaskProgressStatus.Pending,
+        };
+        first.Children.Add(new AgentTaskProgressNode
+        {
+            Name = "nested task",
+            Status = AgentTaskProgressStatus.Pending,
+        });
+        tree.RootNodes.Add(first);
+        tree.RootNodes.Add(new AgentTaskProgressNode
+        {
+            Name = "second root",
+            Status = AgentTaskProgressStatus.Pending,
+        });
+        return tree;
+    }
 
     private static ToolPresenterRegistry Presenters() => new([], new GenericToolPresenter());
 

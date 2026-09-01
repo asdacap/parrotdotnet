@@ -337,6 +337,14 @@ internal sealed class EnhancedRenderingSession : IDisposable
                             cancellationToken).ConfigureAwait(false);
                     }
 
+                    if (plan.TaskTree is { RootNodes.Count: > 0 })
+                    {
+                        await activity.CommitContent(
+                            new AgentTaskProgressScrollbackValue(plan.TaskTree),
+                            [],
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
                     await _completePlan(plan, cancellationToken).ConfigureAwait(false);
                 }
 

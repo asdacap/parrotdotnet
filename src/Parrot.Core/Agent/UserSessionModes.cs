@@ -184,9 +184,10 @@ internal sealed class UserSessionModes(ModeRegistry modes)
             return ModeCompletionOutcome.Repair(diagnostic);
         }
 
+        AgentTaskArtifact tasks;
         try
         {
-            _ = AgentTaskParser.ParseArtifact(taskJson);
+            tasks = AgentTaskParser.ParseArtifact(taskJson);
         }
         catch (ArgumentException failure)
         {
@@ -200,6 +201,7 @@ internal sealed class UserSessionModes(ModeRegistry modes)
             AgentSessionId = agentSessionId,
             MessageId = messageId,
             Markdown = plan,
+            TaskTree = AgentTaskProgressSnapshot.FromPlannedTasks(tasks.Tasks),
             Dialog = new TurnCompleteDialog
             {
                 Prompt = "Plan complete: ",

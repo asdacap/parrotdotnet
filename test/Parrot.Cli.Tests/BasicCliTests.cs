@@ -526,6 +526,47 @@ internal sealed class BasicCliTests
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 
+    [Test]
+    public async Task Plan_report_writes_markdown_then_the_sanitized_pending_task_tree(
+        CancellationToken cancellationToken)
+    {
+        var tree = new AgentTaskProgressSnapshot();
+        var root = new AgentTaskProgressNode
+        {
+            Name = "root\u001b[2J\tnode",
+            Status = AgentTaskProgressStatus.Pending,
+        };
+        var first = new AgentTaskProgressNode { Name = "first", Status = AgentTaskProgressStatus.Pending };
+        first.Children.Add(new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending });
+        root.Children.Add(first);
+        root.Children.Add(new AgentTaskProgressNode { Name = "last", Status = AgentTaskProgressStatus.Pending });
+        tree.RootNodes.Add(root);
+        using var output = new StringWriter();
+
+        await BasicCli.WritePlanReport(
+            new PlanCompleted { Markdown = "# Plan markdown", TaskTree = tree },
+            output,
+            cancellationToken);
+
+        var rendered = output.ToString();
+        _ = await Assert.That(rendered).StartsWith("# Plan markdown" + Environment.NewLine + "Agent tasks:");
+        _ = await Assert.That(rendered).Contains("○ root[2J    node");
+        _ = await Assert.That(rendered).Contains("├── ○ first");
+        _ = await Assert.That(rendered).Contains("│   └── ○ nested");
+        _ = await Assert.That(rendered).Contains("└── ○ last");
+        _ = await Assert.That(rendered).DoesNotContain("\u001b[2J");
+    }
+
+    [Test]
+    public async Task Plan_report_without_a_task_tree_writes_only_markdown(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+
+        await BasicCli.WritePlanReport(new PlanCompleted { Markdown = "# Plan" }, output, cancellationToken);
+
+        _ = await Assert.That(output.ToString()).IsEqualTo("# Plan" + Environment.NewLine);
+    }
+
     private static AgentTaskProgressSnapshot Snapshot(AgentTaskProgressStatus rootStatus)
     {
         var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
