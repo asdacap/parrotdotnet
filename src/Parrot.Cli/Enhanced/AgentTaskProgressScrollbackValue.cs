@@ -6,6 +6,8 @@ internal sealed class AgentTaskProgressScrollbackValue(AgentTaskProgressSnapshot
 {
     public bool IsCompleted => true;
 
+    public ScrollbackLayout Layout => ScrollbackLayout.Block;
+
     public bool Continues(IScrollbackItem previous) => false;
 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context)
