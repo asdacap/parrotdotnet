@@ -275,10 +275,12 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
 
         var process = new System.Diagnostics.Process { StartInfo = startInfo };
         LinuxProcessSignalTarget? signalTarget = null;
+        PipeProcessOutputFiles? outputFiles = null;
         var started = false;
 
         try
         {
+            outputFiles = PipeProcessOutputFiles.Open(scratch.BlobDirectory);
             var startedTimestamp = Stopwatch.GetTimestamp();
             started = process.Start();
             signalTarget = OpenSignalTarget(process);
@@ -286,12 +288,15 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
                 process,
                 signalTarget,
                 scratch.BlobDirectory,
+                outputFiles,
                 startedTimestamp,
                 cancellationToken);
         }
         catch
         {
             signalTarget?.Dispose();
+
+            outputFiles?.DeleteStartupArtifacts();
 
             if (started && !process.HasExited)
             {

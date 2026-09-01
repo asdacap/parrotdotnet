@@ -198,7 +198,16 @@ internal sealed class ManagedShellProcess
         }
 
         _ = released.TrySetResult();
-        return new ShellWaitResult(Name, true, output, null, _startVisibility);
+        return new ShellWaitResult(
+            Name,
+            true,
+            output,
+            null,
+            _startVisibility with
+            {
+                StdoutPath = _execution.StdoutPath,
+                StderrPath = _execution.StderrPath,
+            });
     }
 
     private ShellWaitResult CommitCompleted()

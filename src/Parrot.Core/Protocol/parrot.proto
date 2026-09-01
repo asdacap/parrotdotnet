@@ -623,6 +623,8 @@ message YieldedShellProcess {
   string name                  = 2;
   string inventory_instance_id = 3;
   uint64 visible_revision      = 4;
+  optional string stdout_path  = 5;
+  optional string stderr_path  = 6;
 }
 
 message ToolCancelled {

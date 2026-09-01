@@ -371,6 +371,8 @@ internal sealed class EventPayloadTests
                     Name = "compile",
                     InventoryInstanceId = "inventory-1",
                     VisibleRevision = 3,
+                    StdoutPath = "/state/stdout",
+                    StderrPath = "/state/stderr",
                 },
             },
         };
@@ -381,6 +383,20 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.ProcessId).IsEqualTo("process-1");
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.InventoryInstanceId).IsEqualTo("inventory-1");
         _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.VisibleRevision).IsEqualTo(3UL);
+        _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.HasStdoutPath).IsTrue();
+        _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.StdoutPath).IsEqualTo("/state/stdout");
+        _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.HasStderrPath).IsTrue();
+        _ = await Assert.That(roundtripped.ToolFinished.YieldedProcess.StderrPath).IsEqualTo("/state/stderr");
+
+        var pathless = Event.Parser.ParseFrom(new Event
+        {
+            ToolFinished = new ToolFinished
+            {
+                YieldedProcess = new YieldedShellProcess { ProcessId = "process-2" },
+            },
+        }.ToByteArray());
+        _ = await Assert.That(pathless.ToolFinished.YieldedProcess.HasStdoutPath).IsFalse();
+        _ = await Assert.That(pathless.ToolFinished.YieldedProcess.HasStderrPath).IsFalse();
     }
 
     [Test]

@@ -53,10 +53,12 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         var startInfo = CreateStartInfo(_seatbeltPath, profilePath, command, environment, resources);
         var process = new System.Diagnostics.Process { StartInfo = startInfo };
         DarwinProcessSignalTarget? signalTarget = null;
+        PipeProcessOutputFiles? outputFiles = null;
         var started = false;
 
         try
         {
+            outputFiles = PipeProcessOutputFiles.Open(scratch.BlobDirectory);
             var startedTimestamp = Stopwatch.GetTimestamp();
             started = process.Start();
             if (!started)
@@ -69,6 +71,7 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
                 process,
                 signalTarget,
                 scratch.BlobDirectory,
+                outputFiles,
                 profilePath,
                 startedTimestamp,
                 cancellationToken);
@@ -76,6 +79,8 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         catch
         {
             signalTarget?.Dispose();
+
+            outputFiles?.DeleteStartupArtifacts();
 
             if (started && !process.HasExited)
             {

@@ -22,6 +22,19 @@ internal sealed class ReadToolTests : IDisposable
     }
 
     [Test]
+    public async Task Reads_a_file_while_its_writer_allows_concurrent_reading(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(_workspace, "live.txt");
+        await using var writer = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite);
+        await writer.WriteAsync("live output"u8.ToArray(), cancellationToken);
+        await writer.FlushAsync(cancellationToken);
+
+        var result = await Execute("{\"path\":\"live.txt\"}", cancellationToken);
+
+        _ = await Assert.That(result).IsEqualTo("1: live output\ntotal lines in file: 1\n");
+    }
+
+    [Test]
     public async Task Reports_total_lines_for_a_requested_range(CancellationToken cancellationToken)
     {
         await File.WriteAllTextAsync(

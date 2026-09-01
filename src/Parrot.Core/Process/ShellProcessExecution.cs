@@ -13,6 +13,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
     private readonly string _cleanupPath;
     private readonly System.Diagnostics.Process _process;
     private readonly IProcessSignalTarget _signalTarget;
+    private readonly PipeProcessOutputFiles? _pipeOutputFiles;
     private readonly PtyTranscript? _transcript;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly int _masterDescriptor;
@@ -28,6 +29,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         System.Diagnostics.Process process,
         IProcessSignalTarget signalTarget,
         string blobDirectory,
+        PipeProcessOutputFiles pipeOutputFiles,
         long startedTimestamp,
         CancellationToken cancellationToken)
     {
@@ -40,6 +42,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         _startedTimestamp = startedTimestamp;
         _cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _cancellationRegistration = _cancellation.Token.Register(() => Kill(_process));
+        _pipeOutputFiles = pipeOutputFiles;
         Result = RunPipe();
     }
 
@@ -47,6 +50,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         System.Diagnostics.Process process,
         IProcessSignalTarget signalTarget,
         string blobDirectory,
+        PipeProcessOutputFiles pipeOutputFiles,
         string cleanupPath,
         long startedTimestamp,
         CancellationToken cancellationToken)
@@ -60,6 +64,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         _startedTimestamp = startedTimestamp;
         _cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _cancellationRegistration = _cancellation.Token.Register(() => Kill(_process));
+        _pipeOutputFiles = pipeOutputFiles;
         Result = RunPipe();
     }
 
@@ -89,17 +94,23 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     public bool IsPseudoTerminal => _transcript is not null;
 
+    public string? StdoutPath => _pipeOutputFiles?.StdoutPath;
+
+    public string? StderrPath => _pipeOutputFiles?.StderrPath;
+
     public (long Cursor, string Text) ReadTranscript(long offset)
     {
         var transcript = _transcript;
 
-        if (transcript is null)
+        if (transcript is not null)
         {
-            ArgumentOutOfRangeException.ThrowIfNotEqual(offset, 0);
-            return (0, string.Empty);
+            return transcript.Read(offset);
         }
 
-        return transcript.Read(offset);
+        var outputFiles = _pipeOutputFiles
+            ?? throw new InvalidOperationException("Pipe output files are unavailable for this process.");
+        ArgumentOutOfRangeException.ThrowIfNotEqual(offset, 0);
+        return (0, $"stdout: {outputFiles.StdoutPath}\nstderr: {outputFiles.StderrPath}\n");
     }
 
     public async Task WriteStdin(string input, CancellationToken cancellationToken)
@@ -208,6 +219,11 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
             _cancellation.Dispose();
             _writeGate.Dispose();
             _transcript?.Dispose();
+            if (_pipeOutputFiles is not null)
+            {
+                await _pipeOutputFiles.DisposeAsync().ConfigureAwait(false);
+            }
+
             _signalTarget.Dispose();
             _process.Dispose();
             if (_cleanupPath.Length > 0)
@@ -254,39 +270,52 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         }
     }
 
-    private static async Task<ProcessOutput> ReadBounded(StreamReader reader, string blobDirectory)
+    private static async Task<ProcessOutput> ReadBounded(
+        StreamReader reader,
+        string blobDirectory,
+        Func<ReadOnlyMemory<char>, Task> append,
+        Func<ValueTask> complete)
     {
-        var output = new StringBuilder(MaxStreamOutputCharacters);
-        var buffer = new char[4096];
-
-        while (true)
+        try
         {
-            var read = await reader.ReadAsync(buffer).ConfigureAwait(false);
+            var output = new StringBuilder(MaxStreamOutputCharacters);
+            var buffer = new char[4096];
 
-            if (read == 0)
+            while (true)
             {
-                return new ProcessOutput(output.ToString(), string.Empty);
-            }
+                var read = await reader.ReadAsync(buffer).ConfigureAwait(false);
 
-            if (output.Length + read <= MaxStreamOutputCharacters)
-            {
-                _ = output.Append(buffer, 0, read);
-                continue;
-            }
+                if (read == 0)
+                {
+                    return new ProcessOutput(output.ToString(), string.Empty);
+                }
 
-            ProcessOutputBlobStore.EnsureDirectory(blobDirectory);
-            var temporaryPath = Path.Combine(blobDirectory, $".process-{Guid.NewGuid():n}.tmp");
+                await append(buffer.AsMemory(0, read)).ConfigureAwait(false);
 
-            try
-            {
-                await Spill(reader, output, buffer.AsMemory(0, read), temporaryPath).ConfigureAwait(false);
-                return new ProcessOutput(string.Empty, temporaryPath);
+                if (output.Length + read <= MaxStreamOutputCharacters)
+                {
+                    _ = output.Append(buffer, 0, read);
+                    continue;
+                }
+
+                ProcessOutputBlobStore.EnsureDirectory(blobDirectory);
+                var temporaryPath = Path.Combine(blobDirectory, $".process-{Guid.NewGuid():n}.tmp");
+
+                try
+                {
+                    await Spill(reader, output, buffer.AsMemory(0, read), temporaryPath, append).ConfigureAwait(false);
+                    return new ProcessOutput(string.Empty, temporaryPath);
+                }
+                catch
+                {
+                    File.Delete(temporaryPath);
+                    throw;
+                }
             }
-            catch
-            {
-                File.Delete(temporaryPath);
-                throw;
-            }
+        }
+        finally
+        {
+            await complete().ConfigureAwait(false);
         }
     }
 
@@ -294,7 +323,8 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         StreamReader reader,
         StringBuilder initial,
         ReadOnlyMemory<char> firstOverflow,
-        string path)
+        string path,
+        Func<ReadOnlyMemory<char>, Task> append)
     {
         var fileOptions = new FileStreamOptions
         {
@@ -323,7 +353,9 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
                 return;
             }
 
-            await writer.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+            var chunk = buffer.AsMemory(0, read);
+            await append(chunk).ConfigureAwait(false);
+            await writer.WriteAsync(chunk).ConfigureAwait(false);
         }
     }
 
@@ -358,8 +390,18 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
     private async Task<ProcessResult> RunPipe()
     {
-        var stdoutTask = ReadBounded(_process.StandardOutput, _blobDirectory);
-        var stderrTask = ReadBounded(_process.StandardError, _blobDirectory);
+        var outputFiles = _pipeOutputFiles
+            ?? throw new InvalidOperationException("Pipe output files are unavailable for this process.");
+        var stdoutTask = ReadBounded(
+            _process.StandardOutput,
+            _blobDirectory,
+            outputFiles.AppendStdout,
+            outputFiles.CompleteStdout);
+        var stderrTask = ReadBounded(
+            _process.StandardError,
+            _blobDirectory,
+            outputFiles.AppendStderr,
+            outputFiles.CompleteStderr);
 
         try
         {

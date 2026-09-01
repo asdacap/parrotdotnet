@@ -62,6 +62,8 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             cancellationToken);
 
         _ = await Assert.That(initial.Running).IsTrue();
+        _ = await Assert.That(initial.YieldedProcess?.StdoutPath).IsNull();
+        _ = await Assert.That(initial.YieldedProcess?.StderrPath).IsNull();
         _ = await Assert.That(initial.Output).Contains("first");
         _ = await Assert.That(initial.Output).DoesNotContain("READY");
         _ = await Assert.That(completed.Running).IsFalse();
@@ -167,7 +169,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
     }
 
     [Test]
-    public async Task Completed_name_remains_reserved_until_its_result_is_consumed(
+    public async Task Pipe_process_exposes_stable_live_stream_files_before_completion(
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
@@ -188,38 +190,43 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
             lifetime.Token);
-        var security = SecurityProfile.Compose(readOnly: false, [], [], []);
-        var first = owner.Start(
-            "reusable",
-            "printf old",
+        var process = owner.Start(
+            "live-pipe",
+            "printf before; printf problem >&2; sleep 2; printf after",
             ProcessEnvironmentOverrides.Empty,
             agent,
-            security,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
             ShellProcessTerminalMode.Pipe);
-        await WaitUntilCompleted(first, cancellationToken);
 
-        _ = await Assert.That(() => owner.Start(
-            "reusable",
-            "printf premature",
-            ProcessEnvironmentOverrides.Empty,
-            agent,
-            security,
-            ShellProcessTerminalMode.Pipe))
-            .Throws<InvalidOperationException>();
+        var initial = await process.Wait(TimeSpan.Zero, cancellationToken);
+        var (stdoutPath, stderrPath) = LivePaths(initial.Output);
+        var yieldedProcess = initial.YieldedProcess
+            ?? throw new InvalidOperationException("The pipe process did not yield.");
+        _ = await Assert.That(yieldedProcess.StdoutPath).IsEqualTo(stdoutPath);
+        _ = await Assert.That(yieldedProcess.StderrPath).IsEqualTo(stderrPath);
+        _ = await Assert.That(Path.IsPathFullyQualified(stdoutPath)).IsTrue();
+        _ = await Assert.That(Path.IsPathFullyQualified(stderrPath)).IsTrue();
+        await WaitForLiveText(stdoutPath, "before", cancellationToken);
+        await WaitForLiveText(stderrPath, "problem", cancellationToken);
+        var repeated = await owner.Claim("live-pipe").Wait(TimeSpan.Zero, cancellationToken);
 
-        var consumed = await first.Wait(null, cancellationToken);
-        var replacement = owner.Start(
-            "reusable",
-            "printf new",
-            ProcessEnvironmentOverrides.Empty,
-            agent,
-            security,
-            ShellProcessTerminalMode.Pipe);
-        var replaced = await replacement.Wait(null, cancellationToken);
+        _ = await Assert.That(initial.Running).IsTrue();
+        _ = await Assert.That(repeated.Running).IsTrue();
+        _ = await Assert.That(repeated.Output).IsEqualTo(initial.Output);
+        _ = await Assert.That(repeated.YieldedProcess?.StdoutPath).IsEqualTo(stdoutPath);
+        _ = await Assert.That(repeated.YieldedProcess?.StderrPath).IsEqualTo(stderrPath);
+        _ = await Assert.That(File.Exists(stdoutPath)).IsTrue();
+        _ = await Assert.That(File.Exists(stderrPath)).IsTrue();
 
-        _ = await Assert.That(consumed.Result?.Stdout).IsEqualTo("old");
-        _ = await Assert.That(replaced.Result?.Stdout).IsEqualTo("new");
+        var completed = await owner.Claim("live-pipe").Wait(null, cancellationToken);
+        _ = await Assert.That(completed.Result?.Stdout).IsEqualTo("beforeafter");
+        _ = await Assert.That(completed.Result?.Stderr).IsEqualTo("problem");
+        _ = await Assert.That(await File.ReadAllTextAsync(stdoutPath, cancellationToken)).IsEqualTo("beforeafter");
+        _ = await Assert.That(await File.ReadAllTextAsync(stderrPath, cancellationToken)).IsEqualTo("problem");
+
         await owner.Settle();
+        _ = await Assert.That(File.Exists(stdoutPath)).IsTrue();
+        _ = await Assert.That(File.Exists(stderrPath)).IsTrue();
     }
 
     [Test]
@@ -265,16 +272,45 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         await owner.Settle();
     }
 
-    private static async Task WaitUntilCompleted(
-        ManagedShellProcess process,
-        CancellationToken cancellationToken)
+    private static (string Stdout, string Stderr) LivePaths(string output)
     {
-        for (var attempt = 0; attempt < 200 && !process.Completed; attempt++)
+        const string stdoutPrefix = "stdout: ";
+        const string stderrPrefix = "stderr: ";
+        var stdout = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .SingleOrDefault(line => line.StartsWith(stdoutPrefix, StringComparison.Ordinal));
+        var stderr = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .SingleOrDefault(line => line.StartsWith(stderrPrefix, StringComparison.Ordinal));
+
+        if (stdout is null || stderr is null)
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(5), cancellationToken);
+            throw new InvalidOperationException("Pipe process did not report live output paths.");
         }
 
-        _ = await Assert.That(process.Completed).IsTrue();
+        return (stdout[stdoutPrefix.Length..], stderr[stderrPrefix.Length..]);
+    }
+
+    private static async Task WaitForLiveText(
+        string path, string expected, CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (File.Exists(path))
+            {
+                await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                var text = await reader.ReadToEndAsync(cancellationToken);
+                if (text.Contains(expected, StringComparison.Ordinal))
+                {
+                    return;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20), cancellationToken);
+        }
+
+        throw new TimeoutException($"Live pipe output '{expected}' was not observed.");
     }
 
     private static async Task WaitForNoTranscriptSpools(

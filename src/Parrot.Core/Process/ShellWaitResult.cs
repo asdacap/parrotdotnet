@@ -16,6 +16,11 @@ internal sealed record ShellWaitResult(
             return ProcessResultFormatter.Format(Result);
         }
 
+        if (YieldedProcess is { StdoutPath: { } stdoutPath, StderrPath: { } stderrPath })
+        {
+            return $"{Name}\nProcess output is streaming.\nstdout: {stdoutPath}\nstderr: {stderrPath}";
+        }
+
         if (Output.Length == 0)
         {
             return Name;
