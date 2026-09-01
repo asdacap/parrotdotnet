@@ -240,6 +240,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             lifetime);
     }
 

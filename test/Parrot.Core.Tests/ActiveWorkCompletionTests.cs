@@ -482,6 +482,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             status,
             registry,
             queues,
+            new AgentSessionActivity(TimeProvider.System),
             lifetime);
         queues.Attach(session);
         return session;
@@ -519,6 +520,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             status,
             registry,
             queues,
+            new AgentSessionActivity(TimeProvider.System),
             lifetime);
         queues.Attach(session);
         return session;
@@ -647,6 +649,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                     TestModels.ProfileRegistry(),
                     lifetime),
                 queues,
+                new AgentSessionActivity(TimeProvider.System),
                 lifetime);
             queues.Attach(session);
             return new AgentSessionLease(session);

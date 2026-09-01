@@ -377,6 +377,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
 
         _ = await session.Send(
@@ -426,6 +427,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
 
         var session = Build(compact: true);
@@ -504,6 +506,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
 
         foreach (var prompt in new[] { "first", "second", "third" })

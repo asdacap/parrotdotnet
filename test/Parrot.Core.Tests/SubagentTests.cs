@@ -757,6 +757,12 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(_repository.Replay().Select(item => item.PayloadCase))
             .Contains(Event.PayloadOneofCase.AgentStarted)
             .And.Contains(Event.PayloadOneofCase.AgentFinished);
+        var retained = registry.GetChild(parent, child.SessionId).Activity.Capture();
+        _ = await Assert.That(retained.State).IsEqualTo(DrainState.Idle);
+        _ = await Assert.That(retained.TerminalOutcome?.Status).IsEqualTo(AgentExecutionStatus.Succeeded);
+        _ = await Assert.That(retained.TerminalOutcome?.Output).IsEqualTo("child result");
+        _ = await Assert.That(retained.Recent).Count().IsEqualTo(1);
+        _ = await Assert.That(retained.Recent[0].Content).IsEqualTo("child result");
     }
 
     [Test]
@@ -1512,6 +1518,7 @@ internal sealed class SubagentTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
     }
 
@@ -1607,6 +1614,7 @@ internal sealed class SubagentTests : IDisposable
                 new RuntimeStatus(queueCatalog, processes, registry),
                 completionRegistry,
                 queues,
+                new AgentSessionActivity(TimeProvider.System),
                 lifetime);
             queues.Attach(session);
             return new AgentSessionLease(session);

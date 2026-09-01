@@ -21,6 +21,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
     private readonly List<AgentSession> _sessions = [];
     private readonly List<UserSession> _owners = [];
     private ModelRouter? _router;
+    private TimeProvider _timeProvider = TimeProvider.System;
     private bool _includeStatusTool;
 
     public IReadOnlyList<AgentIdentity> Identities => _identities;
@@ -32,6 +33,8 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
     public void IncludeStatusTool() => _includeStatusTool = true;
 
     public void Use(ModelRouter router) => _router = router;
+
+    public void UseTimeProvider(TimeProvider timeProvider) => _timeProvider = timeProvider;
 
     public IAgentSessionFactory Create(UserSession owner)
     {
@@ -70,7 +73,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 eventBroker,
                 eventRepository,
                 source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [],
-                TestModels.EmptyToolDefinitions,
+                source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions,
                 TestModels.MaterializePrompt(identity, ".", "."),
                 new TodoCollection(identity.SessionId, eventRepository, eventBroker),
                 new ToolOutputBlobStore(Path.GetTempPath()),
@@ -81,6 +84,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
                 status,
                 registry,
                 queues,
+                new AgentSessionActivity(source._timeProvider),
                 lifetime);
             queues.Attach(session);
             source._sessions.Add(session);

@@ -111,6 +111,8 @@ internal sealed class StatusDrainTests : IDisposable
         var router = TestModels.Route(providerModel);
         var sessions = new DirectAgentSessions();
         sessions.Use(router);
+        var time = new ControlledTimeProvider();
+        sessions.UseTimeProvider(time);
         await using var session = new Parrot.Agent.UserSession(
             "repair-user",
             "main-agent",
@@ -150,7 +152,11 @@ internal sealed class StatusDrainTests : IDisposable
             published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)).IsFalse();
         _ = await Assert.That(repairing.Any(published =>
             published.PayloadCase == Event.PayloadOneofCase.TurnEnded)).IsFalse();
+        var repairingActivity = sessions.Sessions.Single().Activity.Capture();
+        _ = await Assert.That(repairingActivity.Recent).Count().IsEqualTo(1);
+        _ = await Assert.That(repairingActivity.Recent[0].Content).IsEqualTo("candidate");
 
+        time.Advance(TimeSpan.FromSeconds(2));
         await File.WriteAllTextAsync(planArtifact, "# Repaired", cancellationToken);
         provider.Release();
         await Settled(session);
@@ -164,6 +170,12 @@ internal sealed class StatusDrainTests : IDisposable
             published.PayloadCase == Event.PayloadOneofCase.TurnEnded);
         _ = await Assert.That(repair).IsLessThan(plan);
         _ = await Assert.That(plan).IsLessThan(ended);
+        var activity = sessions.Sessions.Single().Activity.Capture();
+        _ = await Assert.That(activity.Recent).Count().IsEqualTo(2);
+        _ = await Assert.That(activity.Recent[0].Content).IsEqualTo("candidate");
+        _ = await Assert.That(activity.Recent[0].Age).IsEqualTo(TimeSpan.FromSeconds(2));
+        _ = await Assert.That(activity.Recent[1].Content).IsEqualTo("repaired");
+        _ = await Assert.That(activity.Recent[1].Age).IsEqualTo(TimeSpan.Zero);
     }
 
     [Test]

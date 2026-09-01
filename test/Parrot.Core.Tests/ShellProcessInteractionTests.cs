@@ -329,6 +329,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             lifetime);
     }
 

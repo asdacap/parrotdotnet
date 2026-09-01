@@ -844,6 +844,18 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   APIs, and the remaining `TaskManager` work stay deferred rather than stubbed.
   M8 adds only foreground profiles and typed observation of the existing child
   lifecycle.
+- **Direct-child status.** `agent_status` resolves exactly one retained direct
+  child by its canonical session id or direct-child friendly name; it never
+  accepts a parent alias, descendant path, sibling, cousin, or arbitrary
+  user-session agent id. Each `AgentSession` owns a concurrency-safe live
+  activity record for its retained runtime lifetime. The report names an
+  executing tool when present, otherwise gives the elapsed age of the latest
+  provider stream activity, and includes only active direct subagents, directly
+  owned active shell processes, and the five latest completed reasoning-summary
+  or assistant-message entries in emission order. Raw and incomplete reasoning
+  is never reported. This observation is model-facing text, not an external
+  protocol or restart-durable history contract; the existing `status` tree and
+  durable conversation projections remain unchanged.
 - **Conversation forks.** `agent_spawn.fork` is optional. An omitted or empty
   value starts the child without parent conversation; `full` copies the parent's
   current effective history (summary, applicable status, and retained groups).

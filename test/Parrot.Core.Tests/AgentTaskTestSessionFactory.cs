@@ -67,6 +67,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             status,
             registry,
             agentQueues,
+            new AgentSessionActivity(TimeProvider.System),
             lifetime);
         agentQueues.Attach(session);
         return new AgentSessionLease(session);

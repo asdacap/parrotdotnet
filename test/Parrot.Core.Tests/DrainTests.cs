@@ -586,6 +586,78 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task A_settled_tool_is_cleared_before_the_next_provider_request(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer("tool preface", new LLMToolCall("call-1", "settled", "{}")), Answer("done"));
+        var repository = new EventRepository(_database);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("result"))],
+            cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        var executing = session.Activity.Capture();
+        _ = await Assert.That(executing.CurrentTool).IsNull();
+        _ = await Assert.That(executing.Recent).Count().IsEqualTo(1);
+        _ = await Assert.That(executing.Recent[0].Content).IsEqualTo("tool preface");
+        provider.Release();
+        await session.Settled();
+        var settled = session.Activity.Capture();
+        _ = await Assert.That(settled.CurrentTool).IsNull();
+        _ = await Assert.That(string.Join(',', settled.Recent.Select(static entry => entry.Content)))
+            .IsEqualTo("tool preface,done");
+    }
+
+    [Test]
+    public async Task A_failing_tool_is_cleared_before_the_next_provider_request(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "failure", "{}")), Answer("done"));
+        var repository = new EventRepository(_database);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new FailureTool())],
+            cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNull();
+        provider.Release();
+        await session.Settled();
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNull();
+    }
+
+    [Test]
+    public async Task An_unknown_tool_never_appears_as_current(CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "missing", "{}")), Answer("done"));
+        var repository = new EventRepository(_database);
+        var session = Session(provider, repository, [], cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNull();
+        provider.Release();
+        await session.Settled();
+    }
+
+    [Test]
     public async Task An_interrupt_ends_the_turn_leaving_every_tool_call_answered(
         CancellationToken cancellationToken)
     {
@@ -600,10 +672,12 @@ internal sealed class DrainTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         await heldTool.Started.WaitAsync(cancellationToken);
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsEqualTo("held");
 
         await session.Interrupt(cancellationToken);
 
         _ = await Assert.That(session.State).IsEqualTo(DrainState.Idle);
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNull();
         _ = await Assert.That(Endings(repository)).Contains("interrupted");
 
         // The next prompt is what proves it: a provider rejects a history
@@ -839,6 +913,7 @@ internal sealed class DrainTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             lifetime);
     }
 

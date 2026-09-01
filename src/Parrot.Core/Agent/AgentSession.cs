@@ -41,6 +41,7 @@ internal sealed class AgentSession(
     RuntimeStatus status,
     AgentRegistry registry,
     AgentQueues queues,
+    AgentSessionActivity activity,
     CancellationToken lifetime)
 {
     private const string RunawayMessage = "the turn exceeded its provider-request limit";
@@ -128,6 +129,9 @@ internal sealed class AgentSession(
     // that question can be.
     public DrainState State { get; private set; }
 
+    internal AgentSessionActivity Activity { get; } = activity
+        ?? throw new ArgumentNullException(nameof(activity));
+
     public AgentSelection Selection()
     {
         lock (_selectionGate)
@@ -192,6 +196,7 @@ internal sealed class AgentSession(
             if (!_stopping)
             {
                 State = DrainState.Interrupting;
+                Activity.ChangeState(DrainState.Interrupting);
 
                 // Cleared behind the same gate as the capture: a wake that
                 // survived it would restart the drain this is stopping.
@@ -676,6 +681,7 @@ internal sealed class AgentSession(
         Task<AgentExecution>? selectedDrain,
         CancellationToken cancellationToken)
     {
+        Activity.BeginExecution();
         await Task.Yield();
 
         AgentExecution completed;
@@ -736,6 +742,7 @@ internal sealed class AgentSession(
             completed = AgentExecution.Failed(BoundResult(failure.Message));
         }
 
+        Activity.FinishExecution(completed);
         await registry.Deliver(identity, completed).ConfigureAwait(false);
 
         return completed;
@@ -817,6 +824,7 @@ internal sealed class AgentSession(
             // the turn outlives the call that admitted its prompt.
             _drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             State = DrainState.Running;
+            Activity.ChangeState(DrainState.Running);
             _drain = Drain(_drainCancellation.Token);
             return (true, _drain);
         }
@@ -861,6 +869,7 @@ internal sealed class AgentSession(
 
                 _drainCancellation = null;
                 State = DrainState.Idle;
+                Activity.ChangeState(DrainState.Idle);
             }
 
             if (completed.Status == AgentExecutionStatus.Succeeded
@@ -1006,6 +1015,7 @@ internal sealed class AgentSession(
                         string.Empty);
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
                     await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    Activity.RecordAssistantMessage(completed.AssistantText);
                     await ReconcileToolBatches(
                         activeSelection,
                         snapshot,
@@ -1049,6 +1059,7 @@ internal sealed class AgentSession(
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
                     _history.Add(LLMMessage.System(diagnostic));
                     await eventBroker.Publish(repair, cancellationToken).ConfigureAwait(false);
+                    Activity.RecordAssistantMessage(completed.AssistantText);
                     continue;
                 }
 
@@ -1077,6 +1088,7 @@ internal sealed class AgentSession(
 
                 await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
                     .ConfigureAwait(false);
+                Activity.RecordAssistantMessage(completed.AssistantText);
 
                 // Back to the top rather than out: a queued prompt is promoted
                 // exactly here, where the turn would otherwise stop.
@@ -1107,6 +1119,7 @@ internal sealed class AgentSession(
                 };
                 await EmitEvent(ended, "assistant", InterruptedNote, CancellationToken.None)
                     .ConfigureAwait(false);
+                Activity.RecordAssistantMessage(InterruptedNote);
             }
 
             return AgentExecution.Canceled();
@@ -1492,28 +1505,36 @@ internal sealed class AgentSession(
 
         var completed = LLMEvent.Completed(string.Empty, 0, 0, 0, string.Empty, []);
 
-        await foreach (var llmEvent in selectedModel.Provider
-            .Call(request, cancellationToken).ConfigureAwait(false))
+        try
         {
-            if (llmEvent.Kind == LLMEventKind.Completed)
+            await foreach (var llmEvent in selectedModel.Provider
+                .Call(request, cancellationToken).ConfigureAwait(false))
             {
-                var statistics = _statistics.Add(llmEvent, selectedModel.Model);
-                var published = new Event
+                if (llmEvent.Kind == LLMEventKind.Completed)
                 {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = SessionId,
-                    AgentStatisticsUpdated = statistics.ConvertToPayload(),
-                };
-                await EmitEvent(published, null, null, CancellationToken.None).ConfigureAwait(false);
-                _statistics = statistics;
-                completed = llmEvent;
-                continue;
+                    var statistics = _statistics.Add(llmEvent, selectedModel.Model);
+                    var published = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        AgentStatisticsUpdated = statistics.ConvertToPayload(),
+                    };
+                    await EmitEvent(published, null, null, CancellationToken.None).ConfigureAwait(false);
+                    _statistics = statistics;
+                    completed = llmEvent;
+                    continue;
+                }
+
+                Activity.ObserveProviderEvent(llmEvent);
+                await EmitEvent(Translate(llmEvent), null, null, cancellationToken).ConfigureAwait(false);
             }
 
-            await EmitEvent(Translate(llmEvent), null, null, cancellationToken).ConfigureAwait(false);
+            return completed;
         }
-
-        return completed;
+        finally
+        {
+            Activity.FinishProviderRequest();
+        }
     }
 
     private async Task<(Event Published, ToolExecutionTerminal Terminal)> Invoke(
@@ -1541,10 +1562,18 @@ internal sealed class AgentSession(
         {
             var effective = ResolveSelection();
             var invocationSelection = selection with { SecurityProfile = effective.SecurityProfile };
-            var result = await tool.Execute(
-                new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence),
-                invocationSelection,
-                cancellationToken).ConfigureAwait(false);
+            var invocation = new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence);
+            ToolExecutionResult result;
+            var execution = Activity.BeginTool(tool.Name);
+            try
+            {
+                result = await tool.Execute(invocation, invocationSelection, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                Activity.FinishTool(execution);
+            }
+
             var text = result.Text;
             if (ToolOutputBlobStore.IsOversized(text))
             {

@@ -300,6 +300,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             dependencies.Status,
             dependencies.Registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             CancellationToken.None);
     }
 

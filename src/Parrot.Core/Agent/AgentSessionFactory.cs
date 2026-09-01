@@ -63,6 +63,7 @@ internal sealed class AgentSessionFactory(
                 registry,
                 queues,
                 owner,
+                owner.TimeProvider,
                 lifetime);
         }
         catch
@@ -88,8 +89,9 @@ internal sealed class AgentSessionFactory(
         new RunAgentTasksToolFactory(workspace, owner.Registry, router, eventBroker, eventRepository),
         new SetCheckpointToolFactory(),
         new AgentSendToolFactory(owner.Registry),
+        new AgentStatusToolFactory(owner.Registry, owner.ShellProcesses),
         new WaitAgentToolFactory(owner.Registry),
-        new WaitToolFactory(owner.Status, TimeProvider.System),
+        new WaitToolFactory(owner.Status, owner.TimeProvider),
         new StatusToolFactory(owner.Status),
         new TodoReadToolFactory(),
         new TodoWriteToolFactory(),

@@ -274,6 +274,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             dependencies.Status,
             registry,
             dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
         var selected = parent.Selection();
         return new RuntimeContext(

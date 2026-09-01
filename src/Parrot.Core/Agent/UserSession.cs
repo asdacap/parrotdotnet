@@ -66,8 +66,14 @@ internal sealed class UserSession : IAsyncDisposable
         _mainSessionId = state.AgentSessionId;
         _modes.Attach(resources.Resources.AgentScratch(_mainSessionId));
         Mode = modes.Resolve(state.Mode);
-        Questions = new QuestionBroker(userInputTimeout, timeProvider);
-        Permissions = new PermissionBroker(_eventBroker, _eventRepository, interactivePermissions, userInputTimeout, timeProvider);
+        TimeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        Questions = new QuestionBroker(userInputTimeout, TimeProvider);
+        Permissions = new PermissionBroker(
+            _eventBroker,
+            _eventRepository,
+            interactivePermissions,
+            userInputTimeout,
+            TimeProvider);
         QueueCatalog = agentSessionFactories.CreateQueueCatalog(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
@@ -101,6 +107,8 @@ internal sealed class UserSession : IAsyncDisposable
     public IMode Mode { get; private set; }
 
     internal CancellationToken Lifetime => _lifetime.Token;
+
+    internal TimeProvider TimeProvider { get; }
 
     internal UserSessionResources Resources => _resources.Resources;
 

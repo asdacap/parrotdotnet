@@ -30,6 +30,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         AgentRegistry registry,
         AgentQueues queues,
         UserSession owner,
+        TimeProvider timeProvider,
         CancellationToken lifetime)
     {
         var arguments = new AgentSessionScopeArguments(
@@ -50,6 +51,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             registry,
             queues,
             owner,
+            timeProvider,
             lifetime);
         var scope = new AgentSessionComposition(arguments);
         return new AgentSessionScope(scope.Session, queues);

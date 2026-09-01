@@ -450,7 +450,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             _broker,
             repository,
             tools,
-            TestModels.EmptyToolDefinitions,
+            tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"),
             TestModels.MaterializePrompt(identity, _root, _root),
             new TodoCollection("agent", repository, _broker),
             new ToolOutputBlobStore(Path.Combine(_root, "blobs")),
@@ -461,6 +461,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             status,
             registry,
             queues,
+            new AgentSessionActivity(TimeProvider.System),
             CancellationToken.None);
         queues.Attach(session);
         return session;
@@ -652,6 +653,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                     status,
                     registry,
                     queues,
+                    new AgentSessionActivity(TimeProvider.System),
                     lifetime);
                 queues.Attach(session);
                 _ = source._created.TrySetResult(session);
