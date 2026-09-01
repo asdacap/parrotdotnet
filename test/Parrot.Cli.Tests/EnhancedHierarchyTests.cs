@@ -1171,6 +1171,116 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(order.Count).IsEqualTo(5);
     }
 
+    [Test]
+    public async Task Active_agent_task_progress_updates_live_only_for_its_current_call_and_commits_every_snapshot(
+        CancellationToken cancellationToken)
+    {
+        var drawn = new List<string>();
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(Render(items, liveContext));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            drawn.Add(Render(items, liveContext));
+            return Task.CompletedTask;
+        }
+
+        var presenters = new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter());
+        using var view = new RawActivityView(Draw, Commit, presenters, static (_, _) => Task.CompletedTask);
+        await view.Render(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("[worker] agent worker");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "run_agent_tasks" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "run_agent_tasks" },
+            },
+            cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("running agent tasks");
+
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "first")), cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("◐ first");
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 2, "higher")), cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
+
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "stale")), cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
+        await view.Render(ProgressEvent("child", TaskSnapshot("wrong", 99, "wrong")), cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
+        _ = await Assert.That(string.Join('|', committed)).Contains("◐ stale");
+        _ = await Assert.That(string.Join('|', committed)).Contains("◐ wrong");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "run_agent_tasks" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "run_agent_tasks" },
+            },
+            cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "run_agent_tasks" },
+            },
+            cancellationToken);
+        _ = await Assert.That(drawn[^1]).DoesNotContain("Agent tasks:");
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 3, "late")), cancellationToken);
+        _ = await Assert.That(drawn[^1]).DoesNotContain("Agent tasks:");
+
+        _ = await Assert.That(committed).Count().IsEqualTo(6);
+        _ = await Assert.That(committed[0]).Contains("[worker] ◐ first");
+        _ = await Assert.That(committed[1]).Contains("[worker] ◐ higher");
+        _ = await Assert.That(committed[5]).Contains("[worker] ◐ late");
+    }
+
+    private static Event ProgressEvent(string agentSessionId, AgentTaskProgressSnapshot snapshot) =>
+        new() { AgentSessionId = agentSessionId, AgentTaskProgressSnapshot = snapshot };
+
+    private static AgentTaskProgressSnapshot TaskSnapshot(string callId, ulong revision, string name)
+    {
+        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = callId, Revision = revision };
+        var root = new AgentTaskProgressNode { Name = name, Status = AgentTaskProgressStatus.Running };
+        root.Children.Add(new AgentTaskProgressNode { Name = "nested", Status = AgentTaskProgressStatus.Pending });
+        snapshot.RootNodes.Add(root);
+        return snapshot;
+    }
+
     private static QueueState Queue(
         string ownerAgentSessionId,
         string ownerAgentName,

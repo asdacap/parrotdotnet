@@ -133,7 +133,8 @@ payloads can replace a run's effective subtree without changing that approved
 hierarchy. On approval, it enters build mode with both paths; the build prompt
 directs `run_agent_tasks` to the approved JSON path. The tool reopens a readable
 regular non-symbolic-link file and validates it immediately, so approval is not
-authority for a subsequently altered artifact.
+authority for a subsequently altered artifact. This approved workflow remains
+path-based even though direct callers may embed an artifact.
 
 **Schema and scope.** The JSON envelope is
 `{"schema_version":1,"tasks":[...]}`. A sibling list is nonempty. Each task
@@ -145,6 +146,13 @@ cross-level dependencies are invalid. Dependency names are case-sensitive and
 local to their immediate sibling list. This makes a nested payload a hierarchy
 of independently validated sibling DAGs, not one graph with globally addressable
 names.
+
+**Invocation source.** `run_agent_tasks` requires exactly one of `path` or
+`artifact`. The path form performs the regular-file, symbolic-link, and invoking
+security-profile checks described above. The artifact form embeds the same v1
+object in the tool arguments, parses it in memory, and performs no filesystem
+read or read-permission check. Both forms use the same strict parser; supplying
+both or neither is invalid. Plan-approved execution continues to use `path`.
 
 **Execution context.** `run_agent_tasks` synchronously creates fresh
 retained-only `worker` children for each research, execution, and acceptance
@@ -191,7 +199,14 @@ cancellation, the final snapshot is emitted only after runner-owned children
 have been joined, and cancellation then propagates.
 
 Both CLI modes append each complete tree to permanent output and flush it; they
-do not live-replace or remove earlier snapshots. A snapshot is self-contained,
+do not replace or remove earlier snapshots. The persistent enhanced CLI also
+projects the newest matching snapshot into the active `run_agent_tasks` live
+row. Before progress arrives that row is neutral and exposes neither a path nor
+embedded graph content. The projection is scoped by agent session and origin
+tool-call id, accepts only increasing revisions, is sanitized and bounded to the
+live-row budget, and is removed by terminal tool lifecycle. Stale, unrelated,
+or late snapshots never replace or resurrect it. This live bound does not alter
+the complete protocol snapshot or permanent tree. A snapshot is self-contained,
 but the stream does not promise replay or resume to clients that were not
 listening. These events supplement the unchanged generic `ToolStarted` and
 `ToolFinished` lifecycle and unchanged final hierarchical JSON result.

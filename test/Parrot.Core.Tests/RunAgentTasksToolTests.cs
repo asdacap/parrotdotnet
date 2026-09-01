@@ -48,6 +48,56 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     }
 
     [Test]
+    [Arguments("{}", "error: Tool arguments require a string 'path'.")]
+    [Arguments("{\"path\":null}", "error: Tool arguments require a string 'path'.")]
+    [Arguments("{\"artifact\":null}", "error: Tool arguments require exactly one nonblank 'path' or non-null 'artifact'.")]
+    [Arguments("{\"path\":\"artifact.json\",\"artifact\":{}}", "error: Tool arguments require exactly one nonblank 'path' or non-null 'artifact'.")]
+    [Arguments("{\"path\":\"artifact.json\",\"artifact\":null}", "error: Tool arguments require exactly one nonblank 'path' or non-null 'artifact'.")]
+    [Arguments("{\"path\":\" \",\"artifact\":{}}", "error: Tool arguments require exactly one nonblank 'path' or non-null 'artifact'.")]
+    [Arguments("{\"artifact\":\"invalid\"}", "error: artifact must be an object.")]
+    [Arguments("{\"artifact\":{\"schema_version\":1,\"tasks\":[],\"unknown\":true}}", "error: Invalid JSON: UnmappedJsonProperty, unknown, Parrot.AgentTasks.AgentTaskArtifactWire")]
+    public async Task Rejects_invalid_embedded_artifacts(
+        string arguments,
+        string expected,
+        CancellationToken cancellationToken)
+    {
+        var runtime = Runtime(cancellationToken);
+        await using var registry = runtime.Registry;
+        var tool = Tool(registry, runtime);
+
+        var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
+
+        _ = await Assert.That(result.Text).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task Executes_embedded_artifact_without_filesystem_access(CancellationToken cancellationToken)
+    {
+        const string arguments =
+            "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"ready\"}",
+            "executed",
+            "{\"verdict\":\"accept\",\"evidence\":\"done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var tool = Tool(registry, runtime);
+        var denied = runtime.Selection with
+        {
+            SecurityProfile = SecurityProfile.Compose(false, [], [new SandboxRule(_root, SandboxRuleAction.DenyRead)], []),
+        };
+
+        var result = await tool.Execute(new ToolInvocation("embedded-call", arguments), denied, cancellationToken);
+
+        using var document = System.Text.Json.JsonDocument.Parse(result.Text);
+        _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
+        _ = await Assert.That(runtime.Repository.Replay().Any(published =>
+            published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot
+            && published.AgentTaskProgressSnapshot.OriginToolCallId == "embedded-call")).IsTrue();
+    }
+
+    [Test]
     public async Task Rejects_out_of_policy_artifacts(CancellationToken cancellationToken)
     {
         var artifact = Path.Combine(_root, "denied.json");

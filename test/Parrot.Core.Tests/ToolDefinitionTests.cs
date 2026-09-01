@@ -51,6 +51,21 @@ internal sealed class ToolDefinitionTests : IDisposable
         using var queueCreate = JsonDocument.Parse(definitions["queue_create"].ParametersJson);
         _ = await Assert.That(queueCreate.RootElement.GetProperty("properties").GetProperty("description")
             .GetProperty("description").GetString()).IsNotEmpty();
+        using var runAgentTasks = JsonDocument.Parse(definitions["run_agent_tasks"].ParametersJson);
+        var runAgentTasksSchema = runAgentTasks.RootElement;
+        _ = await Assert.That(runAgentTasksSchema.GetProperty("additionalProperties").GetBoolean()).IsFalse();
+        _ = await Assert.That(runAgentTasksSchema.GetProperty("oneOf").GetArrayLength()).IsEqualTo(2);
+        _ = await Assert.That(runAgentTasksSchema.GetProperty("oneOf")[0].GetProperty("required")[0].GetString())
+            .IsEqualTo("path");
+        _ = await Assert.That(runAgentTasksSchema.GetProperty("oneOf")[1].GetProperty("required")[0].GetString())
+            .IsEqualTo("artifact");
+        var artifact = runAgentTasksSchema.GetProperty("$defs").GetProperty("artifact");
+        _ = await Assert.That(artifact.GetProperty("additionalProperties").GetBoolean()).IsFalse();
+        _ = await Assert.That(artifact.GetProperty("properties").GetProperty("schema_version").GetProperty("const").GetInt32())
+            .IsEqualTo(1);
+        var task = runAgentTasksSchema.GetProperty("$defs").GetProperty("task");
+        _ = await Assert.That(task.GetProperty("properties").GetProperty("payload").GetProperty("oneOf")[1]
+            .GetProperty("items").GetProperty("$ref").GetString()).IsEqualTo("#/$defs/task");
         using var wait = JsonDocument.Parse(definitions["wait"].ParametersJson);
         _ = await Assert.That(wait.RootElement.GetProperty("properties").GetProperty("duration_ms")
             .GetProperty("maximum").GetInt64()).IsEqualTo(4_294_967_294);

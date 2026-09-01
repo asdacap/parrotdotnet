@@ -18,6 +18,8 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     private readonly Dictionary<string, (string ToolName, long Order)> _foldedTools = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ILiveBufferItem> _toolLive = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ulong> _toolProgressRevisions = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _terminalTools = new(StringComparer.Ordinal);
     private readonly StringBuilder _response = new();
 
     private bool _terminalCommitted;
@@ -147,6 +149,11 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public void CollectToolCall(ToolCallChunk chunk)
     {
+        if (_terminalTools.Contains(chunk.ToolCallId))
+        {
+            return;
+        }
+
         if (!_toolCalls.TryGetValue(chunk.ToolCallId, out var toolCall))
         {
             toolCall = (chunk.ToolName, new StringBuilder());
@@ -158,11 +165,20 @@ internal sealed class AgentSessionState(string agentSessionId)
 
         _ = toolCall.Arguments.Append(chunk.ArgumentsFragment);
         _toolCalls[chunk.ToolCallId] = toolCall;
-        _ = _toolLive.Remove(chunk.ToolCallId);
+        if (!_toolProgressRevisions.ContainsKey(chunk.ToolCallId))
+        {
+            _ = _toolLive.Remove(chunk.ToolCallId);
+        }
     }
 
     public string? StartTool(ToolStarted tool, bool foldIntoAgentStatus)
     {
+        var activityId = ToolActivityPrefix + tool.ToolCallId;
+        if (_activities.Contains(activityId) || _terminalTools.Contains(tool.ToolCallId))
+        {
+            return null;
+        }
+
         if (!_toolCalls.TryGetValue(tool.ToolCallId, out var toolCall))
         {
             toolCall = (tool.ToolName, new StringBuilder());
@@ -175,11 +191,8 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
 
         _ = _toolLive.Remove(tool.ToolCallId);
-        var activityId = ToolActivityPrefix + tool.ToolCallId;
-        if (!_activities.Add(activityId))
-        {
-            return null;
-        }
+        _ = _toolProgressRevisions.Remove(tool.ToolCallId);
+        _ = _activities.Add(activityId);
 
         if (foldIntoAgentStatus)
         {
@@ -195,7 +208,29 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public bool IsToolActive(string toolCallId) => _activities.Contains(ToolActivityPrefix + toolCallId);
 
-    public void RefreshToolPresentations() => _toolLive.Clear();
+    public void RefreshToolPresentations()
+    {
+        foreach (var toolCallId in _toolLive.Keys.Where(toolCallId => !_toolProgressRevisions.ContainsKey(toolCallId)).ToArray())
+        {
+            _ = _toolLive.Remove(toolCallId);
+        }
+    }
+
+    public bool OfferAgentTaskProgress(AgentTaskProgressSnapshot snapshot)
+    {
+        var toolCallId = snapshot.OriginToolCallId;
+        if (!IsToolActive(toolCallId)
+            || !_toolCalls.TryGetValue(toolCallId, out var call)
+            || !string.Equals(call.Name, "run_agent_tasks", StringComparison.Ordinal)
+            || (_toolProgressRevisions.TryGetValue(toolCallId, out var revision) && snapshot.Revision <= revision))
+        {
+            return false;
+        }
+
+        _toolProgressRevisions[toolCallId] = snapshot.Revision;
+        _toolLive[toolCallId] = new AgentTaskProgressLiveValue(snapshot.Clone());
+        return true;
+    }
 
     public (string ActivityId, IScrollbackItem? Scrollback, ToolCallPresentation Call, ToolTerminalPresentation Terminal) FinishTool(
         Event published,
@@ -204,6 +239,8 @@ internal sealed class AgentSessionState(string agentSessionId)
     {
         var (toolCallId, toolName) = GetTerminalTool(published);
         _ = _toolLive.Remove(toolCallId);
+        _ = _toolProgressRevisions.Remove(toolCallId);
+        _ = _terminalTools.Add(toolCallId);
         if (!_toolCalls.Remove(toolCallId, out var toolCall))
         {
             toolCall = (toolName, new StringBuilder());

@@ -229,7 +229,9 @@ payloads can replace a run's effective subtree without changing that approved
 hierarchy. Choosing implementation changes to build mode with both approved
 paths and directs it to call `run_agent_tasks` with the JSON path. The tool
 reopens and validates that regular, non-symbolic-link file at invocation time;
-approval does not make a later changed artifact trusted.
+approval does not make a later changed artifact trusted. This approved workflow
+remains path-based even though callers may also submit an embedded artifact
+directly.
 
 The v1 artifact has this strict envelope:
 
@@ -258,9 +260,35 @@ are distinct, must name another task in the same sibling list, and may not be
 self-references or cycles; a task cannot depend on a nested task or a task in
 another branch.
 
-`run_agent_tasks` runs an approved graph synchronously. For every task role it
-creates a fresh, retained-only child using the `worker` profile, so internal
-research, execution, and review completion does not steer the invoking agent.
+`run_agent_tasks` requires exactly one graph source. A `path` names a readable
+regular non-symbolic-link artifact and is checked against the invoking security
+profile before it is reopened and parsed. Alternatively, `artifact` embeds the
+v1 object directly; embedded input is parsed in memory and performs no
+filesystem read or read-permission check:
+
+```json
+{
+  "artifact": {
+    "schema_version": 1,
+    "tasks": [
+      {
+        "name": "compile",
+        "description": "Build the approved change.",
+        "payload": "Implement and verify the change.",
+        "acceptance_criteria": "The focused build succeeds."
+      }
+    ]
+  }
+}
+```
+
+Both forms enter the same strict AgentTask parser, and supplying both or neither
+is rejected. Plan-approved builds continue to use the path form so their
+invocation-time file and security checks are preserved.
+
+`run_agent_tasks` runs the graph synchronously. For every task role it creates a
+fresh, retained-only child using the `worker` profile, so internal research,
+execution, and review completion does not steer the invoking agent.
 These children do not inherit conversational context, but they use the same
 workspace and the normal user-session-scoped runtime resources. A task's
 `model`, when present, is routed through normal model resolution; otherwise its
@@ -304,11 +332,18 @@ effective subtree, so stale attempt descendants are not retained. Cancellation
 publishes a final snapshot after runner-owned children have been joined, then
 propagates cancellation.
 
-Both CLI modes append and flush each complete snapshot as permanent output; the
-tree is not live-replaced or removed. Snapshots are self-contained, but the
-stream provides no replay or resume guarantee for a client that was not
-listening. The ordinary `ToolStarted`/`ToolFinished` lifecycle and the final
-hierarchical JSON result are unchanged; progress snapshots supplement them.
+Both CLI modes append and flush each complete snapshot as permanent output;
+that history is not replaced or removed. In addition, the persistent enhanced
+CLI projects the latest snapshot into the matching active `run_agent_tasks`
+live row. The row begins with a neutral label that exposes neither the path nor
+an embedded artifact, then becomes a bounded, sanitized tree when progress
+arrives. Only strictly newer revisions for the same agent session and origin
+tool-call id update it; terminal cleanup removes it, and stale or late events do
+not resurrect it. Live truncation does not change the complete snapshot or its
+permanent tree. Snapshots are self-contained, but the stream provides no replay
+or resume guarantee for a client that was not listening. The ordinary
+`ToolStarted`/`ToolFinished` lifecycle and the final hierarchical JSON result
+are unchanged; progress snapshots supplement them.
 
 ## Image attachments
 

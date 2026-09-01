@@ -23,31 +23,71 @@ internal sealed class RunAgentTasksTool(
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
-        string path;
+        Input input;
         try
         {
-            var input = JsonSerializer.Deserialize(
+            input = JsonSerializer.Deserialize(
                 invocation.ArgumentsJson,
                 RunAgentTasksToolJsonContext.Default.RunAgentTasksToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
-            path = input.Path ?? throw new FormatException("Tool arguments require a string 'path'.");
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                throw new FormatException("Tool arguments require a nonblank string 'path'.");
-            }
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
             return $"error: {failure.Message}";
         }
 
+        var hasPathSource = input.Path.ValueKind != JsonValueKind.Undefined;
+        var hasArtifactSource = input.Artifact.ValueKind != JsonValueKind.Undefined;
+        if (hasPathSource == hasArtifactSource)
+        {
+            return hasPathSource
+                ? "error: Tool arguments require exactly one nonblank 'path' or non-null 'artifact'."
+                : "error: Tool arguments require a string 'path'.";
+        }
+
+        string? path = null;
+        if (hasPathSource)
+        {
+            if (input.Path.ValueKind != JsonValueKind.String)
+            {
+                return "error: Tool arguments require a string 'path'.";
+            }
+
+            path = input.Path.GetString();
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return "error: Tool arguments require a nonblank string 'path'.";
+            }
+        }
+
+        if (hasArtifactSource && input.Artifact.ValueKind == JsonValueKind.Null)
+        {
+            return "error: Tool arguments require exactly one nonblank 'path' or non-null 'artifact'.";
+        }
+
         AgentTaskArtifact artifact;
         try
         {
-            await using var stream = workspace.OpenRegularReadWithoutLinks(path, selection.SecurityProfile);
-            using var reader = new StreamReader(stream);
-            var json = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-            artifact = AgentTaskParser.ParseArtifact(json);
+            if (hasArtifactSource)
+            {
+                if (input.Artifact.ValueKind != JsonValueKind.Object)
+                {
+                    return "error: artifact must be an object.";
+                }
+
+                artifact = AgentTaskParser.ParseArtifact(input.Artifact.GetRawText());
+            }
+            else if (path is { } selectedPath)
+            {
+                await using var stream = workspace.OpenRegularReadWithoutLinks(selectedPath, selection.SecurityProfile);
+                using var reader = new StreamReader(stream);
+                var json = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+                artifact = AgentTaskParser.ParseArtifact(json);
+            }
+            else
+            {
+                throw new InvalidOperationException("AgentTask source validation did not select an input.");
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -85,6 +125,9 @@ internal sealed class RunAgentTasksTool(
     internal sealed class Input
     {
         [JsonPropertyName("path")]
-        public string? Path { get; init; }
+        public JsonElement Path { get; init; }
+
+        [JsonPropertyName("artifact")]
+        public JsonElement Artifact { get; init; }
     }
 }

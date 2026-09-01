@@ -346,6 +346,8 @@ internal sealed class RawActivityView(
                     break;
                 case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
                 {
+                    _ = GetAgentSession(published.AgentSessionId)
+                        .OfferAgentTaskProgress(published.AgentTaskProgressSnapshot);
                     IScrollbackItem tree = new AgentTaskProgressScrollbackValue(
                         published.AgentTaskProgressSnapshot);
                     if (_hierarchy.IsChild(published.AgentSessionId))

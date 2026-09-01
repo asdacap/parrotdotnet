@@ -34,6 +34,7 @@ internal partial class EnhancedComposition
                     new GrepToolPresenter(),
                     new InterruptProcessToolPresenter(),
                     new ReadToolPresenter(),
+                    new RunAgentTasksToolPresenter(),
                     new QuestionToolPresenter(),
                     new SetCheckpointToolPresenter(),
                     new QueuePushToolPresenter(),
