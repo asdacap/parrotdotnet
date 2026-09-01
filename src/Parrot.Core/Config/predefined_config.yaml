@@ -779,52 +779,6 @@ tools:
     parameters:
       type: object
       additionalProperties: false
-  todoread:
-    description: Read the current session's ordered todo list.
-    parameters:
-      type: object
-      additionalProperties: false
-  todowrite:
-    description: Transactionally replace the current session's ordered todo list.
-    parameters:
-      type: object
-      properties:
-        todos:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: string
-                description: Stable todo identifier. Omit it when adding a new todo.
-              content:
-                type: string
-                minLength: 1
-                description: Todo text.
-              status:
-                type: string
-                enum:
-                - pending
-                - in_progress
-                - completed
-                - cancelled
-                description: Current todo state.
-              priority:
-                type: string
-                enum:
-                - high
-                - medium
-                - low
-                description: Todo urgency.
-            required:
-            - content
-            - status
-            - priority
-            additionalProperties: false
-          description: Complete ordered todo list that replaces the current list.
-      required:
-      - todos
-      additionalProperties: false
   run_agent_tasks:
     description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only worker children and return hierarchical JSON evidence.
     parameters:

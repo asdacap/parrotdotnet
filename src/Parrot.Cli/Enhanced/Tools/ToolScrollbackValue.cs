@@ -46,7 +46,7 @@ internal sealed class ToolScrollbackValue(
         var maximumLines = Report.Block.Kind switch
         {
             ToolBlockKind.Diff => DiffScrollbackValue.MaximumRows + 2,
-            ToolBlockKind.Code or ToolBlockKind.Todos or ToolBlockKind.CompletedInput => 100,
+            ToolBlockKind.Code or ToolBlockKind.CompletedInput => 100,
             ToolBlockKind.Queue => 30,
             _ => 10,
         };
@@ -111,7 +111,6 @@ internal sealed class ToolScrollbackValue(
                 context,
                 "… diff output truncated"),
             ToolBlockKind.Code => RenderCode(context, maximumLines),
-            ToolBlockKind.Todos => RenderTodos(context, maximumLines),
             ToolBlockKind.Queue => ToolDisplayText.LayoutDetails(
                 [Report.Block.Text], context.Columns, maximumLines, maximumLines),
             ToolBlockKind.CompletedInput => RenderCompletedInput(context, maximumLines),
@@ -140,17 +139,6 @@ internal sealed class ToolScrollbackValue(
         }
 
         return Bound(rendered, maximumLines, context, "… code output truncated");
-    }
-
-    private IEnumerable<string> RenderTodos(ScrollbackRenderContext context, int maximumLines)
-    {
-        var lines = ToolDisplayText.LayoutDetails([Report.Block.Text], context.Columns, maximumLines);
-        return lines.Select(line => line.TrimStart() switch
-        {
-            ['✓', ..] => context.Palette.Success.Apply(line),
-            ['■', ..] => context.Palette.Muted.Apply(line),
-            _ => line,
-        });
     }
 
     private IReadOnlyList<string> RenderCompletedInput(ScrollbackRenderContext context, int maximumLines)

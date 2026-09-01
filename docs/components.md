@@ -770,13 +770,10 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 
 ### `AgentSession` — todos (ported 2026-07-24)
 
-`TodoCollection` is the session-owned todo sub-object. `todoread` returns its
-ordered durable state, while `todowrite` validates and transactionally replaces
-the complete list, assigning ids and positions where required. A successful
-replacement records a `TodoUpdated` event in the same database transaction and
-then publishes it, so persisted state and replay cannot disagree. Todo rows and
-events are scoped by agent session; the tools reach the sub-object through the
-`AgentSession` they are constructed for rather than through a separate service.
+`TodoCollection` is the session-owned durable todo sub-object. It retains its
+storage and `TodoUpdated` protocol infrastructure for persisted state and
+replay compatibility. Todo rows and events are scoped by agent session. There
+is no replacement public interface for this retained infrastructure.
 
 ### `AgentSession` — admitted input and the drain (ported 2026-07-24)
 

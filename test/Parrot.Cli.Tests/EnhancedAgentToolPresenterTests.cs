@@ -3,7 +3,7 @@ using Parrot.Cli.Enhanced.Tools;
 
 namespace Parrot.Cli.Tests;
 
-internal sealed class EnhancedAgentTodoToolPresenterTests
+internal sealed class EnhancedAgentToolPresenterTests
 {
     private static readonly LiveBufferRenderContext LiveContext = new(512, new TerminalPalette(false));
     private static readonly ScrollbackRenderContext ScrollbackContext = new(512, new TerminalPalette(false));
@@ -37,22 +37,6 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
             "checkpoint set",
             "main: Set checkpoint before refactor",
             "✓ main: Set checkpoint before refactor",
-        ];
-        yield return () =>
-        [
-            new TodoReadToolPresenter(),
-            new ToolCallPresentation("main", "todoread", "{}"),
-            "[{\"content\":\"ship it\",\"status\":\"pending\"}]",
-            "main: Todo list",
-            "✓ main: Todo list|  ○ ship it",
-        ];
-        yield return () =>
-        [
-            new TodoWriteToolPresenter(),
-            new ToolCallPresentation("main", "todowrite", "{\"todos\":[{\"content\":\"ship it\",\"status\":\"pending\",\"priority\":\"high\"}]}"),
-            "[{\"content\":\"ship it\",\"status\":\"completed\",\"priority\":\"low\"}]",
-            "main: TODO · 1 item|  ○ high · ship it",
-            "✓ main: TODO · 1 item|  ✓ low · ship it",
         ];
     }
 
@@ -163,24 +147,6 @@ internal sealed class EnhancedAgentTodoToolPresenterTests
         _ = await Assert.That(nonObject[0]).IsEqualTo("✓ main: Send to known-before-send");
         _ = await Assert.That(failed[0]).IsEqualTo("✗ main: Send to known-before-send");
         _ = await Assert.That(string.Join('|', failed)).Contains("error: unavailable");
-    }
-
-    [Test]
-    public async Task Todo_write_renders_priorities_and_empty_lists_like_the_reference_client()
-    {
-        var presenter = new TodoWriteToolPresenter();
-        var call = new ToolCallPresentation(
-            "main",
-            "todowrite",
-            "{\"todos\":[{\"content\":\"Plan work\",\"status\":\"pending\",\"priority\":\"high\"},{\"content\":\"Implement UI\",\"status\":\"in_progress\",\"priority\":\"medium\"},{\"content\":\"Run tests\",\"status\":\"completed\",\"priority\":\"low\"},{\"content\":\"Discard old approach\",\"status\":\"cancelled\",\"priority\":\"low\"}]}");
-        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "[]", string.Empty);
-
-        var live = presenter.PresentLive(call, 0).Render(LiveContext).Lines.Select(line => line.Text);
-        var completed = (presenter.PresentTerminal(call, terminal)
-            ?? throw new InvalidOperationException("Presenter did not render terminal output")).Render(ScrollbackContext);
-
-        _ = await Assert.That(string.Join('|', live)).Contains("○ high · Plan work|  ◐ medium · Implement UI|  ✓ low · Run tests|  ■ low · Discard old approach");
-        _ = await Assert.That(string.Join('|', completed)).Contains("✓ main: TODO · 0 items|  No todos");
     }
 
     [Test]

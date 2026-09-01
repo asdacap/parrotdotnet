@@ -39,8 +39,6 @@ internal partial class EnhancedComposition
                     new SetCheckpointToolPresenter(),
                     new QueuePushToolPresenter(),
                     new QueueTakeToolPresenter(),
-                    new TodoReadToolPresenter(),
-                    new TodoWriteToolPresenter(),
                     new WaitToolPresenter(),
                     new WaitAgentToolPresenter(),
                     new WaitProcessToolPresenter(),

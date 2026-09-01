@@ -27,9 +27,6 @@ internal readonly record struct ToolBlock(
     public static ToolBlock FromCode(string text, string language, string path, int line) =>
         new(ToolBlockKind.Code, text, language, path, line);
 
-    public static ToolBlock FromTodos(string text) =>
-        new(ToolBlockKind.Todos, text, string.Empty, string.Empty, 0);
-
     public static ToolBlock FromQueue(IEnumerable<string> items) =>
         FromQueue(string.Join('\n', items));
 

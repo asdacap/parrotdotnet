@@ -68,7 +68,6 @@ internal readonly record struct ToolTerminalPresentation(
         return successKind switch
         {
             ToolBlockKind.Diff => ToolBlock.FromDiff(Result),
-            ToolBlockKind.Todos => ToolBlock.FromTodos(Result),
             ToolBlockKind.Text => ToolBlock.FromText(Result),
             _ => ToolBlock.Empty,
         };

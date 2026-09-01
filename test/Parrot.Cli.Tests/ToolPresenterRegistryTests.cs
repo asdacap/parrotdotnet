@@ -116,19 +116,27 @@ internal sealed class ToolPresenterRegistryTests
     }
 
     [Test]
-    public async Task Structured_presenters_fall_back_to_the_compact_spill_notice()
+    public async Task Historical_todo_calls_use_the_generic_presenter_for_malformed_input_and_spill_output()
     {
-        var registry = new ToolPresenterRegistry([new TodoReadToolPresenter()], new GenericToolPresenter());
-        const string notice =
-            "Tool output exceeded 64 KiB and was saved to /tmp/output.";
+        var generic = new GenericToolPresenter();
+        var registry = new ToolPresenterRegistry([], generic);
+        const string notice = "Tool output exceeded 64 KiB and was saved to /tmp/output.";
+        var live = registry.PresentLive(new ToolCallPresentation("main", "todoread", "not json"), 0)
+            .Render(LiveContext).Lines.Select(line => line.Text);
         var presented = registry.PresentTerminal(
-            new ToolCallPresentation("main", "todoread", "{}"),
+            new ToolCallPresentation("main", "todowrite", "not json"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, notice, string.Empty))
-            ?? throw new InvalidOperationException("The fallback presenter must render terminal output.");
-
+            ?? throw new InvalidOperationException("The generic presenter must render terminal output.");
         var rendered = presented.Render(ScrollbackContext);
 
-        _ = await Assert.That(string.Join('\n', rendered)).Contains(notice);
+        var liveText = string.Join('\n', live);
+        var renderedText = string.Join('\n', rendered);
+
+        _ = await Assert.That(liveText).Contains("main: todoread");
+        _ = await Assert.That(liveText).Contains("not json");
+        _ = await Assert.That(renderedText).Contains("main: tool call todowrite");
+        _ = await Assert.That(renderedText).Contains("not json");
+        _ = await Assert.That(renderedText).Contains(notice);
     }
 
     [Test]
@@ -223,20 +231,12 @@ internal sealed class ToolPresenterRegistryTests
         var read = new ReadToolPresenter().PresentTerminal(
             new ToolCallPresentation("main", "read", "{\"path\":\"src/App.cs\",\"offset\":12}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "12: class App", string.Empty));
-        var todos = new TodoReadToolPresenter().PresentTerminal(
-            new ToolCallPresentation("main", "todoread", "{}"),
-            new ToolTerminalPresentation(
-                ToolTerminalStatus.Succeeded,
-                true,
-                "[{\"content\":\"ship it\",\"status\":\"in_progress\"}]",
-                string.Empty));
         var wait = new WaitAgentToolPresenter();
 
         var spawnReport = ((IToolPresentationValue)(spawn
             ?? throw new InvalidOperationException("Spawn report missing."))).Report;
         var readReport = ((IToolPresentationValue)read).Report;
         var readLines = read.Render(new ScrollbackRenderContext(32_768, new TerminalPalette(true)));
-        var todoReport = ((IToolPresentationValue)todos).Report;
 
         _ = await Assert.That(spawnReport.Block.Kind).IsEqualTo(ToolBlockKind.CompletedInput);
         _ = await Assert.That(readReport.Block.Kind).IsEqualTo(ToolBlockKind.None);
@@ -244,7 +244,6 @@ internal sealed class ToolPresenterRegistryTests
         _ = await Assert.That(readLines).Count().IsEqualTo(1);
         _ = await Assert.That(readLines[0]).Contains("\u001b[38;5;245m✓ main: read src/App.cs\u001b[0m");
         _ = await Assert.That(string.Join('\n', readLines)).DoesNotContain("12: class App");
-        _ = await Assert.That(todoReport.Block.Kind).IsEqualTo(ToolBlockKind.Todos);
         _ = await Assert.That(spawnReport.Metadata.SuccessIcon).IsEqualTo("♟");
         _ = await Assert.That(spawnReport.Metadata.TerminalOnly).IsTrue();
         _ = await Assert.That(wait.Metadata.LiveOnly).IsTrue();

@@ -95,8 +95,6 @@ internal sealed class AgentSessionFactory(
         new WaitAgentToolFactory(owner.Registry),
         new WaitToolFactory(owner.Status, owner.TimeProvider),
         new StatusToolFactory(owner.Status),
-        new TodoReadToolFactory(),
-        new TodoWriteToolFactory(),
         new QueueCreateToolFactory(),
         new QueueInfoToolFactory(),
         new QueueListenToolFactory(),
