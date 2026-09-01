@@ -123,7 +123,7 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
-    public async Task Child_agent_task_progress_commits_each_tree_with_hierarchy_without_live_rows(
+    public async Task Child_agent_task_progress_without_an_active_tool_is_not_rendered(
         CancellationToken cancellationToken)
     {
         var committed = new List<string>();
@@ -176,9 +176,7 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
 
-        _ = await Assert.That(committed).Count().IsEqualTo(2);
-        _ = await Assert.That(committed[0]).IsEqualTo("  • [worker] Agent tasks:|    [worker] ◐ root|    [worker] ├── ○ child-a|    [worker] └── ✗ child-b");
-        _ = await Assert.That(committed[1]).IsEqualTo("  • [worker] Agent tasks:|    [worker] ✓ root|    [worker] ├── ○ child-a|    [worker] └── ✗ child-b");
+        _ = await Assert.That(committed).IsEmpty();
         _ = await Assert.That(string.Join('|', drawn)).DoesNotContain("Agent tasks:");
     }
 
@@ -1172,7 +1170,7 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
-    public async Task Active_agent_task_progress_updates_live_only_for_its_current_call_and_commits_every_snapshot(
+    public async Task Active_agent_task_progress_replaces_the_current_call_without_committing_snapshots(
         CancellationToken cancellationToken)
     {
         var drawn = new List<string>();
@@ -1228,13 +1226,12 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(drawn[^1]).Contains("◐ first");
         await view.Render(ProgressEvent("child", TaskSnapshot("call", 2, "higher")), cancellationToken);
         _ = await Assert.That(drawn[^1]).Contains("◐ higher");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("◐ first");
 
+        var drawCount = drawn.Count;
         await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "stale")), cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
         await view.Render(ProgressEvent("child", TaskSnapshot("wrong", 99, "wrong")), cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
-        _ = await Assert.That(string.Join('|', committed)).Contains("◐ stale");
-        _ = await Assert.That(string.Join('|', committed)).Contains("◐ wrong");
+        _ = await Assert.That(drawn).Count().IsEqualTo(drawCount);
 
         await view.Render(
             new Event
@@ -1263,10 +1260,10 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(ProgressEvent("child", TaskSnapshot("call", 3, "late")), cancellationToken);
         _ = await Assert.That(drawn[^1]).DoesNotContain("Agent tasks:");
 
-        _ = await Assert.That(committed).Count().IsEqualTo(6);
-        _ = await Assert.That(committed[0]).Contains("[worker] ◐ first");
-        _ = await Assert.That(committed[1]).Contains("[worker] ◐ higher");
-        _ = await Assert.That(committed[5]).Contains("[worker] ◐ late");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("Agent tasks:");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("◐ stale");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("◐ wrong");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("◐ late");
     }
 
     private static Event ProgressEvent(string agentSessionId, AgentTaskProgressSnapshot snapshot) =>

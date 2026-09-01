@@ -783,6 +783,47 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    public async Task Turn_view_agent_task_progress_replaces_the_previous_tree(
+        CancellationToken cancellationToken)
+    {
+        var replacements = new List<string>();
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(80, new TerminalPalette(false));
+
+        Task Replace(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            replacements.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines)
+                .Select(static line => line.Text)));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(new ScrollbackRenderContext(80, liveContext.Palette))));
+            return Task.CompletedTask;
+        }
+
+        using var error = new StringWriter();
+        var view = new EnhancedTurnView(Replace, Commit, error, static () => 80, true, false, new ForegroundTurn(), Presenters());
+        _ = await view.Render(new Event { AgentTaskProgressSnapshot = Progress("first", AgentTaskProgressStatus.Running) }, cancellationToken);
+        _ = await view.Render(new Event { AgentTaskProgressSnapshot = Progress("latest", AgentTaskProgressStatus.Succeeded) }, cancellationToken);
+
+        _ = await Assert.That(replacements).Count().IsEqualTo(2);
+        _ = await Assert.That(replacements[^1]).Contains("✓ latest");
+        _ = await Assert.That(replacements[^1]).DoesNotContain("first");
+        _ = await Assert.That(committed).IsEmpty();
+
+        static AgentTaskProgressSnapshot Progress(string name, AgentTaskProgressStatus status)
+        {
+            var snapshot = new AgentTaskProgressSnapshot();
+            snapshot.RootNodes.Add(new AgentTaskProgressNode { Name = name, Status = status });
+            return snapshot;
+        }
+    }
+
+    [Test]
     public async Task Cancel_retries_the_same_stream_completion_after_commit_cancellation(
         CancellationToken cancellationToken)
     {

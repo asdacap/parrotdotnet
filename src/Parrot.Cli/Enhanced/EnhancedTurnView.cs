@@ -94,8 +94,8 @@ internal sealed class EnhancedTurnView(
             case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
                 if (renderActivityEvents)
                 {
-                    await Commit(
-                        new AgentTaskProgressScrollbackValue(published.AgentTaskProgressSnapshot),
+                    await replace(
+                        [new AgentTaskProgressLiveValue(published.AgentTaskProgressSnapshot.Clone())],
                         cancellationToken).ConfigureAwait(false);
                 }
 

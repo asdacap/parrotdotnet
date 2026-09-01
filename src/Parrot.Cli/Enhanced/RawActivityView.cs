@@ -355,19 +355,13 @@ internal sealed class RawActivityView(
                     await FinishTool(published, cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
-                {
-                    _ = GetAgentSession(published.AgentSessionId)
-                        .OfferAgentTaskProgress(published.AgentTaskProgressSnapshot);
-                    IScrollbackItem tree = new AgentTaskProgressScrollbackValue(
-                        published.AgentTaskProgressSnapshot);
-                    if (_hierarchy.IsChild(published.AgentSessionId))
+                    if (GetAgentSession(published.AgentSessionId)
+                        .OfferAgentTaskProgress(published.AgentTaskProgressSnapshot))
                     {
-                        tree = Wrap(GetNamedAgentSession(published.AgentSessionId), tree, null);
+                        await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     }
 
-                    await commit(tree, Snapshot(), cancellationToken).ConfigureAwait(false);
                     break;
-                }
 
                 case Event.PayloadOneofCase.ReasoningChunk:
                 {

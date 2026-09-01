@@ -429,7 +429,7 @@ internal sealed class EnhancedTurnRendererTests
     }
 
     [Test]
-    public async Task Agent_task_progress_snapshots_commit_complete_sanitized_trees_without_live_replacement(
+    public async Task Agent_task_progress_snapshots_are_not_committed_by_standalone_turn_rendering(
         CancellationToken cancellationToken)
     {
         var first = Snapshot(AgentTaskProgressStatus.Running, "work\u001b[2J\t日本");
@@ -443,18 +443,7 @@ internal sealed class EnhancedTurnRendererTests
 
         _ = await Assert.That(completed).IsFalse();
         _ = await Assert.That(error).IsEmpty();
-        _ = await Assert.That(Count(output, "Agent ta")).IsEqualTo(2);
-        _ = await Assert.That(Count(output, "sks:")).IsEqualTo(2);
-        _ = await Assert.That(output).Contains("◐ work[2");
-        _ = await Assert.That(output).Contains("✓ work[2");
-        _ = await Assert.That(output).Contains("├── ○ pe");
-        _ = await Assert.That(output).Contains("├── ✓ su");
-        _ = await Assert.That(output).Contains("├── ✗ fa");
-        _ = await Assert.That(output).Contains("├── ⊘ bl");
-        _ = await Assert.That(output).Contains("└── ■ ca");
-        _ = await Assert.That(output).Contains("日\r\n本");
-        _ = await Assert.That(output).DoesNotContain("\u001b[2J");
-        _ = await Assert.That(UntrustedEscape(output)).IsFalse();
+        _ = await Assert.That(output).IsEmpty();
     }
 
     private static AgentTaskProgressSnapshot Snapshot(AgentTaskProgressStatus rootStatus, string rootName)
