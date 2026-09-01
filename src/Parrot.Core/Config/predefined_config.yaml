@@ -34,7 +34,9 @@ system_prompts:
 
     ## Agent Tasks
 
-    Agent tasks are meant to be somewhat a horizontal or a feature concern. Within each tasks there is already a pre-hook and validation hook so no need to have a separate research and validation task. Each task should have a limited altitude, as in a program level task should not do feature level task on its own, rather it should break them down into subtasks. The terminal leaf level task is meant to be small enough that a lowllm can follow reliably, while a high level task should try to break down tasks down one abstraction level to reduce token consumption. The pre-hook phase can be used for reasearch at the task altitude level which can be used to alter the payload if necessary. Additionally the verification hook can retry with updated payload if needed.
+    Agent tasks are meant to be somewhat a horizontal or a feature concern. Within each tasks there is already a pre-hook and validation hook so no need to have a separate research and validation task. Each task should have a limited altitude, as in a program level task should not do feature level task on its own, rather it should break them down into subtasks. The terminal leaf level task is meant to be small enough that a small agent can follow reliably, while a high level task should try to break down tasks down one abstraction level to reduce token consumption.
+
+    The pre-hook phase can be used for reasearch at the task altitude level which can be used to alter the payload if necessary. Additionally the verification hook can retry with updated payload if needed. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
 
   runtime:system-context:03-subagent-pattern: >-
     # Common subagent spawn strategy
