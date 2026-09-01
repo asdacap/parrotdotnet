@@ -14,7 +14,9 @@ internal sealed class ShellProcessLiveValue(
         var elapsedSinceSnapshot = timeProvider.GetElapsedTime(observedTimestamp);
         var elapsedMilliseconds = Math.Max(0L, process.ElapsedMs + (long)elapsedSinceSnapshot.TotalMilliseconds);
         var name = process.Name.Length == 0 ? process.ProcessId : process.Name;
-        var label = $"{process.OwnerAgentName}: $ {process.Command} (process {name} running {Format(elapsedMilliseconds)})";
+        var label = HierarchicalActivityValue.RemoveOwner(
+            $"{process.OwnerAgentName}: $ {process.Command} (process {name} running {Format(elapsedMilliseconds)})",
+            context.ActivityOwner);
         var marker = TerminalIcons.SpinnerFrames[frame % TerminalIcons.SpinnerFrames.Length];
         var lines = TerminalText.Layout($"{marker} {TerminalText.Sanitize(label)}", context.Columns)
             .Take(10)

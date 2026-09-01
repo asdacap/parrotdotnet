@@ -19,9 +19,17 @@ internal sealed class HierarchicalScrollbackValue(
 
     public IReadOnlyList<string> Render(ScrollbackRenderContext context)
     {
-        var prefixWidth = (depth * 2) + (label is null ? 0 : label.Length + 3);
-        return [.. value.Render(context with { Columns = Math.Max(1, context.Columns - prefixWidth) })
-            .Select((line, index) =>
-                HierarchicalActivityValue.Format(line, depth, label, owner, successfulIcon, string.Empty, index == 0))];
+        var decoration = HierarchicalActivityValue.Describe(context.Columns, depth, label, string.Empty);
+        return [.. value.Render(context with
+            {
+                Columns = Math.Max(1, context.Columns - decoration.Width + 2),
+                ActivityOwner = owner,
+            })
+            .Select((line, index) => HierarchicalActivityValue.Decorate(
+                line,
+                decoration,
+                successfulIcon,
+                index == 0,
+                context.Columns).Text)];
     }
 }

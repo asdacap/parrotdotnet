@@ -333,7 +333,7 @@ internal sealed class TerminalInputTests
         _ = await Assert.That(prompt.Caret).IsEqualTo(new LiveBufferCaret(2, 2));
         _ = await Assert.That(prompt.Retention).IsEqualTo(LiveBufferRetention.Caret);
         _ = await Assert.That(modeline.Retention).IsEqualTo(LiveBufferRetention.Fixed);
-        _ = await Assert.That(spinner.Lines[0].Text).IsEqualTo("⠋ work[2J");
+        _ = await Assert.That(spinner.Lines[0].Text).IsEqualTo("⠋ wo");
         _ = await Assert.That(text.Lines.Count).IsEqualTo(2);
         _ = await Assert.That(text.Retention).IsEqualTo(LiveBufferRetention.Tail);
     }

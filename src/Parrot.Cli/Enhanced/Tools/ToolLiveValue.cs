@@ -51,9 +51,10 @@ internal sealed class ToolLiveValue : ILiveBufferItem, IToolPresentationValue
     {
         var lines = new List<TerminalLine>();
         var marker = Frames[_frame % Frames.Length];
+        var activityLabel = HierarchicalActivityValue.RemoveOwner(Report.Label, context.ActivityOwner);
         var label = _runningDuration is null
-            ? Report.Label
-            : $"{Report.Label} (running {_runningDuration.Format()})";
+            ? activityLabel
+            : $"{activityLabel} (running {_runningDuration.Format()})";
         var header = TerminalText.Layout($"{marker} {label}", context.Columns).Take(10).ToArray();
         lines.AddRange(header.Select(value => new TerminalLine(value, context.Palette.Marker)));
         var detailLines = ToolDisplayText.LayoutDetails(
