@@ -289,6 +289,23 @@ no rollback and no resume facility. Parallel tasks share one workspace, so the
 planner must express dependencies for any mutation ordering; the scheduler
 cannot make undeclared concurrent writes safe.
 
+While the graph runs, the server also emits additive `AgentTaskProgressSnapshot`
+events. Each event is a complete, ordered tree for one `run_agent_tasks` call,
+not a delta: an initial snapshot contains every task as pending, and subsequent
+snapshots are emitted when tasks become running, reach a terminal state, become
+blocked, or their effective subtree changes. The status icons are `○` pending,
+`◐` running, `✓` succeeded, `✗` failed, `⊘` blocked, and `■` canceled. Research
+patches and retry payloads replace the displayed descendants with the current
+effective subtree, so stale attempt descendants are not retained. Cancellation
+publishes a final snapshot after runner-owned children have been joined, then
+propagates cancellation.
+
+Both CLI modes append and flush each complete snapshot as permanent output; the
+tree is not live-replaced or removed. Snapshots are self-contained, but the
+stream provides no replay or resume guarantee for a client that was not
+listening. The ordinary `ToolStarted`/`ToolFinished` lifecycle and the final
+hierarchical JSON result are unchanged; progress snapshots supplement them.
+
 ## Image attachments
 
 Parrot accepts PNG, JPEG, GIF, and WebP image attachments, including bounded

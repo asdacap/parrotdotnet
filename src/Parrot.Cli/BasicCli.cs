@@ -135,7 +135,8 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.CompactionFailed or
                 Event.PayloadOneofCase.ActiveWorkReminderInjected or
                 Event.PayloadOneofCase.FinalProviderRequestPromptInjected or
-                Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected)
+                Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected or
+                Event.PayloadOneofCase.AgentTaskProgressSnapshot)
             {
                 await output.WriteLineAsync().ConfigureAwait(false);
                 textEndsLine = true;
@@ -236,6 +237,15 @@ internal sealed class BasicCli(
                     await output.WriteLineAsync(
                         $"  compaction failed: {published.CompactionFailed.Message}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
+                    foreach (var line in AgentTaskProgressFormatter.Format(published.AgentTaskProgressSnapshot))
+                    {
+                        await output.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    }
+
+                    await output.FlushAsync(cancellationToken).ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.TurnEnded:

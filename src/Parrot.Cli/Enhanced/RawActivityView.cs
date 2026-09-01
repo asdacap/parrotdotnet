@@ -344,6 +344,19 @@ internal sealed class RawActivityView(
                 case Event.PayloadOneofCase.ToolError:
                     await FinishTool(published, cancellationToken).ConfigureAwait(false);
                     break;
+                case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
+                {
+                    IScrollbackItem tree = new AgentTaskProgressScrollbackValue(
+                        published.AgentTaskProgressSnapshot);
+                    if (_hierarchy.IsChild(published.AgentSessionId))
+                    {
+                        tree = Wrap(GetNamedAgentSession(published.AgentSessionId), tree, null);
+                    }
+
+                    await commit(tree, Snapshot(), cancellationToken).ConfigureAwait(false);
+                    break;
+                }
+
                 case Event.PayloadOneofCase.ReasoningChunk:
                 {
                     var fragment = TerminalText.Sanitize(published.ReasoningChunk.Fragment);

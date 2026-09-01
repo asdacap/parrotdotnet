@@ -51,7 +51,7 @@ internal sealed class AgentSessionFactory(
                 router,
                 eventBroker,
                 eventRepository,
-                ToolFactories(workspace),
+                ToolFactories(workspace, eventBroker, eventRepository),
                 toolDefinitions,
                 owner.ShellProcesses,
                 prompts,
@@ -72,7 +72,10 @@ internal sealed class AgentSessionFactory(
         }
     }
 
-    private IReadOnlyList<IToolFactory> ToolFactories(ToolWorkspace workspace) =>
+    private IReadOnlyList<IToolFactory> ToolFactories(
+        ToolWorkspace workspace,
+        EventBroker eventBroker,
+        EventRepository eventRepository) =>
     [
         new ReadToolFactory(workspace),
         new ReadImageToolFactory(workspace, _images),
@@ -82,7 +85,7 @@ internal sealed class AgentSessionFactory(
         new EditToolFactory(workspace),
         new WebFetchToolFactory(webFetcher),
         new AgentSpawnToolFactory(owner.Registry, router),
-        new RunAgentTasksToolFactory(workspace, owner.Registry, router),
+        new RunAgentTasksToolFactory(workspace, owner.Registry, router, eventBroker, eventRepository),
         new SetCheckpointToolFactory(),
         new AgentSendToolFactory(owner.Registry),
         new WaitAgentToolFactory(owner.Registry),

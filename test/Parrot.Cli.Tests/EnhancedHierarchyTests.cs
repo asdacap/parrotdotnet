@@ -123,6 +123,66 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Child_agent_task_progress_commits_each_tree_with_hierarchy_without_live_rows(
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var drawn = new List<string>();
+        var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
+        var liveContext = new LiveBufferRenderContext(80, context.Palette);
+
+        Task Draw(IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            drawn.Add(string.Join('|', items.SelectMany(item => item.Render(liveContext).Lines).Select(line => line.Text)));
+            return Task.CompletedTask;
+        }
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(context)));
+            drawn.Add(string.Join('|', items.SelectMany(value => value.Render(liveContext).Lines).Select(line => line.Text)));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(
+            Draw,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "main", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "main", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = Snapshot(AgentTaskProgressStatus.Running),
+            },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentTaskProgressSnapshot = Snapshot(AgentTaskProgressStatus.Succeeded),
+            },
+            cancellationToken);
+
+        _ = await Assert.That(committed).Count().IsEqualTo(2);
+        _ = await Assert.That(committed[0]).IsEqualTo("  • [worker] Agent tasks:|    [worker] ◐ root|    [worker] ├── ○ child-a|    [worker] └── ✗ child-b");
+        _ = await Assert.That(committed[1]).IsEqualTo("  • [worker] Agent tasks:|    [worker] ✓ root|    [worker] ├── ○ child-a|    [worker] └── ✗ child-b");
+        _ = await Assert.That(string.Join('|', drawn)).DoesNotContain("Agent tasks:");
+    }
+
+    [Test]
     public async Task Child_completion_renders_markdown_with_hierarchy_labels(
         CancellationToken cancellationToken)
     {
@@ -1134,4 +1194,14 @@ internal sealed class EnhancedHierarchyTests
 
     private static int Count(string value, string fragment) =>
         value.Split(fragment, StringSplitOptions.None).Length - 1;
+
+    private static AgentTaskProgressSnapshot Snapshot(AgentTaskProgressStatus rootStatus)
+    {
+        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
+        var root = new AgentTaskProgressNode { Name = "root", Status = rootStatus };
+        root.Children.Add(new AgentTaskProgressNode { Name = "child-a", Status = AgentTaskProgressStatus.Pending });
+        root.Children.Add(new AgentTaskProgressNode { Name = "child-b", Status = AgentTaskProgressStatus.Failed });
+        snapshot.RootNodes.Add(root);
+        return snapshot;
+    }
 }

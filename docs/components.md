@@ -175,6 +175,23 @@ resume: concurrent ready tasks share a workspace, and dependencies are the
 planner's only mutation-ordering mechanism. Plans must declare every required
 write serialization; the scheduler cannot protect undeclared concurrent writes.
 
+**Progress snapshots.** The server emits an additive `AgentTaskProgressSnapshot`
+event for each running `run_agent_tasks` call. Every event is a complete,
+monotonically revised tree, preserving effective declaration order. The first
+snapshot is emitted before work starts with all nodes pending; later snapshots
+are emitted for running, terminal, and blocked transitions and for effective
+subtree replacement. Status icons are `○` pending, `◐` running, `✓` succeeded,
+`✗` failed, `⊘` blocked, and `■` canceled. A research patch or retry payload
+replaces the displayed descendants with the current effective subtree. On
+cancellation, the final snapshot is emitted only after runner-owned children
+have been joined, and cancellation then propagates.
+
+Both CLI modes append each complete tree to permanent output and flush it; they
+do not live-replace or remove earlier snapshots. A snapshot is self-contained,
+but the stream does not promise replay or resume to clients that were not
+listening. These events supplement the unchanged generic `ToolStarted` and
+`ToolFinished` lifecycle and unchanged final hierarchical JSON result.
+
 ### Image attachments are session-owned structured content
 
 **Input and transcript.** A prompt is an ordered `MessageContentPart` sequence, not a

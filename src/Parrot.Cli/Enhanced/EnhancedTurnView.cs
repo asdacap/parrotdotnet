@@ -91,6 +91,16 @@ internal sealed class EnhancedTurnView(
             case Event.PayloadOneofCase.QueueSnapshot:
                 break;
 
+            case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
+                if (renderActivityEvents)
+                {
+                    await Commit(
+                        new AgentTaskProgressScrollbackValue(published.AgentTaskProgressSnapshot),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                break;
+
             case Event.PayloadOneofCase.StatusInjected:
                 await Commit(
                     ImmediateScrollbackValue.Trusted([$"{Dim}↻ Status prompt injected{Reset}"]),

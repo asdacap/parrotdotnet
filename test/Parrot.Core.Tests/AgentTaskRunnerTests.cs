@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.AgentTasks;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.Store;
 
@@ -35,7 +36,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await new AgentTaskGraphRunner(registry, runtime.Router, runtime.Parent, runtime.Selection)
+        var result = await Runner(registry, runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -45,6 +46,16 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(runtime.Sessions.Identities.All(identity => identity.ParentSessionId == runtime.Parent.SessionId)).IsTrue();
         _ = await Assert.That(provider.Requests.All(request => request.Messages.Count(message => message.Role != LLMRole.System) == 1)).IsTrue();
         _ = await Assert.That(provider.Requests[1].Messages.Select(message => message.Content)).Contains(message => message.Contains("contract evidence", StringComparison.Ordinal));
+
+        var snapshots = ProgressEvents("runner-call");
+        _ = await Assert.That(string.Join(',', snapshots.Select(snapshot => snapshot.Revision)))
+            .IsEqualTo("1,2,3");
+        _ = await Assert.That(snapshots[0].RootNodes.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(snapshots[1].RootNodes.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Running);
+        _ = await Assert.That(snapshots[2].RootNodes.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Succeeded);
     }
 
     [Test]
@@ -65,7 +76,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await new AgentTaskGraphRunner(registry, runtime.Router, runtime.Parent, runtime.Selection)
+        var result = await Runner(registry, runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -94,7 +105,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await new AgentTaskGraphRunner(registry, runtime.Router, runtime.Parent, runtime.Selection)
+        var result = await Runner(registry, runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -123,16 +134,116 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"child","description":"Child","payload":"child work","acceptance_criteria":"Child proof"}],"acceptance_criteria":"Parent decides"}]}
             """);
 
-        var result = await new AgentTaskGraphRunner(registry, runtime.Router, runtime.Parent, runtime.Selection)
+        var result = await Runner(registry, runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
         _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         _ = await Assert.That(task.Tasks?.Single().Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        var finalProgress = ProgressEvents("runner-call")[^1].RootNodes.Single();
+        _ = await Assert.That(finalProgress.Status).IsEqualTo(AgentTaskProgressStatus.Succeeded);
+        _ = await Assert.That(finalProgress.Children.Single().Status).IsEqualTo(AgentTaskProgressStatus.Failed);
         var acceptance = provider.Requests[^1].Messages.Single(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(acceptance).Contains("Nested task results (structured JSON):");
         _ = await Assert.That(acceptance).Contains("child proof failed");
         _ = await Assert.That(acceptance).Contains("\"status\":\"failed\"");
+    }
+
+    [Test]
+    public async Task Research_patch_replaces_the_effective_progress_subtree(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"parent context\",\"task_patch\":{\"payload\":[{\"name\":\"new-child\",\"description\":\"New child\",\"payload\":\"new work\",\"acceptance_criteria\":\"New proof\"}]}}",
+            "{\"context\":\"new child context\"}",
+            "new child output",
+            "{\"verdict\":\"accept\",\"evidence\":\"new child done\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"old-child","description":"Old child","payload":"old work","acceptance_criteria":"Old proof"}],"acceptance_criteria":"Parent proof"}]}
+            """);
+
+        var result = await Runner(registry, runtime, "research-replacement")
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        var snapshots = ProgressEvents("research-replacement");
+        var replacement = snapshots.Single(snapshot =>
+            snapshot.RootNodes[0].Children.Count == 1
+            && snapshot.RootNodes[0].Children[0].Name == "new-child"
+            && snapshot.RootNodes[0].Children[0].Status == AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(replacement.RootNodes[0].Children.Select(node => node.Name))
+            .DoesNotContain("old-child");
+        _ = await Assert.That(snapshots.SkipWhile(snapshot => snapshot.Revision < replacement.Revision)
+            .SelectMany(snapshot => snapshot.RootNodes[0].Children)
+            .Select(node => node.Name))
+            .DoesNotContain("old-child");
+        _ = await Assert.That(snapshots[^1].RootNodes[0].Children.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Succeeded);
+    }
+
+    [Test]
+    public async Task Retry_payload_replaces_stale_progress_descendants(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"parent context\"}",
+            "first output",
+            "{\"verdict\":\"retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"retry-child\",\"description\":\"Retry child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child proof\"}]}",
+            "{\"context\":\"retry child context\"}",
+            "retry child output",
+            "{\"verdict\":\"accept\",\"evidence\":\"child done\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":"first work","acceptance_criteria":"Parent proof"}]}
+            """);
+
+        var result = await Runner(registry, runtime, "retry-replacement")
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        var snapshots = ProgressEvents("retry-replacement");
+        _ = await Assert.That(snapshots.TakeWhile(snapshot => snapshot.RootNodes[0].Children.Count == 0))
+            .IsNotEmpty();
+        var replacement = snapshots.First(snapshot => snapshot.RootNodes[0].Children.Count > 0);
+        _ = await Assert.That(replacement.RootNodes[0].Children.Single().Name).IsEqualTo("retry-child");
+        _ = await Assert.That(replacement.RootNodes[0].Children.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(snapshots[^1].RootNodes[0].Children.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Succeeded);
+    }
+
+    [Test]
+    public async Task Failed_dependency_blocks_the_complete_pending_subtree(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"prerequisite context\"}",
+            "prerequisite output",
+            "{\"verdict\":\"reject\",\"feedback\":\"not done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[
+              {"name":"prerequisite","description":"Prerequisite","payload":"work","acceptance_criteria":"Done"},
+              {"name":"dependent","dependencies":["prerequisite"],"description":"Dependent","payload":[{"name":"nested","description":"Nested","payload":"nested work","acceptance_criteria":"Nested done"}],"acceptance_criteria":"Dependent done"}
+            ]}
+            """);
+
+        var result = await Runner(registry, runtime, "blocked-subtree")
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
+        var final = ProgressEvents("blocked-subtree")[^1];
+        _ = await Assert.That(final.RootNodes[0].Status).IsEqualTo(AgentTaskProgressStatus.Failed);
+        _ = await Assert.That(final.RootNodes[1].Status).IsEqualTo(AgentTaskProgressStatus.Blocked);
+        _ = await Assert.That(final.RootNodes[1].Children.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Blocked);
     }
 
     [Test]
@@ -150,13 +261,22 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             ]}
             """);
 
-        var result = await new AgentTaskGraphRunner(registry, runtime.Router, runtime.Parent, runtime.Selection)
+        var result = await Runner(registry, runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         _ = await Assert.That(provider.MaximumActive >= 2).IsTrue();
         _ = await Assert.That(provider.DependentStartedBeforeSlowFinished).IsTrue();
         _ = await Assert.That(string.Join(",", result.Tasks.Select(task => task.Name))).IsEqualTo("fast,slow,dependent");
+        var snapshots = ProgressEvents("runner-call");
+        _ = await Assert.That(snapshots.All(snapshot =>
+            string.Join(',', snapshot.RootNodes.Select(node => node.Name)) == "fast,slow,dependent"))
+            .IsTrue();
+        var fastSucceeded = snapshots.ToList().FindIndex(snapshot =>
+            snapshot.RootNodes[0].Status == AgentTaskProgressStatus.Succeeded);
+        var dependentRunning = snapshots.ToList().FindIndex(snapshot =>
+            snapshot.RootNodes[2].Status == AgentTaskProgressStatus.Running);
+        _ = await Assert.That(dependentRunning > fastSucceeded).IsTrue();
     }
 
     [Test]
@@ -169,7 +289,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"cancel","description":"Cancel task","payload":"work","acceptance_criteria":"Done"}]}
             """);
         using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var running = new AgentTaskGraphRunner(registry, runtime.Router, runtime.Parent, runtime.Selection)
+        var running = Runner(registry, runtime, "runner-call")
             .Run(artifact, canceled.Token);
         await provider.WaitUntilArrived(cancellationToken);
 
@@ -177,7 +297,33 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(running).Throws<OperationCanceledException>();
 
         _ = await Assert.That(registry.ActiveDirectChildren(runtime.Parent.SessionId)).IsEmpty();
+        var snapshots = ProgressEvents("runner-call");
+        _ = await Assert.That(snapshots[^1].RootNodes.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Canceled);
+        _ = await Assert.That(snapshots[^1].Revision).IsEqualTo((ulong)snapshots.Length);
+        _ = await Assert.That(_repository.Replay()[^1].AgentTaskProgressSnapshot.Revision)
+            .IsEqualTo(snapshots[^1].Revision);
     }
+
+    private AgentTaskProgressSnapshot[] ProgressEvents(string originToolCallId) =>
+        [.. _repository.Replay()
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot)
+            .Select(published => published.AgentTaskProgressSnapshot)
+            .Where(snapshot => snapshot.OriginToolCallId == originToolCallId)];
+
+    private AgentTaskGraphRunner Runner(
+        AgentRegistry registry,
+        RuntimeContext runtime,
+        string originToolCallId) => new(
+            registry,
+            runtime.Router,
+            runtime.Parent,
+            runtime.Selection,
+            new AgentTaskProgress(
+                _broker,
+                _repository,
+                runtime.Parent.SessionId,
+                originToolCallId));
 
     private RuntimeContext Runtime(ILLMProvider provider, CancellationToken cancellationToken)
     {

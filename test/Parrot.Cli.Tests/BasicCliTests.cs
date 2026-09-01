@@ -493,6 +493,65 @@ internal sealed class BasicCliTests
         _ = await driving;
     }
 
+    [Test]
+    public async Task Agent_task_progress_snapshots_append_complete_trees_after_partial_text_and_flush(
+        CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event { TextChunk = new TextChunk { Fragment = "partial" } }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentTaskProgressSnapshot = Snapshot(AgentTaskProgressStatus.Running) }, cancellationToken);
+        await stream.WriteAsync(
+            new Event { AgentTaskProgressSnapshot = Snapshot(AgentTaskProgressStatus.Succeeded) }, cancellationToken);
+        stream.Complete();
+        using var output = new FlushTrackingWriter();
+        using var error = new StringWriter();
+
+        _ = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        var rendered = output.ToString();
+        _ = await Assert.That(rendered).Contains("partial" + Environment.NewLine + "Agent tasks:");
+        _ = await Assert.That(Count(rendered, "Agent tasks:")).IsEqualTo(2);
+        _ = await Assert.That(rendered).Contains("◐ root[2J    日本");
+        _ = await Assert.That(rendered).Contains("├── ○ pending");
+        _ = await Assert.That(rendered).Contains("├── ✓ succeeded");
+        _ = await Assert.That(rendered).Contains("├── ✗ failed");
+        _ = await Assert.That(rendered).Contains("├── ⊘ blocked");
+        _ = await Assert.That(rendered).Contains("└── ■ canceled");
+        _ = await Assert.That(rendered).DoesNotContain("\u001b[2J");
+        _ = await Assert.That(output.Flushes).Count().IsEqualTo(2);
+        _ = await Assert.That(output.Flushes[0]).DoesNotContain("✓ root");
+        _ = await Assert.That(output.Flushes[1]).Contains("✓ root[2J    日本");
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    private static AgentTaskProgressSnapshot Snapshot(AgentTaskProgressStatus rootStatus)
+    {
+        var snapshot = new AgentTaskProgressSnapshot { OriginToolCallId = "call", Revision = 1 };
+        var root = new AgentTaskProgressNode { Name = "root\u001b[2J\t日本", Status = rootStatus };
+        root.Children.Add(new AgentTaskProgressNode { Name = "pending", Status = AgentTaskProgressStatus.Pending });
+        root.Children.Add(new AgentTaskProgressNode { Name = "succeeded", Status = AgentTaskProgressStatus.Succeeded });
+        root.Children.Add(new AgentTaskProgressNode { Name = "failed", Status = AgentTaskProgressStatus.Failed });
+        root.Children.Add(new AgentTaskProgressNode { Name = "blocked", Status = AgentTaskProgressStatus.Blocked });
+        root.Children.Add(new AgentTaskProgressNode { Name = "canceled", Status = AgentTaskProgressStatus.Canceled });
+        snapshot.RootNodes.Add(root);
+        return snapshot;
+    }
+
+    private static int Count(string value, string part)
+    {
+        var count = 0;
+        var start = 0;
+        while ((start = value.IndexOf(part, start, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            start += part.Length;
+        }
+
+        return count;
+    }
+
     private static PendingPermission Permission(string id, bool requiresReason)
     {
         var pending = new PendingPermission
@@ -521,5 +580,16 @@ internal sealed class BasicCliTests
             Action = PermissionAction.Deny,
         });
         return pending;
+    }
+
+    private sealed class FlushTrackingWriter : StringWriter
+    {
+        internal List<string> Flushes { get; } = [];
+
+        public override Task FlushAsync()
+        {
+            Flushes.Add(ToString());
+            return Task.CompletedTask;
+        }
     }
 }

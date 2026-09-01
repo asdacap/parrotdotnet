@@ -9,7 +9,8 @@ internal sealed class AgentTaskGraphRunner(
     AgentRegistry agents,
     ModelRouter router,
     AgentSession owner,
-    AgentTurnSelection selection)
+    AgentTurnSelection selection,
+    AgentTaskProgress progress)
 {
     private const int MaxAttempts = 3;
     private const int MaxContextCharacters = 16 * 1024;
@@ -26,10 +27,12 @@ internal sealed class AgentTaskGraphRunner(
     {
         ArgumentNullException.ThrowIfNull(artifact);
 
+        var handles = progress.Initialize(artifact.Tasks, cancellationToken);
         try
         {
             var tasks = await RunSiblings(
                 artifact.Tasks,
+                handles,
                 [],
                 [],
                 "task",
@@ -45,6 +48,7 @@ internal sealed class AgentTaskGraphRunner(
         {
             BeginStopping();
             await StopChildren().ConfigureAwait(false);
+            progress.MarkRemainingCanceled(CancellationToken.None);
             throw;
         }
         catch
@@ -238,11 +242,17 @@ internal sealed class AgentTaskGraphRunner(
 
     private async Task<IReadOnlyList<AgentTaskResult>> RunSiblings(
         IReadOnlyList<AgentTask> tasks,
+        IReadOnlyList<AgentTaskProgress.NodeHandle> handles,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskResearchContext> contexts,
         string parentPath,
         CancellationToken cancellationToken)
     {
+        if (tasks.Count != handles.Count)
+        {
+            throw new InvalidOperationException("Task progress handles do not match the effective task graph.");
+        }
+
         var results = new AgentTaskResult?[tasks.Count];
         var indexes = tasks.Select((task, index) => (task.Name, index))
             .ToDictionary(item => item.Name, item => item.index, StringComparer.Ordinal);
@@ -283,6 +293,7 @@ internal sealed class AgentTaskGraphRunner(
                 if (failedDependencies.Length > 0)
                 {
                     results[index] = Blocked(task.Name, failedDependencies);
+                    progress.MarkBlocked(handles[index], CancellationToken.None);
                     changed = true;
                     continue;
                 }
@@ -295,8 +306,10 @@ internal sealed class AgentTaskGraphRunner(
                 var dependencies = dependencyResults
                     .Select(result => result ?? throw new InvalidOperationException("A ready task has an unsettled dependency."))
                     .ToArray();
+                progress.MarkRunning(handles[index], cancellationToken);
                 running.Add(index, RunTask(
                     task,
+                    handles[index],
                     ancestors,
                     contexts,
                     dependencies,
@@ -319,7 +332,9 @@ internal sealed class AgentTaskGraphRunner(
             var completedPair = running.Single(pair => ReferenceEquals(pair.Value, completed));
             try
             {
-                results[completedPair.Key] = await completed.ConfigureAwait(false);
+                var result = await completed.ConfigureAwait(false);
+                results[completedPair.Key] = result;
+                progress.MarkTerminal(handles[completedPair.Key], result.Status, CancellationToken.None);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -338,6 +353,10 @@ internal sealed class AgentTaskGraphRunner(
             catch (Exception failure)
             {
                 results[completedPair.Key] = Failed(tasks[completedPair.Key].Name, failure.Message);
+                progress.MarkTerminal(
+                    handles[completedPair.Key],
+                    AgentTaskExecutionStatus.Failed,
+                    CancellationToken.None);
             }
 
             _ = running.Remove(completedPair.Key);
@@ -354,6 +373,7 @@ internal sealed class AgentTaskGraphRunner(
 
     private async Task<AgentTaskResult> RunTask(
         AgentTask approved,
+        AgentTaskProgress.NodeHandle handle,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskResearchContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
@@ -361,6 +381,7 @@ internal sealed class AgentTaskGraphRunner(
         CancellationToken cancellationToken)
     {
         var effective = EffectiveAgentTask.FromArtifact(approved);
+        var childHandles = progress.GetChildren(handle);
         var research = await RunRole(
             effective.Model,
             "research",
@@ -379,11 +400,20 @@ internal sealed class AgentTaskGraphRunner(
             hook = hook with { Context = Bound(hook.Context, MaxContextCharacters) };
             if (hook.TaskPatch is not null)
             {
-                effective = effective.Apply(hook.TaskPatch);
-                AgentTaskParser.ValidateEffective(effective);
-                if (effective.Model is not null)
+                var patched = effective.Apply(hook.TaskPatch);
+                AgentTaskParser.ValidateEffective(patched);
+                if (patched.Model is not null)
                 {
-                    _ = router.Resolve(effective.Model);
+                    _ = router.Resolve(patched.Model);
+                }
+
+                effective = patched;
+                if (hook.TaskPatch.Payload is not null)
+                {
+                    childHandles = progress.ReplaceChildren(
+                        handle,
+                        effective.Payload,
+                        cancellationToken);
                 }
             }
         }
@@ -439,6 +469,7 @@ internal sealed class AgentTaskGraphRunner(
                     ?? throw new InvalidOperationException("A composite payload requires nested tasks.");
                 nested = await RunSiblings(
                     nestedTasks,
+                    childHandles,
                     currentAncestors,
                     currentContexts,
                     path,
@@ -532,10 +563,15 @@ internal sealed class AgentTaskGraphRunner(
 
             var replacementPayload = verdict.Payload
                 ?? throw new InvalidOperationException("A retry verdict requires a replacement payload.");
-            effective = effective with { Payload = replacementPayload };
+            var replacement = effective with { Payload = replacementPayload };
             try
             {
-                AgentTaskParser.ValidateEffective(effective);
+                AgentTaskParser.ValidateEffective(replacement);
+                effective = replacement;
+                childHandles = progress.ReplaceChildren(
+                    handle,
+                    effective.Payload,
+                    cancellationToken);
             }
             catch (ArgumentException failure)
             {

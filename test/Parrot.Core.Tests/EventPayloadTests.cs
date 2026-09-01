@@ -89,6 +89,89 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Agent_task_progress_snapshot_roundtrips_as_field_thirty_four()
+    {
+        var source = new Event
+        {
+            Id = "agent-task-progress-event",
+            AgentSessionId = "agent-session",
+            AgentTaskProgressSnapshot = new AgentTaskProgressSnapshot
+            {
+                OriginToolCallId = "tool-call",
+                Revision = 19,
+                RootNodes =
+                {
+                    new AgentTaskProgressNode
+                    {
+                        Name = "pending-root",
+                        Status = AgentTaskProgressStatus.Pending,
+                        Children =
+                        {
+                            new AgentTaskProgressNode
+                            {
+                                Name = "running-child",
+                                Status = AgentTaskProgressStatus.Running,
+                                Children =
+                                {
+                                    new AgentTaskProgressNode
+                                    {
+                                        Name = "succeeded-grandchild",
+                                        Status = AgentTaskProgressStatus.Succeeded,
+                                    },
+                                    new AgentTaskProgressNode
+                                    {
+                                        Name = "failed-grandchild",
+                                        Status = AgentTaskProgressStatus.Failed,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    new AgentTaskProgressNode
+                    {
+                        Name = "blocked-root",
+                        Status = AgentTaskProgressStatus.Blocked,
+                    },
+                    new AgentTaskProgressNode
+                    {
+                        Name = "canceled-root",
+                        Status = AgentTaskProgressStatus.Canceled,
+                    },
+                },
+            },
+        };
+
+        var bytes = source.ToByteArray();
+        var roundtripped = Event.Parser.ParseFrom(bytes);
+        var snapshot = roundtripped.AgentTaskProgressSnapshot;
+        var pendingRoot = snapshot.RootNodes[0];
+        var runningChild = pendingRoot.Children[0];
+
+        _ = await Assert.That(roundtripped.Id).IsEqualTo("agent-task-progress-event");
+        _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("agent-session");
+        _ = await Assert.That(roundtripped.PayloadCase).IsEqualTo(Event.PayloadOneofCase.AgentTaskProgressSnapshot);
+        _ = await Assert.That(snapshot.OriginToolCallId).IsEqualTo("tool-call");
+        _ = await Assert.That(snapshot.Revision).IsEqualTo(19UL);
+        _ = await Assert.That(snapshot.RootNodes).Count().IsEqualTo(3);
+        _ = await Assert.That(pendingRoot.Name).IsEqualTo("pending-root");
+        _ = await Assert.That(pendingRoot.Status).IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(snapshot.RootNodes[1].Name).IsEqualTo("blocked-root");
+        _ = await Assert.That(snapshot.RootNodes[1].Status).IsEqualTo(AgentTaskProgressStatus.Blocked);
+        _ = await Assert.That(snapshot.RootNodes[2].Name).IsEqualTo("canceled-root");
+        _ = await Assert.That(snapshot.RootNodes[2].Status).IsEqualTo(AgentTaskProgressStatus.Canceled);
+        _ = await Assert.That(pendingRoot.Children).Count().IsEqualTo(1);
+        _ = await Assert.That(runningChild.Name).IsEqualTo("running-child");
+        _ = await Assert.That(runningChild.Status).IsEqualTo(AgentTaskProgressStatus.Running);
+        _ = await Assert.That(runningChild.Children).Count().IsEqualTo(2);
+        _ = await Assert.That(runningChild.Children[0].Name).IsEqualTo("succeeded-grandchild");
+        _ = await Assert.That(runningChild.Children[0].Status).IsEqualTo(AgentTaskProgressStatus.Succeeded);
+        _ = await Assert.That(runningChild.Children[1].Name).IsEqualTo("failed-grandchild");
+        _ = await Assert.That(runningChild.Children[1].Status).IsEqualTo(AgentTaskProgressStatus.Failed);
+        _ = await Assert.That(bytes[42]).IsEqualTo((byte)0x92);
+        _ = await Assert.That(bytes[43]).IsEqualTo((byte)0x02);
+    }
+
+    [Test]
     public async Task Pending_permission_roundtrips_as_a_protobuf_payload()
     {
         var source = new Event

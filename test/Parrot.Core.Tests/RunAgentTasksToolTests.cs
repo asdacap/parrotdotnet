@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Protocol;
 using Parrot.Security;
 using Parrot.Store;
 using Parrot.Tools;
@@ -39,7 +40,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     {
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new RunAgentTasksTool(new ToolWorkspace(_root), registry, runtime.Router, runtime.Parent);
+        var tool = Tool(registry, runtime);
 
         var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
 
@@ -53,7 +54,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         await File.WriteAllTextAsync(artifact, "{}", cancellationToken);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new RunAgentTasksTool(new ToolWorkspace(_root), registry, runtime.Router, runtime.Parent);
+        var tool = Tool(registry, runtime);
         var denied = runtime.Selection with
         {
             SecurityProfile = SecurityProfile.Compose(
@@ -79,7 +80,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = File.CreateSymbolicLink(Path.Combine(_root, "alias.json"), artifact);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new RunAgentTasksTool(new ToolWorkspace(_root), registry, runtime.Router, runtime.Parent);
+        var tool = Tool(registry, runtime);
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"path\":\"alias.json\"}"),
@@ -90,12 +91,61 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     }
 
     [Test]
+    public async Task Persists_and_publishes_progress_for_successful_invocation(CancellationToken cancellationToken)
+    {
+        const string artifactJson =
+            """
+            {"schema_version":1,"tasks":[{"name":"leaf","description":"Leaf","payload":"work","acceptance_criteria":"Done"}]}
+            """;
+        await File.WriteAllTextAsync(
+            Path.Combine(_root, "artifact.json"),
+            artifactJson,
+            cancellationToken);
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"ready\"}",
+            "executed",
+            "{\"verdict\":\"accept\",\"evidence\":\"done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        using var subscription = _broker.Subscribe();
+        var tool = Tool(registry, runtime);
+        var running = tool.Execute(
+            new ToolInvocation("distinctive-call", "{\"path\":\"artifact.json\"}"),
+            runtime.Selection,
+            cancellationToken);
+
+        var brokered = await ObserveProgress(
+            subscription,
+            runtime.Repository,
+            "distinctive-call",
+            3,
+            cancellationToken);
+        var result = await running;
+
+        using var document = System.Text.Json.JsonDocument.Parse(result.Text);
+        _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
+        _ = await Assert.That(document.RootElement.GetProperty("tasks")[0].GetProperty("name").GetString())
+            .IsEqualTo("leaf");
+        var durable = runtime.Repository.Replay()
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot)
+            .ToArray();
+        _ = await Assert.That(string.Join(',', durable.Select(published => published.AgentTaskProgressSnapshot.Revision)))
+            .IsEqualTo("1,2,3");
+        _ = await Assert.That(durable.All(published =>
+            published.AgentSessionId == runtime.Parent.SessionId
+            && published.AgentTaskProgressSnapshot.OriginToolCallId == "distinctive-call"))
+            .IsTrue();
+        _ = await Assert.That(brokered).Count().IsEqualTo(3);
+    }
+
+    [Test]
     public async Task Rejects_malformed_artifacts_after_secure_read(CancellationToken cancellationToken)
     {
         await File.WriteAllTextAsync(Path.Combine(_root, "artifact.json"), "{}", cancellationToken);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = new RunAgentTasksTool(new ToolWorkspace(_root), registry, runtime.Router, runtime.Parent);
+        var tool = Tool(registry, runtime);
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"path\":\"artifact.json\"}"),
@@ -105,9 +155,47 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = await Assert.That(result.Text).IsEqualTo("error: schema_version is required.");
     }
 
-    private RuntimeContext Runtime(CancellationToken cancellationToken)
+    private static async Task<Event[]> ObserveProgress(
+        EventSubscription subscription,
+        EventRepository repository,
+        string originToolCallId,
+        int count,
+        CancellationToken cancellationToken)
     {
-        var provider = new AgentTaskQueueProvider([]);
+        var observed = new List<Event>(count);
+        while (observed.Count < count)
+        {
+            var published = await subscription.Reader.ReadAsync(cancellationToken);
+            if (published.PayloadCase != Event.PayloadOneofCase.AgentTaskProgressSnapshot
+                || published.AgentTaskProgressSnapshot.OriginToolCallId != originToolCallId)
+            {
+                continue;
+            }
+
+            if (!repository.Replay().Any(committed => committed.Id == published.Id))
+            {
+                throw new InvalidOperationException("Broker published AgentTask progress before it was durable.");
+            }
+
+            observed.Add(published);
+        }
+
+        return [.. observed];
+    }
+
+    private RunAgentTasksTool Tool(AgentRegistry registry, RuntimeContext runtime) => new(
+        new ToolWorkspace(_root),
+        registry,
+        runtime.Router,
+        runtime.Parent,
+        _broker,
+        runtime.Repository);
+
+    private RuntimeContext Runtime(CancellationToken cancellationToken) =>
+        Runtime(new AgentTaskQueueProvider([]), cancellationToken);
+
+    private RuntimeContext Runtime(AgentTaskQueueProvider provider, CancellationToken cancellationToken)
+    {
         var model = new LLMModel("model", provider.Id);
         var providers = new ProviderRegistry(
             [provider],
@@ -142,6 +230,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             router,
             registry,
             parent,
+            repository,
             new AgentTurnSelection(
                 selected.RequestedModel,
                 router.Resolve(selected.RequestedModel.Value),
@@ -153,5 +242,6 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         ModelRouter Router,
         AgentRegistry Registry,
         AgentSession Parent,
+        EventRepository Repository,
         AgentTurnSelection Selection);
 }
