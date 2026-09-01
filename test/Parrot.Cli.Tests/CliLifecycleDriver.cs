@@ -13,8 +13,11 @@ internal sealed class CliLifecycleDriver : IDisposable
     private readonly bool _enhanced;
     private readonly EnhancedChatRequest _enhancedRequest;
     private readonly Func<TimeSpan, CancellationToken, Task> _delaySubmit;
+    private readonly Configuration _configuration;
+    private readonly string _configurationDirectory;
     private readonly SynchronizedStringWriter _output = new();
     private readonly SynchronizedStringWriter _error = new();
+    private TestTerminal? _terminal;
 
     public CliLifecycleDriver(bool enhanced)
         : this(
@@ -28,14 +31,34 @@ internal sealed class CliLifecycleDriver : IDisposable
     {
     }
 
+    public CliLifecycleDriver(bool enhanced, string configurationContent)
+        : this(
+            enhanced,
+            new EnhancedChatRequest(new() { Model = "provider/model", Mode = "build" }, string.Empty),
+            static (_, token) => Task.Delay(1, token),
+            LoadConfiguration(configurationContent))
+    {
+    }
+
     public CliLifecycleDriver(
         bool enhanced,
         EnhancedChatRequest enhancedRequest,
         Func<TimeSpan, CancellationToken, Task> delaySubmit)
+        : this(enhanced, enhancedRequest, delaySubmit, LoadConfiguration(string.Empty))
+    {
+    }
+
+    private CliLifecycleDriver(
+        bool enhanced,
+        EnhancedChatRequest enhancedRequest,
+        Func<TimeSpan, CancellationToken, Task> delaySubmit,
+        (Configuration Configuration, string Directory) loadedConfiguration)
     {
         _enhanced = enhanced;
         _enhancedRequest = enhancedRequest;
         _delaySubmit = delaySubmit;
+        _configuration = loadedConfiguration.Configuration;
+        _configurationDirectory = loadedConfiguration.Directory;
         Interrupts = new Interrupts(Stopping);
     }
 
@@ -51,10 +74,30 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public string Output => _output.Snapshot();
 
+    public void Resize(int columns) =>
+        (_terminal ?? throw new InvalidOperationException("the enhanced terminal is not running")).Resize(columns);
+
     public async Task OutputContainsAfter(int start, string text, CancellationToken cancellationToken)
     {
         while (_output.Snapshot()[start..].Contains(text, StringComparison.Ordinal) is false)
         {
+            await Task.Delay(5, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task<string> FlushedOutputContainsAfter(
+        int start,
+        string text,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var flushed = _output.FlushedSnapshot();
+            if (flushed.Length >= start && flushed[start..].Contains(text, StringComparison.Ordinal))
+            {
+                return flushed[start..];
+            }
+
             await Task.Delay(5, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -88,32 +131,31 @@ internal sealed class CliLifecycleDriver : IDisposable
         var client = new GeneratedParrot.ParrotClient(Invoker);
         if (_enhanced)
         {
-            var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
             var terminal = new TestTerminal(Input, _output, _error, 80);
+            _terminal = terminal;
             var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
-            var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
+            var renderer = new EnhancedTurnRenderer(terminal, _configuration, presenters);
             return new EnhancedCli(
                 client,
                 Interrupts,
                 _enhancedRequest,
                 new UnusedCredentials(),
                 new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-                configuration,
+                _configuration,
                 ["provider"],
                 terminal,
                 presenters,
                 renderer,
                 _delaySubmit,
-                Attachments(configuration)).Run(cancellationToken);
+                Attachments(_configuration)).Run(cancellationToken);
         }
 
-        var basicConfiguration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
         return new BasicCli(
                 client,
                 Interrupts,
                 new UnusedCredentials(),
                 new OpenAiOAuthClient(Http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-                basicConfiguration,
+                _configuration,
                 ["provider"],
                 "provider/model",
                 "build",
@@ -122,7 +164,7 @@ internal sealed class CliLifecycleDriver : IDisposable
                 Input,
                 _output,
                 _error,
-                Attachments(basicConfiguration)).Run(cancellationToken);
+                Attachments(_configuration)).Run(cancellationToken);
     }
 
     public void Dispose()
@@ -132,6 +174,18 @@ internal sealed class CliLifecycleDriver : IDisposable
         _error.Dispose();
         Http.Dispose();
         Stopping.Dispose();
+        Directory.Delete(_configurationDirectory, recursive: true);
+    }
+
+    private static (Configuration Configuration, string Directory) LoadConfiguration(string content)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "parrot-cli-tests", Guid.NewGuid().ToString("N"));
+        _ = Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "config.yaml");
+        File.WriteAllText(path, content);
+        return (
+            Configuration.Load(path, Path.Combine(root, "predefined_config.yaml")),
+            root);
     }
 
     private static PromptAttachmentUploader Attachments(Configuration configuration)
@@ -153,12 +207,21 @@ internal sealed class CliLifecycleDriver : IDisposable
     private sealed class SynchronizedStringWriter : StringWriter
     {
         private readonly object _sync = new();
+        private int _flushedLength;
 
         public string Snapshot()
         {
             lock (_sync)
             {
                 return GetStringBuilder().ToString();
+            }
+        }
+
+        public string FlushedSnapshot()
+        {
+            lock (_sync)
+            {
+                return GetStringBuilder().ToString(0, _flushedLength);
             }
         }
 
@@ -170,6 +233,17 @@ internal sealed class CliLifecycleDriver : IDisposable
             lock (_sync)
             {
                 Write(buffer.Span);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_sync)
+            {
+                _flushedLength = GetStringBuilder().Length;
             }
 
             return Task.CompletedTask;

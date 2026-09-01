@@ -213,7 +213,7 @@ internal sealed class EnhancedCli(
                 output,
                 terminal.GetColumns,
                 new TerminalPalette(terminal.Color),
-                TerminalFrameRenderer.DefaultLiveRows,
+                configuration.LiveBufferRows,
                 TerminalFrameRenderer.DefaultInputRows,
                 configuration.InlineDiff),
             session,

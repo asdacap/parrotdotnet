@@ -11,7 +11,6 @@ internal sealed class TerminalFrameRenderer(
     bool inlineDiff)
 {
     internal const int DefaultInputRows = 12;
-    internal const int DefaultLiveRows = 10;
 
     private const string DisableAutowrap = "\u001b[?7l";
     private const string EnableAutowrap = "\u001b[?7h";

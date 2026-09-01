@@ -24,6 +24,7 @@ internal sealed class Configuration(string path)
     private const string CliUtilitiesKey = "cli_utilities";
     private const string UserInputTimeoutKey = "user_input_timeout_ms";
     private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
+    private const string LiveBufferRowsKey = "live_buffer_rows";
     private const string CompactionKey = "compaction";
     private const string AgentTasksKey = "agent_tasks";
     private const string ToolsKey = "tools";
@@ -69,6 +70,8 @@ internal sealed class Configuration(string path)
     public CliUtilityCandidates CliUtilities { get; private set; } = new([], []);
 
     public TimeSpan UserInputTimeout { get; private set; }
+
+    public int LiveBufferRows { get; private set; }
 
     public CompactionConfig Compaction { get; private set; } = new(90, 30, 60_000, 12_000);
 
@@ -187,6 +190,7 @@ internal sealed class Configuration(string path)
             DefaultProfile = ReadDefaultProfile(root),
             CliUtilities = ReadCliUtilities(root),
             UserInputTimeout = ReadUserInputTimeout(root, userRoot),
+            LiveBufferRows = ReadLiveBufferRows(root),
             Compaction = ReadCompaction(root),
             AgentTasks = ReadAgentTasks(root),
             ToolDefinitions = ReadToolDefinitions(root),
@@ -1292,6 +1296,9 @@ internal sealed class Configuration(string path)
 
     private static bool IsSchemaMapKeyword(string name) =>
         name is "properties" or "patternProperties" or "dependentSchemas" or "$defs" or "definitions";
+
+    private static int ReadLiveBufferRows(YamlMappingNode root) =>
+        PositiveInteger(root, LiveBufferRowsKey, LiveBufferRowsKey);
 
     private static TimeSpan ReadUserInputTimeout(YamlMappingNode root, YamlMappingNode userRoot)
     {
