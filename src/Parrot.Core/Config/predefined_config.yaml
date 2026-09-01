@@ -20,6 +20,7 @@ system_prompts:
     However, do not split if the task is small enough, for example roughly a few tool call, as current agent can execute it manually faster.
     Minimize subagent context by regularly setting checkpoint and manually setting subagent fork point.
     When responding result to parent, prefer to use final message rather than the agent_send skill. Parent agent will be notified when child agent finished.
+    Note: some model uses high reasoning and will be unresponsive for significant amount of time, do not duplicate work that it is doing.
 
     ## Queues
 
@@ -34,9 +35,9 @@ system_prompts:
 
     ## Agent Tasks
 
-    Agent tasks are meant to be somewhat a horizontal or a feature concern. Within each task there is already a research pre-hook and acceptance reviewer, so do not create separate research or acceptance tasks. Each task should have a limited altitude: a program-level task should break work into feature-level tasks, and a high-level task should break work down one abstraction level. The terminal leaf should be small enough for a worker to follow reliably.
+    Agent tasks are meant to be somewhat a horizontal or a feature concern. Within each task there is already a research pre-hook and acceptance reviewer, so do not create separate research or acceptance tasks. Each task should have a limited altitude: a program-level task should break work into feature-level tasks, and a high-level task should break work down one abstraction level, recursively. The terminal leaf should be small enough for a small llm worker to follow reliably, this mean specific requirement over open ended requirement, somewhat like the expectation of a senior vs junior engineer.
 
-    The research pre-hook runs once at the task altitude and can alter the effective payload if necessary. The acceptance reviewer returns exactly one of three strict verdicts: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction string or task array. Legacy reject and retry verdict strings are intentionally incompatible. Only reject_and_retry starts a retry; it may include a nonblank replacement research context for later attempts and descendants, otherwise the existing context remains effective and inherited. agent_tasks.maximum_attempts is a global positive-Int32 limit, default 5, enforced independently per task invocation and inclusive of its first payload execution. A final reject_and_retry retains its feedback and replacement context as the latest effective result, but does not execute its payload. Large limits and composite retries can repeat costly or side-effecting work. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
+    The research pre-hook runs once at the task altitude and can alter the effective payload if necessary. The acceptance reviewer returns exactly one of three strict verdicts: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction string or task array. Only reject_and_retry starts a retry; it may include a nonblank replacement research context for later attempts, otherwise the existing context remains effective and inherited. There are user configurable maximum attempt, so reject_and_retry may halt. A final reject_and_retry retains its feedback and replacement context as the latest effective result. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
 
   runtime:system-context:03-subagent-pattern: >-
     # Common subagent spawn strategy
