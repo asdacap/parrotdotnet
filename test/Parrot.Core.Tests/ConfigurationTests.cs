@@ -298,9 +298,9 @@ internal sealed class ConfigurationTests : IDisposable
         var predefined = Path.Combine(_directory, "predefined_config.yaml");
         var configuration = Load(Path.Combine(_directory, "config.yaml"));
 
-        _ = await Assert.That(configuration.LiveBufferRows).IsEqualTo(10);
+        _ = await Assert.That(configuration.LiveBufferRows).IsEqualTo(20);
         _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
-            .Contains("live_buffer_rows: 10");
+            .Contains("live_buffer_rows: 20");
     }
 
     [Test]

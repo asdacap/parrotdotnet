@@ -216,7 +216,7 @@ cli_utilities:
 inline_diff: true
 
 # Number of rows retained in the live terminal buffer.
-live_buffer_rows: 10
+live_buffer_rows: 20
 
 # Milliseconds to wait for interactive user input. Set to -1 to wait indefinitely.
 user_input_timeout_ms: 1200000
