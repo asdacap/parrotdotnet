@@ -20,6 +20,8 @@ internal sealed class RawActivityView(
     private readonly Dictionary<string, ProcessState> _processes = new(StringComparer.Ordinal);
     private readonly Dictionary<(string OwnerAgentSessionId, string Name), QueueLiveBufferItem> _queues = [];
     private readonly HashSet<string> _completedProcesses = new(StringComparer.Ordinal);
+    private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _omittedProcessTools = [];
+    private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _terminalProcessTools = [];
     private readonly HashSet<string> _retiredInventoryInstances = new(StringComparer.Ordinal);
     private readonly TimeProvider _timeProvider = TimeProvider.System;
 
@@ -154,6 +156,8 @@ internal sealed class RawActivityView(
                 _inventoryRevision = snapshot.Revision;
                 _processes.Clear();
                 _completedProcesses.Clear();
+                _omittedProcessTools.Clear();
+                _terminalProcessTools.Clear();
                 foreach (var process in snapshot.Processes)
                 {
                     ObserveProcessHierarchy(process);
@@ -208,7 +212,13 @@ internal sealed class RawActivityView(
             var committed = false;
             foreach (var completion in completions)
             {
-                if (!string.IsNullOrWhiteSpace(completion.Command)
+                var originTool = OriginTool(completion.Process);
+                if (originTool is { } origin && IsOriginToolActive(completion.Process))
+                {
+                    _ = _omittedProcessTools.Add(origin);
+                }
+                else if ((originTool is not { } terminalOrigin || !_terminalProcessTools.Remove(terminalOrigin))
+                    && !string.IsNullOrWhiteSpace(completion.Command)
                     && _completedProcesses.Add(ProcessKey(completion.InventoryInstanceId, completion.Process.ProcessId)))
                 {
                     committed = true;
@@ -400,6 +410,11 @@ internal sealed class RawActivityView(
 
     private static string ProcessKey(string inventoryInstanceId, string processId) =>
         string.Concat(inventoryInstanceId, "\n", processId);
+
+    private static (string OwnerAgentSessionId, string ToolCallId)? OriginTool(ActiveShellProcess process) =>
+        process.OriginToolCallId.Length == 0
+            ? null
+            : (process.OwnerAgentSessionId, process.OriginToolCallId);
 
     private static string ReadCommand(string argumentsJson)
     {
@@ -714,6 +729,22 @@ internal sealed class RawActivityView(
             reference => _hierarchy.ResolveAgentReference(state.AgentSessionId, reference));
         _ = _activities.Remove((state, activityId));
         var deferred = terminal.YieldedProcess;
+        if (deferred is null && string.Equals(call.ToolName, "exec_command", StringComparison.Ordinal))
+        {
+            var toolCallId = published.PayloadCase switch
+            {
+                Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
+                Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
+                _ => published.ToolError.ToolCallId,
+            };
+            var origin = (published.AgentSessionId, toolCallId);
+            if (!_omittedProcessTools.Remove(origin)
+                && _processes.Values.Any(process => OriginTool(process.Process) == origin))
+            {
+                _ = _terminalProcessTools.Add(origin);
+            }
+        }
+
         if (deferred is not null)
         {
             var command = ReadCommand(call.ArgumentsJson);
@@ -867,6 +898,8 @@ internal sealed class RawActivityView(
             _ = _retiredInventoryInstances.Add(_inventoryInstanceId);
             _processes.Clear();
             _completedProcesses.Clear();
+            _omittedProcessTools.Clear();
+            _terminalProcessTools.Clear();
             _inventoryRevision = 0;
         }
 
