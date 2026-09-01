@@ -1,6 +1,8 @@
+using System.Reflection;
 using System.Text.Json;
 using Parrot.Config;
 using Parrot.Security;
+using YamlDotNet.RepresentationModel;
 
 namespace Parrot.Core.Tests;
 
@@ -63,6 +65,29 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(predefinedContent).Contains("disabled_tools:\n  wait_agent: true\n  wait_process: true");
         _ = await Assert.That(predefinedContent).DoesNotContain("hard_rules:");
         _ = await Assert.That(predefinedContent).DoesNotContain("tool_blacklist");
+    }
+
+    [Test]
+    public async Task Every_configurable_field_is_set_to_its_default_in_predefined_configuration()
+    {
+        var predefined = Path.Combine(_directory, "predefined_config.yaml");
+        _ = Load(Path.Combine(_directory, "config.yaml"));
+        var yaml = new YamlStream();
+        using (var reader = File.OpenText(predefined))
+        {
+            yaml.Load(reader);
+        }
+
+        var root = (YamlMappingNode)yaml.Documents.Single().RootNode;
+        foreach (var property in typeof(Configuration).GetProperties(BindingFlags.Instance | BindingFlags.Public))
+        {
+            var propertyName = property.Name.EndsWith("Definitions", StringComparison.Ordinal)
+                ? property.Name[..^"Definitions".Length] + "s"
+                : property.Name;
+            var key = SnakeCase(propertyName) + (property.PropertyType == typeof(TimeSpan) ? "_ms" : string.Empty);
+            _ = await Assert.That(root.Children.Keys.OfType<YamlScalarNode>().Select(node => node.Value))
+                .Contains(key);
+        }
     }
 
     [Test]
@@ -1475,6 +1500,11 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(exception.Message).IsEqualTo(message);
     }
+
+    private static string SnakeCase(string name) => string.Concat(name.Select((character, index) =>
+        index > 0 && char.IsUpper(character)
+            ? $"_{char.ToLowerInvariant(character)}"
+            : char.ToLowerInvariant(character).ToString()));
 
     private Configuration Load(string path) =>
         Configuration.Load(path, Path.Combine(_directory, "predefined_config.yaml"));
