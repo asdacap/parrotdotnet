@@ -178,6 +178,7 @@ internal partial class Composition
                     compactor,
                     webFetcher,
                     configuration.ToolDefinitions,
+                    configuration.AgentTasks,
                     router,
                     systemPromptProvider,
                     scopes);

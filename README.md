@@ -305,11 +305,26 @@ research context. Direct dependency summaries are also supplied to a ready
 task.
 
 An instruction payload is executed and then reviewed by a separate acceptance
-child. An `accept` verdict with evidence is authoritative: it succeeds even if
-a composite task's nested result contains failures, which remain visible in the
-result. A `reject` verdict fails the task. A `retry` verdict supplies feedback
-and a replacement payload; there are at most three attempts, including the
-first. Composite payloads recursively run their sibling graph on every attempt.
+child. The reviewer must return exactly one strict verdict: `accept` with
+nonblank evidence, `reject_and_halt` with nonblank feedback, or
+`reject_and_retry` with nonblank feedback and a replacement instruction string
+or task array. The legacy `reject` and `retry` verdict strings are intentionally
+incompatible. An `accept`
+verdict is authoritative: it succeeds even if a composite task's nested result
+contains failures, which remain visible in the result. `reject_and_halt` fails
+the task immediately. Only `reject_and_retry` initiates another attempt; its
+optional nonblank context replaces this task's research context for later
+attempts and descendants, while omitted context retains the prior context.
+
+`agent_tasks.maximum_attempts` is global runtime configuration enforced
+independently for every task invocation. It accepts any positive `Int32`,
+defaults to 5, and includes the first payload execution. Research runs once per
+invocation, not once per retry. If the final attempt returns
+`reject_and_retry`, its feedback and replacement context become the latest
+effective result, but no replacement payload runs and the task fails. Composite
+payloads recursively rerun their sibling graph on each retry. Large limits and
+composite retries can repeat costly or side-effecting work; choose a small bound
+and declare dependencies for mutation ordering.
 
 Ready sibling tasks run concurrently. A failed, blocked, or canceled dependency
 blocks only its descendants; independent siblings continue. The returned JSON

@@ -3,6 +3,6 @@ namespace Parrot.AgentTasks;
 internal enum AcceptanceVerdictKind
 {
     Accept,
-    Reject,
-    Retry,
+    RejectAndHalt,
+    RejectAndRetry,
 }

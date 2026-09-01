@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Store;
@@ -10,8 +11,9 @@ internal sealed class RunAgentTasksToolFactory(
     AgentRegistry agents,
     ModelRouter router,
     EventBroker eventBroker,
-    EventRepository eventRepository) : IToolFactory
+    EventRepository eventRepository,
+    AgentTaskConfig agentTasks) : IToolFactory
 {
     public ITool Create(AgentSession session) =>
-        new RunAgentTasksTool(workspace, agents, router, session, eventBroker, eventRepository);
+        new RunAgentTasksTool(workspace, agents, router, session, eventBroker, eventRepository, agentTasks);
 }

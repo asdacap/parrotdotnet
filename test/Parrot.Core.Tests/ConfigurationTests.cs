@@ -306,6 +306,53 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
+    public async Task Agent_task_configuration_defaults_are_written_to_the_generated_reference(
+        CancellationToken cancellationToken)
+    {
+        var predefined = Path.Combine(_directory, "predefined_config.yaml");
+        var configuration = Load(Path.Combine(_directory, "config.yaml"));
+
+        _ = await Assert.That(configuration.AgentTasks.MaximumAttempts).IsEqualTo(5);
+        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken)).Contains(
+            "agent_tasks:\n  maximum_attempts: 5");
+    }
+
+    [Test]
+    [Arguments("2", 2)]
+    [Arguments("2147483647", int.MaxValue)]
+    public async Task Agent_task_configuration_overrides_maximum_attempts(string value, int expected)
+    {
+        var configuration = Load(Write($"agent_tasks:\n  maximum_attempts: {value}\n"));
+
+        _ = await Assert.That(configuration.AgentTasks.MaximumAttempts).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("agent_tasks: null\n")]
+    [Arguments("agent_tasks: 5\n")]
+    [Arguments("agent_tasks: []\n")]
+    public async Task Agent_task_configuration_must_be_a_mapping(string content) =>
+        _ = await Assert.That(() => Load(Write(content)))
+            .Throws<InvalidDataException>().WithMessage("agent_tasks must be a mapping");
+
+    [Test]
+    public async Task Agent_task_configuration_rejects_unknown_keys() =>
+        _ = await Assert.That(() => Load(Write("agent_tasks:\n  unsupported: 1\n")))
+            .Throws<InvalidDataException>().WithMessage("agent_tasks contains an unsupported key");
+
+    [Test]
+    [Arguments("0")]
+    [Arguments("-1")]
+    [Arguments("1.5")]
+    [Arguments("true")]
+    [Arguments("null")]
+    [Arguments("words")]
+    [Arguments("2147483648")]
+    public async Task Agent_task_configuration_requires_a_positive_integer_maximum_attempts(string value) =>
+        _ = await Assert.That(() => Load(Write($"agent_tasks:\n  maximum_attempts: {value}\n")))
+            .Throws<InvalidDataException>().WithMessage("agent_tasks.maximum_attempts must be a positive integer");
+
+    [Test]
     public async Task Compaction_configuration_defaults_are_written_to_the_generated_reference(
         CancellationToken cancellationToken)
     {

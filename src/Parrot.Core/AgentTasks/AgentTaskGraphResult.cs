@@ -106,5 +106,11 @@ internal sealed record AgentTaskGraphResult(AgentTaskExecutionStatus Status, IRe
 
     private static string StatusText(AgentTaskExecutionStatus status) => status.ToString().ToLowerInvariant();
 
-    private static string VerdictText(AcceptanceVerdictKind verdict) => verdict.ToString().ToLowerInvariant();
+    private static string VerdictText(AcceptanceVerdictKind verdict) => verdict switch
+    {
+        AcceptanceVerdictKind.Accept => "accept",
+        AcceptanceVerdictKind.RejectAndRetry => "reject_and_retry",
+        AcceptanceVerdictKind.RejectAndHalt => "reject_and_halt",
+        _ => throw new ArgumentOutOfRangeException(nameof(verdict)),
+    };
 }

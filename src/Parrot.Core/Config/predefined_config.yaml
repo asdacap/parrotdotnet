@@ -34,9 +34,9 @@ system_prompts:
 
     ## Agent Tasks
 
-    Agent tasks are meant to be somewhat a horizontal or a feature concern. Within each tasks there is already a pre-hook and validation hook so no need to have a separate research and validation task. Each task should have a limited altitude, as in a program level task should not do feature level task on its own, rather it should break them down into subtasks. The terminal leaf level task is meant to be small enough that a small agent can follow reliably, while a high level task should try to break down tasks down one abstraction level to reduce token consumption.
+    Agent tasks are meant to be somewhat a horizontal or a feature concern. Within each task there is already a research pre-hook and acceptance reviewer, so do not create separate research or acceptance tasks. Each task should have a limited altitude: a program-level task should break work into feature-level tasks, and a high-level task should break work down one abstraction level. The terminal leaf should be small enough for a worker to follow reliably.
 
-    The pre-hook phase can be used for reasearch at the task altitude level which can be used to alter the payload if necessary. Additionally the verification hook can retry with updated payload if needed. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
+    The research pre-hook runs once at the task altitude and can alter the effective payload if necessary. The acceptance reviewer returns exactly one of three strict verdicts: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction string or task array. Legacy reject and retry verdict strings are intentionally incompatible. Only reject_and_retry starts a retry; it may include a nonblank replacement research context for later attempts and descendants, otherwise the existing context remains effective and inherited. agent_tasks.maximum_attempts is a global positive-Int32 limit, default 5, enforced independently per task invocation and inclusive of its first payload execution. A final reject_and_retry retains its feedback and replacement context as the latest effective result, but does not execute its payload. Large limits and composite retries can repeat costly or side-effecting work. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
 
   runtime:system-context:03-subagent-pattern: >-
     # Common subagent spawn strategy
@@ -223,6 +223,10 @@ compaction:
   target_percent: 30
   maximum_input_tokens: 60000
   summary_output_tokens: 12000
+
+# Maximum payload execution attempts for each AgentTask invocation.
+agent_tasks:
+  maximum_attempts: 5
 
 # Default foreground profile when no mode is selected explicitly.
 default_profile: build

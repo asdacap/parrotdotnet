@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -68,6 +69,32 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
 
         _ = await Assert.That(result.Text).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task Configured_attempt_budget_limits_embedded_artifact_execution(CancellationToken cancellationToken)
+    {
+        const string arguments =
+            "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"ready\"}",
+            "first execution",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
+            "second execution",
+            "{\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var tool = ToolWithAttempts(registry, runtime, 2);
+
+        var result = await tool.Execute(new ToolInvocation("retry-call", arguments), runtime.Selection, cancellationToken);
+
+        using var document = System.Text.Json.JsonDocument.Parse(result.Text);
+        var task = document.RootElement.GetProperty("tasks")[0];
+        _ = await Assert.That(task.GetProperty("attempt_count").GetInt32()).IsEqualTo(2);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(5);
+        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
+            .Any(content => content.Contains("research pre-hook", StringComparison.Ordinal)))).IsEqualTo(1);
     }
 
     [Test]
@@ -233,13 +260,17 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         return [.. observed];
     }
 
-    private RunAgentTasksTool Tool(AgentRegistry registry, RuntimeContext runtime) => new(
+    private RunAgentTasksTool Tool(AgentRegistry registry, RuntimeContext runtime) =>
+        ToolWithAttempts(registry, runtime, 5);
+
+    private RunAgentTasksTool ToolWithAttempts(AgentRegistry registry, RuntimeContext runtime, int maximumAttempts) => new(
         new ToolWorkspace(_root),
         registry,
         runtime.Router,
         runtime.Parent,
         _broker,
-        runtime.Repository);
+        runtime.Repository,
+        new AgentTaskConfig(maximumAttempts));
 
     private RuntimeContext Runtime(CancellationToken cancellationToken) =>
         Runtime(new AgentTaskQueueProvider([]), cancellationToken);
