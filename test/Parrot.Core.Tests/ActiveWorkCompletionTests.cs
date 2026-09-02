@@ -49,7 +49,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 4);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
@@ -114,7 +114,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 2);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
@@ -161,7 +161,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var root = Session(
             "root",
@@ -246,7 +246,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var parent = Session(
             "parent",
@@ -312,7 +312,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 3);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
@@ -368,7 +368,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);

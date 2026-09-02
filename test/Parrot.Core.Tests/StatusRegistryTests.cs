@@ -54,6 +54,19 @@ internal sealed class StatusRegistryTests
     }
 
     [Test]
+    public async Task Generated_time_reports_the_current_utc_time()
+    {
+        var timeProvider = new ControlledTimeProvider();
+        timeProvider.Advance(TimeSpan.FromDays(1));
+
+        var observation = await new GeneratedTimeStatusProvider(timeProvider, TestModels.PromptTemplates).Observe(
+            new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"),
+            CancellationToken.None);
+
+        _ = await Assert.That(observation.Text).IsEqualTo("Generated at: 1970-01-02T00:00:00.0000000+00:00");
+    }
+
+    [Test]
     public async Task Selection_reports_a_complete_canonical_requested_selector()
     {
         var observation = await new SelectionStatusProvider(TestModels.PromptTemplates).Observe(

@@ -125,6 +125,10 @@ prompt_templates:
     template: "\nParent session: {parent}"
     allowed_arguments: [parent]
     required_arguments: [parent]
+  status.generated-time:
+    template: 'Generated at: {time}'
+    allowed_arguments: [time]
+    required_arguments: [time]
   status.runtime:
     template: 'Runtime:'
     allowed_arguments: []

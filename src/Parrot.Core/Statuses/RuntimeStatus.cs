@@ -14,11 +14,13 @@ internal sealed class RuntimeStatus
         AgentQueueCatalog queues,
         IProcessStatusSource processes,
         IAgentStatusSource subagents,
-        PromptTemplateCatalog templates)
+        PromptTemplateCatalog templates,
+        TimeProvider timeProvider)
     {
+        var generatedTime = new GeneratedTimeStatusProvider(timeProvider, templates);
         var runtime = new RuntimeTreeStatusProvider(queues, processes, subagents, templates);
         _activity = new StatusRegistry(runtime);
-        _full = new StatusRegistry(new SelectionStatusProvider(templates), runtime);
+        _full = new StatusRegistry(generatedTime, new SelectionStatusProvider(templates), runtime);
     }
 
     public Task<string> Observe(
