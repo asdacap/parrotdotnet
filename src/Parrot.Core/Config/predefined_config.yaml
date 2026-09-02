@@ -517,6 +517,7 @@ read_only_exec_command_prefixes:
   - grep
   - head
   - ls
+  - nl
   - pwd
   - rg
   - sed
