@@ -306,6 +306,31 @@ stream for diagnostics.
 
 **Affects.** The `Event` message, `AgentSession`, `BasicCli`, and `EnhancedCli`.
 
+**Parallel provider batches.** Parallel-safety metadata is owned by each `ITool`,
+not inferred from a tool name or from generic shell-command analysis. The
+interface defaults to unsafe; a tool must explicitly report an invocation as
+safe. `AgentSession` walks each provider batch in order and starts each maximal
+consecutive run of safe calls concurrently. An unsafe call is a barrier: it is
+not started until the preceding safe run has settled, and the next safe run is
+not started until that call has settled. Calls after an interruption, unknown
+or malformed invocations, and otherwise unsafe calls are settled as canceled or
+errors according to their normal lifecycle rather than being launched as part of
+a safe run.
+
+Execution may complete in any order, but settlement is deterministic: results
+are appended to durable history and published in provider call order, and that
+same order is used for the next provider request. Restored durable settlements
+are reused and reconciled with any remaining calls without re-executing them;
+the same barriers and ordering apply to the remainder.
+
+`exec_command` is the one configured exception. It is considered parallel-safe
+only when its command begins, after shell whitespace, with one of the configured
+`read_only_exec_command_prefixes` entries followed by the end of the command or
+shell whitespace. The default list is in `predefined_config.yaml`, and user
+entries extend or replace it using the normal configuration rules. This is a
+lexical prefix check only; Parrot does not attempt general shell analysis and
+must treat commands that do not match as unsafe.
+
 ### Static musl cannot do TLS — **unresolved, needs review**
 
 **Intended.** The shipped binary is statically linked against musl:

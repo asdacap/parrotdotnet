@@ -10,6 +10,12 @@ internal sealed class SettledTool(string result) : ITool
 {
     public string Name => "settled";
 
+    public bool IsParallelSafe(ToolInvocation invocation)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        return true;
+    }
+
     public Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

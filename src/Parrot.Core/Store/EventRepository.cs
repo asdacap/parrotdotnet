@@ -1038,7 +1038,7 @@ internal sealed class EventRepository
         }
     }
 
-    public void AppendToolSettlement(
+    public bool AppendToolSettlement(
         Event published,
         long assistantSequence,
         ToolExecutionTerminal terminal)
@@ -1074,6 +1074,8 @@ internal sealed class EventRepository
         {
             RefreshAgentHistory(published.AgentSessionId);
         }
+
+        return changed;
     }
 
     public IReadOnlyList<ToolExecutionTerminal> ToolTerminals(string agentSessionId)

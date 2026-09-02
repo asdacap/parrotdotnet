@@ -14,6 +14,12 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 
     public string Name => "read";
 
+    public bool IsParallelSafe(ToolInvocation invocation)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        return true;
+    }
+
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

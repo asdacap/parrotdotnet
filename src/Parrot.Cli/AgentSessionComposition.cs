@@ -30,7 +30,7 @@ internal partial class AgentSessionComposition
                 return arguments.ToolFactories
                     .Prepend<IToolFactory>(new InterruptProcessToolFactory(processes))
                     .Prepend(new WriteStdinToolFactory(processes))
-                    .Prepend(new ExecCommandToolFactory(processes))
+                    .Prepend(new ExecCommandToolFactory(processes, arguments.ReadOnlyExecCommandPrefixes))
                     .ToArray();
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>

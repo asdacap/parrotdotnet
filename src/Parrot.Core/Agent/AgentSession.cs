@@ -678,6 +678,13 @@ internal sealed class AgentSession(
         _ => throw new InvalidOperationException($"unsupported conversation part {part.Kind}"),
     };
 
+    private static bool IsParallelSafe(ToolSnapshot snapshot, long assistantSequence, LLMToolCall call)
+    {
+        var tool = snapshot.Find(call.Name);
+        return tool is not null
+            && tool.IsParallelSafe(new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence));
+    }
+
     private WaitAgentResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
         completed.Status switch
         {
@@ -1262,36 +1269,104 @@ internal sealed class AgentSession(
         foreach (var batch in conversation.Where(item => item.Role == LLMRole.Assistant && item.ToolCalls.Count > 0))
         {
             var stopped = false;
-            foreach (var call in batch.ToolCalls)
+            var callIndex = 0;
+            while (callIndex < batch.ToolCalls.Count)
             {
-                if (!terminals.TryGetValue(call.Id, out var terminal))
+                var call = batch.ToolCalls[callIndex];
+                if (terminals.TryGetValue(call.Id, out var restoredTerminal))
                 {
-                    (Event Published, ToolExecutionTerminal Terminal) settlement;
-                    if (stopped || cancellationToken.IsCancellationRequested)
+                    changed |= eventRepository.AppendToolSettlement(
+                        new Event { Id = Identifier.EventId(), AgentSessionId = SessionId },
+                        batch.Sequence,
+                        restoredTerminal);
+                    stopped |= restoredTerminal.Status == ToolExecutionStatus.Cancelled;
+                    callIndex++;
+                    continue;
+                }
+
+                if (stopped || cancellationToken.IsCancellationRequested)
+                {
+                    var cancelled = CancelTool(call);
+                    await SettleTool(batch.Sequence, cancelled, terminals).ConfigureAwait(false);
+                    changed = true;
+                    stopped = true;
+                    callIndex++;
+                    continue;
+                }
+
+                if (!IsParallelSafe(snapshot, batch.Sequence, call))
+                {
+                    var settlement = await Invoke(selection, snapshot, batch.Sequence, call, cancellationToken)
+                        .ConfigureAwait(false);
+                    await SettleTool(batch.Sequence, settlement, terminals).ConfigureAwait(false);
+                    changed = true;
+                    stopped |= settlement.Terminal.Status == ToolExecutionStatus.Cancelled;
+                    callIndex++;
+                    continue;
+                }
+
+                var runEnd = callIndex;
+                var executions = new Dictionary<string, Task<(Event Published, ToolExecutionTerminal Terminal)>>(
+                    StringComparer.Ordinal);
+                while (runEnd < batch.ToolCalls.Count)
+                {
+                    var candidate = batch.ToolCalls[runEnd];
+                    if (!IsParallelSafe(snapshot, batch.Sequence, candidate))
                     {
-                        settlement = CancelTool(call);
+                        break;
+                    }
+
+                    if (terminals.TryGetValue(candidate.Id, out var candidateTerminal))
+                    {
+                        if (candidateTerminal.Status == ToolExecutionStatus.Cancelled)
+                        {
+                            break;
+                        }
+
+                        runEnd++;
+                        continue;
+                    }
+
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    executions.Add(
+                        candidate.Id,
+                        Invoke(selection, snapshot, batch.Sequence, candidate, cancellationToken));
+                    runEnd++;
+                }
+
+                if (runEnd == callIndex)
+                {
+                    continue;
+                }
+
+                var settlements = await Task.WhenAll(executions.Values).ConfigureAwait(false);
+                var settlementsByCall = settlements.ToDictionary(
+                    settlement => settlement.Terminal.ToolCallId,
+                    StringComparer.Ordinal);
+                while (callIndex < runEnd)
+                {
+                    call = batch.ToolCalls[callIndex];
+                    if (terminals.TryGetValue(call.Id, out restoredTerminal))
+                    {
+                        changed |= eventRepository.AppendToolSettlement(
+                            new Event { Id = Identifier.EventId(), AgentSessionId = SessionId },
+                            batch.Sequence,
+                            restoredTerminal);
                     }
                     else
                     {
-                        settlement = await Invoke(selection, snapshot, batch.Sequence, call, cancellationToken)
-                            .ConfigureAwait(false);
+                        var settlement = settlementsByCall[call.Id];
+                        await SettleTool(batch.Sequence, settlement, terminals).ConfigureAwait(false);
+                        changed = true;
+                        stopped |= settlement.Terminal.Status == ToolExecutionStatus.Cancelled;
                     }
 
-                    terminal = settlement.Terminal;
-                    eventRepository.AppendToolSettlement(settlement.Published, batch.Sequence, terminal);
-                    await eventBroker.Publish(settlement.Published, CancellationToken.None).ConfigureAwait(false);
-                    terminals.Add(call.Id, terminal);
-                    changed = true;
+                    callIndex++;
                 }
-                else
-                {
-                    eventRepository.AppendToolSettlement(
-                        new Event { Id = Identifier.EventId(), AgentSessionId = SessionId },
-                        batch.Sequence,
-                        terminal);
-                }
-
-                stopped |= terminal.Status == ToolExecutionStatus.Cancelled;
             }
 
             var images = batch.ToolCalls
@@ -1314,6 +1389,16 @@ internal sealed class AgentSession(
             _history.Clear();
             _history.AddRange(RestoreHistory(eventRepository, SessionId));
         }
+    }
+
+    private async Task SettleTool(
+        long assistantSequence,
+        (Event Published, ToolExecutionTerminal Terminal) settlement,
+        Dictionary<string, ToolExecutionTerminal> terminals)
+    {
+        _ = eventRepository.AppendToolSettlement(settlement.Published, assistantSequence, settlement.Terminal);
+        await eventBroker.Publish(settlement.Published, CancellationToken.None).ConfigureAwait(false);
+        terminals.Add(settlement.Terminal.ToolCallId, settlement.Terminal);
     }
 
     // Sampled at the start of an epoch, not every turn, and compaction starts a

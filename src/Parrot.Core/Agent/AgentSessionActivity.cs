@@ -8,13 +8,13 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
     private const int RecentEntryLimit = 5;
 
     private readonly Lock _gate = new();
+    private readonly SortedDictionary<long, string> _activeTools = [];
     private readonly Dictionary<string, StringBuilder> _namedSummaries = new(StringComparer.Ordinal);
     private readonly List<RecentEntry> _recent = [];
     private readonly TimeProvider _timeProvider = timeProvider
         ?? throw new ArgumentNullException(nameof(timeProvider));
 
     private StringBuilder? _unnamedSummary;
-    private string? _currentTool;
     private long? _currentProviderRequestStarted;
     private TimeSpan? _lastProviderRequestDuration;
     private long? _latestProviderActivity;
@@ -92,7 +92,7 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
         lock (_gate)
         {
             _toolExecution++;
-            _currentTool = name;
+            _activeTools.Add(_toolExecution, name);
             return _toolExecution;
         }
     }
@@ -101,10 +101,7 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
     {
         lock (_gate)
         {
-            if (_toolExecution == execution)
-            {
-                _currentTool = null;
-            }
+            _ = _activeTools.Remove(execution);
         }
     }
 
@@ -175,7 +172,7 @@ internal sealed class AgentSessionActivity(TimeProvider timeProvider)
                 : null;
             return new AgentSessionActivitySnapshot(
                 _state,
-                _currentTool,
+                _activeTools.Count == 0 ? null : _activeTools.Values.Last(),
                 requestSessionDuration,
                 currentProviderRequestDuration,
                 _lastProviderRequestDuration,

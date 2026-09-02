@@ -10,9 +10,44 @@ namespace Parrot.Tools;
 // the fail-closed property, surfaced as a tool error the model can react to.
 internal sealed class ExecCommandTool(
     ShellProcessOwner processes,
-    AgentSession session) : ITool
+    AgentSession session,
+    ReadOnlyExecCommandClassifier readOnlyCommandClassifier) : ITool
 {
+    private readonly ReadOnlyExecCommandClassifier _readOnlyCommandClassifier = readOnlyCommandClassifier;
+
+    public ExecCommandTool(ShellProcessOwner processes, AgentSession session)
+        : this(processes, session, new ReadOnlyExecCommandClassifier([]))
+    {
+    }
+
     public string Name => "exec_command";
+
+    public bool IsParallelSafe(ToolInvocation invocation)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+
+        try
+        {
+            ToolInputConversion.RequireObject(invocation.ArgumentsJson, "command");
+            var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.ExecCommandToolInput)
+                ?? throw new FormatException("Tool arguments must be an object.");
+            var command = input.Command ?? throw new FormatException("Tool arguments require a string 'command'.");
+            _ = input.Environment is null
+                ? ProcessEnvironmentOverrides.Empty
+                : new ProcessEnvironmentOverrides(input.Environment);
+            _ = ToolInputConversion.ConvertDelay(input.YieldAfterMilliseconds, "yield_after_ms");
+            if (input.Name is { } name && name.Trim().Length == 0)
+            {
+                return false;
+            }
+
+            return command.Length > 0 && _readOnlyCommandClassifier.IsMatch(command);
+        }
+        catch (Exception failure) when (failure is JsonException or FormatException)
+        {
+            return false;
+        }
+    }
 
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,

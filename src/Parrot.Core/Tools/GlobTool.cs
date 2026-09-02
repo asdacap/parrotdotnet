@@ -21,6 +21,12 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
 
     public string Name => "glob";
 
+    public bool IsParallelSafe(ToolInvocation invocation)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        return true;
+    }
+
     public async Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

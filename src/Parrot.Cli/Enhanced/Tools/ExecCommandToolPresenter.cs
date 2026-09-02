@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Parrot.Tools;
 
 namespace Parrot.Cli.Enhanced.Tools;
 
@@ -6,6 +7,8 @@ internal sealed class ExecCommandToolPresenter(
     TimeProvider timeProvider,
     IReadOnlyList<string> readOnlyCommandPrefixes) : IToolPresenter
 {
+    private readonly ReadOnlyExecCommandClassifier _readOnlyCommandClassifier = new(readOnlyCommandPrefixes);
+
     public string ToolName => "exec_command";
 
     public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
@@ -44,8 +47,6 @@ internal sealed class ExecCommandToolPresenter(
         return new ToolScrollbackValue(label, block, status, MetadataFor(isReadOnly));
     }
 
-    private static bool IsShellWhitespace(char character) => character is ' ' or '\t' or '\r' or '\n';
-
     private static string Command(string argumentsJson)
     {
         using var document = JsonDocument.Parse(argumentsJson);
@@ -60,17 +61,5 @@ internal sealed class ExecCommandToolPresenter(
     private ToolPresentationMetadata MetadataFor(bool isReadOnly) =>
         isReadOnly ? Metadata with { Style = ToolPresentationStyle.Muted } : Metadata;
 
-    private bool IsReadOnlyCommand(string command)
-    {
-        var firstCommandCharacter = 0;
-        while (firstCommandCharacter < command.Length && IsShellWhitespace(command[firstCommandCharacter]))
-        {
-            firstCommandCharacter++;
-        }
-
-        var commandStart = command[firstCommandCharacter..];
-        return readOnlyCommandPrefixes.Any(prefix =>
-            commandStart.StartsWith(prefix, StringComparison.Ordinal) &&
-            (commandStart.Length == prefix.Length || IsShellWhitespace(commandStart[prefix.Length])));
-    }
+    private bool IsReadOnlyCommand(string command) => _readOnlyCommandClassifier.IsMatch(command);
 }
