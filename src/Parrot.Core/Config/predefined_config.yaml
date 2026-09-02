@@ -536,7 +536,7 @@ user_input_timeout_ms: 1200000
 
 # Limits for each compaction request.
 compaction:
-  trigger_percent: 90
+  trigger_percent: 95
   target_percent: 30
   maximum_input_tokens: 60000
   summary_output_tokens: 12000
