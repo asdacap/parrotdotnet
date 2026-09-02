@@ -29,6 +29,9 @@ read or write other user session data.
 - Do not make unnecessary change in prod for test.
 - No method overload. Use different method name instead.
 - Using `as` or typecheck tend to be an antipattern. Rather than a T1 as T2, make a T3 or expand T1 to include T2 interface.
+- Configuration are like the atomic representation of code. Making more code just to assert config exactly are
+duplicated code, so dont make unit test like that. This is not the same as making a unit test that test behavior of
+config value.
 
 ## Async lifecycle
 

@@ -1,8 +1,6 @@
-using System.Reflection;
 using System.Text.Json;
 using Parrot.Config;
 using Parrot.Security;
-using YamlDotNet.RepresentationModel;
 
 namespace Parrot.Core.Tests;
 
@@ -17,147 +15,6 @@ internal sealed class ConfigurationTests : IDisposable
         {
             Directory.Delete(_directory, recursive: true);
         }
-    }
-
-    [Test]
-    public async Task A_missing_user_file_is_layered_over_the_generated_predefined_configuration(
-        CancellationToken cancellationToken)
-    {
-        var path = Path.Combine(_directory, "config.yaml");
-        var predefined = Path.Combine(_directory, "predefined_config.yaml");
-        var configuration = Load(path);
-
-        _ = await Assert.That(File.Exists(path)).IsFalse();
-        _ = await Assert.That(configuration.Model).IsEmpty();
-        var basePrompt = configuration.SystemPrompts["runtime:system-context:01-base"];
-        _ = await Assert.That(basePrompt).StartsWith(
-            "You are parrot, a coding agent. You work in the user's project directory.\n"
-            + "Filesystem access is determined by the active security policy and is enforced via sandboxing.");
-        _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:02-delegation"])
-            .StartsWith("# Agent delegation\nPrefer to split larger task to subagent with a well defined scope.");
-        _ = await Assert.That(configuration.SystemPrompts["runtime:system-context:03-subagent-pattern"])
-            .StartsWith("# Common subagent spawn strategy");
-        _ = await Assert.That(configuration.InlineDiff).IsTrue();
-        _ = await Assert.That(configuration.WebFetch.AllowPrivate).IsFalse();
-        _ = await Assert.That(configuration.DisabledTools.Count).IsEqualTo(2);
-        _ = await Assert.That(configuration.DisabledTools).Contains("wait_agent");
-        _ = await Assert.That(configuration.DisabledTools).Contains("wait_process");
-        _ = await Assert.That(configuration.ModelAliases).Count().IsEqualTo(4);
-        _ = await Assert.That(configuration.Profiles).Count().IsEqualTo(10);
-        _ = await Assert.That(configuration.Profiles.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(
-            [
-                "agent-task-payload",
-                "agent-task-pre-hook",
-                "agent-task-validation",
-                "build",
-                "explorer",
-                "plan",
-                "query",
-                "review",
-                "thinker",
-                "worker",
-            ])).IsTrue();
-        foreach (var profile in configuration.Profiles.Values)
-        {
-            _ = await Assert.That(profile.Prompt).IsNotEmpty();
-            _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsTrue();
-        }
-
-        var build = configuration.Profiles["build"];
-        _ = await Assert.That(build.Prompt).Contains("You are Parrot's build mode. Implement and verify the requested changes.");
-        _ = await Assert.That(build.Prompt).Contains(
-            "Hard rules:\n- Keep tool side effects within the authorized workspace.");
-        _ = await Assert.That(build.MaxTurns).IsEqualTo(1024);
-        _ = await Assert.That(build.ReadOnly).IsFalse();
-        _ = await Assert.That(build.SandboxRules).IsEmpty();
-        _ = await Assert.That(configuration.Profiles["plan"].MaxTurns).IsEqualTo(1024);
-        _ = await Assert.That(configuration.Profiles["query"].ReadOnly).IsTrue();
-        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
-            .Contains("Predefined configuration reference.");
-        var predefinedContent = await File.ReadAllTextAsync(predefined, cancellationToken);
-        _ = await Assert.That(predefinedContent).Contains("disabled_tools:\n  wait_agent: true\n  wait_process: true");
-        _ = await Assert.That(predefinedContent).DoesNotContain("hard_rules:");
-        _ = await Assert.That(predefinedContent).DoesNotContain("tool_blacklist");
-    }
-
-    [Test]
-    public async Task Every_configurable_field_is_set_to_its_default_in_predefined_configuration()
-    {
-        var predefined = Path.Combine(_directory, "predefined_config.yaml");
-        _ = Load(Path.Combine(_directory, "config.yaml"));
-        var yaml = new YamlStream();
-        using (var reader = File.OpenText(predefined))
-        {
-            yaml.Load(reader);
-        }
-
-        var root = (YamlMappingNode)yaml.Documents.Single().RootNode;
-        foreach (var property in typeof(Configuration).GetProperties(BindingFlags.Instance | BindingFlags.Public))
-        {
-            var propertyName = property.Name.EndsWith("Definitions", StringComparison.Ordinal)
-                ? property.Name[..^"Definitions".Length] + "s"
-                : property.Name;
-            var key = SnakeCase(propertyName) + (property.PropertyType == typeof(TimeSpan) ? "_ms" : string.Empty);
-            _ = await Assert.That(root.Children.Keys.OfType<YamlScalarNode>().Select(node => node.Value))
-                .Contains(key);
-        }
-    }
-
-    [Test]
-    public async Task Built_in_provider_transports_and_model_defaults_are_loaded_from_predefined_configuration()
-    {
-        var configuration = Load(Path.Combine(_directory, "config.yaml"));
-
-        _ = await Assert.That(configuration.Providers.Keys.OrderBy(id => id, StringComparer.Ordinal).SequenceEqual(
-            ["chatgpt", "kimi-api", "kimi-code", "openai", "opencode-go", "openrouter"],
-            StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(configuration.Providers["openai"].HeaderTimeoutMs).IsEqualTo(10000);
-        _ = await Assert.That(configuration.Providers["openai"].BaseUrl).IsEmpty();
-        _ = await Assert.That(configuration.Providers["openai"].ModelDefaults.Keys.SequenceEqual(
-            ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
-            StringComparer.Ordinal)).IsTrue();
-        var openRouter = configuration.Providers["openrouter"];
-        _ = await Assert.That(openRouter.Protocol).IsEqualTo("chat-completions");
-        _ = await Assert.That(openRouter.BaseUrl).IsEqualTo("https://openrouter.ai/api/v1");
-        _ = await Assert.That(openRouter.ApiKeyEnv).IsEqualTo("OPENROUTER_API_KEY");
-        using var preferences = JsonDocument.Parse(openRouter.ProviderPreferences);
-        var providerPreferences = preferences.RootElement;
-        _ = await Assert.That(providerPreferences.EnumerateObject().Count()).IsEqualTo(4);
-        _ = await Assert.That(providerPreferences.GetProperty("allow_fallbacks").GetBoolean()).IsTrue();
-        _ = await Assert.That(providerPreferences.GetProperty("require_parameters").GetBoolean()).IsTrue();
-        _ = await Assert.That(providerPreferences.GetProperty("data_collection").GetString()).IsEqualTo("deny");
-        _ = await Assert.That(providerPreferences.GetProperty("zdr").GetBoolean()).IsTrue();
-        _ = await Assert.That(configuration.Providers["opencode-go"].ModelDefaults).Count().IsEqualTo(22);
-        _ = await Assert.That(configuration.Providers["kimi-code"].ModelDefaults["kimi-for-coding"].Context).IsEqualTo(262144);
-        _ = await Assert.That(configuration.Providers["kimi-api"].ModelDefaults.Keys.SequenceEqual(
-            ["kimi-k2-thinking", "kimi-k2-turbo-preview", "kimi-k2-0905-preview"],
-            StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(configuration.Providers["chatgpt"].Models).IsEmpty();
-        var chatGptDefaults = configuration.Providers["chatgpt"].ModelDefaults;
-        _ = await Assert.That(chatGptDefaults.Keys.SequenceEqual(
-            ["gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
-            StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-sol"].Variants.Keys.SequenceEqual(
-            ["low", "medium", "high", "xhigh"],
-            StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(chatGptDefaults["gpt-5.4"].InputPrice).IsEqualTo(0.0000025);
-        _ = await Assert.That(chatGptDefaults["gpt-5.4"].OutputPrice).IsEqualTo(0.000015);
-        _ = await Assert.That(chatGptDefaults["gpt-5.4-mini"].InputPrice).IsEqualTo(0.00000075);
-        _ = await Assert.That(chatGptDefaults["gpt-5.4-mini"].OutputPrice).IsEqualTo(0.0000045);
-        _ = await Assert.That(chatGptDefaults["gpt-5.5"].InputPrice).IsEqualTo(0.000005);
-        _ = await Assert.That(chatGptDefaults["gpt-5.5"].OutputPrice).IsEqualTo(0.00003);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-luna"].InputPrice).IsEqualTo(0.0000002);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-luna"].CachedInputPrice).IsEqualTo(0.00000002);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-luna"].OutputPrice).IsEqualTo(0.0000012);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-terra"].InputPrice).IsEqualTo(0.000002);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-terra"].CachedInputPrice).IsEqualTo(0.0000002);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-terra"].OutputPrice).IsEqualTo(0.000012);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-sol"].InputPrice).IsEqualTo(0.000005);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-sol"].CachedInputPrice).IsEqualTo(0.0000005);
-        _ = await Assert.That(chatGptDefaults["gpt-5.6-sol"].OutputPrice).IsEqualTo(0.00003);
-        _ = await Assert.That(configuration.Providers["opencode-go"].ModelDefaults["kimi-k3"].Variants.Keys.SequenceEqual(
-            ["max", "high", "low"],
-            StringComparer.Ordinal)).IsTrue();
     }
 
     [Test]
@@ -305,18 +162,6 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Live_buffer_rows_defaults_from_and_is_documented_in_the_generated_reference(
-        CancellationToken cancellationToken)
-    {
-        var predefined = Path.Combine(_directory, "predefined_config.yaml");
-        var configuration = Load(Path.Combine(_directory, "config.yaml"));
-
-        _ = await Assert.That(configuration.LiveBufferRows).IsEqualTo(20);
-        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken))
-            .Contains("live_buffer_rows: 20");
-    }
-
-    [Test]
     [Arguments(1)]
     [Arguments(25)]
     public async Task Live_buffer_rows_accepts_positive_user_configuration(int rows)
@@ -382,18 +227,6 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
-    public async Task Agent_task_configuration_defaults_are_written_to_the_generated_reference(
-        CancellationToken cancellationToken)
-    {
-        var predefined = Path.Combine(_directory, "predefined_config.yaml");
-        var configuration = Load(Path.Combine(_directory, "config.yaml"));
-
-        _ = await Assert.That(configuration.AgentTasks.MaximumAttempts).IsEqualTo(5);
-        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken)).Contains(
-            "agent_tasks:\n  maximum_attempts: 5");
-    }
-
-    [Test]
     [Arguments("2", 2)]
     [Arguments("2147483647", int.MaxValue)]
     public async Task Agent_task_configuration_overrides_maximum_attempts(string value, int expected)
@@ -427,21 +260,6 @@ internal sealed class ConfigurationTests : IDisposable
     public async Task Agent_task_configuration_requires_a_positive_integer_maximum_attempts(string value) =>
         _ = await Assert.That(() => Load(Write($"agent_tasks:\n  maximum_attempts: {value}\n")))
             .Throws<InvalidDataException>().WithMessage("agent_tasks.maximum_attempts must be a positive integer");
-
-    [Test]
-    public async Task Compaction_configuration_defaults_are_written_to_the_generated_reference(
-        CancellationToken cancellationToken)
-    {
-        var predefined = Path.Combine(_directory, "predefined_config.yaml");
-        var configuration = Load(Path.Combine(_directory, "config.yaml"));
-
-        _ = await Assert.That(configuration.Compaction.TriggerPercent).IsEqualTo(90);
-        _ = await Assert.That(configuration.Compaction.TargetPercent).IsEqualTo(30);
-        _ = await Assert.That(configuration.Compaction.MaximumInputTokens).IsEqualTo(60_000);
-        _ = await Assert.That(configuration.Compaction.SummaryOutputTokens).IsEqualTo(12_000);
-        _ = await Assert.That(await File.ReadAllTextAsync(predefined, cancellationToken)).Contains(
-            "compaction:\n  trigger_percent: 90\n  target_percent: 30\n  maximum_input_tokens: 60000\n  summary_output_tokens: 12000");
-    }
 
     [Test]
     public async Task Compaction_fields_partially_override_predefined_definitions()
@@ -507,23 +325,6 @@ internal sealed class ConfigurationTests : IDisposable
     public async Task Compaction_percentages_require_target_to_be_less_than_trigger_between_one_and_ninety_nine(
         string content) =>
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
-
-    [Test]
-    public async Task Cli_utility_candidates_have_exact_defaults()
-    {
-        var candidates = Load(Path.Combine(_directory, "config.yaml")).CliUtilities;
-
-        _ = await Assert.That(candidates.Expected.SequenceEqual(
-            ["awk", "bash", "bwrap", "curl", "find", "git", "grep", "jq", "rg", "sed", "stat", "tar", "xargs"],
-            StringComparer.Ordinal)).IsTrue();
-        _ = await Assert.That(candidates.Optional.SequenceEqual(
-            [
-                "bat", "bun", "cargo", "clang", "cmake", "composer", "delta", "deno", "docker", "dotnet", "fd", "fzf",
-                "gcc", "gh", "go", "gradle", "java", "javac", "kubectl", "make", "mvn", "ninja", "nix", "node", "npm",
-                "perl", "php", "pip", "pip3", "pnpm", "python", "python3", "ruby", "rustc", "shellcheck", "swift", "tree", "yarn",
-            ],
-            StringComparer.Ordinal)).IsTrue();
-    }
 
     [Test]
     public async Task Cli_utility_sequences_append_independently_and_expected_wins_across_lists()
@@ -965,49 +766,11 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Profile_defaults_include_all_policies_and_distinguish_omitted_from_empty_tool_allowlists()
+    public async Task Explicit_empty_profile_tool_allowlist_overrides_the_predefined_allowlist()
     {
-        var configuration = Load(Write(string.Empty));
+        var configuration = Load(Write("profiles:\n  thinker:\n    allowed_tools: []\n"));
 
-        _ = await Assert.That(configuration.DefaultProfile).IsEqualTo("build");
-        _ = await Assert.That(configuration.Profiles["build"].MaxTurns).IsEqualTo(1024);
-        _ = await Assert.That(configuration.Profiles["query"].MaxTurns).IsEqualTo(8);
-        _ = await Assert.That(configuration.Profiles["explorer"].MaxTurns).IsEqualTo(32);
-        _ = await Assert.That(configuration.Profiles["worker"].MaxTurns).IsEqualTo(128);
-        _ = await Assert.That(configuration.Profiles["thinker"].MaxTurns).IsEqualTo(256);
-        _ = await Assert.That(configuration.Profiles["worker"].AllowedTools).IsNull();
-        _ = await Assert.That(configuration.Profiles["build"].IsUserSelectable).IsTrue();
-        _ = await Assert.That(configuration.Profiles["build"].IsAgentSelectable).IsFalse();
-        _ = await Assert.That(configuration.Profiles["plan"].IsUserSelectable).IsTrue();
-        _ = await Assert.That(configuration.Profiles["plan"].IsAgentSelectable).IsFalse();
-        _ = await Assert.That(configuration.Profiles["query"].IsUserSelectable).IsTrue();
-        _ = await Assert.That(configuration.Profiles["query"].IsAgentSelectable).IsFalse();
-        _ = await Assert.That(configuration.Profiles.Values.All(profile => profile.EnforceActiveWorkCompletion)).IsTrue();
-        foreach (var id in new[] { "explorer", "review", "worker", "thinker", "agent-task-pre-hook", "agent-task-payload", "agent-task-validation" })
-        {
-            _ = await Assert.That(configuration.Profiles[id].IsUserSelectable).IsFalse();
-            _ = await Assert.That(configuration.Profiles[id].IsAgentSelectable).IsTrue();
-        }
-
-        _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.SequenceEqual(
-            ["agent_spawn", "set_checkpoint", "read", "agent_send", "wait_agent", "wait"],
-            StringComparer.Ordinal)).IsTrue();
-
-        foreach (var id in new[] { "agent-task-pre-hook", "agent-task-payload", "agent-task-validation" })
-        {
-            var profile = configuration.Profiles[id];
-            _ = await Assert.That(profile.Prompt).IsNotEmpty();
-            _ = await Assert.That(profile.Usage).IsNotEmpty();
-            _ = await Assert.That(profile.AllowedTools).IsNull();
-            _ = await Assert.That(profile.MaxTurns).IsEqualTo(128);
-            _ = await Assert.That(profile.RecursionLimit).IsEqualTo(4);
-            _ = await Assert.That(profile.ReadOnly).IsFalse();
-            _ = await Assert.That(profile.EnforceActiveWorkCompletion).IsTrue();
-            _ = await Assert.That(profile.SandboxRules).IsEmpty();
-        }
-
-        var noTools = Load(Write("profiles:\n  worker:\n    allowed_tools: []\n"));
-        _ = await Assert.That(noTools.Profiles["worker"].AllowedTools).IsEmpty();
+        _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools).IsEmpty();
     }
 
     [Test]
@@ -1166,60 +929,6 @@ internal sealed class ConfigurationTests : IDisposable
     [Arguments("profiles:\n  build:\n    max_turns: 1.5\n")]
     public async Task Profile_configuration_rejects_invalid_required_fields(string content) =>
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
-
-    [Test]
-    public async Task Model_aliases_have_four_exact_defaults()
-    {
-        var aliases = Load(Path.Combine(_directory, "config.yaml")).ModelAliases;
-
-        _ = await Assert.That(aliases).Count().IsEqualTo(4);
-        _ = await Assert.That(aliases["low_llm"]).IsEqualTo(new ModelAliasConfig(
-            string.Empty,
-            "Explicit reversible mechanical or evidence work with failure-specific validation; never judgmental review.",
-            null,
-            new ModelAliasIconConfig("◆", "gray")));
-        _ = await Assert.That(aliases["medium_llm"]).IsEqualTo(new ModelAliasConfig(
-            string.Empty,
-            "Settled component work requiring local judgment.",
-            null,
-            new ModelAliasIconConfig("◆", "cyan")));
-        _ = await Assert.That(aliases["high_llm"]).IsEqualTo(new ModelAliasConfig(
-            string.Empty,
-            "Tactical ambiguity, debugging, coordination, integration, or substantive review.",
-            null,
-            new ModelAliasIconConfig("◆", "yellow")));
-        _ = await Assert.That(aliases["xhigh_llm"]).IsEqualTo(new ModelAliasConfig(
-            string.Empty,
-            "Strategic, architectural, open-ended, tightly coupled, difficult-to-verify, or consequential work with hard-to-detect errors.",
-            null,
-            new ModelAliasIconConfig("◆", "red")));
-    }
-
-    [Test]
-    public async Task Provider_model_alias_defaults_have_the_exact_predefined_mappings()
-    {
-        var defaults = Load(Path.Combine(_directory, "config.yaml")).ProviderModelAliasDefaults;
-
-        _ = await Assert.That(defaults).Count().IsEqualTo(3);
-        _ = await Assert.That(defaults["chatgpt"]).IsEqualTo(new ProviderModelAliasDefaults(
-            "chatgpt",
-            "chatgpt/gpt-5.6-luna/medium",
-            "chatgpt/gpt-5.6-terra/medium",
-            "chatgpt/gpt-5.6-sol/medium",
-            "chatgpt/gpt-5.6-sol/xhigh"));
-        _ = await Assert.That(defaults["opencode-go"]).IsEqualTo(new ProviderModelAliasDefaults(
-            "opencode-go",
-            "opencode-go/deepseek-v4-flash/high",
-            "opencode-go/deepseek-v4-pro/high",
-            "opencode-go/glm-5.2/high",
-            "opencode-go/kimi-k3/high"));
-        _ = await Assert.That(defaults["openrouter"]).IsEqualTo(new ProviderModelAliasDefaults(
-            "openrouter",
-            "openrouter/deepseek/deepseek-v4-flash-0731/high",
-            "openrouter/deepseek/deepseek-v4-pro/high",
-            "openrouter/z-ai/glm-5.2/high",
-            "openrouter/moonshotai/kimi-k3/high"));
-    }
 
     [Test]
     public async Task Provider_model_alias_defaults_are_validated_after_layering()

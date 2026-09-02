@@ -10,25 +10,6 @@ namespace Parrot.Core.Tests;
 internal sealed class ProviderRegistryTests
 {
     [Test]
-    public async Task Buildable_provider_ids_come_from_predefined_and_user_configuration()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), "parrot-provider-ids", Guid.NewGuid().ToString("n"));
-        var configuration = Configuration.Load(
-            Path.Combine(directory, "config.yaml"),
-            Path.Combine(directory, "predefined_config.yaml"));
-
-        try
-        {
-            _ = await Assert.That(string.Join(",", ProviderRegistryBuilder.BuildableProviderIds(configuration)))
-                .IsEqualTo("chatgpt,kimi-api,kimi-code,opencode-go,openrouter");
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [Test]
     public async Task Openrouter_predefined_preferences_reach_the_request_body(CancellationToken cancellationToken)
     {
         var directory = Path.Combine(Path.GetTempPath(), "parrot-openrouter-preferences", Guid.NewGuid().ToString("n"));
