@@ -511,7 +511,9 @@ read_only_exec_command_prefixes:
   - cat
   - file
   - find
+  - git diff
   - git log
+  - git status
   - grep
   - head
   - ls

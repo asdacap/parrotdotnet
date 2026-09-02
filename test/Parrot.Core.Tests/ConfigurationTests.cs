@@ -20,10 +20,10 @@ internal sealed class ConfigurationTests : IDisposable
 
     [Test]
     [Arguments("read_only_exec_command_prefixes: null", "read_only_exec_command_prefixes must be a string sequence")]
-    [Arguments("read_only_exec_command_prefixes:\n  - ''", "read_only_exec_command_prefixes[14] must be a unique nonblank string without leading or trailing whitespace")]
-    [Arguments("read_only_exec_command_prefixes:\n  - '  rg'", "read_only_exec_command_prefixes[14] must be a unique nonblank string without leading or trailing whitespace")]
-    [Arguments("read_only_exec_command_prefixes:\n  - rg\n  - rg", "read_only_exec_command_prefixes[14] must be a unique nonblank string without leading or trailing whitespace")]
-    [Arguments("read_only_exec_command_prefixes:\n  - [rg]", "read_only_exec_command_prefixes[14] must be a unique nonblank string without leading or trailing whitespace")]
+    [Arguments("read_only_exec_command_prefixes:\n  - ''", "read_only_exec_command_prefixes[16] must be a unique nonblank string without leading or trailing whitespace")]
+    [Arguments("read_only_exec_command_prefixes:\n  - '  rg'", "read_only_exec_command_prefixes[16] must be a unique nonblank string without leading or trailing whitespace")]
+    [Arguments("read_only_exec_command_prefixes:\n  - rg\n  - rg", "read_only_exec_command_prefixes[16] must be a unique nonblank string without leading or trailing whitespace")]
+    [Arguments("read_only_exec_command_prefixes:\n  - [rg]", "read_only_exec_command_prefixes[16] must be a unique nonblank string without leading or trailing whitespace")]
     public async Task Invalid_read_only_exec_command_prefixes_are_rejected(string yaml, string message)
     {
         var exception = Assert.Throws<InvalidDataException>(() => Load(Write(yaml + "\n")));
