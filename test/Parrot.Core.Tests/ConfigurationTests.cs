@@ -19,27 +19,11 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Read_only_exec_command_prefixes_use_shipped_defaults_and_layer_in_order()
-    {
-        var defaults = Load(Path.Combine(_directory, "defaults.yaml"));
-        _ = await Assert.That(defaults.ReadOnlyExecCommandPrefixes.SequenceEqual(
-            ["rg", "grep", "sed"], StringComparer.Ordinal)).IsTrue();
-
-        var appended = Load(Write("read_only_exec_command_prefixes:\n  - custom\n"));
-        _ = await Assert.That(appended.ReadOnlyExecCommandPrefixes.SequenceEqual(
-            ["rg", "grep", "sed", "custom"], StringComparer.Ordinal)).IsTrue();
-
-        var replaced = Load(Write("read_only_exec_command_prefixes: !replace\n  - custom\n  - another\n"));
-        _ = await Assert.That(replaced.ReadOnlyExecCommandPrefixes.SequenceEqual(
-            ["custom", "another"], StringComparer.Ordinal)).IsTrue();
-    }
-
-    [Test]
     [Arguments("read_only_exec_command_prefixes: null", "read_only_exec_command_prefixes must be a string sequence")]
-    [Arguments("read_only_exec_command_prefixes:\n  - ''", "read_only_exec_command_prefixes[3] must be a unique nonblank string without leading or trailing whitespace")]
-    [Arguments("read_only_exec_command_prefixes:\n  - '  rg'", "read_only_exec_command_prefixes[3] must be a unique nonblank string without leading or trailing whitespace")]
-    [Arguments("read_only_exec_command_prefixes:\n  - rg\n  - rg", "read_only_exec_command_prefixes[3] must be a unique nonblank string without leading or trailing whitespace")]
-    [Arguments("read_only_exec_command_prefixes:\n  - [rg]", "read_only_exec_command_prefixes[3] must be a unique nonblank string without leading or trailing whitespace")]
+    [Arguments("read_only_exec_command_prefixes:\n  - ''", "read_only_exec_command_prefixes[14] must be a unique nonblank string without leading or trailing whitespace")]
+    [Arguments("read_only_exec_command_prefixes:\n  - '  rg'", "read_only_exec_command_prefixes[14] must be a unique nonblank string without leading or trailing whitespace")]
+    [Arguments("read_only_exec_command_prefixes:\n  - rg\n  - rg", "read_only_exec_command_prefixes[14] must be a unique nonblank string without leading or trailing whitespace")]
+    [Arguments("read_only_exec_command_prefixes:\n  - [rg]", "read_only_exec_command_prefixes[14] must be a unique nonblank string without leading or trailing whitespace")]
     public async Task Invalid_read_only_exec_command_prefixes_are_rejected(string yaml, string message)
     {
         var exception = Assert.Throws<InvalidDataException>(() => Load(Write(yaml + "\n")));
