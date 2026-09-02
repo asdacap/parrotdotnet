@@ -248,7 +248,7 @@ internal sealed class ShellProcessActivityTests
             _view = new RawActivityView(
                 Draw,
                 Commit,
-                new ToolPresenterRegistry([new ExecCommandToolPresenter()], new GenericToolPresenter()),
+                new ToolPresenterRegistry([new ExecCommandToolPresenter(TimeProvider.System, [])], new GenericToolPresenter()),
                 static (_, _) => Task.CompletedTask);
         }
 

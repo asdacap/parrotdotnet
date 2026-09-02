@@ -56,7 +56,10 @@ internal sealed class ToolLiveValue : ILiveBufferItem, IToolPresentationValue
             ? activityLabel
             : $"{activityLabel} (running {_runningDuration.Format()})";
         var header = TerminalText.Layout($"{marker} {label}", context.Columns).Take(10).ToArray();
-        lines.AddRange(header.Select(value => new TerminalLine(value, context.Palette.Marker)));
+        var headerStyle = Report.Metadata.Style == ToolPresentationStyle.Muted
+            ? context.Palette.LiveMuted
+            : context.Palette.Marker;
+        lines.AddRange(header.Select(value => new TerminalLine(value, headerStyle)));
         var detailLines = ToolDisplayText.LayoutDetails(
             Report.Block.Kind == ToolBlockKind.None ? [] : [Report.Block.Text],
             context.Columns,

@@ -212,6 +212,13 @@ cli_utilities:
     - tree
     - yarn
 
+# Command prefixes whose exec activity is rendered as compact muted output.
+# User entries append after these defaults; use !replace to replace the inherited sequence.
+read_only_exec_command_prefixes:
+  - rg
+  - grep
+  - sed
+
 # Render changed lines inline. Set to false for a side-by-side diff viewer.
 inline_diff: true
 

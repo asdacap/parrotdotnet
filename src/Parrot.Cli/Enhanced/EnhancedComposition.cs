@@ -25,12 +25,16 @@ internal partial class EnhancedComposition
             .To<Func<TimeSpan, CancellationToken, Task>>(
                 static _ => static (delay, cancellationToken) => Task.Delay(delay, cancellationToken))
             .Bind<ToolPresenterRegistry>().As(Lifetime.Singleton)
-            .To(static _ => new ToolPresenterRegistry(
+            .To(ctx =>
+            {
+                ctx.Inject<Configuration>(out var configuration);
+                ctx.Inject<TimeProvider>(out var timeProvider);
+                return new ToolPresenterRegistry(
                 [
                     new AgentSendToolPresenter(),
                     new AgentSpawnToolPresenter(),
                     new EditToolPresenter(),
-                    new ExecCommandToolPresenter(),
+                    new ExecCommandToolPresenter(timeProvider, configuration.ReadOnlyExecCommandPrefixes),
                     new GlobToolPresenter(),
                     new GrepToolPresenter(),
                     new InterruptProcessToolPresenter(),
@@ -47,6 +51,7 @@ internal partial class EnhancedComposition
                     new WriteStdinToolPresenter(),
                     new WriteToolPresenter(),
                 ],
-                new GenericToolPresenter()))
+                new GenericToolPresenter());
+            })
             .Root<EnhancedCli>("Cli");
 }

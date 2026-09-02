@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -22,6 +23,7 @@ internal sealed class Configuration(string path)
     private const string DefaultProfileKey = "default_profile";
     private const string DisabledToolsKey = "disabled_tools";
     private const string CliUtilitiesKey = "cli_utilities";
+    private const string ReadOnlyExecCommandPrefixesKey = "read_only_exec_command_prefixes";
     private const string UserInputTimeoutKey = "user_input_timeout_ms";
     private const string PermissionRequestTimeoutKey = "permission_request_timeout_ms";
     private const string LiveBufferRowsKey = "live_buffer_rows";
@@ -68,6 +70,8 @@ internal sealed class Configuration(string path)
     public string DefaultProfile { get; private set; } = string.Empty;
 
     public CliUtilityCandidates CliUtilities { get; private set; } = new([], []);
+
+    public IReadOnlyList<string> ReadOnlyExecCommandPrefixes { get; private set; } = [];
 
     public TimeSpan UserInputTimeout { get; private set; }
 
@@ -190,6 +194,7 @@ internal sealed class Configuration(string path)
             Profiles = profiles,
             DefaultProfile = ReadDefaultProfile(root, profiles),
             CliUtilities = ReadCliUtilities(root),
+            ReadOnlyExecCommandPrefixes = ReadReadOnlyExecCommandPrefixes(root),
             UserInputTimeout = ReadUserInputTimeout(root, userRoot),
             LiveBufferRows = ReadLiveBufferRows(root),
             Compaction = ReadCompaction(root),
@@ -309,6 +314,7 @@ internal sealed class Configuration(string path)
         ["sandbox_rules"] or
         ["cli_utilities", "expected"] or
         ["cli_utilities", "optional"] or
+        ["read_only_exec_command_prefixes"] or
         ["profiles", _, "sandbox_rules"];
 
     private static bool ReplacesSequence(YamlSequenceNode sequence) => sequence.Tag == ReplaceTag;
@@ -854,6 +860,33 @@ internal sealed class Configuration(string path)
         }
 
         return names;
+    }
+
+    private static ReadOnlyCollection<string> ReadReadOnlyExecCommandPrefixes(YamlMappingNode root)
+    {
+        if (!Child(root, ReadOnlyExecCommandPrefixesKey, out var node) || node is not YamlSequenceNode sequence)
+        {
+            throw new InvalidDataException($"{ReadOnlyExecCommandPrefixesKey} must be a string sequence");
+        }
+
+        var prefixes = new List<string>(sequence.Children.Count);
+        for (var index = 0; index < sequence.Children.Count; index++)
+        {
+            var path = $"{ReadOnlyExecCommandPrefixesKey}[{index}]";
+            if (sequence.Children[index] is not YamlScalarNode { Value: { } prefix } scalar ||
+                (scalar.Style == ScalarStyle.Plain && prefix is "null" or "Null" or "NULL" or "~") ||
+                string.IsNullOrWhiteSpace(prefix) ||
+                !string.Equals(prefix.Trim(), prefix, StringComparison.Ordinal) ||
+                prefixes.Contains(prefix, StringComparer.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"{path} must be a unique nonblank string without leading or trailing whitespace");
+            }
+
+            prefixes.Add(prefix);
+        }
+
+        return Array.AsReadOnly(prefixes.ToArray());
     }
 
     private static List<string>? ReadAllowedTools(YamlMappingNode parent, string path)
