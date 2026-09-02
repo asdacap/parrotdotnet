@@ -100,12 +100,12 @@ internal sealed class BasicCli(
         ArgumentNullException.ThrowIfNull(output);
 
         await output.WriteLineAsync(completed.Markdown.AsMemory(), cancellationToken).ConfigureAwait(false);
-        if (completed.TaskTree is not { RootNodes.Count: > 0 })
-        {
-            return;
-        }
-
-        foreach (var line in AgentTaskProgressFormatter.Format(completed.TaskTree))
+        var lines = completed.TaskDeclarations.Count > 0
+            ? AgentTaskDeclarationFormatter.Format(completed.TaskDeclarations)
+            : completed.TaskTree is { RootNodes.Count: > 0 }
+                ? AgentTaskProgressFormatter.Format(completed.TaskTree)
+                : [];
+        foreach (var line in lines)
         {
             await output.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
         }

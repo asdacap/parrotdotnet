@@ -220,6 +220,7 @@ internal sealed class UserSessionModes(ModeRegistry modes, PromptTemplateCatalog
             MessageId = messageId,
             Markdown = plan,
             TaskTree = AgentTaskProgressSnapshot.FromPlannedTasks(tasks.Tasks),
+            TaskDeclarations = { PlanTaskDeclaration.FromPlannedTasks(tasks.Tasks) },
             Dialog = new TurnCompleteDialog
             {
                 Prompt = "Plan complete: ",

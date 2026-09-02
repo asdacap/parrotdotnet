@@ -59,6 +59,78 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Plan_completed_task_declarations_roundtrip_preserves_nested_order_and_fields()
+    {
+        var source = new PlanCompleted
+        {
+            Markdown = "# Plan",
+            TaskDeclarations =
+            {
+                new PlanTaskDeclaration
+                {
+                    Name = "composite",
+                    Status = AgentTaskProgressStatus.Pending,
+                    Dependencies = { "first", "second" },
+                    Description = "Composite description",
+                    AcceptanceCriteria = "Composite criteria",
+                    Model = "model/composite",
+                    Children = new PlanTaskDeclarationChildren
+                    {
+                        Tasks =
+                        {
+                            new PlanTaskDeclaration
+                            {
+                                Name = "leaf",
+                                Status = AgentTaskProgressStatus.Pending,
+                                Dependencies = { "nested-dependency" },
+                                Description = "Leaf description",
+                                AcceptanceCriteria = "Leaf criteria",
+                                Instruction = "Leaf instruction",
+                            },
+                            new PlanTaskDeclaration
+                            {
+                                Name = "leaf-without-model",
+                                Status = AgentTaskProgressStatus.Pending,
+                                Description = "Second leaf description",
+                                AcceptanceCriteria = "Second leaf criteria",
+                                Instruction = "Second instruction",
+                            },
+                        },
+                    },
+                },
+                new PlanTaskDeclaration
+                {
+                    Name = "second",
+                    Status = AgentTaskProgressStatus.Pending,
+                    Description = "Second description",
+                    AcceptanceCriteria = "Second criteria",
+                    Instruction = "Second instruction",
+                },
+            },
+        };
+
+        var roundtripped = PlanCompleted.Parser.ParseFrom(source.ToByteArray());
+        var composite = roundtripped.TaskDeclarations[0];
+        var leaf = composite.Children.Tasks[0];
+        var omittedModel = composite.Children.Tasks[1];
+
+        _ = await Assert.That(string.Join(',', roundtripped.TaskDeclarations.Select(task => task.Name)))
+            .IsEqualTo("composite,second");
+        _ = await Assert.That(composite.Status).IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(composite.Dependencies.SequenceEqual(["first", "second"])).IsTrue();
+        _ = await Assert.That(composite.Description).IsEqualTo("Composite description");
+        _ = await Assert.That(composite.AcceptanceCriteria).IsEqualTo("Composite criteria");
+        _ = await Assert.That(composite.HasModel).IsTrue();
+        _ = await Assert.That(composite.Model).IsEqualTo("model/composite");
+        _ = await Assert.That(leaf.PayloadCase).IsEqualTo(PlanTaskDeclaration.PayloadOneofCase.Instruction);
+        _ = await Assert.That(leaf.Instruction).IsEqualTo("Leaf instruction");
+        _ = await Assert.That(leaf.Dependencies.Single()).IsEqualTo("nested-dependency");
+        _ = await Assert.That(omittedModel.PayloadCase).IsEqualTo(PlanTaskDeclaration.PayloadOneofCase.Instruction);
+        _ = await Assert.That(omittedModel.HasModel).IsFalse();
+        _ = await Assert.That(omittedModel.Model).IsEqualTo(string.Empty);
+    }
+
+    [Test]
     public async Task Agent_statistics_roundtrip_as_a_protobuf_payload()
     {
         var source = new Event
