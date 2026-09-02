@@ -140,10 +140,17 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = await Assert.That(task.GetProperty("evidence").GetString()).IsEqualTo("parent done");
         _ = await Assert.That(task.GetProperty("tasks")[0].GetProperty("evidence").GetString()).IsEqualTo("child done");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
-        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
-            .Any(content => content.Contains("AgentTask role: research pre-hook", StringComparison.Ordinal)))).IsEqualTo(1);
-        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
-            .Any(content => content.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal)))).IsEqualTo(1);
+        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-pre-hook")).IsEqualTo(1);
+        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
+        var identities = runtime.Sessions.Identities;
+        _ = await Assert.That(identities).Count().IsEqualTo(3);
+        var composite = identities.Single(identity => identity.Name == "leaf-research");
+        var child = identities.Single(identity => identity.Name == "child");
+        _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
+        _ = await Assert.That(child.ParentSessionId).IsEqualTo(composite.SessionId);
+        _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
+            .Any(content => content.Contains("composite context", StringComparison.Ordinal))).IsTrue();
         var childPrompt = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(childPrompt).Contains("replacement context");
     }

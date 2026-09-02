@@ -121,9 +121,9 @@ configuration makes `build`, `plan`, and `query` user-selectable modes, and
 makes `explorer`, `review`, `worker`, `thinker`, `agent-task-pre-hook`,
 `agent-task-payload`, and `agent-task-validation` agent-selectable children.
 The `agent-task-*` profiles are used internally by `run_agent_tasks`: composite
-work uses research, nested execution, and separate acceptance validation, while
-instruction leaves use the payload profile for combined implementation and
-verification. `default_profile` must name a user-selectable profile and is used
+work uses distinct research and validation turns on one retained composite agent,
+which owns nested child agents, while instruction leaves use the payload profile
+for combined implementation and verification. `default_profile` must name a user-selectable profile and is used
 when no mode is selected explicitly. The foreground-mode RPC and slash-command
 surfaces list only user-selectable profiles; child-agent prompts and spawning
 accept only agent-selectable profiles.
@@ -311,11 +311,11 @@ invocation-time file and security checks are preserved.
 
 `run_agent_tasks` runs the graph synchronously. Fresh retained-only children do
 not inherit conversational context, but use the same workspace and normal
-user-session-scoped runtime resources. Composite tasks use `agent-task-pre-hook`
-for research, recursively execute their nested graph, and use
-`agent-task-validation` for separate acceptance review. A fresh instruction leaf
-uses one fresh `agent-task-payload` child: that child implements and verifies the
-instruction and is retained for the whole leaf invocation. It has no inherited
+user-session-scoped runtime resources. Composite tasks use one retained composite agent for distinct research and
+validation turns, and that agent owns the recursively executed nested child
+agents. A fresh instruction leaf uses one fresh `agent-task-payload` child: that
+child implements and verifies the instruction and is retained for the whole leaf
+invocation. It has no inherited
 conversation. On each retry the same retained session receives a new user prompt
 while its previous exchange remains retained; therefore its non-system message
 count grows as 1, 3, 5, ... across attempts. The combined response is parsed
@@ -333,8 +333,9 @@ ordered root-to-parent ancestor declarations and root-to-current research
 contexts, each labelled with its task path. They never receive sibling or cousin
 research context. Direct dependency summaries are also supplied to a ready task.
 
-A composite's nested result is then reviewed by its separate acceptance child,
-whose verdict uses the existing strict acceptance forms. An instruction leaf's
+The retained composite agent then reviews its nested result in a distinct
+validation turn, using the existing strict acceptance forms; nested task agents
+remain children owned by that composite agent. An instruction leaf's
 combined response must return JSON with nonblank `context` and exactly one
 strict verdict: `accept` with nonblank evidence, `reject_and_halt` with nonblank
 feedback, or `reject_and_retry` with nonblank feedback and a replacement
@@ -359,8 +360,8 @@ is omitted, the response's required `context` is carried forward. A retry may
 replace the payload with another instruction or with a task array. An instruction
 replacement continues in the same retained leaf session. A task-array
 replacement transitions to the composite lifecycle: research pre-hook, nested
-sibling execution, and separate validation, with the retry context supplied to
-descendants.
+sibling execution, and a later validation turn on the retained composite agent,
+with the retry context supplied to its nested child agents.
 
 For a leaf, `context` becomes result context and accepted `evidence` is the
 serialized top-level `evidence`; retry feedback is retained and may be exposed as

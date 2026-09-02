@@ -359,7 +359,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var finalProgress = ProgressEvents("runner-call")[^1].RootNodes.Single();
         _ = await Assert.That(finalProgress.Status).IsEqualTo(AgentTaskProgressStatus.Succeeded);
         _ = await Assert.That(finalProgress.Children.Single().Status).IsEqualTo(AgentTaskProgressStatus.Failed);
-        var acceptance = provider.Requests[^1].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var acceptance = provider.Requests[^1].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(acceptance).Contains("Nested task results (structured JSON):");
         _ = await Assert.That(acceptance).Contains("child proof failed");
         _ = await Assert.That(acceptance).Contains("\"status\":\"failed\"");
@@ -420,19 +420,30 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("replacement parent context");
         _ = await Assert.That(result.Tasks.Single().Tasks?.Single().Context).IsEqualTo("retry child context");
         _ = await Assert.That(result.Tasks.Single().RetryFeedback?.Single()).IsEqualTo("split it");
-        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(4);
-        _ = await Assert.That(provider.Requests[^1].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(1);
-        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
-            .Any(content => content.Contains("AgentTask role: research pre-hook", StringComparison.Ordinal)))).IsEqualTo(1);
-        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
-            .Any(content => content.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal)))).IsEqualTo(1);
+        var identities = runtime.Sessions.Identities;
+        _ = await Assert.That(identities).Count().IsEqualTo(3);
+        var initialExecutor = identities.Single(identity => identity.Name == "parent");
+        var composite = identities.Single(identity => identity.Name == "parent-research");
+        var replacementChild = identities.Single(identity => identity.Name == "retry-child");
+        _ = await Assert.That(initialExecutor.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
+        _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
+        _ = await Assert.That(replacementChild.ParentSessionId).IsEqualTo(composite.SessionId);
+        _ = await Assert.That(provider.Requests[^1].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
+        _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
+            .Count(profile => profile == "agent-task-pre-hook")).IsEqualTo(1);
+        _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
+            .Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
         var researchPrompt = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(researchPrompt).Contains("replacement parent context");
         var childExecution = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(childExecution).Contains("replacement parent context");
         _ = await Assert.That(childExecution).DoesNotContain("\n[task/parent] parent context");
-        var parentAcceptance = provider.Requests[3].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var parentAcceptance = provider.Requests[3].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(parentAcceptance).Contains("replacement parent context");
+        _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
+            .Any(content => content.Contains("composite research context", StringComparison.Ordinal))).IsTrue();
+        _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
+            .Any(content => content.Contains("parent done", StringComparison.Ordinal))).IsFalse();
         var snapshots = ProgressEvents("retry-replacement");
         _ = await Assert.That(snapshots.TakeWhile(snapshot => snapshot.RootNodes[0].Children.Count == 0))
             .IsNotEmpty();
@@ -442,6 +453,44 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .IsEqualTo(AgentTaskProgressStatus.Pending);
         _ = await Assert.That(snapshots[^1].RootNodes[0].Children.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Succeeded);
+    }
+
+    [Test]
+    public async Task Recursive_composites_retain_role_history_and_parentage(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"top research\"}",
+            "{\"context\":\"child research\"}",
+            "{\"context\":\"leaf context\",\"verdict\":\"accept\",\"evidence\":\"leaf done\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"child done\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"top done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"top","description":"Top","payload":[{"name":"child","description":"Child","payload":[{"name":"leaf","description":"Leaf","payload":"leaf work","acceptance_criteria":"Leaf done"}],"acceptance_criteria":"Child done"}],"acceptance_criteria":"Top done"}]}
+            """);
+
+        var result = await Runner(registry, runtime, "recursive-composites")
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        var identities = runtime.Sessions.Identities;
+        _ = await Assert.That(identities).Count().IsEqualTo(3);
+        var topComposite = identities.Single(identity => identity.Name == "top-research");
+        var childComposite = identities.Single(identity => identity.Name == "child-research");
+        var leaf = identities.Single(identity => identity.Name == "leaf");
+        _ = await Assert.That(topComposite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
+        _ = await Assert.That(childComposite.ParentSessionId).IsEqualTo(topComposite.SessionId);
+        _ = await Assert.That(leaf.ParentSessionId).IsEqualTo(childComposite.SessionId);
+        _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
+            .Any(content => content.Contains("child research", StringComparison.Ordinal))).IsTrue();
+        _ = await Assert.That(provider.Requests[4].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[4].Messages.Select(message => message.Content)
+            .Any(content => content.Contains("top research", StringComparison.Ordinal))).IsTrue();
+        _ = await Assert.That(provider.Requests[4].Messages.Select(message => message.Content)
+            .Any(content => content.Contains("top done", StringComparison.Ordinal))).IsFalse();
     }
 
     [Test]
