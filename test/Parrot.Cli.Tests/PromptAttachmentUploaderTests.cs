@@ -65,7 +65,7 @@ internal sealed class PromptAttachmentUploaderTests : IDisposable
         _ = await Assert.That(invoker.UploadedAttachments[^1].Description.MediaType).IsEqualTo("image/png");
     }
 
-    private static ProfileConfig GetProfile() => new(string.Empty, string.Empty, null, 1, 1, false, false, []);
+    private static ProfileConfig GetProfile() => new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []);
 
     private PromptAttachmentUploader GetUploader()
     {

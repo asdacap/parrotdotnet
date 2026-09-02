@@ -569,6 +569,10 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
 
         public bool EnforceActiveWorkCompletion => enforce;
 
+        public bool IsUserSelectable => false;
+
+        public bool IsAgentSelectable => false;
+
         public SecurityProfile SecurityProfile { get; } = SecurityProfile.Compose(readOnly: false, [], [], []);
 
         public void Prepare()

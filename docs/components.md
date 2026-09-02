@@ -404,11 +404,16 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   moves domain-side, and the nested `providers:` map is the point to add typed
   parsing. Auth is deliberately a separate file (`credentials.json`), never in
   here.
-- **M8.** The mode registry owns the three selectable foreground execution
-  policies (`build`, `plan`, and `query`) and their turn hooks. Their profile
-  configuration supplies prompts, declared rules, and limits without a mutable
-  foreground/child classification flag. Mode remains per-session state rather
-  than a YAML key. Child profiles are not selectable foreground modes.
+- **M8.** The mode registry lists and resolves profiles whose independent
+  `is_user_selectable` flag is true; the shipped foreground policies are
+  `build`, `plan`, and `query`, and their turn hooks remain owned by the mode
+  registry. Profile configuration supplies prompts, declared rules, limits, and
+  both audience flags. The independent `is_agent_selectable` flag controls
+  child-profile listing in the available-subagents prompt and runtime
+  `agent_spawn` resolution. A profile may be selectable by both audiences or by
+  neither; omitted overrides inherit the predefined values. `default_profile`
+  must name a user-selectable profile. Mode remains per-session state rather
+  than a YAML key, and neither audience is classified by a fixed profile ID.
 - **Tool definitions.** The shipped `predefined_config.yaml` owns each complete
   model-facing tool definition: its description and standard JSON Schema
   `parameters` object. User `config.yaml` recursively layers over descriptions
@@ -878,8 +883,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   event; cancellation is a failure carrying the retained interruption message.
   User-session shutdown cancels and joins every child. Profiles, generic task
   APIs, and the remaining `TaskManager` work stay deferred rather than stubbed.
-  M8 adds only foreground profiles and typed observation of the existing child
-  lifecycle.
+  M8 adds profile-driven audience selectability: `is_user_selectable` governs
+  foreground mode discovery and resolution, while `is_agent_selectable` governs
+  child discovery and spawning. Both audiences can be enabled or disabled
+  independently; typed observation of the existing child lifecycle remains
+  separate.
 - **Direct-child status.** `agent_status` resolves exactly one retained direct
   child by its canonical session id or direct-child friendly name; it never
   accepts a parent alias, descendant path, sibling, cousin, or arbitrary
@@ -960,7 +968,8 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 
 - `mode` is a first-class field on the .NET session create/update/response
   contract rather than upstream's compatibility alias for `agent`; this port
-  does not expose foreground profiles as agents.
+  resolves only profiles with `is_user_selectable: true` as foreground modes,
+  while child spawning independently requires `is_agent_selectable: true`.
 - Status injection and the direct-active-work completion reminder publish
   distinct small transient protobuf events after their durable system messages
   commit. Prompt text stays in message history and is not duplicated on the

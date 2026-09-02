@@ -18,6 +18,10 @@ internal sealed class NoopMode(IAgentProfile profile, SecurityProfile securityPr
 
     public bool EnforceActiveWorkCompletion => _profile.EnforceActiveWorkCompletion;
 
+    public bool IsUserSelectable => _profile.IsUserSelectable;
+
+    public bool IsAgentSelectable => _profile.IsAgentSelectable;
+
     public SecurityProfile SecurityProfile { get; } = securityProfile
         ?? throw new ArgumentNullException(nameof(securityProfile));
 

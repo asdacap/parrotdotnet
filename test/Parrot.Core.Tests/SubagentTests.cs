@@ -1336,6 +1336,32 @@ internal sealed class SubagentTests : IDisposable
     }
 
     [Test]
+    public async Task Spawn_rejects_a_profile_that_is_not_agent_selectable_even_when_user_selectable(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        var profiles = TestModels.Profiles.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value,
+            StringComparer.Ordinal);
+        profiles["worker"] = profiles["worker"] with { IsUserSelectable = true, IsAgentSelectable = false };
+        var profileRegistry = new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider), deliversCompletions: false),
+            _broker,
+            _repository,
+            profileRegistry,
+            cancellationToken);
+        var parent = Session(provider, 0, "parent", cancellationToken);
+        var result = (await new AgentSpawnTool(registry, Router(provider), parent).Execute(
+            new ToolInvocation("test-call", "{\"prompt\":\"work\",\"agent\":\"worker\"}"),
+            Turn(parent, Router(provider)),
+            cancellationToken)).Text;
+
+        _ = await Assert.That(result).IsEqualTo("error: agent profile worker cannot be spawned");
+    }
+
+    [Test]
     public async Task Registry_enforces_depth_limit(
         CancellationToken cancellationToken)
     {
@@ -1453,7 +1479,7 @@ internal sealed class SubagentTests : IDisposable
     {
         var profile = new AgentProfile(
             id,
-            new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, true, []),
+            new ProfileConfig("Test prompt", "Test profile.", null, 1, 3, readOnly, true, false, true, []),
             [],
             [],
             new HashSet<string>(StringComparer.Ordinal));

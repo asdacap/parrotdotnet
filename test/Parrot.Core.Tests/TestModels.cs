@@ -40,6 +40,8 @@ internal static class TestModels
                 3,
                 true,
                 true,
+                false,
+                true,
                 []),
             ["worker"] = new ProfileConfig(
                 "You are a worker agent.",
@@ -47,6 +49,8 @@ internal static class TestModels
                 null,
                 64,
                 3,
+                false,
+                true,
                 false,
                 true,
                 []),
@@ -58,6 +62,8 @@ internal static class TestModels
                 4,
                 false,
                 true,
+                false,
+                true,
                 []),
             ["agent-task-payload"] = new ProfileConfig(
                 "You are an AgentTask payload executor. Implement and verify the assigned task. For an instruction leaf, use this one retained session to emit the strict combined JSON result with nonblank context and exactly one verdict.",
@@ -65,6 +71,8 @@ internal static class TestModels
                 null,
                 128,
                 4,
+                false,
+                true,
                 false,
                 true,
                 []),
@@ -76,6 +84,8 @@ internal static class TestModels
                 4,
                 false,
                 true,
+                false,
+                true,
                 []),
             ["test"] = new ProfileConfig(
                 string.Empty,
@@ -85,6 +95,8 @@ internal static class TestModels
                 3,
                 false,
                 false,
+                false,
+                true,
                 []),
         };
 
@@ -248,6 +260,8 @@ internal static class TestModels
         3,
         readOnly,
         true,
+        true,
+        false,
         []);
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory

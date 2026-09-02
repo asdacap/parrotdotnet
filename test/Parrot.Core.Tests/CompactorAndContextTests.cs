@@ -86,6 +86,34 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Available_subagents_follow_agent_selectability_without_affecting_modes()
+    {
+        var profiles = TestModels.Profiles.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value,
+            StringComparer.Ordinal);
+        profiles[ModeRegistry.Build] = profiles[ModeRegistry.Build] with
+        {
+            IsUserSelectable = true,
+            IsAgentSelectable = true,
+        };
+        profiles["worker"] = profiles["worker"] with { IsUserSelectable = true };
+        profiles["explorer"] = profiles["explorer"] with { IsAgentSelectable = false };
+        profiles["test"] = profiles["test"] with { IsUserSelectable = false, IsAgentSelectable = false };
+        var registry = new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
+        var prompt = new SubagentsProvider(registry)
+            .Materialize(AgentIdentity.Main("session", string.Empty));
+
+        var rendered = prompt.Build(Selection());
+
+        _ = await Assert.That(rendered).Contains("- build: Test profile.");
+        _ = await Assert.That(rendered).Contains("- worker: Test child profile.");
+        _ = await Assert.That(rendered).DoesNotContain("- explorer:");
+        _ = await Assert.That(rendered).DoesNotContain("- review:");
+        _ = await Assert.That(rendered).DoesNotContain("- test:");
+    }
+
+    [Test]
     public async Task Session_identity_provider_omits_main_identity_and_renders_child_identity_before_subagents()
     {
         var main = ComposeSystemContextProvider().Materialize(AgentIdentity.Main("main", string.Empty));
@@ -878,7 +906,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var profile = new AgentProfile(
             "test",
             new Parrot.Config.ProfileConfig(
-                "Test prompt", "Test profile.", allowedTools, 2, 3, false, true, []),
+                "Test prompt", "Test profile.", allowedTools, 2, 3, false, true, false, true, []),
             [],
             [],
             disabledTools);

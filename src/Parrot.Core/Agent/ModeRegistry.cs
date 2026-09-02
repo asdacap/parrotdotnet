@@ -6,7 +6,7 @@ internal sealed class ModeRegistry
     public const string Plan = "plan";
     public const string Query = "query";
 
-    private readonly IReadOnlyList<string> _modes = [Build, Plan, Query];
+    private readonly IReadOnlyList<string> _modes;
     private readonly ProfileRegistry _profiles;
 
     public ModeRegistry(ProfileRegistry profiles, string defaultProfile)
@@ -14,8 +14,8 @@ internal sealed class ModeRegistry
         ArgumentNullException.ThrowIfNull(profiles);
         ArgumentException.ThrowIfNullOrWhiteSpace(defaultProfile);
         _profiles = profiles;
+        _modes = [.. profiles.UserSelectableIds];
         Default = Resolve(defaultProfile).Id;
-        _ = _modes.Select(Resolve).ToArray();
     }
 
     public string Default { get; }

@@ -221,7 +221,7 @@ internal sealed class CliLifecycleDriver : IDisposable
             new ModeRegistry(registry, ModeRegistry.Build));
     }
 
-    private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, []);
+    private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []);
 
     private sealed class SynchronizedStringWriter : StringWriter
     {

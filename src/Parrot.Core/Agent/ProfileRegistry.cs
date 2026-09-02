@@ -5,10 +5,6 @@ namespace Parrot.Agent;
 
 internal sealed class ProfileRegistry
 {
-    private static readonly HashSet<string> ModeIds = new(
-        [ModeRegistry.Build, ModeRegistry.Plan, ModeRegistry.Query],
-        StringComparer.Ordinal);
-
     private readonly IReadOnlyDictionary<string, AgentProfile> _profiles;
 
     public ProfileRegistry(
@@ -35,14 +31,23 @@ internal sealed class ProfileRegistry
     }
 
     public IReadOnlyList<AgentProfile> Children => [.. _profiles.Values
-        .Where(profile => !ModeIds.Contains(profile.Id))
+        .Where(profile => profile.IsAgentSelectable)
         .OrderBy(profile => profile.Id, StringComparer.Ordinal)];
+
+    public IReadOnlyList<string> UserSelectableIds => [.. _profiles.Values
+        .Where(profile => profile.IsUserSelectable)
+        .OrderBy(profile => profile.Id, StringComparer.Ordinal)
+        .Select(profile => profile.Id)];
 
     public AgentProfile ResolveChild(string id)
     {
-        var selected = string.Equals(id, "explore", StringComparison.Ordinal) ? "explorer" : id;
+        var selected = string.Equals(id, "explore", StringComparison.Ordinal) &&
+                       _profiles.TryGetValue("explorer", out var explorer) &&
+                       explorer.IsAgentSelectable
+            ? "explorer"
+            : id;
         var profile = Resolve(selected);
-        return !ModeIds.Contains(profile.Id)
+        return profile.IsAgentSelectable
             ? profile
             : throw new AgentRegistryException($"agent profile {id} cannot be spawned");
     }

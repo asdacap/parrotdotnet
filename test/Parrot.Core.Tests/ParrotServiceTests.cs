@@ -192,6 +192,27 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task List_modes_exposes_only_user_selectable_profiles(CancellationToken cancellationToken)
+    {
+        var profiles = _configuration.Profiles.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value,
+            StringComparer.Ordinal);
+        profiles["worker"] = profiles["worker"] with { IsUserSelectable = true };
+        profiles["review"] = profiles["review"] with { IsUserSelectable = false };
+        var modes = new ModeRegistry(
+            new ProfileRegistry(profiles, _configuration.SandboxRules, [], _configuration.DisabledTools),
+            _configuration.DefaultProfile);
+        await using var service = ServiceWithModes(Store(), modes);
+        var listed = await service.ListModes(
+            new ListModesRequest(),
+            new InProcessServerCallContext(cancellationToken));
+
+        _ = await Assert.That(string.Join(",", listed.Modes.Select(mode => mode.Id)))
+            .IsEqualTo("build,plan,query,worker");
+    }
+
+    [Test]
     public async Task Sessions_are_listed_from_the_server_catalog_with_hosted_state(
         CancellationToken cancellationToken)
     {
@@ -734,13 +755,15 @@ internal sealed class ParrotServiceTests : IDisposable
             ?? throw new InvalidOperationException($"Session metadata not found for '{id}'.");
     }
 
-    private ParrotService Service(SessionStore store) => new(
+    private ParrotService Service(SessionStore store) => ServiceWithModes(store, Modes());
+
+    private ParrotService ServiceWithModes(SessionStore store, ModeRegistry modes) => new(
         _router,
         _registry,
         new ModelAliasConfigurator(_configuration, _catalog),
         store,
         new SessionCatalog(new StatePaths(_root, _root, _root)),
-        Modes());
+        modes);
 
     private ModeRegistry Modes() => new(
         new ProfileRegistry(

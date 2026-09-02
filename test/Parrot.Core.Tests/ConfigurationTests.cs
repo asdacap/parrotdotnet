@@ -976,7 +976,19 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(configuration.Profiles["worker"].MaxTurns).IsEqualTo(128);
         _ = await Assert.That(configuration.Profiles["thinker"].MaxTurns).IsEqualTo(256);
         _ = await Assert.That(configuration.Profiles["worker"].AllowedTools).IsNull();
+        _ = await Assert.That(configuration.Profiles["build"].IsUserSelectable).IsTrue();
+        _ = await Assert.That(configuration.Profiles["build"].IsAgentSelectable).IsFalse();
+        _ = await Assert.That(configuration.Profiles["plan"].IsUserSelectable).IsTrue();
+        _ = await Assert.That(configuration.Profiles["plan"].IsAgentSelectable).IsFalse();
+        _ = await Assert.That(configuration.Profiles["query"].IsUserSelectable).IsTrue();
+        _ = await Assert.That(configuration.Profiles["query"].IsAgentSelectable).IsFalse();
         _ = await Assert.That(configuration.Profiles.Values.All(profile => profile.EnforceActiveWorkCompletion)).IsTrue();
+        foreach (var id in new[] { "explorer", "review", "worker", "thinker", "agent-task-pre-hook", "agent-task-payload", "agent-task-validation" })
+        {
+            _ = await Assert.That(configuration.Profiles[id].IsUserSelectable).IsFalse();
+            _ = await Assert.That(configuration.Profiles[id].IsAgentSelectable).IsTrue();
+        }
+
         _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools?.SequenceEqual(
             ["agent_spawn", "set_checkpoint", "read", "agent_send", "wait_agent", "wait"],
             StringComparer.Ordinal)).IsTrue();
@@ -1028,8 +1040,21 @@ internal sealed class ConfigurationTests : IDisposable
     [Arguments("worker")]
     [Arguments("thinker")]
     [Arguments("custom")]
-    public async Task Default_profile_rejects_non_foreground_profile_ids(string id) =>
+    public async Task Default_profile_rejects_profiles_that_are_not_user_selectable(string id) =>
         _ = await Assert.That(() => Load(Write($"default_profile: {id}\n"))).Throws<InvalidDataException>();
+
+    [Test]
+    public async Task Default_profile_accepts_any_profile_made_user_selectable()
+    {
+        var configuration = Load(Write("""
+            default_profile: worker
+            profiles:
+              worker:
+                is_user_selectable: true
+            """));
+
+        _ = await Assert.That(configuration.DefaultProfile).IsEqualTo("worker");
+    }
 
     [Test]
     public async Task Profile_configuration_rejects_unknown_profile_ids() =>
@@ -1056,6 +1081,34 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(profile.ReadOnly).IsTrue();
         _ = await Assert.That(profile.SandboxRules).IsEmpty();
     }
+
+    [Test]
+    public async Task Profile_selectability_flags_are_independent_and_partial_overrides_preserve_defaults()
+    {
+        var configuration = Load(Write("""
+            profiles:
+              build:
+                is_agent_selectable: true
+              worker:
+                is_user_selectable: true
+            """));
+
+        _ = await Assert.That(configuration.Profiles["build"].IsUserSelectable).IsTrue();
+        _ = await Assert.That(configuration.Profiles["build"].IsAgentSelectable).IsTrue();
+        _ = await Assert.That(configuration.Profiles["worker"].IsUserSelectable).IsTrue();
+        _ = await Assert.That(configuration.Profiles["worker"].IsAgentSelectable).IsTrue();
+        _ = await Assert.That(configuration.Profiles["query"].IsUserSelectable).IsTrue();
+        _ = await Assert.That(configuration.Profiles["query"].IsAgentSelectable).IsFalse();
+    }
+
+    [Test]
+    [Arguments("is_user_selectable: yes")]
+    [Arguments("is_user_selectable: 1")]
+    [Arguments("is_agent_selectable: yes")]
+    [Arguments("is_agent_selectable: 1")]
+    public async Task Profile_selectability_flags_require_strict_booleans(string field) =>
+        _ = await Assert.That(() => Load(Write($"profiles:\n  worker:\n    {field}\n")))
+            .Throws<InvalidDataException>();
 
     [Test]
     public async Task Profile_active_work_completion_policy_can_be_overridden()

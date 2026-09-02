@@ -21,6 +21,10 @@ internal sealed class SessionMode(
 
     public bool EnforceActiveWorkCompletion => profile.EnforceActiveWorkCompletion;
 
+    public bool IsUserSelectable => profile.IsUserSelectable;
+
+    public bool IsAgentSelectable => profile.IsAgentSelectable;
+
     public SecurityProfile SecurityProfile { get; } = securityProfile;
 
     public void Prepare() => prepare();

@@ -28,6 +28,8 @@ internal sealed class AgentProfile : IAgentProfile
         MaxTurns = configuration.MaxTurns;
         RecursionLimit = configuration.RecursionLimit;
         EnforceActiveWorkCompletion = configuration.EnforceActiveWorkCompletion;
+        IsUserSelectable = configuration.IsUserSelectable;
+        IsAgentSelectable = configuration.IsAgentSelectable;
         SecurityProfile = SecurityProfile.Compose(
             configuration.ReadOnly,
             configuration.SandboxRules,
@@ -50,6 +52,10 @@ internal sealed class AgentProfile : IAgentProfile
     public int RecursionLimit { get; }
 
     public bool EnforceActiveWorkCompletion { get; }
+
+    public bool IsUserSelectable { get; }
+
+    public bool IsAgentSelectable { get; }
 
     public SecurityProfile SecurityProfile { get; }
 }

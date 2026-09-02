@@ -104,21 +104,28 @@ runtime provider. This map is separate from `profiles.<id>.prompt`, which is
 mode-specific guidance, and `model_augment_system_prompts`, which augments the
 prompt for selected model selectors.
 
-Profiles are configured under `profiles`. `build`, `plan`, and `query` are
-foreground modes, while `explorer`, `review`, `worker`, `thinker`,
-`agent-task-pre-hook`, `agent-task-payload`, and `agent-task-validation` are
-child profiles selected by `agent_spawn.agent`. The `agent-task-*` profiles are
-used internally by `run_agent_tasks`: composite work uses research, nested
-execution, and separate acceptance validation, while instruction leaves use the
-payload profile for combined implementation and verification. All child profiles
-are spawn-visible.
-`default_profile` must name a foreground profile and is used when no mode is
-selected explicitly. The foreground-mode RPC and slash-command surfaces list
-only foreground profiles.
+Profiles are configured under `profiles`. Each profile has two independent
+selectability flags: `is_user_selectable` controls foreground mode listing and
+mode resolution, while `is_agent_selectable` controls the available-subagent
+prompt and `agent_spawn.agent` resolution. Neither flag classifies a profile by
+fixed ID, and a profile may be selectable by both audiences or by neither.
+Omitted profile fields inherit the values from the predefined configuration, so
+these flags can be changed independently with partial overrides. The shipped
+configuration makes `build`, `plan`, and `query` user-selectable modes, and
+makes `explorer`, `review`, `worker`, `thinker`, `agent-task-pre-hook`,
+`agent-task-payload`, and `agent-task-validation` agent-selectable children.
+The `agent-task-*` profiles are used internally by `run_agent_tasks`: composite
+work uses research, nested execution, and separate acceptance validation, while
+instruction leaves use the payload profile for combined implementation and
+verification. `default_profile` must name a user-selectable profile and is used
+when no mode is selected explicitly. The foreground-mode RPC and slash-command
+surfaces list only user-selectable profiles; child-agent prompts and spawning
+accept only agent-selectable profiles.
 
 Every profile has a nonempty `prompt` and `usage`; a positive `max_turns`; a
 nonnegative `recursion_limit`; boolean `read_only`; boolean
-`enforce_active_work_completion`; and optional ordered `sandbox_rules`.
+`enforce_active_work_completion`; boolean `is_user_selectable`; boolean
+`is_agent_selectable`; and optional ordered `sandbox_rules`.
 `enforce_active_work_completion` controls whether the runtime requires active
 work to be completed before the profile may finish a turn. The prompt is the
 profile's only model-facing guidance. Because

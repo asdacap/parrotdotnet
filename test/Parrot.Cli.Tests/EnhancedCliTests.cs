@@ -1298,7 +1298,7 @@ internal sealed class EnhancedCliTests
             new ModeRegistry(new ProfileRegistry(profiles, [], [], new HashSet<string>(StringComparer.Ordinal)), ModeRegistry.Build));
     }
 
-    private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, []);
+    private static ProfileConfig Profile() => new(string.Empty, string.Empty, null, 1, 1, false, false, true, false, []);
 
     private static AgentTaskProgressSnapshot TaskTree()
     {

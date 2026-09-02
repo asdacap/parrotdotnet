@@ -252,6 +252,8 @@ profiles:
     recursion_limit: 5
     read_only: false
     enforce_active_work_completion: true
+    is_user_selectable: true
+    is_agent_selectable: false
   plan:
     prompt: |-
       You are Parrot's plan mode. Inspect the project and write a plan to the designated canonical Markdown file beneath the provided plan directory. Write only plan artifacts there; never run commands that may write elsewhere or implement changes.
@@ -288,6 +290,8 @@ profiles:
     recursion_limit: 5
     read_only: true
     enforce_active_work_completion: true
+    is_user_selectable: true
+    is_agent_selectable: false
   query:
     prompt: |-
       You are Parrot's query mode. Inspect the project and answer the user's question without making changes.
@@ -299,6 +303,8 @@ profiles:
     recursion_limit: 2
     read_only: true
     enforce_active_work_completion: true
+    is_user_selectable: true
+    is_agent_selectable: false
   explorer:
     usage: Delegate focused read-only codebase investigation and evidence gathering.
     prompt: |-
@@ -312,6 +318,8 @@ profiles:
     recursion_limit: 3
     read_only: true
     enforce_active_work_completion: true
+    is_user_selectable: false
+    is_agent_selectable: true
   review:
     usage: Delegate defect-first read-only review of a requested change.
     prompt: |-
@@ -327,6 +335,8 @@ profiles:
     recursion_limit: 5
     read_only: true
     enforce_active_work_completion: true
+    is_user_selectable: false
+    is_agent_selectable: true
   worker:
     usage: Delegate independently scoped implementation or production work.
     prompt: |-
@@ -338,6 +348,8 @@ profiles:
     recursion_limit: 4
     read_only: false
     enforce_active_work_completion: true
+    is_user_selectable: false
+    is_agent_selectable: true
   agent-task-pre-hook:
     usage: Research and prepare an AgentTask before execution.
     prompt: |-
@@ -348,6 +360,8 @@ profiles:
     recursion_limit: 4
     read_only: false
     enforce_active_work_completion: true
+    is_user_selectable: false
+    is_agent_selectable: true
   agent-task-payload:
     usage: Execute an AgentTask payload and verify its observable result.
     prompt: |-
@@ -358,6 +372,8 @@ profiles:
     recursion_limit: 4
     read_only: false
     enforce_active_work_completion: true
+    is_user_selectable: false
+    is_agent_selectable: true
   agent-task-validation:
     usage: Validate an AgentTask result against its acceptance contract.
     prompt: |-
@@ -368,6 +384,8 @@ profiles:
     recursion_limit: 4
     read_only: false
     enforce_active_work_completion: true
+    is_user_selectable: false
+    is_agent_selectable: true
   thinker:
     prompt: |-
       You are Parrot's thinker agent. Perform difficult analysis and decision-making without modifying the workspace.
@@ -389,6 +407,8 @@ profiles:
     recursion_limit: 1
     read_only: true
     enforce_active_work_completion: true
+    is_user_selectable: false
+    is_agent_selectable: true
 
 # Complete model-facing definitions for built-in tools. User configuration may override
 # descriptions or structural JSON Schema members while inheriting remaining entries.

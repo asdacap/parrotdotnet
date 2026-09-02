@@ -10,4 +10,6 @@ internal sealed record ProfileConfig(
     int RecursionLimit,
     bool ReadOnly,
     bool EnforceActiveWorkCompletion,
+    bool IsUserSelectable,
+    bool IsAgentSelectable,
     IReadOnlyList<SandboxRule> SandboxRules);

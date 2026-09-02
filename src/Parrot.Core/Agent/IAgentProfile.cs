@@ -16,5 +16,9 @@ internal interface IAgentProfile
 
     bool EnforceActiveWorkCompletion { get; }
 
+    bool IsUserSelectable { get; }
+
+    bool IsAgentSelectable { get; }
+
     SecurityProfile SecurityProfile { get; }
 }

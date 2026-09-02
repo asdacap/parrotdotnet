@@ -845,7 +845,7 @@ internal sealed class DrainTests : IDisposable
     {
         var profile = new AgentProfile(
             id,
-            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, []),
+            new ProfileConfig("Test prompt", "Test profile.", allowedTools, maxTurns, 3, readOnly, true, false, true, []),
             [],
             [],
             disabledTools);

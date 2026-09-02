@@ -63,6 +63,31 @@ internal sealed class ModeRegistryTests : IDisposable
     }
 
     [Test]
+    public async Task Independent_selectability_flags_partition_modes_and_children()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"));
+        var profiles = configuration.Profiles.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value,
+            StringComparer.Ordinal);
+        profiles[ModeRegistry.Build] = profiles[ModeRegistry.Build] with { IsAgentSelectable = true };
+        profiles["worker"] = profiles["worker"] with { IsUserSelectable = true };
+        profiles["review"] = profiles["review"] with { IsUserSelectable = false, IsAgentSelectable = false };
+        var registry = new ProfileRegistry(profiles, configuration.SandboxRules, [], configuration.DisabledTools);
+        var modes = new ModeRegistry(registry, ModeRegistry.Build);
+
+        _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | plan | query | worker");
+        _ = await Assert.That(string.Join(" | ", registry.Children.Select(profile => profile.Id)))
+            .IsEqualTo("agent-task-payload | agent-task-pre-hook | agent-task-validation | build | explorer | thinker | worker");
+        _ = await Assert.That(modes.Resolve("worker").Id).IsEqualTo("worker");
+        _ = await Assert.That(registry.ResolveChild(ModeRegistry.Build).Id).IsEqualTo(ModeRegistry.Build);
+        _ = await Assert.That(() => modes.Resolve("review")).Throws<ModeRegistryException>();
+        _ = await Assert.That(() => registry.ResolveChild("review")).Throws<AgentRegistryException>();
+    }
+
+    [Test]
     public async Task Plan_prepare_creates_private_artifact_and_preserves_existing_content()
     {
         var profile = OwnerModes("session").Resolve(ModeRegistry.Plan);

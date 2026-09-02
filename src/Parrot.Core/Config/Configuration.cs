@@ -174,6 +174,7 @@ internal sealed class Configuration(string path)
         var root = Merge(LoadRoot(predefinedPath), userRoot);
         var environmentTemplates = new EnvironmentTemplateResolver(environment);
         var directories = new List<(string Path, string Field)>();
+        var profiles = ReadProfiles(root, environmentTemplates, directories);
         var configuration = new Configuration(path)
         {
             Model = Scalar(root, ModelKey),
@@ -186,8 +187,8 @@ internal sealed class Configuration(string path)
             WebFetch = ReadWebFetch(root),
             SandboxRules = ReadSandboxRules(root, "sandbox_rules", environmentTemplates, directories),
             DisabledTools = ReadDisabledTools(root),
-            Profiles = ReadProfiles(root, environmentTemplates, directories),
-            DefaultProfile = ReadDefaultProfile(root),
+            Profiles = profiles,
+            DefaultProfile = ReadDefaultProfile(root, profiles),
             CliUtilities = ReadCliUtilities(root),
             UserInputTimeout = ReadUserInputTimeout(root, userRoot),
             LiveBufferRows = ReadLiveBufferRows(root),
@@ -771,6 +772,8 @@ internal sealed class Configuration(string path)
                 "recursion_limit",
                 "read_only",
                 "enforce_active_work_completion",
+                "is_user_selectable",
+                "is_agent_selectable",
                 "sandbox_rules");
         }
 
@@ -792,18 +795,22 @@ internal sealed class Configuration(string path)
                     profile,
                     "enforce_active_work_completion",
                     $"profiles.{id}.enforce_active_work_completion"),
+                ReadBoolean(profile, "is_user_selectable", $"profiles.{id}.is_user_selectable"),
+                ReadBoolean(profile, "is_agent_selectable", $"profiles.{id}.is_agent_selectable"),
                 ReadSandboxRules(profile, $"profiles.{id}.sandbox_rules", environmentTemplates, directories));
         }
 
         return result;
     }
 
-    private static string ReadDefaultProfile(YamlMappingNode root)
+    private static string ReadDefaultProfile(
+        YamlMappingNode root,
+        Dictionary<string, ProfileConfig> profiles)
     {
         var selected = NonEmptyScalar(root, DefaultProfileKey, DefaultProfileKey);
-        if (selected is not ("build" or "plan" or "query"))
+        if (!profiles.TryGetValue(selected, out var profile) || !profile.IsUserSelectable)
         {
-            throw new InvalidDataException($"{DefaultProfileKey} must be one of build, plan, query");
+            throw new InvalidDataException($"{DefaultProfileKey} must name a user-selectable profile");
         }
 
         return selected;
