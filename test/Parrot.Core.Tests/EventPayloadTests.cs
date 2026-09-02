@@ -656,7 +656,7 @@ internal sealed class EventPayloadTests
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
-        var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
+        using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection("session", repository, events), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Registry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
 
         var llmEvent = source switch

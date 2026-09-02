@@ -5,5 +5,5 @@ namespace Parrot.Tools;
 
 internal sealed class AnswerToolFactory(ChildQuestionCoordinator questions) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new AnswerTool(questions, session);
+    public ITool Create(AgentSession session) => new AnswerTool(questions);
 }

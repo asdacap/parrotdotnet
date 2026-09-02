@@ -5,10 +5,13 @@ using Parrot.Questions;
 
 namespace Parrot.Tools;
 
-internal sealed class AnswerTool(
-    ChildQuestionCoordinator questions,
-    AgentSession session) : ITool
+internal sealed class AnswerTool(ChildQuestionCoordinator questions) : ITool
 {
+    private readonly AgentSession? _parent;
+
+    public AnswerTool(ChildQuestionCoordinator questions, AgentSession parent)
+        : this(questions) => _parent = parent;
+
     public string Name => "answer";
 
     public Task<ToolExecutionResult> Execute(
@@ -33,7 +36,15 @@ internal sealed class AnswerTool(
                 answer.OptionIds ?? [],
                 answer.Custom ?? string.Empty))]);
 
-            questions.Reply(session, agentSessionId, reply);
+            if (_parent is null)
+            {
+                questions.Reply(agentSessionId, reply);
+            }
+            else
+            {
+                questions.Reply(_parent, agentSessionId, reply);
+            }
+
             return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.QuestionReplied(invocation, agentSessionId));
         }
         catch (Exception failure) when (failure is JsonException

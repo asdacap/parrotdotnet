@@ -19,14 +19,19 @@ internal sealed class AgentRegistry(
     private const string ParentRecipient = "parent";
     private const int MaxDepth = 4;
     private const int MaxRetained = 1024;
-    private readonly Dictionary<string, IAgentSessionLease> _entries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IAgentSessionScope> _entries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IAgentSessionScope> _scopes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AgentCompletionDeliveryPolicy> _completionDeliveryPolicies = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, string>> _namesByParent = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AgentSession> _parents = new(StringComparer.Ordinal);
+    private readonly List<Task> _rejectedScopeDisposals = [];
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
     private readonly Lock _gate = new();
+    private readonly Dictionary<(string ParentSessionId, string ProfileId), int> _pendingProfiles = [];
 
     private bool _accepting = true;
+    private int _pendingSpawns;
+    private TaskCompletionSource? _spawnsSettled;
     private RuntimeStatus? _status;
     private Task? _shutdown;
 
@@ -49,6 +54,9 @@ internal sealed class AgentRegistry(
         ArgumentNullException.ThrowIfNull(request.Selection);
         ArgumentNullException.ThrowIfNull(request.RequestedScope);
         var profile = profiles.ResolveChild(request.RequestedProfile);
+        RuntimeStatus status;
+        AgentIdentity identity;
+        Security.SecurityProfile securityProfile;
 
         lock (_gate)
         {
@@ -57,7 +65,7 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("the user session is shutting down");
             }
 
-            if (_entries.Count >= MaxRetained)
+            if (_entries.Count + _pendingSpawns >= MaxRetained)
             {
                 throw new AgentRegistryException("subagent retention limit reached");
             }
@@ -69,51 +77,126 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent depth limit reached");
             }
 
-            _parents[request.Parent.SessionId] = request.Parent;
-            var securityProfile = ResolveSecurityProfile(request.Parent).RestrictWith(profile.SecurityProfile);
-            var mode = new NoopMode(profile, securityProfile);
-
-            if (ProfileOccurrences(request.Parent, profile.Id) >= profile.RecursionLimit)
+            securityProfile = ResolveSecurityProfile(request.Parent).RestrictWith(profile.SecurityProfile);
+            if (ProfileOccurrences(request.Parent, profile.Id)
+                + _pendingProfiles.GetValueOrDefault((request.Parent.SessionId, profile.Id))
+                >= profile.RecursionLimit)
             {
                 throw new AgentRegistryException("subagent profile recursion limit reached");
             }
 
-            var status = _status
+            status = _status
                 ?? throw new AgentRegistryException("the runtime status is not attached");
             var sessionId = Identifier.AgentSession();
             var names = NamesFor(request.Parent.SessionId);
             var name = UniqueName(names, request.RequestedName, sessionId);
-            var scope = request.Parent.ResolveScope().DeriveChild(name, depth, request.RequestedScope);
-            var identity = AgentIdentity.Child(sessionId, request.Parent.SessionId, request.Parent.Name, name, depth, scope, promptTemplates);
+            var agentScope = request.Parent.ResolveScope().DeriveChild(name, depth, request.RequestedScope);
+            identity = AgentIdentity.Child(sessionId, request.Parent.SessionId, request.Parent.Name, name, depth, agentScope, promptTemplates);
+            _parents[request.Parent.SessionId] = request.Parent;
+            names.Add(name, sessionId);
+            _pendingSpawns++;
+            var pendingProfile = (request.Parent.SessionId, profile.Id);
+            _pendingProfiles[pendingProfile] = _pendingProfiles.GetValueOrDefault(pendingProfile) + 1;
+        }
+
+        var historyInitialized = false;
+        IAgentSessionScope? createdScope = null;
+        try
+        {
             eventRepository.InitializeForkedAgentHistory(
                 request.Parent.SessionId,
-                sessionId,
+                identity.SessionId,
                 request.AssistantSequence,
                 request.SpawnToolCallId,
                 request.Fork);
-            try
+            historyInitialized = true;
+            createdScope = agentSessions.Create(
+                identity,
+                request.Model,
+                eventBroker,
+                eventRepository,
+                new NoopMode(profile, securityProfile),
+                securityProfile,
+                status,
+                this,
+                _lifetime.Token);
+            RegisterSpawnedScope(createdScope, request.DeliveryPolicy);
+            return createdScope.Session;
+        }
+        catch
+        {
+            if (createdScope?.DisposeAsync().AsTask() is { } rejectedScopeDisposal)
             {
-                var lease = agentSessions.Create(
-                    identity,
-                    request.Model,
-                    eventBroker,
-                    eventRepository,
-                    mode,
-                    securityProfile,
-                    status,
-                    this,
-                    _lifetime.Token);
+                lock (_gate)
+                {
+                    _rejectedScopeDisposals.Add(rejectedScopeDisposal);
+                }
+            }
 
-                _entries.Add(sessionId, lease);
-                _completionDeliveryPolicies.Add(sessionId, request.DeliveryPolicy);
-                names.Add(name, sessionId);
-                return lease.Session;
-            }
-            catch
+            if (historyInitialized)
             {
-                eventRepository.CleanupForkedAgentHistory(sessionId);
-                throw;
+                eventRepository.CleanupForkedAgentHistory(identity.SessionId);
             }
+
+            throw;
+        }
+        finally
+        {
+            CompleteSpawn(identity, profile.Id);
+        }
+    }
+
+    public void RegisterRootScope(IAgentSessionScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (scope.Session.Depth != 0 || scope.Session.ParentSessionId.Length != 0)
+        {
+            throw new AgentRegistryException("only the root agent scope may be registered directly");
+        }
+
+        lock (_gate)
+        {
+            if (!_accepting)
+            {
+                throw new AgentRegistryException("the user session is shutting down");
+            }
+
+            RegisterScope(scope);
+        }
+    }
+
+    public void UnregisterRootScope(IAgentSessionScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+
+        lock (_gate)
+        {
+            if (!_scopes.TryGetValue(scope.Session.SessionId, out var registered)
+                || !ReferenceEquals(registered, scope)
+                || scope.Session.Depth != 0)
+            {
+                throw new AgentRegistryException($"agent scope not found: {scope.Session.SessionId}");
+            }
+
+            _ = _scopes.Remove(scope.Session.SessionId);
+        }
+    }
+
+    public Questions.ChildQuestionCoordinator ResolveDirectParentQuestions(AgentSession child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+
+        lock (_gate)
+        {
+            if (_entries.TryGetValue(child.SessionId, out var childScope)
+                && ReferenceEquals(childScope.Session, child)
+                && child.ParentSessionId.Length > 0
+                && _scopes.TryGetValue(child.ParentSessionId, out var parentScope))
+            {
+                return parentScope.ChildQuestions;
+            }
+
+            throw new AgentRegistryException($"parent agent scope not found: {child.ParentSessionId}");
         }
     }
 
@@ -251,7 +334,7 @@ internal sealed class AgentRegistry(
             if (_shutdown is null)
             {
                 _accepting = false;
-                _shutdown = Shutdown([.. _entries.Values]);
+                _shutdown = Shutdown();
             }
 
             return new ValueTask(_shutdown);
@@ -386,15 +469,120 @@ internal sealed class AgentRegistry(
         return occurrences;
     }
 
-    private async Task Shutdown(IAgentSessionLease[] children)
+    private void RegisterSpawnedScope(IAgentSessionScope scope, AgentCompletionDeliveryPolicy deliveryPolicy)
+    {
+        lock (_gate)
+        {
+            if (!_accepting)
+            {
+                throw new AgentRegistryException("the user session is shutting down");
+            }
+
+            var session = scope.Session;
+            if (session.ParentSessionId.Length == 0)
+            {
+                throw new AgentRegistryException("only child agent scopes may be registered through spawn");
+            }
+
+            RegisterScope(scope);
+            try
+            {
+                _entries.Add(session.SessionId, scope);
+                _completionDeliveryPolicies.Add(session.SessionId, deliveryPolicy);
+            }
+            catch
+            {
+                _ = _scopes.Remove(session.SessionId);
+                _ = _entries.Remove(session.SessionId);
+                _ = _completionDeliveryPolicies.Remove(session.SessionId);
+                throw;
+            }
+        }
+    }
+
+    private void RegisterScope(IAgentSessionScope scope)
+    {
+        var sessionId = scope.Session.SessionId;
+        if (_scopes.ContainsKey(sessionId)
+            || _scopes.Values.Any(registered => ReferenceEquals(registered.Session, scope.Session)))
+        {
+            throw new AgentRegistryException($"agent scope identity is already registered: {sessionId}");
+        }
+
+        _scopes.Add(sessionId, scope);
+    }
+
+    private void CompleteSpawn(AgentIdentity identity, string profileId)
+    {
+        TaskCompletionSource? settled = null;
+        lock (_gate)
+        {
+            _pendingSpawns--;
+            var pendingProfile = (identity.ParentSessionId, profileId);
+            if (_pendingProfiles.GetValueOrDefault(pendingProfile) == 1)
+            {
+                _ = _pendingProfiles.Remove(pendingProfile);
+            }
+            else
+            {
+                _pendingProfiles[pendingProfile]--;
+            }
+
+            if (!_entries.ContainsKey(identity.SessionId))
+            {
+                var names = _namesByParent.GetValueOrDefault(identity.ParentSessionId);
+                if (names?.GetValueOrDefault(identity.Name) == identity.SessionId)
+                {
+                    _ = names.Remove(identity.Name);
+                }
+            }
+
+            if (_pendingSpawns == 0)
+            {
+                settled = _spawnsSettled;
+                _spawnsSettled = null;
+            }
+        }
+
+        _ = settled?.TrySetResult();
+    }
+
+    private async Task Shutdown()
     {
         await Task.Yield();
-        await _lifetime.CancelAsync().ConfigureAwait(false);
-        await Task.WhenAll(children.Select(child => child.Session.Settled())).ConfigureAwait(false);
+        Task pendingSpawns;
+        lock (_gate)
+        {
+            if (_pendingSpawns == 0)
+            {
+                pendingSpawns = Task.CompletedTask;
+            }
+            else
+            {
+                _spawnsSettled ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                pendingSpawns = _spawnsSettled.Task;
+            }
+        }
 
+        await _lifetime.CancelAsync().ConfigureAwait(false);
+        await pendingSpawns.ConfigureAwait(false);
+        IAgentSessionScope[] children;
+        Task[] rejectedScopeDisposals;
+        lock (_gate)
+        {
+            children = [.. _entries.Values];
+            rejectedScopeDisposals = [.. _rejectedScopeDisposals];
+        }
+
+        await Task.WhenAll(rejectedScopeDisposals).ConfigureAwait(false);
+        await Task.WhenAll(children.Select(child => child.Session.Settled())).ConfigureAwait(false);
         for (var index = children.Length - 1; index >= 0; index--)
         {
             await children[index].DisposeAsync().ConfigureAwait(false);
+            lock (_gate)
+            {
+                _ = _scopes.Remove(children[index].Session.SessionId);
+            }
         }
 
         _lifetime.Dispose();

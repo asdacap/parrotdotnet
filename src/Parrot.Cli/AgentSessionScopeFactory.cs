@@ -4,6 +4,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -13,7 +14,7 @@ namespace Parrot.Cli;
 
 internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
 {
-    public IAgentSessionLease Create(
+    public IAgentSessionScope Create(
         AgentIdentity identity,
         ModelSelector model,
         ModelRouter router,
@@ -32,7 +33,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         RuntimeStatus status,
         AgentRegistry registry,
         AgentQueues queues,
-        UserSession owner,
+        QuestionBroker userQuestions,
         TimeProvider timeProvider,
         CancellationToken lifetime)
     {
@@ -55,10 +56,13 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             status,
             registry,
             queues,
-            owner,
+            userQuestions,
             timeProvider,
             lifetime);
-        var scope = new AgentSessionComposition(arguments);
-        return new AgentSessionScope(scope.Session, queues);
+        var composition = new AgentSessionComposition(arguments);
+        return new AgentSessionScope(
+            composition.Session,
+            composition.ChildQuestions,
+            queues);
     }
 }

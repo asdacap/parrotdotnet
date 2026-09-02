@@ -25,7 +25,7 @@ internal sealed class AgentSessionFactory(
 {
     private readonly ImageArtifactRepository _images = owner.Images;
 
-    public IAgentSessionLease Create(
+    public IAgentSessionScope Create(
         AgentIdentity identity,
         ModelSelector model,
         EventBroker eventBroker,
@@ -68,7 +68,7 @@ internal sealed class AgentSessionFactory(
                 status,
                 registry,
                 queues,
-                owner,
+                owner.Questions,
                 owner.TimeProvider,
                 lifetime);
         }
@@ -102,8 +102,6 @@ internal sealed class AgentSessionFactory(
         new QueueListenToolFactory(),
         new QueuePushToolFactory(workspace),
         new QueueTakeToolFactory(),
-        new QuestionToolFactory(owner.Questions, owner.ChildQuestions),
-        new AnswerToolFactory(owner.ChildQuestions),
         new RequestWritePermissionToolFactory(owner.Permissions),
     ];
 }

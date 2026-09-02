@@ -249,7 +249,7 @@ internal sealed class PermissionBrokerTests : IDisposable
     {
         using var database = SessionDatabase.Open(":memory:");
         using var events = new EventBroker();
-        var broker = new PermissionBroker(
+        using var broker = new PermissionBroker(
             events,
             new EventRepository(database),
             interactive: true,
@@ -281,7 +281,7 @@ internal sealed class PermissionBrokerTests : IDisposable
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var repository = new EventRepository(database);
         var identity = AgentIdentity.Main(id, string.Empty, TestModels.PromptTemplates);
-        var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
+        using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         return new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(id, repository, events), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Registry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
     }
 

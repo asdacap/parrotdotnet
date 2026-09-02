@@ -5,12 +5,13 @@ using Parrot.Config;
 namespace Parrot.Questions;
 
 internal sealed class ChildQuestionCoordinator(
+    string ownerSessionId,
     AgentRegistry agents,
-    PromptTemplateCatalog promptTemplates) : IDisposable
+    PromptTemplateCatalog promptTemplates)
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, TaskCompletionSource> _completionReservations = new(StringComparer.Ordinal);
+    private TaskCompletionSource? _completionReservation;
     private bool _disposed;
 
     public async Task<QuestionReply> Ask(AgentSession askingChild, IReadOnlyList<QuestionDefinition> questions, CancellationToken cancellationToken)
@@ -26,7 +27,12 @@ internal sealed class ChildQuestionCoordinator(
         }
 
         var parent = agents.AuthorizeDirectParent(askingChild);
-        var pending = new PendingRequest(Identifier.QuestionRequestId(), askingChild, copied);
+        if (!string.Equals(parent.SessionId, ownerSessionId, StringComparison.Ordinal))
+        {
+            throw new QuestionException("only the direct parent may receive a child question");
+        }
+
+        var pending = new PendingRequest(Identifier.QuestionRequestId(), askingChild, ownerSessionId, copied);
 
         while (true)
         {
@@ -39,9 +45,9 @@ internal sealed class ChildQuestionCoordinator(
                     throw new QuestionRejectedException("the child already has a pending question");
                 }
 
-                if (_completionReservations.TryGetValue(parent.SessionId, out var reservation))
+                if (_completionReservation is not null)
                 {
-                    completion = reservation.Task;
+                    completion = _completionReservation.Task;
                 }
                 else
                 {
@@ -81,23 +87,23 @@ internal sealed class ChildQuestionCoordinator(
         }
     }
 
-    public IReadOnlyList<PendingChildQuestionRequest> Pending(AgentSession parent)
+    public IReadOnlyList<PendingChildQuestionRequest> Pending()
     {
-        ArgumentNullException.ThrowIfNull(parent);
-
         lock (_gate)
         {
             return [.. _pending.Values
-                .Where(item => string.Equals(item.ParentAgentSessionId, parent.SessionId, StringComparison.Ordinal))
                 .OrderBy(item => item.Id, StringComparer.Ordinal)
                 .Select(item => item.Snapshot())];
         }
     }
 
-    public ChildQuestionCompletionAttempt BeginCompletion(AgentSession parent)
-    {
-        ArgumentNullException.ThrowIfNull(parent);
+    public IReadOnlyList<PendingChildQuestionRequest> Pending(AgentSession parent) =>
+        string.Equals(parent.SessionId, ownerSessionId, StringComparison.Ordinal)
+            ? Pending()
+            : [];
 
+    public ChildQuestionCompletionAttempt BeginCompletion()
+    {
         lock (_gate)
         {
             if (_disposed)
@@ -106,7 +112,6 @@ internal sealed class ChildQuestionCoordinator(
             }
 
             var pending = _pending.Values
-                .Where(item => string.Equals(item.ParentAgentSessionId, parent.SessionId, StringComparison.Ordinal))
                 .OrderBy(item => item.AskingAgentSessionId, StringComparer.Ordinal)
                 .ToArray();
             if (pending.Length > 0)
@@ -114,24 +119,31 @@ internal sealed class ChildQuestionCoordinator(
                 return ChildQuestionCompletionAttempt.Block(FormatCompletionReminder(pending));
             }
 
-            if (_completionReservations.ContainsKey(parent.SessionId))
+            if (_completionReservation is not null)
             {
                 throw new InvalidOperationException("the parent already owns a completion reservation");
             }
 
-            _completionReservations.Add(
-                parent.SessionId,
-                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
-            return ChildQuestionCompletionAttempt.Reserve(() => ReleaseCompletion(parent.SessionId));
+            _completionReservation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return ChildQuestionCompletionAttempt.Reserve(ReleaseCompletion);
         }
     }
 
-    public void Reply(AgentSession parent, string childSessionId, QuestionReply reply)
+    public ChildQuestionCompletionAttempt BeginCompletion(AgentSession parent)
     {
-        ArgumentNullException.ThrowIfNull(parent);
+        if (!string.Equals(parent.SessionId, ownerSessionId, StringComparison.Ordinal))
+        {
+            throw new QuestionException("only the owning parent may complete child questions");
+        }
+
+        return BeginCompletion();
+    }
+
+    public void Reply(string childSessionId, QuestionReply reply)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
         ArgumentNullException.ThrowIfNull(reply);
-        _ = agents.AuthorizeDirectChild(parent.SessionId, childSessionId);
+        _ = agents.AuthorizeDirectChild(ownerSessionId, childSessionId);
 
         PendingRequest pending;
         QuestionReply copied;
@@ -143,11 +155,6 @@ internal sealed class ChildQuestionCoordinator(
             }
 
             pending = found;
-            if (!string.Equals(pending.ParentAgentSessionId, parent.SessionId, StringComparison.Ordinal))
-            {
-                throw new QuestionException("only the direct parent may answer a child question");
-            }
-
             copied = QuestionValidation.CopyReply(reply);
             QuestionValidation.ValidateReply(pending.Questions, copied);
             pending.PublishOutcome(copied);
@@ -157,10 +164,21 @@ internal sealed class ChildQuestionCoordinator(
         pending.Complete();
     }
 
+    public void Reply(AgentSession parent, string childSessionId, QuestionReply reply)
+    {
+        if (!string.Equals(parent.SessionId, ownerSessionId, StringComparison.Ordinal))
+        {
+            _ = agents.AuthorizeDirectChild(parent.SessionId, childSessionId);
+            throw new QuestionException("only the owning parent may answer a child question");
+        }
+
+        Reply(childSessionId, reply);
+    }
+
     public void Dispose()
     {
         PendingRequest[] pending;
-        TaskCompletionSource[] reservations;
+        TaskCompletionSource? reservation;
         lock (_gate)
         {
             if (_disposed)
@@ -170,14 +188,14 @@ internal sealed class ChildQuestionCoordinator(
 
             _disposed = true;
             pending = [.. _pending.Values];
-            reservations = [.. _completionReservations.Values];
+            reservation = _completionReservation;
             foreach (var item in pending)
             {
                 item.PublishFailure(new QuestionRejectedException("question session closed"));
             }
 
             _pending.Clear();
-            _completionReservations.Clear();
+            _completionReservation = null;
         }
 
         foreach (var item in pending)
@@ -185,10 +203,7 @@ internal sealed class ChildQuestionCoordinator(
             item.Complete();
         }
 
-        foreach (var reservation in reservations)
-        {
-            _ = reservation.TrySetResult();
-        }
+        _ = reservation?.TrySetResult();
     }
 
     private string FormatCompletionReminder(IReadOnlyList<PendingRequest> pending)
@@ -208,20 +223,16 @@ internal sealed class ChildQuestionCoordinator(
             [new PromptTemplateArgument("children", children.ToString())]);
     }
 
-    private void ReleaseCompletion(string parentSessionId)
+    private void ReleaseCompletion()
     {
-        TaskCompletionSource reservation;
+        TaskCompletionSource? reservation;
         lock (_gate)
         {
-            if (!_completionReservations.Remove(parentSessionId, out var found))
-            {
-                return;
-            }
-
-            reservation = found;
+            reservation = _completionReservation;
+            _completionReservation = null;
         }
 
-        _ = reservation.TrySetResult();
+        _ = reservation?.TrySetResult();
     }
 
     private string FormatSteer(PendingRequest pending)
@@ -266,7 +277,11 @@ internal sealed class ChildQuestionCoordinator(
         }
     }
 
-    private sealed class PendingRequest(string id, AgentSession askingAgent, IReadOnlyList<QuestionDefinition> questions)
+    private sealed class PendingRequest(
+        string id,
+        AgentSession askingAgent,
+        string parentAgentSessionId,
+        IReadOnlyList<QuestionDefinition> questions)
     {
         private QuestionRejectedException? _failure;
         private QuestionReply? _outcome;
@@ -277,7 +292,7 @@ internal sealed class ChildQuestionCoordinator(
 
         public string AskingAgentName => askingAgent.Name;
 
-        public string ParentAgentSessionId => askingAgent.ParentSessionId;
+        public string ParentAgentSessionId { get; } = parentAgentSessionId;
 
         public IReadOnlyList<QuestionDefinition> Questions { get; } = questions;
 

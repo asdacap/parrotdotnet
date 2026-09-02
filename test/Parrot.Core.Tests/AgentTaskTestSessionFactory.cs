@@ -41,7 +41,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         }
     }
 
-    public IAgentSessionLease Create(
+    public IAgentSessionScope Create(
         AgentIdentity identity,
         ModelSelector model,
         EventBroker eventBroker,
@@ -76,7 +76,9 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         }
 
         var agentQueues = queues.Register(identity);
-        var session = new AgentSession(
+        return AgentSessionDirectScope.Build(identity.SessionId, registry, TestModels.PromptTemplates, childQuestions =>
+        {
+            var session = new AgentSession(
             identity,
             model,
             router,
@@ -89,7 +91,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             new ToolOutputBlobStore(root),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
-            TestModels.TrackChildQuestions(registry),
+            childQuestions,
             new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates),
             mode,
             SecurityProfileTestFactory.Create(securityProfile),
@@ -98,7 +100,8 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             agentQueues,
             new AgentSessionActivity(TimeProvider.System),
             lifetime);
-        agentQueues.Attach(session);
-        return new AgentSessionLease(session);
+            agentQueues.Attach(session);
+            return session;
+        });
     }
 }

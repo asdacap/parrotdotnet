@@ -12,7 +12,7 @@ namespace Parrot.Agent;
 // parameters it never uses.
 internal interface IAgentSessionFactory
 {
-    IAgentSessionLease Create(
+    IAgentSessionScope Create(
         AgentIdentity identity,
         ModelSelector model,
         EventBroker eventBroker,

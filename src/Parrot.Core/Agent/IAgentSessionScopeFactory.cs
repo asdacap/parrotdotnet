@@ -3,6 +3,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -12,7 +13,7 @@ namespace Parrot.Agent;
 
 internal interface IAgentSessionScopeFactory
 {
-    IAgentSessionLease Create(
+    IAgentSessionScope Create(
         AgentIdentity identity,
         ModelSelector model,
         ModelRouter router,
@@ -31,7 +32,7 @@ internal interface IAgentSessionScopeFactory
         RuntimeStatus status,
         AgentRegistry registry,
         AgentQueues queues,
-        UserSession owner,
+        QuestionBroker userQuestions,
         TimeProvider timeProvider,
         CancellationToken lifetime);
 }

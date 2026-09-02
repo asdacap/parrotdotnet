@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Context;
 using Parrot.Process;
+using Parrot.Questions;
 using Parrot.Tools;
 using Pure.DI;
 
@@ -27,8 +28,11 @@ internal partial class AgentSessionComposition
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<ShellProcessOwner>(out var processes);
+                ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
                 return arguments.ToolFactories
-                    .Prepend<IToolFactory>(new InterruptProcessToolFactory(processes))
+                    .Prepend<IToolFactory>(new AnswerToolFactory(childQuestions))
+                    .Prepend(new QuestionToolFactory(arguments.UserQuestions, arguments.Registry))
+                    .Prepend(new InterruptProcessToolFactory(processes))
                     .Prepend(new WriteStdinToolFactory(processes))
                     .Prepend(new ExecCommandToolFactory(processes, arguments.ReadOnlyExecCommandPrefixes))
                     .ToArray();
@@ -64,11 +68,20 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return new ChildQuestionCoordinator(
+                    arguments.Identity.SessionId,
+                    arguments.Registry,
+                    arguments.PromptTemplates);
+            })
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<TodoCollection>(out var todos);
                 ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
                 ctx.Inject<ShellProcessOwner>(out var processes);
                 ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
                 ctx.Inject<AgentSessionActivity>(out var activity);
+                ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
                 ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
                 ctx.Inject<ISystemPrompt>(out var systemPrompt);
                 var session = new AgentSession(
@@ -84,7 +97,7 @@ internal partial class AgentSessionComposition
                     toolOutputBlobs,
                     arguments.Compactor,
                     arguments.PromptTemplates,
-                    arguments.Owner.ChildQuestions,
+                    childQuestions,
                     activeWorkReminder,
                     arguments.Mode,
                     arguments.Security,
@@ -97,5 +110,6 @@ internal partial class AgentSessionComposition
                 arguments.ShellProcesses.Register(processes);
                 return session;
             })
-            .Root<AgentSession>("Session");
+            .Root<AgentSession>("Session")
+            .Root<ChildQuestionCoordinator>("ChildQuestions");
 }

@@ -787,7 +787,7 @@ internal sealed class AgentSession(
         ChildQuestionCompletionAttempt terminalCompletionAttempt;
         while (true)
         {
-            terminalCompletionAttempt = childQuestions.BeginCompletion(this);
+            terminalCompletionAttempt = childQuestions.BeginCompletion();
             if (terminalCompletionAttempt.Reminder is null)
             {
                 break;
@@ -1114,7 +1114,7 @@ internal sealed class AgentSession(
                     continue;
                 }
 
-                using var completionAttempt = childQuestions.BeginCompletion(this);
+                using var completionAttempt = childQuestions.BeginCompletion();
                 if (completionAttempt.Reminder is { } questionReminder)
                 {
                     var published = new Event

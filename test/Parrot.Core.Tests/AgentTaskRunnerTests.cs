@@ -646,7 +646,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             TestModels.PromptTemplates,
             cancellationToken);
         var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
-        var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
+        using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         var parent = new AgentSession(
             identity,
             new ModelSelector($"{provider.Id}/model"),

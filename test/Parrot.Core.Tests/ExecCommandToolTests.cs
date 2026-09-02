@@ -38,7 +38,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
-        var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
+        using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         var resources = new UserSessionResources(
             new StatePaths(
                 Path.Combine(_workspace, ".state"),

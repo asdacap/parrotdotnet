@@ -4,6 +4,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
@@ -21,11 +22,17 @@ internal sealed class WaitToolTests : IAsyncDisposable
     private readonly EventBroker _broker = new();
     private readonly List<Parrot.Process.ShellProcessOwners> _processOwners = [];
     private readonly List<AgentRegistry> _registries = [];
+    private readonly List<ChildQuestionCoordinator> _childQuestions = [];
 
     public WaitToolTests() => Directory.CreateDirectory(_root);
 
     public async ValueTask DisposeAsync()
     {
+        foreach (var childQuestions in _childQuestions)
+        {
+            childQuestions.Dispose();
+        }
+
         foreach (var registry in _registries)
         {
             await registry.DisposeAsync().ConfigureAwait(false);
@@ -488,7 +495,9 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(repository);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
-        var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new TodoCollection("agent", repository, _broker), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, TestModels.TrackChildQuestions(registry), new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, registry, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        var childQuestions = TestModels.CreateChildQuestions(registry, identity.SessionId);
+        _childQuestions.Add(childQuestions);
+        var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new TodoCollection("agent", repository, _broker), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, registry, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
         queues.Attach(session);
         return session;
     }
@@ -613,7 +622,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
     private sealed class UnsupportedAgentSessionFactory : IAgentSessionFactory
     {
-        public IAgentSessionLease Create(
+        public IAgentSessionScope Create(
             AgentIdentity identity,
             ModelSelector model,
             EventBroker eventBroker,
@@ -648,7 +657,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             TimeProvider timeProvider,
             string root) : IAgentSessionFactory
         {
-            public IAgentSessionLease Create(
+            public IAgentSessionScope Create(
                 AgentIdentity identity,
                 ModelSelector model,
                 EventBroker eventBroker,
@@ -662,10 +671,13 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 var processes = owner.ShellProcesses.Prepare(identity.SessionId);
                 owner.ShellProcesses.Register(processes);
                 var queues = owner.QueueCatalog.Register(identity);
-                var session = new AgentSession(identity, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.Combine(root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, TestModels.TrackChildQuestions(registry), new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
-                queues.Attach(session);
-                _ = source._created.TrySetResult(session);
-                return new AgentSessionLease(session);
+                return AgentSessionDirectScope.Build(identity.SessionId, registry, TestModels.PromptTemplates, childQuestions =>
+                {
+                    var session = new AgentSession(identity, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.Combine(root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                    queues.Attach(session);
+                    _ = source._created.TrySetResult(session);
+                    return session;
+                });
             }
         }
     }

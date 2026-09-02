@@ -4,9 +4,9 @@ using Parrot.Questions;
 namespace Parrot.Tools;
 
 internal sealed class ChildQuestionRequester(
-    ChildQuestionCoordinator coordinator,
+    AgentRegistry agents,
     AgentSession session) : IQuestionRequester
 {
     public Task<QuestionReply> Ask(IReadOnlyList<QuestionDefinition> questions, CancellationToken cancellationToken) =>
-        coordinator.Ask(session, questions, cancellationToken);
+        agents.ResolveDirectParentQuestions(session).Ask(session, questions, cancellationToken);
 }

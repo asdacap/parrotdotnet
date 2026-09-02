@@ -346,7 +346,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var repository = new EventRepository(database);
         var identity = AgentIdentity.Main("agent", "agent", TestModels.PromptTemplates);
-        var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
+        using var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
         return new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection("agent", repository, events), new ToolOutputBlobStore(blobDirectory), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Registry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
     }
 

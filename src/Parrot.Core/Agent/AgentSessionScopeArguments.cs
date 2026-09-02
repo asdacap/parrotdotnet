@@ -3,6 +3,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -29,6 +30,6 @@ internal sealed record AgentSessionScopeArguments(
     RuntimeStatus Status,
     AgentRegistry Registry,
     AgentQueues Queues,
-    UserSession Owner,
+    QuestionBroker UserQuestions,
     TimeProvider TimeProvider,
     CancellationToken Lifetime);

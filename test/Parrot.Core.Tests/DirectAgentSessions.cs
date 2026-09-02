@@ -50,7 +50,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 
     private sealed class OwnerAgentSessions(DirectAgentSessions source, UserSession owner) : IAgentSessionFactory
     {
-        public IAgentSessionLease Create(
+        public IAgentSessionScope Create(
             AgentIdentity identity,
             ModelSelector model,
             EventBroker eventBroker,
@@ -66,10 +66,13 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             owner.ShellProcesses.Register(processes);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
             var queues = owner.QueueCatalog.Register(identity);
-            var session = new AgentSession(identity, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, TestModels.TrackChildQuestions(registry), new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, registry, queues, new AgentSessionActivity(source._timeProvider), lifetime);
-            queues.Attach(session);
-            source._sessions.Add(session);
-            return new AgentSessionLease(session);
+            return AgentSessionDirectScope.Build(identity.SessionId, registry, TestModels.PromptTemplates, childQuestions =>
+            {
+                var session = new AgentSession(identity, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, registry, queues, new AgentSessionActivity(source._timeProvider), lifetime);
+                queues.Attach(session);
+                source._sessions.Add(session);
+                return session;
+            });
         }
     }
 }
