@@ -287,6 +287,7 @@ internal static class TestModels
     {
         public IAgentSessionScope Create(
             AgentIdentity identity,
+            AgentSessionParentScope parentScope,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,

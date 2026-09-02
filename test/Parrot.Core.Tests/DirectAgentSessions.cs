@@ -52,6 +52,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
     {
         public IAgentSessionScope Create(
             AgentIdentity identity,
+            AgentSessionParentScope parentScope,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,

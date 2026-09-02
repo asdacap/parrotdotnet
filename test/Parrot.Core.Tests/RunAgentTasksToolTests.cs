@@ -373,6 +373,11 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
+        registry.RegisterRootScope(AgentSessionDirectScope.Build(
+            parent.SessionId,
+            registry,
+            TestModels.PromptTemplates,
+            _ => parent));
         var selected = parent.Selection();
         return new RuntimeContext(
             router,

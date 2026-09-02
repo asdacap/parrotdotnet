@@ -56,6 +56,7 @@ internal sealed class AgentRegistry(
         var profile = profiles.ResolveChild(request.RequestedProfile);
         RuntimeStatus status;
         AgentIdentity identity;
+        AgentSessionParentScope parentScope;
         Security.SecurityProfile securityProfile;
 
         lock (_gate)
@@ -85,6 +86,13 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException("subagent profile recursion limit reached");
             }
 
+            if (!_scopes.TryGetValue(request.Parent.SessionId, out var registeredParentScope)
+                || !ReferenceEquals(registeredParentScope.Session, request.Parent))
+            {
+                throw new AgentRegistryException($"parent agent scope not found: {request.Parent.SessionId}");
+            }
+
+            parentScope = AgentSessionParentScope.Child(registeredParentScope);
             status = _status
                 ?? throw new AgentRegistryException("the runtime status is not attached");
             var sessionId = Identifier.AgentSession();
@@ -112,6 +120,7 @@ internal sealed class AgentRegistry(
             historyInitialized = true;
             createdScope = agentSessions.Create(
                 identity,
+                parentScope,
                 request.Model,
                 eventBroker,
                 eventRepository,
@@ -179,24 +188,6 @@ internal sealed class AgentRegistry(
             }
 
             _ = _scopes.Remove(scope.Session.SessionId);
-        }
-    }
-
-    public Questions.ChildQuestionCoordinator ResolveDirectParentQuestions(AgentSession child)
-    {
-        ArgumentNullException.ThrowIfNull(child);
-
-        lock (_gate)
-        {
-            if (_entries.TryGetValue(child.SessionId, out var childScope)
-                && ReferenceEquals(childScope.Session, child)
-                && child.ParentSessionId.Length > 0
-                && _scopes.TryGetValue(child.ParentSessionId, out var parentScope))
-            {
-                return parentScope.ChildQuestions;
-            }
-
-            throw new AgentRegistryException($"parent agent scope not found: {child.ParentSessionId}");
         }
     }
 

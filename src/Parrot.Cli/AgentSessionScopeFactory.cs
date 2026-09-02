@@ -16,6 +16,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
 {
     public IAgentSessionScope Create(
         AgentIdentity identity,
+        AgentSessionParentScope parentScope,
         ModelSelector model,
         ModelRouter router,
         EventBroker eventBroker,
@@ -37,8 +38,10 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         TimeProvider timeProvider,
         CancellationToken lifetime)
     {
+        parentScope.Validate(identity);
         var arguments = new AgentSessionScopeArguments(
             identity,
+            parentScope,
             model,
             router,
             eventBroker,

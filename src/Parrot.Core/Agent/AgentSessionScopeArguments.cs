@@ -13,6 +13,7 @@ namespace Parrot.Agent;
 
 internal sealed record AgentSessionScopeArguments(
     AgentIdentity Identity,
+    AgentSessionParentScope ParentScope,
     ModelSelector Model,
     ModelRouter Router,
     EventBroker EventBroker,

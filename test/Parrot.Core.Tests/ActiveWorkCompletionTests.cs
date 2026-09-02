@@ -22,6 +22,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly EventBroker _broker = new();
     private readonly List<ChildQuestionCoordinator> _childQuestions = [];
+    private readonly List<IAgentSessionScope> _rootScopes = [];
 
     public ActiveWorkCompletionTests() => Directory.CreateDirectory(_workspace);
 
@@ -30,6 +31,11 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         foreach (var childQuestions in _childQuestions)
         {
             childQuestions.Dispose();
+        }
+
+        foreach (var rootScope in _rootScopes)
+        {
+            rootScope.ChildQuestions.Dispose();
         }
 
         _broker.Dispose();
@@ -127,7 +133,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             _workspace);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var ownedChildQuestions = TestModels.CreateChildQuestions(registry, "parent");
         var mode = new CompletionMode(enforce: false, maxTurns: 3);
@@ -623,6 +629,9 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var queues = queueCatalog.Register(identity);
         var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(sessionId, registry, owner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
+        var rootScope = AgentSessionDirectScope.Build(session.SessionId, registry, TestModels.PromptTemplates, _ => session);
+        registry.RegisterRootScope(rootScope);
+        _rootScopes.Add(rootScope);
         return session;
     }
 
@@ -716,6 +725,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
     {
         public IAgentSessionScope Create(
             AgentIdentity identity,
+            AgentSessionParentScope parentScope,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
@@ -737,6 +747,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
     {
         public IAgentSessionScope Create(
             AgentIdentity identity,
+            AgentSessionParentScope parentScope,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,

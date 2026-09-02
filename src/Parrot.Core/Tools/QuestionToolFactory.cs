@@ -5,9 +5,9 @@ namespace Parrot.Tools;
 
 internal sealed class QuestionToolFactory(
     QuestionBroker userQuestions,
-    AgentRegistry agents) : IToolFactory
+    AgentSessionParentScope parentScope) : IToolFactory
 {
     public ITool Create(AgentSession session) => new QuestionTool(session.Depth == 0
         ? new UserQuestionRequester(userQuestions)
-        : new ChildQuestionRequester(agents, session));
+        : new ChildQuestionRequester(parentScope.ChildQuestions, session));
 }

@@ -43,6 +43,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
 
     public IAgentSessionScope Create(
         AgentIdentity identity,
+        AgentSessionParentScope parentScope,
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,

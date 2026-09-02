@@ -27,6 +27,7 @@ internal sealed class AgentSessionFactory(
 
     public IAgentSessionScope Create(
         AgentIdentity identity,
+        AgentSessionParentScope parentScope,
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
@@ -36,6 +37,7 @@ internal sealed class AgentSessionFactory(
         AgentRegistry registry,
         CancellationToken lifetime)
     {
+        parentScope.Validate(identity);
         var queues = owner.QueueCatalog.Register(identity);
         try
         {
@@ -51,6 +53,7 @@ internal sealed class AgentSessionFactory(
                 [systemPromptProvider, new ScratchDirectoryProvider(scratch, promptTemplates)]);
             return scopes.Create(
                 identity,
+                parentScope,
                 model,
                 router,
                 eventBroker,

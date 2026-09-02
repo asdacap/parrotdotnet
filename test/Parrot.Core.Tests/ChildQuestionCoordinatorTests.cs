@@ -23,9 +23,9 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "parent", cancellationToken);
+        var parent = Session(provider, 0, "parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(registry, parent.SessionId);
-        var unrelated = Session(provider, 0, "unrelated", cancellationToken);
+        var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
         var child = registry.Spawn(QuestionChildRequest(parent, router, "child"));
         var options = new[] { new QuestionOption("blue", "Blue") };
         var questions = new[] { new QuestionDefinition("colour", "Colour", "Pick", options, false, false) };
@@ -106,9 +106,9 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "parent-tool", cancellationToken);
+        var parent = Session(provider, 0, "parent-tool", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(registry, parent.SessionId);
-        var unrelated = Session(provider, 0, "unrelated-tool", cancellationToken);
+        var unrelated = Session(provider, 0, "unrelated-tool", registry, cancellationToken);
         var child = registry.Spawn(QuestionChildRequest(parent, router, "tool-child"));
         var asking = coordinator.Ask(child, [Question("continue")], cancellationToken);
         _ = await WaitForChildQuestion(coordinator, parent, cancellationToken);
@@ -165,8 +165,8 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var firstParent = Session(provider, 0, "first-parent", cancellationToken);
-        var secondParent = Session(provider, 0, "second-parent", cancellationToken);
+        var firstParent = Session(provider, 0, "first-parent", firstRegistry, cancellationToken);
+        var secondParent = Session(provider, 0, "second-parent", secondRegistry, cancellationToken);
         var firstCoordinator = new ChildQuestionCoordinator(firstParent.SessionId, firstRegistry, TestModels.PromptTemplates);
         var secondCoordinator = new ChildQuestionCoordinator(secondParent.SessionId, secondRegistry, TestModels.PromptTemplates);
         var firstChild = firstRegistry.Spawn(QuestionChildRequest(firstParent, router, "first-child"));
@@ -221,7 +221,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "answer-parent", cancellationToken);
+        var parent = Session(provider, 0, "answer-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(registry, parent.SessionId);
         var child = registry.Spawn(QuestionChildRequest(parent, router, "answer-child"));
         var asking = coordinator.Ask(child, [Question("continue")], cancellationToken);
@@ -255,7 +255,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var root = Session(provider, 0, "question-root", cancellationToken);
+        var root = Session(provider, 0, "question-root", registry, cancellationToken);
         var parent = registry.Spawn(QuestionChildRequest(root, router, "question-parent"));
         var coordinator = TestModels.CreateChildQuestions(registry, parent.SessionId);
         var child = registry.Spawn(QuestionChildRequest(parent, router, "question-child"));
@@ -290,7 +290,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "multiple-parent", cancellationToken);
+        var parent = Session(provider, 0, "multiple-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(registry, parent.SessionId);
         var first = registry.Spawn(QuestionChildRequest(parent, router, "first-question-child"));
         var second = registry.Spawn(QuestionChildRequest(parent, router, "second-question-child"));
@@ -327,15 +327,15 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var root = Session(provider, 0, "factory-root", cancellationToken);
-        await using var rootScope = AgentSessionDirectScope.Build(root.SessionId, registry, TestModels.PromptTemplates, _ => root);
-        var childQuestions = rootScope.ChildQuestions;
-        registry.RegisterRootScope(rootScope);
+        var root = Session(provider, 0, "factory-root", registry, cancellationToken);
+        var rootScope = _rootScopes[^1];
         var child = registry.Spawn(QuestionChildRequest(root, router, "factory-child"));
-        var factory = new QuestionToolFactory(userQuestions, registry);
+        var childQuestions = rootScope.ChildQuestions;
+        var rootFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Root());
+        var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope));
         const string request = "{\"questions\":[{\"id\":\"choice\",\"prompt\":\"Choose\",\"options\":[{\"id\":\"yes\",\"label\":\"Yes\"}]}]}";
 
-        var rootExecution = factory.Create(root).Execute(
+        var rootExecution = rootFactory.Create(root).Execute(
             new ToolInvocation("root-question", request),
             Turn(root, router),
             cancellationToken);
@@ -346,7 +346,7 @@ internal sealed partial class SubagentTests
         _ = await rootExecution;
 
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var childExecution = factory.Create(child).Execute(
+        var childExecution = childFactory.Create(child).Execute(
             new ToolInvocation("child-question", request),
             Turn(child, router),
             stopping.Token);
@@ -372,7 +372,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "reservation-parent", cancellationToken);
+        var parent = Session(provider, 0, "reservation-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(registry, parent.SessionId);
         var child = registry.Spawn(QuestionChildRequest(parent, router, "reservation-child"));
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -397,8 +397,8 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var root = Session(provider, 0, "root", cancellationToken);
-        var unrelated = Session(provider, 0, "unrelated", cancellationToken);
+        var root = Session(provider, 0, "root", registry, cancellationToken);
+        var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
         var child = registry.Spawn(QuestionChildRequest(root, router, "child"));
         var grandchild = registry.Spawn(QuestionChildRequest(child, router, "grandchild"));
 

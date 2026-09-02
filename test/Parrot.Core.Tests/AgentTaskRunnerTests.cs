@@ -669,6 +669,11 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
+        registry.RegisterRootScope(AgentSessionDirectScope.Build(
+            parent.SessionId,
+            registry,
+            TestModels.PromptTemplates,
+            _ => parent));
         var selected = parent.Selection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,

@@ -624,6 +624,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
     {
         public IAgentSessionScope Create(
             AgentIdentity identity,
+            AgentSessionParentScope parentScope,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
@@ -659,6 +660,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         {
             public IAgentSessionScope Create(
                 AgentIdentity identity,
+                AgentSessionParentScope parentScope,
                 ModelSelector model,
                 EventBroker eventBroker,
                 EventRepository eventRepository,

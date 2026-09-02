@@ -31,7 +31,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
                 return arguments.ToolFactories
                     .Prepend<IToolFactory>(new AnswerToolFactory(childQuestions))
-                    .Prepend(new QuestionToolFactory(arguments.UserQuestions, arguments.Registry))
+                    .Prepend(new QuestionToolFactory(arguments.UserQuestions, arguments.ParentScope))
                     .Prepend(new InterruptProcessToolFactory(processes))
                     .Prepend(new WriteStdinToolFactory(processes))
                     .Prepend(new ExecCommandToolFactory(processes, arguments.ReadOnlyExecCommandPrefixes))
