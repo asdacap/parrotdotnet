@@ -155,11 +155,11 @@ read or read-permission check. Both forms use the same strict parser; supplying
 both or neither is invalid. Plan-approved execution continues to use `path`.
 
 **Execution context.** `run_agent_tasks` synchronously creates fresh
-retained-only children. Composite tasks use `agent-task-pre-hook` for research,
-recursively execute nested work, and use `agent-task-validation` for separate
-acceptance. A fresh instruction leaf creates one `agent-task-payload` child;
-that child implements and verifies the instruction and remains retained for the
-whole leaf invocation. It has no inherited conversation. Each retry sends a new
+retained-only children. Composite tasks use one retained composite agent for distinct research and
+validation turns; that agent recursively executes and owns nested child agents. A
+fresh instruction leaf creates one `agent-task-payload` child; that child
+implements and verifies the instruction and remains retained for the whole leaf
+invocation. It has no inherited conversation. Each retry sends a new
 user prompt to that same session while retaining the prior exchange, so retained
 non-system messages grow 1, 3, 5, ... across attempts. Its combined response is
 parsed directly rather than producing a separate execution transcript.
@@ -178,11 +178,12 @@ work receives labelled ancestor declarations in root-to-parent order and
 research contexts in root-to-current order. It receives no sibling or cousin
 research. A ready task additionally receives bounded direct-dependency summaries.
 
-**Acceptance, scheduling, and outcome.** A composite's nested result is reviewed
-by a separate acceptance child. Every instruction-leaf response must return exactly one
-strict verdict: `accept` with nonblank evidence, `reject_and_halt` with nonblank
-feedback, or `reject_and_retry` with nonblank feedback and a replacement
-payload. The separate acceptance child retains the existing verdict JSON forms;
+**Acceptance, scheduling, and outcome.** The retained composite agent reviews its nested result in a distinct validation
+turn. Nested task agents are children owned by that composite agent. Every
+instruction-leaf response must return exactly one strict verdict: `accept` with
+nonblank evidence, `reject_and_halt` with nonblank feedback, or
+`reject_and_retry` with nonblank feedback and a replacement payload. The
+validation turn retains the existing verdict JSON forms;
 a leaf's combined response additionally requires nonblank `context`:
 `{"context":"nonblank","verdict":"accept","evidence":"nonblank"}`,
 `{"context":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}`, and
@@ -196,8 +197,9 @@ context replaces the current task context for later attempts and descendants.
 When an instruction leaf omits it, the response's required current context is
 carried forward. A retry payload may be either an instruction or a task array:
 an instruction continues in the same retained leaf session, while a task array
-transitions to the composite research pre-hook, nested sibling execution, and
-separate validation lifecycle, supplying retry context to descendants.
+transitions to the composite research turn, nested sibling execution, and a
+later validation turn on the retained composite agent, supplying retry context
+to its nested child agents.
 
 Leaf mapping is direct: response `context` becomes result context, accepted
 `evidence` is serialized as top-level `evidence`, and retry `feedback` is

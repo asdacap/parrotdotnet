@@ -45,6 +45,7 @@ internal sealed class AgentTaskGraphRunner(
                 [],
                 [],
                 "task",
+                owner,
                 cancellationToken).ConfigureAwait(false);
             var status = tasks.All(task => task.Status == AgentTaskExecutionStatus.Succeeded)
                 ? AgentTaskExecutionStatus.Succeeded
@@ -293,6 +294,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskResearchContext> contexts,
         string parentPath,
+        AgentSession owningAgent,
         CancellationToken cancellationToken)
     {
         if (tasks.Count != handles.Count)
@@ -361,6 +363,7 @@ internal sealed class AgentTaskGraphRunner(
                     contexts,
                     dependencies,
                     $"{parentPath}/{task.Name}",
+                    owningAgent,
                     cancellationToken));
                 changed = true;
             }
@@ -425,6 +428,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskResearchContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
+        AgentSession owningAgent,
         CancellationToken cancellationToken)
     {
         var effective = EffectiveAgentTask.FromArtifact(approved);
@@ -438,6 +442,7 @@ internal sealed class AgentTaskGraphRunner(
                 inheritedContexts,
                 dependencies,
                 path,
+                owningAgent,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -446,6 +451,7 @@ internal sealed class AgentTaskGraphRunner(
             effective.Model,
             "research",
             approved.Name,
+            owningAgent,
             null,
             BuildResearchPrompt(effective, ancestors, inheritedContexts, dependencies, path),
             cancellationToken).ConfigureAwait(false);
@@ -501,6 +507,7 @@ internal sealed class AgentTaskGraphRunner(
             dependencies,
             path,
             hook.TaskPatch,
+            researchRun.Agent,
             [],
             1,
             cancellationToken).ConfigureAwait(false);
@@ -514,6 +521,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskResearchContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
+        AgentSession owningAgent,
         CancellationToken cancellationToken)
     {
         var feedback = new List<string>();
@@ -532,6 +540,7 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "execute",
                 approved.Name,
+                owningAgent,
                 payloadAgent,
                 BuildLeafPrompt(effective, ancestors, promptContexts, dependencies, feedback),
                 cancellationToken).ConfigureAwait(false);
@@ -663,6 +672,7 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "research",
                 approved.Name,
+                owningAgent,
                 null,
                 BuildResearchPrompt(effective, ancestors, retryContexts, dependencies, path),
                 cancellationToken).ConfigureAwait(false);
@@ -737,6 +747,7 @@ internal sealed class AgentTaskGraphRunner(
                 dependencies,
                 path,
                 hook.TaskPatch,
+                researchRun.Agent,
                 feedback,
                 attempt + 1,
                 cancellationToken).ConfigureAwait(false);
@@ -756,12 +767,12 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
         AgentTaskPatch? taskPatch,
+        AgentSession compositeAgent,
         List<string> feedback,
         int firstAttempt,
         CancellationToken cancellationToken)
     {
         AgentSession? executionAgent = null;
-        AgentSession? acceptanceAgent = null;
         string? execution = null;
         IReadOnlyList<AgentTaskResult>? nested = null;
         AcceptanceVerdict? verdict = null;
@@ -779,6 +790,7 @@ internal sealed class AgentTaskGraphRunner(
                     effective.Model,
                     "execute",
                     approved.Name,
+                    compositeAgent,
                     executionAgent,
                     BuildExecutionPrompt(effective, ancestors, currentContexts, dependencies, feedback),
                     cancellationToken).ConfigureAwait(false);
@@ -812,6 +824,7 @@ internal sealed class AgentTaskGraphRunner(
                     currentAncestors,
                     currentContexts,
                     path,
+                    compositeAgent,
                     cancellationToken).ConfigureAwait(false);
                 var succeeded = nested.Count(result => result.Status == AgentTaskExecutionStatus.Succeeded);
                 execution = $"nested task graph: {succeeded}/{nested.Count} tasks succeeded";
@@ -821,10 +834,10 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "accept",
                 approved.Name,
-                acceptanceAgent,
+                compositeAgent,
+                compositeAgent,
                 BuildAcceptancePrompt(effective, ancestors, currentContexts, dependencies, feedback, execution, nested),
                 cancellationToken).ConfigureAwait(false);
-            acceptanceAgent = acceptanceRun.Agent;
             var reviewed = acceptanceRun.Execution;
             if (reviewed.Status != AgentExecutionStatus.Succeeded)
             {
@@ -949,6 +962,7 @@ internal sealed class AgentTaskGraphRunner(
         string? requestedModel,
         string role,
         string taskName,
+        AgentSession owningAgent,
         AgentSession? retainedAgent,
         string prompt,
         CancellationToken cancellationToken)
@@ -969,7 +983,7 @@ internal sealed class AgentTaskGraphRunner(
             {
                 var requestedName = role == "execute" ? taskName : $"{taskName}-{role}";
                 child = agents.Spawn(new AgentLaunchRequest(
-                    owner,
+                    owningAgent,
                     selection,
                     ResolveRoleProfile(role),
                     model,

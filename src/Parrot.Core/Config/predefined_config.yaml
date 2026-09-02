@@ -35,7 +35,7 @@ system_prompts:
 
     ## Agent Tasks
 
-    Agent tasks are meant to be somewhat a horizontal or a feature concern. Composite tasks use research and separate acceptance review; a fresh instruction leaf uses one retained payload agent that implements and verifies the instruction in one call. Do not create separate research or acceptance tasks. Each task should have a limited altitude: a program-level task should break work into feature-level tasks, and a high-level task should break work down one abstraction level, recursively. The terminal leaf should be small enough for a small llm worker to follow reliably, this mean specific requirement over open ended requirement, somewhat like the expectation of a senior vs junior engineer.
+    Agent tasks are meant to be somewhat a horizontal or a feature concern. Composite tasks use distinct research and validation turns on one retained composite agent, which owns nested child agents; a fresh instruction leaf uses one retained payload agent that implements and verifies the instruction in one call. Do not create separate research or acceptance tasks. Each task should have a limited altitude: a program-level task should break work into feature-level tasks, and a high-level task should break work down one abstraction level, recursively. The terminal leaf should be small enough for a small llm worker to follow reliably, this mean specific requirement over open ended requirement, somewhat like the expectation of a senior vs junior engineer.
 
     Composite research runs once at the task altitude and can alter the effective payload if necessary. Every leaf response returns required nonblank context and exactly one of three strict verdicts: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction string or task array. Only reject_and_retry starts a retry; its replacement context may update later attempts and descendants, otherwise the leaf response's required current context remains effective. There are user configurable maximum attempt, so reject_and_retry may halt. A final reject_and_retry retains its feedback and replacement context as the latest effective result. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
 
@@ -662,11 +662,11 @@ profiles:
     is_user_selectable: false
     is_agent_selectable: true
   agent-task-pre-hook:
-    usage: Research and prepare an AgentTask before execution.
+    usage: Research and validate a composite AgentTask in one retained session.
     prompt: |-
-      You are an AgentTask research pre-hook. Inspect the task context and relevant code, resolve material implementation details, and prepare precise context for the task executor.
+      You are the retained composite agent for an AgentTask. Follow the current templated turn: first research and prepare the task, then later validate its nested results in this same session. You own any nested task agents created for this composite task.
 
-      Return only the research findings and, when needed, a narrowly corrected task instruction. Do not implement the task or modify the workspace.
+      During research, inspect the task context and relevant code, resolve material implementation details, and return only the research findings and, when needed, a narrowly corrected task instruction. During validation, review the completed task against its acceptance contract and return the requested strict verdict with focused evidence. Do not implement the task or modify the workspace.
     max_turns: 128
     recursion_limit: 4
     read_only: false
@@ -688,7 +688,7 @@ profiles:
   agent-task-validation:
     usage: Validate an AgentTask result against its acceptance contract.
     prompt: |-
-      You are an AgentTask acceptance validator. Review the completed task and its acceptance contract, then verify correctness with focused evidence.
+      You are the retained composite agent's validation turn for an AgentTask. Review the completed task and its acceptance contract, then verify correctness with focused evidence. The nested task agents are children owned by this retained composite agent.
 
       Return exactly one strict verdict: accept, reject_and_halt, or reject_and_retry. Include nonblank evidence or actionable feedback, and do not modify the workspace.
     max_turns: 128
@@ -1125,7 +1125,7 @@ tools:
       type: object
       additionalProperties: false
   run_agent_tasks:
-    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only children; instruction leaves use agent-task-payload for combined implementation and verification, while composites use research, nested execution, and separate validation, then return hierarchical JSON evidence.
+    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only children; instruction leaves use agent-task-payload for combined implementation and verification, while composites use distinct research and validation turns on one retained composite agent that owns nested child agents, then return hierarchical JSON evidence.
     parameters:
       type: object
       properties:

@@ -73,7 +73,7 @@ internal sealed class PromptTemplateCatalog
             ["agent-task.feedback"] = Create("Retry feedback:{items}", "items"),
             ["agent-task.nested-results"] = Create("Nested task results (structured JSON):\n{results}", "results"),
             ["agent-task.research"] = Create(
-                $"AgentTask role: research pre-hook\n{common}\nCurrent task path: {{path}}\nOriginal current task declaration:\n{{declaration}}\nResearch and prepare this task. Return only strict JSON with no prose or code fence: {{research_response}}. Omit task_patch when no change is needed; when present omit every unchanged field.",
+                $"AgentTask role: retained composite research turn\n{common}\nCurrent task path: {{path}}\nOriginal current task declaration:\n{{declaration}}\nResearch and prepare this task as the retained composite agent. This agent will receive later execution and validation turns and owns any nested task agents. Return only strict JSON with no prose or code fence: {{research_response}}. Omit task_patch when no change is needed; when present omit every unchanged field.",
                 "task_name",
                 "description",
                 "acceptance_criteria",
@@ -105,7 +105,7 @@ internal sealed class PromptTemplateCatalog
                 "instruction",
                 "leaf_response"),
             ["agent-task.acceptance"] = Create(
-                $"AgentTask role: acceptance reviewer\n{common}{{feedback}}\nExecution result:\n{{execution}}{{nested}}\nAssess the completed attempt. Return only one strict JSON object with no prose or code fence: {{acceptance_response}} A reject_and_retry context replaces this task's research context for later attempts and descendants; omit it to retain the existing context.",
+                $"AgentTask role: retained composite validation turn\n{common}{{feedback}}\nExecution result:\n{{execution}}{{nested}}\nReview the completed attempt as the retained composite agent that performed the research turn. Nested task agents are children owned by this composite agent. Return only one strict JSON object with no prose or code fence: {{acceptance_response}} A reject_and_retry context replaces this task's research context for later attempts and descendants; omit it to retain the existing context.",
                 "task_name",
                 "description",
                 "acceptance_criteria",
