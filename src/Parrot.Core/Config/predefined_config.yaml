@@ -519,6 +519,7 @@ read_only_exec_command_prefixes:
   - find
   - git diff
   - git log
+  - git show
   - git status
   - grep
   - head
