@@ -798,6 +798,28 @@ have exactly one configured definition, and every configured definition must
 correspond to a registered runtime tool. An incomplete or stale catalogue fails
 closed before a provider call.
 
+### Parallel tool calls
+
+Parallel-safety metadata belongs to the tool implementation and is default-unsafe;
+it is not inferred from a tool name or by analyzing shell syntax. In one provider
+batch, Parrot starts each maximal consecutive run of calls whose tools declare
+the individual invocations safe. An unsafe call is a barrier: it waits for the
+preceding safe run, and the next safe run waits for that call. Calls that are
+unknown, malformed, or otherwise unsafe are handled by their normal error or
+cancellation lifecycle and are not launched as safe work.
+
+Safe calls may finish in any order, but their durable settlement and publication
+remain in provider order, and that order is sent in the next provider request.
+Existing durable settlements are reused during restoration; only unsettled
+calls are reconciled, with the same ordering and barriers.
+
+`exec_command` is the configured exception. It is safe only when, after leading
+shell whitespace, its command starts with an entry in
+`read_only_exec_command_prefixes` followed by the end of the command or shell
+whitespace. The default entries are in `predefined_config.yaml`, and normal
+configuration rules let users append or replace them. This is a lexical prefix
+check, not general shell analysis; commands that do not match remain unsafe.
+
 
 ## Build And Run
 

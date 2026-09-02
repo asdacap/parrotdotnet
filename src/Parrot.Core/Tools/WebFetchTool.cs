@@ -9,6 +9,12 @@ internal sealed class WebFetchTool(WebFetcher fetcher) : ITool
 {
     public string Name => "web_fetch";
 
+    public bool IsParallelSafe(ToolInvocation invocation)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        return true;
+    }
+
     public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
         try

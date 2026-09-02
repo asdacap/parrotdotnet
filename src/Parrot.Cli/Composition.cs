@@ -181,6 +181,7 @@ internal partial class Composition
                     webFetcher,
                     configuration.ToolDefinitions,
                     configuration.AgentTasks,
+                    configuration.ReadOnlyExecCommandPrefixes,
                     router,
                     systemPromptProvider,
                     configuration.PromptTemplates,

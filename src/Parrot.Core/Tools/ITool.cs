@@ -12,6 +12,8 @@ internal interface ITool
 {
     string Name { get; }
 
+    bool IsParallelSafe(ToolInvocation invocation) => false;
+
     Task<ToolExecutionResult> Execute(
         ToolInvocation invocation,
         AgentTurnSelection selection,

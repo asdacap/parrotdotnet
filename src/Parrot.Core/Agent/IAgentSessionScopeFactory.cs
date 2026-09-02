@@ -20,6 +20,7 @@ internal interface IAgentSessionScopeFactory
         EventRepository eventRepository,
         IReadOnlyList<IToolFactory> toolFactories,
         ToolDefinitionCatalog toolDefinitions,
+        IReadOnlyList<string> readOnlyExecCommandPrefixes,
         ShellProcessOwners shellProcesses,
         ISystemPromptProvider systemPromptProvider,
         AgentScratchDirectory scratch,

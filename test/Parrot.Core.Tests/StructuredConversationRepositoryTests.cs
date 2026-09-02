@@ -200,7 +200,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             string.Empty);
         var checkpointAssistant = repository.Conversation("agent")[1].Sequence;
         _ = repository.RecordCheckpoint("agent", "handoff", checkpointAssistant, "checkpoint");
-        repository.AppendToolSettlement(
+        _ = repository.AppendToolSettlement(
             Published("checkpoint-result"),
             checkpointAssistant,
             new ToolExecutionTerminal(
@@ -263,7 +263,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             _ = repository.RecordCheckpoint("agent", "same", assistant, call);
             if (string.Equals(call, "first", StringComparison.Ordinal))
             {
-                repository.AppendToolSettlement(
+                _ = repository.AppendToolSettlement(
                     Published("first-result"),
                     assistant,
                     new ToolExecutionTerminal(

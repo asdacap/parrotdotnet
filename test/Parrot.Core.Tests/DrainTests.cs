@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
@@ -773,6 +774,248 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | queued prompt");
     }
 
+    [Test]
+    public async Task Consecutive_parallel_safe_calls_settle_and_remain_in_provider_order(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(
+                string.Empty,
+                new LLMToolCall("call-1", "parallel", "{}"),
+                new LLMToolCall("call-2", "parallel", "{}"),
+                new LLMToolCall("call-3", "parallel", "{}")),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        var tool = new GatedTool("parallel", parallelSafe: true);
+        var session = Session(provider, repository, [new FixedToolFactory(tool)], cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await tool.Started("call-1", cancellationToken);
+        await tool.Started("call-2", cancellationToken);
+        await tool.Started("call-3", cancellationToken);
+        _ = await Assert.That(tool.MaximumActive).IsEqualTo(3);
+
+        tool.Release("call-3");
+        await tool.Finished("call-3", cancellationToken);
+        tool.Release("call-2");
+        await tool.Finished("call-2", cancellationToken);
+        tool.Release("call-1");
+        await tool.Finished("call-1", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(string.Join(" | ", repository.ToolTerminals("agent").Select(terminal => terminal.ToolCallId)))
+            .IsEqualTo("call-1 | call-2 | call-3");
+        _ = await Assert.That(string.Join(" | ", provider.Requests[1].Messages
+            .Where(message => message.Role == LLMRole.Tool)
+            .Select(message => $"{message.ToolCallId}:{message.Content}")))
+            .IsEqualTo("call-1:call-1 | call-2:call-2 | call-3:call-3");
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:call-1:parallel | started:call-2:parallel | started:call-3:parallel | "
+            + "finished:call-1:parallel | finished:call-2:parallel | finished:call-3:parallel");
+    }
+
+    [Test]
+    public async Task Parallel_safe_runs_stop_at_unsafe_calls_and_resume_after_each_barrier(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(
+                string.Empty,
+                new LLMToolCall("safe-1", "safe", "{}"),
+                new LLMToolCall("safe-2", "safe", "{}"),
+                new LLMToolCall("unsafe", "unsafe", "{}"),
+                new LLMToolCall("safe-3", "safe", "{}"),
+                new LLMToolCall("safe-4", "safe", "{}")),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        var safe = new GatedTool("safe", parallelSafe: true);
+        var unsafeTool = new GatedTool("unsafe", parallelSafe: false);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(safe), new FixedToolFactory(unsafeTool)],
+            cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await safe.Started("safe-1", cancellationToken);
+        await safe.Started("safe-2", cancellationToken);
+        _ = await Assert.That(safe.MaximumActive).IsEqualTo(2);
+        _ = await Assert.That(unsafeTool.HasStarted("unsafe")).IsFalse();
+        _ = await Assert.That(safe.HasStarted("safe-3")).IsFalse();
+
+        safe.Release("safe-1");
+        safe.Release("safe-2");
+        await safe.Finished("safe-1", cancellationToken);
+        await safe.Finished("safe-2", cancellationToken);
+        await unsafeTool.Started("unsafe", cancellationToken);
+        _ = await Assert.That(safe.HasStarted("safe-3")).IsFalse();
+
+        unsafeTool.Release("unsafe");
+        await unsafeTool.Finished("unsafe", cancellationToken);
+        await safe.Started("safe-3", cancellationToken);
+        await safe.Started("safe-4", cancellationToken);
+        safe.Release("safe-3");
+        safe.Release("safe-4");
+        await safe.Finished("safe-3", cancellationToken);
+        await safe.Finished("safe-4", cancellationToken);
+
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(string.Join(" | ", provider.Requests[1].Messages
+            .Where(message => message.Role == LLMRole.Tool)
+            .Select(message => message.ToolCallId)))
+            .IsEqualTo("safe-1 | safe-2 | unsafe | safe-3 | safe-4");
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:safe-1:safe | started:safe-2:safe | finished:safe-1:safe | "
+            + "finished:safe-2:safe | started:unsafe:unsafe | finished:unsafe:unsafe | "
+            + "started:safe-3:safe | started:safe-4:safe | finished:safe-3:safe | finished:safe-4:safe");
+    }
+
+    [Test]
+    public async Task Restored_batches_skip_settled_calls_and_reconcile_remaining_safe_calls(
+        CancellationToken cancellationToken)
+    {
+        var repository = new EventRepository(_database);
+        var calls = new[]
+        {
+            new LLMToolCall("settled", "parallel", "{}"),
+            new LLMToolCall("safe-1", "parallel", "{}"),
+            new LLMToolCall("safe-2", "parallel", "{}"),
+            new LLMToolCall("unknown", "missing", "{}"),
+        };
+        repository.AppendConversation(
+            new Event { Id = "assistant", AgentSessionId = "agent" },
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart(string.Empty)],
+            calls,
+            string.Empty);
+        var sequence = repository.Conversation("agent").Single().Sequence;
+        _ = repository.AppendToolSettlement(
+            new Event { Id = "settled-result", AgentSessionId = "agent" },
+            sequence,
+            new ToolExecutionTerminal(
+                "settled",
+                "parallel",
+                ToolExecutionStatus.Finished,
+                [ConversationPart.TextPart("already settled")],
+                "already settled"));
+
+        using var provider = new SteppedProvider(Answer("done"));
+        var tool = new GatedTool("parallel", parallelSafe: true);
+        var session = Session(provider, repository, [new FixedToolFactory(tool)], cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await tool.Started("safe-1", cancellationToken);
+        await tool.Started("safe-2", cancellationToken);
+        _ = await Assert.That(tool.MaximumActive).IsEqualTo(2);
+        _ = await Assert.That(tool.HasStarted("unknown")).IsFalse();
+        tool.Release("safe-1");
+        tool.Release("safe-2");
+        await tool.Finished("safe-1", cancellationToken);
+        await tool.Finished("safe-2", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(repository.ToolTerminals("agent")).Count().IsEqualTo(4);
+        _ = await Assert.That(repository.ToolTerminals("agent").First(terminal =>
+            terminal.ToolCallId == "settled").Status).IsEqualTo(ToolExecutionStatus.Finished);
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:safe-1:parallel | started:safe-2:parallel | finished:safe-1:parallel | "
+            + "finished:safe-2:parallel | started:unknown:missing | error:unknown:missing:unknown tool missing");
+        _ = await Assert.That(string.Join(" | ", provider.Requests.Single().Messages
+            .Where(message => message.Role == LLMRole.Tool)
+            .Select(message => message.ToolCallId)))
+            .IsEqualTo("settled | safe-1 | safe-2 | unknown");
+    }
+
+    [Test]
+    public async Task Activity_keeps_an_overlapping_tool_visible_until_the_last_one_finishes(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(
+                string.Empty,
+                new LLMToolCall("call-1", "parallel", "{}"),
+                new LLMToolCall("call-2", "parallel", "{}")),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        var tool = new GatedTool("parallel", parallelSafe: true);
+        var session = Session(provider, repository, [new FixedToolFactory(tool)], cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await tool.Started("call-1", cancellationToken);
+        await tool.Started("call-2", cancellationToken);
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNotNull();
+
+        tool.Release("call-1");
+        await tool.Finished("call-1", cancellationToken);
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNotNull();
+        tool.Release("call-2");
+        await tool.Finished("call-2", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNull();
+        provider.Release();
+        await session.Settled();
+    }
+
+    [Test]
+    public async Task Interrupt_settles_started_parallel_calls_and_cancels_later_calls_before_next_prompt(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer(
+                string.Empty,
+                new LLMToolCall("safe-1", "safe", "{}"),
+                new LLMToolCall("safe-2", "safe", "{}"),
+                new LLMToolCall("unsafe", "unsafe", "{}"),
+                new LLMToolCall("unstarted", "safe", "{}")),
+            Answer("after interrupt"));
+        var repository = new EventRepository(_database);
+        var safe = new GatedTool("safe", parallelSafe: true);
+        var unsafeTool = new GatedTool("unsafe", parallelSafe: false);
+        var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(safe), new FixedToolFactory(unsafeTool)],
+            cancellationToken);
+
+        _ = await session.Admit("prompt", "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await safe.Started("safe-1", cancellationToken);
+        await safe.Started("safe-2", cancellationToken);
+        await session.Interrupt(cancellationToken);
+
+        _ = await Assert.That(session.Activity.Capture().CurrentTool).IsNull();
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:safe-1:safe | started:safe-2:safe | cancelled:safe-1:safe | "
+            + "cancelled:safe-2:safe | cancelled:unsafe:unsafe | cancelled:unstarted:safe");
+
+        _ = await session.Admit("next prompt", "msg-2", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(string.Join(" | ", provider.Requests[1].Messages
+            .Where(message => message.Role == LLMRole.Tool)
+            .Select(message => message.ToolCallId)))
+            .IsEqualTo("safe-1 | safe-2 | unsafe | unstarted");
+        provider.Release();
+        await session.Settled();
+        _ = await Assert.That(repository.ToolTerminals("agent")).Count().IsEqualTo(4);
+        _ = await Assert.That(repository.ToolTerminals("agent").Count(terminal =>
+            terminal.Status == ToolExecutionStatus.Cancelled)).IsEqualTo(4);
+    }
+
     private static ToolDefinitionCatalog Document(IReadOnlyList<IToolFactory> factories) =>
         TestModels.DocumentTools([.. factories.Select(factory => ((ITestToolFactory)factory).Tool.Name)]);
 
@@ -946,6 +1189,76 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         return new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, toolFactories, definitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection("agent", repository, _broker), new ToolOutputBlobStore(_blobDirectory), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ActiveWorkReminder, profile ?? dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Registry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+    }
+
+    private sealed class GatedTool(string name, bool parallelSafe) : ITool
+    {
+        private readonly ConcurrentDictionary<string, TaskCompletionSource> _started = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, TaskCompletionSource> _released = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, TaskCompletionSource> _completed = new(StringComparer.Ordinal);
+        private int _active;
+        private int _maximumActive;
+
+        public string Name => name;
+
+        public int MaximumActive => Volatile.Read(ref _maximumActive);
+
+        public bool IsParallelSafe(ToolInvocation invocation)
+        {
+            ArgumentNullException.ThrowIfNull(invocation);
+            return parallelSafe;
+        }
+
+        public Task Started(string callId, CancellationToken cancellationToken) =>
+            _started.GetOrAdd(callId, _ => NewCompletion()).Task.WaitAsync(cancellationToken);
+
+        public bool HasStarted(string callId) => _started.TryGetValue(callId, out var started) && started.Task.IsCompleted;
+
+        public void Release(string callId) =>
+            _ = _released.GetOrAdd(callId, _ => NewCompletion()).TrySetResult();
+
+        public async Task Finished(string callId, CancellationToken cancellationToken) =>
+            await _completed.GetOrAdd(callId, _ => NewCompletion()).Task.WaitAsync(cancellationToken);
+
+        public async Task<ToolExecutionResult> Execute(
+            ToolInvocation invocation,
+            AgentTurnSelection selection,
+            CancellationToken cancellationToken)
+        {
+            var started = _started.GetOrAdd(invocation.CallId, _ => NewCompletion());
+            var released = _released.GetOrAdd(invocation.CallId, _ => NewCompletion());
+            _ = started.TrySetResult();
+            var active = Interlocked.Increment(ref _active);
+            UpdateMaximum(active);
+            try
+            {
+                await released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return invocation.CallId;
+            }
+            finally
+            {
+                _ = Interlocked.Decrement(ref _active);
+                _ = _completed.GetOrAdd(invocation.CallId, _ => NewCompletion()).TrySetResult();
+            }
+        }
+
+        private static TaskCompletionSource NewCompletion() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private void UpdateMaximum(int active)
+        {
+            var observed = Volatile.Read(ref _maximumActive);
+            while (active > observed)
+            {
+                var previous = Interlocked.CompareExchange(ref _maximumActive, active, observed);
+                if (previous == observed)
+                {
+                    return;
+                }
+
+                observed = previous;
+            }
+        }
     }
 
     private sealed class CountingToolFactory(string name) : IToolFactory, ITestToolFactory
