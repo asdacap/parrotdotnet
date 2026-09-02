@@ -669,6 +669,25 @@ message PlanCompleted {
   string markdown = 3;
   TurnCompleteDialog dialog = 4;
   AgentTaskProgressSnapshot task_tree = 5;
+  repeated PlanTaskDeclaration task_declarations = 6;
+}
+
+message PlanTaskDeclaration {
+  string name = 1;
+  AgentTaskProgressStatus status = 2;
+  repeated string dependencies = 3;
+  string description = 4;
+  string acceptance_criteria = 5;
+  optional string model = 6;
+
+  oneof payload {
+    string instruction = 7;
+    PlanTaskDeclarationChildren children = 8;
+  }
+}
+
+message PlanTaskDeclarationChildren {
+  repeated PlanTaskDeclaration tasks = 1;
 }
 
 message TurnCompleteDialog {

@@ -297,6 +297,21 @@ internal sealed class ModeRegistryTests : IDisposable
             .IsEqualTo("child-first,child-second");
         _ = await Assert.That(tree.RootNodes[0].Children[1].Children[0].Name).IsEqualTo("grandchild");
         _ = await Assert.That(tree.RootNodes[0].Children[1].Children[0].Status).IsEqualTo(AgentTaskProgressStatus.Pending);
+
+        _ = await Assert.That(string.Join(',', completed.TaskDeclarations.Select(task => task.Name)))
+            .IsEqualTo("first,second");
+        var firstDeclaration = completed.TaskDeclarations[0];
+        _ = await Assert.That(firstDeclaration.Description).IsEqualTo("First");
+        _ = await Assert.That(firstDeclaration.AcceptanceCriteria).IsEqualTo("Pass");
+        _ = await Assert.That(firstDeclaration.PayloadCase)
+            .IsEqualTo(PlanTaskDeclaration.PayloadOneofCase.Children);
+        _ = await Assert.That(string.Join(',', firstDeclaration.Children.Tasks.Select(task => task.Name)))
+            .IsEqualTo("child-first,child-second");
+        _ = await Assert.That(firstDeclaration.Children.Tasks[0].Instruction).IsEqualTo("Do it");
+        _ = await Assert.That(firstDeclaration.Children.Tasks[1].Children.Tasks[0].Instruction)
+            .IsEqualTo("Do it");
+        _ = await Assert.That(completed.TaskDeclarations[1].PayloadCase)
+            .IsEqualTo(PlanTaskDeclaration.PayloadOneofCase.Instruction);
     }
 
     [Test]

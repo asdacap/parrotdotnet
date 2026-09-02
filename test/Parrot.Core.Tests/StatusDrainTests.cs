@@ -235,6 +235,13 @@ internal sealed class StatusDrainTests : IDisposable
         _ = await Assert.That(plan.PlanCompleted.TaskTree.RootNodes[0].Name).IsEqualTo("work");
         _ = await Assert.That(plan.PlanCompleted.TaskTree.RootNodes[0].Status)
             .IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(plan.PlanCompleted.TaskDeclarations).Count().IsEqualTo(1);
+        _ = await Assert.That(plan.PlanCompleted.TaskDeclarations[0].Name).IsEqualTo("work");
+        _ = await Assert.That(plan.PlanCompleted.TaskDeclarations[0].Description).IsEqualTo("Do work");
+        _ = await Assert.That(plan.PlanCompleted.TaskDeclarations[0].AcceptanceCriteria).IsEqualTo("Tests pass");
+        _ = await Assert.That(plan.PlanCompleted.TaskDeclarations[0].Instruction).IsEqualTo("Implement it");
+        _ = await Assert.That(plan.PlanCompleted.TaskDeclarations[0].Status)
+            .IsEqualTo(AgentTaskProgressStatus.Pending);
         var sequence = events.ToArray();
         _ = await Assert.That(Array.IndexOf(sequence, plan)).IsLessThan(Array.IndexOf(sequence, ended));
     }
