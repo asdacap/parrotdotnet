@@ -468,10 +468,12 @@ cli_utilities:
   optional:
     - bat
     - bun
+    - cal
     - cargo
     - clang
     - cmake
     - composer
+    - date
     - delta
     - deno
     - docker
@@ -501,7 +503,11 @@ cli_utilities:
     - ruby
     - rustc
     - shellcheck
+    - sleep
     - swift
+    - time
+    - timeout
+    - touch
     - tree
     - yarn
 
@@ -513,6 +519,7 @@ read_only_exec_command_prefixes:
   - find
   - git diff
   - git log
+  - git show
   - git status
   - grep
   - head
