@@ -82,7 +82,8 @@ internal partial class Composition
                     configuration.Compaction.TriggerPercent,
                     configuration.Compaction.TargetPercent,
                     configuration.Compaction.MaximumInputTokens,
-                    configuration.Compaction.SummaryOutputTokens);
+                    configuration.Compaction.SummaryOutputTokens,
+                    configuration.PromptTemplates);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
@@ -137,17 +138,17 @@ internal partial class Composition
                 [
                     .. configuration.SystemPrompts.Select(
                         entry => new ConfiguredSystemPromptProvider(entry.Key, entry.Value)),
-                    new AgentsPromptProvider(workingDirectory, paths.Config),
-                    new ExpectedCliUtilitiesProvider(cliUtilities),
-                    new DateProvider(date),
-                    new PlatformProvider(),
-                    new WorkingDirectoryProvider(workingDirectory),
-                    new OptionalCliUtilitiesProvider(cliUtilities),
+                    new AgentsPromptProvider(workingDirectory, paths.Config, configuration.PromptTemplates),
+                    new ExpectedCliUtilitiesProvider(cliUtilities, configuration.PromptTemplates),
+                    new DateProvider(date, configuration.PromptTemplates),
+                    new PlatformProvider(configuration.PromptTemplates),
+                    new WorkingDirectoryProvider(workingDirectory, configuration.PromptTemplates),
+                    new OptionalCliUtilitiesProvider(cliUtilities, configuration.PromptTemplates),
                     new SessionIdentityProvider(),
-                    new SubagentsProvider(profiles),
-                    new ModelPromptProvider(configuration.ModelAugmentSystemPrompts),
-                    new QueueGuidanceProvider(),
-                    new SecurityProfileProvider(configuration.SandboxRules),
+                    new SubagentsProvider(profiles, configuration.PromptTemplates),
+                    new ModelPromptProvider(configuration.ModelAugmentSystemPrompts, configuration.PromptTemplates),
+                    new QueueGuidanceProvider(configuration.PromptTemplates),
+                    new SecurityProfileProvider(configuration.SandboxRules, configuration.PromptTemplates),
                 ];
                 return new CompositeSystemPromptProvider("runtime:system-prompt", systemPromptProviders);
             })
@@ -182,6 +183,7 @@ internal partial class Composition
                     configuration.AgentTasks,
                     router,
                     systemPromptProvider,
+                    configuration.PromptTemplates,
                     scopes);
             })
 
@@ -196,6 +198,7 @@ internal partial class Composition
                 return new UserSessionFactory(
                     agentSessionFactories,
                     modes,
+                    configuration.PromptTemplates,
                     profiles,
                     configuration.UserInputTimeout,
                     TimeProvider.System);

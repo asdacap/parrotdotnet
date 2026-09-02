@@ -115,7 +115,7 @@ internal sealed class QueueStoreTests : IDisposable
 
         using var inventory = new QueueInventory();
         using var store = new QueueStore(_directory);
-        store.AttachInventory(AgentIdentity.Main("agent-owner", "main"), inventory);
+        store.AttachInventory(AgentIdentity.Main("agent-owner", "main", TestModels.PromptTemplates), inventory);
         using var subscription = inventory.Subscribe();
         var initial = await subscription.Reader.ReadAsync(cancellationToken);
 
@@ -136,7 +136,7 @@ internal sealed class QueueStoreTests : IDisposable
         using var inventory = new QueueInventory();
         using var store = new QueueStore(_directory);
         _ = store.Create("work", "tasks");
-        store.AttachInventory(AgentIdentity.Main("agent-owner", "main"), inventory);
+        store.AttachInventory(AgentIdentity.Main("agent-owner", "main", TestModels.PromptTemplates), inventory);
         using var subscription = inventory.Subscribe();
         _ = await subscription.Reader.ReadAsync(cancellationToken);
 

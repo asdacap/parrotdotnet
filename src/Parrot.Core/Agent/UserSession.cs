@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Permissions;
@@ -24,6 +25,7 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly SessionResourceLease _resources;
     private readonly Lock _mainGate = new();
     private readonly UserSessionModes _modes;
+    private readonly PromptTemplateCatalog _promptTemplates;
 
     // What every drain inside this session is bounded by. It is owned here
     // rather than by an agent session because the drain outlives the request
@@ -46,6 +48,7 @@ internal sealed class UserSession : IAsyncDisposable
         SessionResourceLease resources,
         IAgentSessionFactorySource agentSessionFactories,
         UserSessionModes modes,
+        PromptTemplateCatalog promptTemplates,
         ProfileRegistry profiles,
         bool interactivePermissions,
         TimeSpan userInputTimeout,
@@ -62,6 +65,7 @@ internal sealed class UserSession : IAsyncDisposable
         _resources = resources;
         _eventRepository = resources.Events;
         _modes = modes;
+        _promptTemplates = promptTemplates ?? throw new ArgumentNullException(nameof(promptTemplates));
         var state = _eventRepository.SessionState(id, modes.Resolve(mode).Id);
         _mainSessionId = state.AgentSessionId;
         _modes.Attach(resources.Resources.AgentScratch(_mainSessionId));
@@ -77,8 +81,8 @@ internal sealed class UserSession : IAsyncDisposable
         QueueCatalog = agentSessionFactories.CreateQueueCatalog(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
-        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _lifetime.Token);
-        Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry);
+        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, _lifetime.Token);
+        Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry, _promptTemplates);
         Registry.AttachStatus(Status);
         foreach (var agentSessionId in _eventRepository.AgentHistorySessionIds())
         {
@@ -332,7 +336,7 @@ internal sealed class UserSession : IAsyncDisposable
             if (_main is null)
             {
                 var lease = _agentSessions.Create(
-                    AgentIdentity.Main(_mainSessionId, _rootAgentName),
+                    AgentIdentity.Main(_mainSessionId, _rootAgentName, _promptTemplates),
                     _model,
                     _eventBroker,
                     _eventRepository,

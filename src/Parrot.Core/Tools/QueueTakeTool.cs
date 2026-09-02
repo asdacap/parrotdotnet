@@ -62,7 +62,7 @@ internal sealed class QueueTakeTool(AgentQueues queues) : ITool
         }
         catch (Exception failure) when (failure is JsonException or FormatException or QueueException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

@@ -1,19 +1,23 @@
 using Parrot.AgentTasks;
+using Parrot.Config;
 using Parrot.Protocol;
 using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal sealed class UserSessionModes(ModeRegistry modes)
+internal sealed class UserSessionModes(ModeRegistry modes, PromptTemplateCatalog promptTemplates)
 {
     private readonly Lock _planGate = new();
     private readonly ModeRegistry _modes = modes ?? throw new ArgumentNullException(nameof(modes));
+    private readonly PromptTemplateCatalog _promptTemplates = promptTemplates
+        ?? throw new ArgumentNullException(nameof(promptTemplates));
+
     private AgentScratchDirectory? _mainScratch;
     private string _planArtifact = string.Empty;
     private string _taskArtifact = string.Empty;
 
-    internal UserSessionModes(ModeRegistry modes, string planDirectory)
-        : this(modes) =>
+    internal UserSessionModes(ModeRegistry modes, PromptTemplateCatalog promptTemplates, string planDirectory)
+        : this(modes, promptTemplates) =>
         _mainScratch = new AgentScratchDirectory(
             Path.GetDirectoryName(planDirectory)
             ?? throw new ArgumentException("A plan directory must have a parent.", nameof(planDirectory)));
@@ -36,7 +40,14 @@ internal sealed class UserSessionModes(ModeRegistry modes)
         return string.Equals(profile.Id, ModeRegistry.Plan, StringComparison.Ordinal)
             ? new SessionMode(
                 profile,
-                () => $"{profile.Prompt} Write the canonical Markdown plan to this exact file: {GetPlanArtifact()}. Write the required AgentTask v1 JSON artifact to this exact file: {GetTaskArtifact()}. The JSON must be a strict object with schema_version equal to 1 and a nonempty tasks array; each task requires nonblank name, description, payload, and acceptance_criteria. Optional dependencies must be an array of distinct nonblank, case-sensitive names in the same sibling list; an optional model must be a nonblank string. Payload is either a nonblank string or a nonempty recursive task array. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {GetPlanDirectory()}. Do not include the plan in your assistant response. Finish only after writing both canonical files.",
+                () => _promptTemplates.Render(
+                    "mode.plan-workflow",
+                    [
+                        new("profile_prompt", profile.Prompt),
+                        new("plan_artifact", GetPlanArtifact()),
+                        new("task_artifact", GetTaskArtifact()),
+                        new("plan_directory", GetPlanDirectory()),
+                    ]),
                 profile.SecurityProfile,
                 PreparePlan,
                 CompletePlan)
@@ -164,24 +175,28 @@ internal sealed class UserSessionModes(ModeRegistry modes)
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
             {
-                var diagnostic =
-                    $"Plan artifacts could not be read. Repair the exact Markdown path '{artifact}' and task JSON path '{taskArtifact}': {failure.Message}";
-                return ModeCompletionOutcome.Repair(diagnostic);
+                return ModeCompletionOutcome.Repair(_promptTemplates.Render(
+                    "mode.plan-repair-read",
+                    [
+                        new("plan_artifact", artifact),
+                        new("task_artifact", taskArtifact),
+                        new("error", failure.Message),
+                    ]));
             }
         }
 
         if (plan.Length == 0)
         {
-            var diagnostic =
-                $"The required Markdown plan artifact is blank. Write the complete plan to the exact path '{artifact}', then finish again.";
-            return ModeCompletionOutcome.Repair(diagnostic);
+            return ModeCompletionOutcome.Repair(_promptTemplates.Render(
+                "mode.plan-repair-blank-plan",
+                [new("plan_artifact", artifact)]));
         }
 
         if (taskJson.Length == 0)
         {
-            var diagnostic =
-                $"The required AgentTask JSON artifact is blank. Write valid schema_version 1 task JSON to the exact path '{taskArtifact}', then finish again.";
-            return ModeCompletionOutcome.Repair(diagnostic);
+            return ModeCompletionOutcome.Repair(_promptTemplates.Render(
+                "mode.plan-repair-blank-task",
+                [new("task_artifact", taskArtifact)]));
         }
 
         AgentTaskArtifact tasks;
@@ -191,9 +206,12 @@ internal sealed class UserSessionModes(ModeRegistry modes)
         }
         catch (ArgumentException failure)
         {
-            var diagnostic =
-                $"The AgentTask JSON artifact at '{taskArtifact}' is invalid: {failure.Message} Repair that exact file, then finish again.";
-            return ModeCompletionOutcome.Repair(diagnostic);
+            return ModeCompletionOutcome.Repair(_promptTemplates.Render(
+                "mode.plan-repair-invalid-task",
+                [
+                    new("task_artifact", taskArtifact),
+                    new("error", failure.Message),
+                ]));
         }
 
         var completion = new PlanCompleted
@@ -216,7 +234,12 @@ internal sealed class UserSessionModes(ModeRegistry modes)
                         Action = new ChoiceAction
                         {
                             Mode = ModeRegistry.Build,
-                            Prompt = $"Implement the approved Markdown plan at {artifact}. Call run_agent_tasks with the approved task JSON path {taskArtifact}.",
+                            Prompt = _promptTemplates.Render(
+                                "mode.plan-implementation",
+                                [
+                                    new("plan_artifact", artifact),
+                                    new("task_artifact", taskArtifact),
+                                ]),
                         },
                     },
                     new DialogChoice { Value = "no", Description = "Stop after planning", Aliases = { "n" } },

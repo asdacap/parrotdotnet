@@ -27,12 +27,12 @@ internal sealed class WaitTool(
             var root = arguments.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return "error: Tool arguments must be an object.";
+                return ToolResultFormatter.Error(invocation, "Tool arguments must be an object.");
             }
 
             if (root.EnumerateObject().Any(property => !string.Equals(property.Name, "duration_ms", StringComparison.Ordinal)))
             {
-                return "error: Tool arguments contain an unexpected property.";
+                return ToolResultFormatter.Error(invocation, "Tool arguments contain an unexpected property.");
             }
 
             durationMilliseconds = DefaultDurationMilliseconds;
@@ -43,13 +43,13 @@ internal sealed class WaitTool(
                     || durationMilliseconds < DefaultDurationMilliseconds
                     || durationMilliseconds > MaximumDurationMilliseconds)
                 {
-                    return $"error: Tool argument 'duration_ms' must be an integer from {DefaultDurationMilliseconds} through {MaximumDurationMilliseconds}.";
+                    return ToolResultFormatter.Error(invocation, $"Tool argument 'duration_ms' must be an integer from {DefaultDurationMilliseconds} through {MaximumDurationMilliseconds}.");
                 }
             }
         }
         catch (JsonException failure)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         var activity = await session.WaitForIncomingInput(

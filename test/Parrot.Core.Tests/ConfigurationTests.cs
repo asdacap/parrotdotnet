@@ -1369,6 +1369,61 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(exception.Message).IsEqualTo(message);
     }
 
+    [Test]
+    public async Task Prompt_templates_merge_and_render_multiline_values_without_reparsing_braces()
+    {
+        var configuration = Load(Write("""
+            prompt_templates:
+              agent-session.child-completion:
+                template: |-
+                  Agent {agent_name} says:
+                  {result}
+            """));
+
+        var rendered = configuration.PromptTemplates.Render(
+            "agent-session.child-completion",
+            [new("agent_name", "worker"), new("result", "value {not_a_placeholder}\nnext")]);
+
+        _ = await Assert.That(rendered).IsEqualTo("Agent worker says:\nvalue {not_a_placeholder}\nnext");
+        _ = await Assert.That(configuration.PromptTemplates.Render(
+            "tool-result.output-blob-notice",
+            [new("path", "/tmp/{runtime}")])).Contains("/tmp/{runtime}; metadata: {literal}");
+    }
+
+    [Test]
+    [Arguments("template: '{unknown}'", "unknown placeholder")]
+    [Arguments("template: '{path} {path}'", "duplicate placeholder")]
+    [Arguments("template: ''", "must be a non-empty string")]
+    [Arguments("required_arguments: [path, absent]", "must be included in allowed_arguments")]
+    public async Task Invalid_prompt_template_overrides_report_the_configuration_path(string overrideYaml, string reason)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => Load(Write($"""
+            prompt_templates:
+              tool-result.output-blob-notice:
+                {overrideYaml}
+            """)));
+
+        _ = await Assert.That(exception.Message).StartsWith("prompt_templates.tool-result.output-blob-notice");
+        _ = await Assert.That(exception.Message).Contains(reason);
+    }
+
+    [Test]
+    public async Task Prompt_template_render_arguments_are_validated()
+    {
+        var templates = Load(Write(string.Empty)).PromptTemplates;
+
+        var missing = Assert.Throws<InvalidDataException>(() => templates.Render(
+            "system.working-directory", []));
+        var unknown = Assert.Throws<InvalidDataException>(() => templates.Render(
+            "system.working-directory", [new("other", "value")]));
+        var duplicate = Assert.Throws<InvalidDataException>(() => templates.Render(
+            "system.working-directory", [new("working_directory", "a"), new("working_directory", "b")]));
+
+        _ = await Assert.That(missing.Message).Contains("requires argument 'working_directory'");
+        _ = await Assert.That(unknown.Message).Contains("does not allow argument 'other'");
+        _ = await Assert.That(duplicate.Message).Contains("duplicate argument 'working_directory'");
+    }
+
     private Configuration Load(string path) =>
         Configuration.Load(path, Path.Combine(_directory, "predefined_config.yaml"));
 

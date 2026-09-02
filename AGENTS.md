@@ -32,6 +32,8 @@ read or write other user session data.
 - Configuration are like the atomic representation of code. Making more code just to assert config exactly are
 duplicated code, so dont make unit test like that. This is not the same as making a unit test that test behavior of
 config value.
+- Every interaction with the agent, as in the prompt MUST be templated and made configurable via predefined_config for
+easy review and modification.
 
 ## Async lifecycle
 

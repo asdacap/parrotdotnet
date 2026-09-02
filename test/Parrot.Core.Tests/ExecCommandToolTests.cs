@@ -36,7 +36,7 @@ internal sealed class ExecCommandToolTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        var identity = AgentIdentity.Main("session", string.Empty);
+        var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
         var resources = new UserSessionResources(
@@ -47,26 +47,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             UserSessionId.Parse("session-test"),
             ProjectWorkspace.FromLaunchDirectory(_workspace));
         var scratch = resources.AgentScratch(identity.SessionId);
-        var session = new AgentSession(
-            identity,
-            new ModelSelector(model.Selector),
-            TestModels.Route(model),
-            events,
-            repository,
-            [],
-            TestModels.EmptyToolDefinitions,
-            TestModels.MaterializePrompt(identity, _workspace, _workspace),
-            new TodoCollection("session", repository, events),
-            new ToolOutputBlobStore(scratch.BlobDirectory),
-            new Compactor(90, 30, 60_000, 1024),
-            dependencies.ActiveWorkReminder,
-            dependencies.Profile,
-            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
-            dependencies.Status,
-            dependencies.Registry,
-            dependencies.Queues,
-            new AgentSessionActivity(TimeProvider.System),
-            CancellationToken.None);
+        var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection("session", repository, events), new ToolOutputBlobStore(scratch.BlobDirectory), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Registry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
         using var inventory = new ShellProcessInventory();
         var processes = new ShellProcessOwner(
             session.SessionId,

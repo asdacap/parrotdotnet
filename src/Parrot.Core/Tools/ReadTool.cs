@@ -33,17 +33,17 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         if (offset < 1)
         {
-            return "error: offset must be at least 1";
+            return ToolResultFormatter.Error(invocation, "offset must be at least 1");
         }
 
         if (limit is < 1 or > MaxLines)
         {
-            return $"error: limit must be between 1 and {MaxLines}";
+            return ToolResultFormatter.Error(invocation, $"limit must be between 1 and {MaxLines}");
         }
 
         (string Lexical, string Physical) resolved;
@@ -54,26 +54,26 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         if (!ToolWorkspace.AllowsRead(resolved, selection.SecurityProfile))
         {
-            return "error: access denied";
+            return ToolResultFormatter.Error(invocation, "access denied");
         }
 
         if (Directory.Exists(resolved.Physical))
         {
-            return ListDirectory(workspace, resolved, selection.SecurityProfile);
+            return ListDirectory(invocation, workspace, resolved, selection.SecurityProfile);
         }
 
         return !File.Exists(resolved.Physical)
-            ? "error: no such file or directory"
-            : await ReadFile(resolved.Physical, offset, limit, cancellationToken).ConfigureAwait(false);
+            ? ToolResultFormatter.Error(invocation, "no such file or directory")
+            : await ReadFile(invocation, resolved.Physical, offset, limit, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<string> ReadFile(
-        string full, int offset, int limit, CancellationToken cancellationToken)
+        ToolInvocation invocation, string full, int offset, int limit, CancellationToken cancellationToken)
     {
         await using var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
 
@@ -82,7 +82,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 
         if (probe.AsSpan(0, probeRead).Contains((byte)0))
         {
-            return "error: binary file";
+            return ToolResultFormatter.Error(invocation, "binary file");
         }
 
         _ = stream.Seek(0, SeekOrigin.Begin);
@@ -126,7 +126,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 
         if (truncated)
         {
-            _ = output.Append("[output truncated]\n");
+            _ = output.Append(ToolResultFormatter.Marker(invocation, "[output truncated]\n"));
         }
 
         _ = output.Append("total lines in file: ")
@@ -136,6 +136,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
     }
 
     private static string ListDirectory(
+        ToolInvocation invocation,
         ToolWorkspace workspace,
         (string Lexical, string Physical) directory,
         SecurityProfile securityProfile)
@@ -164,7 +165,7 @@ internal sealed class ReadTool(ToolWorkspace workspace) : ITool
 
             if (count >= MaxLines || output.Length >= MaxOutputBytes)
             {
-                _ = output.Append("[listing truncated]\n");
+                _ = output.Append(ToolResultFormatter.Marker(invocation, "[listing truncated]\n"));
                 break;
             }
 

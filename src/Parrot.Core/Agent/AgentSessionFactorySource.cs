@@ -15,6 +15,7 @@ internal sealed class AgentSessionFactorySource(
     AgentTaskConfig agentTasks,
     Llm.ModelRouter router,
     ISystemPromptProvider systemPromptProvider,
+    PromptTemplateCatalog promptTemplates,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactorySource
 {
     public IAgentSessionFactory Create(UserSession owner) =>
@@ -28,7 +29,8 @@ internal sealed class AgentSessionFactorySource(
             router,
             new CompositeSystemPromptProvider(
                 "runtime:user-session-system-prompt",
-                [systemPromptProvider, new AgentHistoryProvider(owner.Resources)]),
+                [systemPromptProvider, new AgentHistoryProvider(owner.Resources, promptTemplates)]),
+            promptTemplates,
             scopes);
 
     public ShellProcessOwners CreateShellProcesses(UserSession owner) =>

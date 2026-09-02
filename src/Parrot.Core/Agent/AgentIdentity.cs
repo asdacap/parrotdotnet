@@ -1,3 +1,5 @@
+using Parrot.Config;
+
 namespace Parrot.Agent;
 
 internal sealed record AgentIdentity(
@@ -6,7 +8,8 @@ internal sealed record AgentIdentity(
     string ParentSessionName,
     string Name,
     int Depth,
-    AgentScope Scope)
+    AgentScope Scope,
+    PromptTemplateCatalog PromptTemplates)
 {
     public string Context
     {
@@ -18,19 +21,33 @@ internal sealed record AgentIdentity(
                 return scope;
             }
 
-            var identity = $"Child agent session: {SessionId}\n"
-                + $"Parent agent session: {ParentSessionId}\n"
-                + $"Parent agent name: {ParentSessionName}\n"
-                + $"Child agent name: {Name}\n"
-                + $"Child agent depth: {Depth}";
+            var identity = PromptTemplates.Render(
+                "system.agent-identity",
+                [
+                    new("session_id", SessionId),
+                    new("parent_session_id", ParentSessionId),
+                    new("parent_session_name", ParentSessionName),
+                    new("agent_name", Name),
+                    new("depth", Depth.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ]);
             return scope.Length == 0
                 ? identity
                 : $"{identity}\n\n{scope}";
         }
     }
 
-    public static AgentIdentity Main(string sessionId, string rootAgentName) =>
-        new(sessionId, string.Empty, string.Empty, rootAgentName, 0, AgentScope.Empty);
+    public static AgentIdentity Main(
+        string sessionId,
+        string rootAgentName,
+        PromptTemplateCatalog promptTemplates) =>
+        new(
+            sessionId,
+            string.Empty,
+            string.Empty,
+            rootAgentName,
+            0,
+            AgentScope.Empty(promptTemplates),
+            promptTemplates);
 
     public static AgentIdentity Child(
         string sessionId,
@@ -38,6 +55,7 @@ internal sealed record AgentIdentity(
         string parentSessionName,
         string name,
         int depth,
-        AgentScope scope) =>
-        new(sessionId, parentSessionId, parentSessionName, name, depth, scope);
+        AgentScope scope,
+        PromptTemplateCatalog promptTemplates) =>
+        new(sessionId, parentSessionId, parentSessionName, name, depth, scope, promptTemplates);
 }

@@ -33,12 +33,12 @@ internal sealed class AgentStatusTool(
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return Task.FromResult<ToolExecutionResult>($"error: {failure.Message}");
+            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, failure.Message));
         }
 
         if (string.IsNullOrWhiteSpace(sessionId))
         {
-            return Task.FromResult<ToolExecutionResult>("error: no child session given");
+            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, "no child session given"));
         }
 
         try
@@ -46,7 +46,7 @@ internal sealed class AgentStatusTool(
             var child = agents.GetChild(session, sessionId);
             if (!string.Equals(child.ParentSessionId, session.SessionId, StringComparison.Ordinal))
             {
-                return Task.FromResult<ToolExecutionResult>($"error: child agent not found: {sessionId}");
+                return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, $"child agent not found: {sessionId}"));
             }
 
             var activity = child.Activity.Capture();
@@ -54,7 +54,7 @@ internal sealed class AgentStatusTool(
         }
         catch (AgentRegistryException failure)
         {
-            return Task.FromResult<ToolExecutionResult>($"error: {failure.Message}");
+            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, failure.Message));
         }
     }
 

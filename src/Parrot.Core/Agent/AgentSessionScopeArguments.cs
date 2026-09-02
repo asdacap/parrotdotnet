@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -21,6 +22,7 @@ internal sealed record AgentSessionScopeArguments(
     ISystemPromptProvider SystemPromptProvider,
     AgentScratchDirectory Scratch,
     Compactor Compactor,
+    PromptTemplateCatalog PromptTemplates,
     IMode Mode,
     AgentSessionSecurity Security,
     RuntimeStatus Status,

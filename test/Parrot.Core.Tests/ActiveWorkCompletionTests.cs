@@ -48,8 +48,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
-            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry);
+            factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 4);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
@@ -113,8 +113,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
-            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry);
+            factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 2);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
@@ -160,8 +160,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
-            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry);
+            factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
         registry.AttachStatus(status);
         var root = Session(
             "root",
@@ -245,8 +245,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
-            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry);
+            factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
         registry.AttachStatus(status);
         var parent = Session(
             "parent",
@@ -311,8 +311,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
-            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry);
+            factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 3);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
@@ -367,8 +367,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using var registry = new AgentRegistry(
-            factory, _broker, repository, TestModels.ProfileRegistry(), lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry);
+            factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
         var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
@@ -462,28 +462,9 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
     {
         var owner = processes.Prepare(sessionId);
         processes.Register(owner);
-        var identity = AgentIdentity.Main(sessionId, sessionId);
+        var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
-        var session = new AgentSession(
-            identity,
-            new ModelSelector($"{provider.Id}/model"),
-            router,
-            _broker,
-            repository,
-            [],
-            TestModels.EmptyToolDefinitions,
-            TestModels.MaterializePrompt(identity, _workspace, _workspace),
-            new TodoCollection(sessionId, repository, _broker),
-            new ToolOutputBlobStore(_workspace),
-            new Compactor(90, 30, 60_000, 1024),
-            new ActiveWorkCompletionReminder(sessionId, registry, owner),
-            mode,
-            SecurityProfileTestFactory.Create(mode.SecurityProfile),
-            status,
-            registry,
-            queues,
-            new AgentSessionActivity(TimeProvider.System),
-            lifetime);
+        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, new ActiveWorkCompletionReminder(sessionId, registry, owner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
         return session;
     }
@@ -499,29 +480,10 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         ShellProcessOwner processes,
         CancellationToken lifetime)
     {
-        var identity = AgentIdentity.Main(sessionId, sessionId);
+        var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
         var mode = TestModels.Profile();
-        var session = new AgentSession(
-            identity,
-            new ModelSelector($"{provider.Id}/model"),
-            router,
-            _broker,
-            repository,
-            [],
-            TestModels.EmptyToolDefinitions,
-            TestModels.MaterializePrompt(identity, _workspace, _workspace),
-            new TodoCollection(sessionId, repository, _broker),
-            new ToolOutputBlobStore(_workspace),
-            new Compactor(90, 30, 60_000, 1024),
-            new ActiveWorkCompletionReminder(sessionId, registry, processes),
-            mode,
-            SecurityProfileTestFactory.Create(mode.SecurityProfile),
-            status,
-            registry,
-            queues,
-            new AgentSessionActivity(TimeProvider.System),
-            lifetime);
+        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, new ActiveWorkCompletionReminder(sessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
         return session;
     }
@@ -630,6 +592,13 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             var owner = processes.Prepare(identity.SessionId);
             processes.Register(owner);
             var queues = queueCatalog.Register(identity);
+            var completionRegistry = TestModels.Registry(
+                new UnsupportedAgentSessionFactory(),
+                eventBroker,
+                eventRepository,
+                TestModels.ProfileRegistry(),
+                TestModels.PromptTemplates,
+                lifetime);
             var session = new AgentSession(
                 identity,
                 model,
@@ -641,17 +610,13 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 TestModels.MaterializePrompt(identity, workspace, workspace),
                 new TodoCollection(identity.SessionId, repository, broker),
                 new ToolOutputBlobStore(workspace),
-                new Compactor(90, 30, 60_000, 1024),
-                new ActiveWorkCompletionReminder(identity.SessionId, registry, owner),
+                new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
+                TestModels.PromptTemplates,
+                new ActiveWorkCompletionReminder(identity.SessionId, registry, owner, TestModels.PromptTemplates),
                 mode,
                 SecurityProfileTestFactory.Create(securityProfile),
                 status,
-                TestModels.Registry(
-                    new UnsupportedAgentSessionFactory(),
-                    eventBroker,
-                    eventRepository,
-                    TestModels.ProfileRegistry(),
-                    lifetime),
+                completionRegistry,
                 queues,
                 new AgentSessionActivity(TimeProvider.System),
                 lifetime);

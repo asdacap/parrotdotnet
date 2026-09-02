@@ -22,11 +22,13 @@ internal sealed class StatusTool(
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         var runtime = await status.ObserveRuntime(session, selection, cancellationToken).ConfigureAwait(false);
-        return string.IsNullOrWhiteSpace(runtime) ? "No runtime status is currently available." : runtime;
+        return string.IsNullOrWhiteSpace(runtime)
+            ? ToolResultFormatter.Text(invocation, "No runtime status is currently available.")
+            : runtime;
     }
 
     internal sealed class Input;

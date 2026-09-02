@@ -32,14 +32,14 @@ internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
 
             if (signalValue is < 1 or > 64)
             {
-                return "error: Tool argument 'signal' must be between 1 and 64.";
+                return ToolResultFormatter.Error(invocation, "Tool argument 'signal' must be between 1 and 64.");
             }
 
             var signal = new ProcessSignal(signalValue);
 
             if (name.Length == 0)
             {
-                return "error: process name must not be empty";
+                return ToolResultFormatter.Error(invocation, "process name must not be empty");
             }
 
             var process = processes.Claim(name);
@@ -49,7 +49,7 @@ internal sealed class InterruptProcessTool(ShellProcessOwner processes) : ITool
         catch (Exception failure) when (
             failure is JsonException or FormatException or IOException or InvalidOperationException or PlatformNotSupportedException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

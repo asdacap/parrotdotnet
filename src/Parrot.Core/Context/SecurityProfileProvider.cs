@@ -1,9 +1,10 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Security;
 
 namespace Parrot.Context;
 
-internal sealed class SecurityProfileProvider(IReadOnlyList<SandboxRule> rules) : ISystemPromptProvider
+internal sealed class SecurityProfileProvider(IReadOnlyList<SandboxRule> rules, PromptTemplateCatalog templates) : ISystemPromptProvider
 {
     private readonly SandboxRule[] _rules = [.. rules];
 
@@ -12,6 +13,6 @@ internal sealed class SecurityProfileProvider(IReadOnlyList<SandboxRule> rules) 
     public ISystemPrompt Materialize(AgentIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        return new SecurityProfilePrompt(_rules);
+        return new SecurityProfilePrompt(_rules, templates);
     }
 }

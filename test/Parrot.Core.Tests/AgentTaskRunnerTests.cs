@@ -579,7 +579,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
                 _repository,
                 runtime.Parent.SessionId,
                 originToolCallId),
-            new AgentTaskConfig(maximumAttempts));
+            new AgentTaskConfig(maximumAttempts, TestModels.PromptTemplates));
 
     private RuntimeContext Runtime(ILLMProvider provider, CancellationToken cancellationToken)
     {
@@ -594,8 +594,9 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
             cancellationToken);
-        var identity = AgentIdentity.Main("agent-task-parent", "parent");
+        var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         var parent = new AgentSession(
             identity,
@@ -608,7 +609,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             TestModels.MaterializePrompt(identity, ".", "."),
             new TodoCollection(identity.SessionId, _repository, _broker),
             new ToolOutputBlobStore(Path.GetTempPath()),
-            new Parrot.Context.Compactor(90, 30, 60_000, 1024),
+            new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
+            TestModels.PromptTemplates,
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),

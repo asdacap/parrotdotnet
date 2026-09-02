@@ -129,6 +129,7 @@ internal sealed class StatusDrainTests : IDisposable
             Resources(database, "repair-user"),
             sessions,
             OwnerModes(modes, "repair-user"),
+            TestModels.PromptTemplates,
             TestModels.ProfileRegistry(),
             false,
             TimeSpan.FromSeconds(30),
@@ -205,6 +206,7 @@ internal sealed class StatusDrainTests : IDisposable
             Resources(database, "user"),
             sessions,
             OwnerModes(modes, "user"),
+            TestModels.PromptTemplates,
             TestModels.ProfileRegistry(),
             false,
             TimeSpan.FromSeconds(30),
@@ -393,6 +395,7 @@ internal sealed class StatusDrainTests : IDisposable
             Resources(database, "user"),
             sessions,
             OwnerModes(modes, "user"),
+            TestModels.PromptTemplates,
             TestModels.ProfileRegistry(),
             false,
             TimeSpan.FromSeconds(30),
@@ -423,5 +426,5 @@ internal sealed class StatusDrainTests : IDisposable
     }
 
     private UserSessionModes OwnerModes(ModeRegistry modes, string ownerId) =>
-        new(modes, Path.Combine(_root, "sessions", ownerId, "plan"));
+        new(modes, TestModels.PromptTemplates, Path.Combine(_root, "sessions", ownerId, "plan"));
 }

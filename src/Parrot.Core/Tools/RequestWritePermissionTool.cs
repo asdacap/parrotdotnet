@@ -49,7 +49,7 @@ internal sealed class RequestWritePermissionTool(
             var reply = await broker.Request(agentSession, reason, targets, cancellationToken).ConfigureAwait(false);
             if (reply.Kind == PermissionReplyKind.UserAway)
             {
-                return "The user is away.";
+                return ToolResultFormatter.Text(invocation, "The user is away.");
             }
 
             if (reply.Decision == PermissionDecision.Grant)
@@ -64,7 +64,7 @@ internal sealed class RequestWritePermissionTool(
         catch (Exception failure) when (failure is JsonException or FormatException or ArgumentException or IOException
                                         or UnauthorizedAccessException or PermissionException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

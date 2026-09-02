@@ -1,9 +1,10 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Store;
 
 namespace Parrot.Context;
 
-internal sealed class AgentHistoryProvider(UserSessionResources resources) : ISystemPromptProvider
+internal sealed class AgentHistoryProvider(UserSessionResources resources, PromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:user-session-context:02-agent-history";
 
@@ -11,8 +12,8 @@ internal sealed class AgentHistoryProvider(UserSessionResources resources) : ISy
     {
         ArgumentNullException.ThrowIfNull(identity);
         var path = resources.AgentHistoryFile(identity.SessionId);
-        return new StaticSystemPrompt(
-            $"Your durable message and compaction history is projected to this JSONL file: {path}. "
-            + "SQLite remains authoritative, so Parrot may replace this file when the history changes.");
+        return new StaticSystemPrompt(templates.Render("context.agent-history", [
+            new PromptTemplateArgument("path", path),
+        ]));
     }
 }

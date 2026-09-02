@@ -20,6 +20,7 @@ internal sealed class Configuration(string path)
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
     private const string SystemPromptsKey = "system_prompts";
+    private const string PromptTemplatesKey = "prompt_templates";
     private const string DefaultProfileKey = "default_profile";
     private const string DisabledToolsKey = "disabled_tools";
     private const string CliUtilitiesKey = "cli_utilities";
@@ -41,6 +42,9 @@ internal sealed class Configuration(string path)
 
     public IReadOnlyDictionary<string, string> SystemPrompts { get; private set; } =
         new SortedDictionary<string, string>(StringComparer.Ordinal);
+
+    public PromptTemplateCatalog PromptTemplates { get; private set; } =
+        new(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal));
 
     public bool InlineDiff { get; private set; } = true;
 
@@ -179,10 +183,12 @@ internal sealed class Configuration(string path)
         var environmentTemplates = new EnvironmentTemplateResolver(environment);
         var directories = new List<(string Path, string Field)>();
         var profiles = ReadProfiles(root, environmentTemplates, directories);
+        var promptTemplates = ReadPromptTemplates(root);
         var configuration = new Configuration(path)
         {
             Model = Scalar(root, ModelKey),
             SystemPrompts = ReadSystemPrompts(root),
+            PromptTemplates = promptTemplates,
             InlineDiff = ReadInlineDiff(root),
             ModelAliases = ReadModelAliases(root),
             ProviderModelAliasDefaults = ReadProviderModelAliasDefaults(root),
@@ -571,6 +577,68 @@ internal sealed class Configuration(string path)
         }
 
         return prompts;
+    }
+
+    private static PromptTemplateCatalog ReadPromptTemplates(YamlMappingNode root)
+    {
+        if (!Child(root, PromptTemplatesKey, out var node) || node is not YamlMappingNode configured)
+        {
+            throw new InvalidDataException($"{PromptTemplatesKey} must be a mapping");
+        }
+
+        var templates = new Dictionary<string, PromptTemplate>(StringComparer.Ordinal);
+        foreach (var entry in configured.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { } id } || string.IsNullOrWhiteSpace(id) ||
+                !string.Equals(id, id.Trim(), StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"{PromptTemplatesKey} keys must be nonblank trimmed IDs");
+            }
+
+            var path = $"{PromptTemplatesKey}.{id}";
+            if (entry.Value is not YamlMappingNode fields)
+            {
+                throw new InvalidDataException($"{path} must be a mapping");
+            }
+
+            ValidateKeys(fields, path, "template", "allowed_arguments", "required_arguments");
+            var text = NonEmptyScalar(fields, "template", $"{path}.template");
+            var allowed = ReadTemplateArguments(fields, "allowed_arguments", path);
+            var required = ReadTemplateArguments(fields, "required_arguments", path);
+            if (!required.IsSubsetOf(allowed))
+            {
+                throw new InvalidDataException($"{path}.required_arguments must be included in allowed_arguments");
+            }
+
+            templates.Add(id, new PromptTemplate(path, text, allowed, required));
+        }
+
+        return new PromptTemplateCatalog(templates);
+    }
+
+    private static HashSet<string> ReadTemplateArguments(YamlMappingNode fields, string key, string path)
+    {
+        if (!Child(fields, key, out var node) || node is not YamlSequenceNode sequence)
+        {
+            throw new InvalidDataException($"{path}.{key} must be a sequence");
+        }
+
+        var arguments = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in sequence.Children)
+        {
+            if (item is not YamlScalarNode { Value: { } value } || string.IsNullOrWhiteSpace(value) ||
+                !string.Equals(value, value.Trim(), StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"{path}.{key} must contain nonblank trimmed names");
+            }
+
+            if (!arguments.Add(value))
+            {
+                throw new InvalidDataException($"{path}.{key} contains duplicate argument '{value}'");
+            }
+        }
+
+        return arguments;
     }
 
     private static SortedDictionary<string, string> ReadModelAugmentSystemPrompts(YamlMappingNode root)
@@ -1114,10 +1182,9 @@ internal sealed class Configuration(string path)
         }
 
         ValidateKeys(agentTasks, AgentTasksKey, "maximum_attempts");
-        return new AgentTaskConfig(PositiveInteger(
-            agentTasks,
-            "maximum_attempts",
-            $"{AgentTasksKey}.maximum_attempts"));
+        return new AgentTaskConfig(
+            PositiveInteger(agentTasks, "maximum_attempts", $"{AgentTasksKey}.maximum_attempts"),
+            ReadPromptTemplates(root));
     }
 
     private static ToolDefinitionCatalog ReadToolDefinitions(YamlMappingNode root)

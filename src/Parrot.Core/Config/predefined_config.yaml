@@ -91,6 +91,299 @@ system_prompts:
         - verifiers take items from the verify queue and send them to results or back to requests for more work
       - Agent A takes from the result queue.
 
+# Stable named prompt templates. User mappings recursively override individual
+# fields. Placeholders use {name}; double braces emit literal braces.
+prompt_templates:
+  system.agent-identity:
+    template: |-
+      Child agent session: {session_id}
+      Parent agent session: {parent_session_id}
+      Parent agent name: {parent_session_name}
+      Child agent name: {agent_name}
+      Child agent depth: {depth}
+    allowed_arguments: [session_id, parent_session_id, parent_session_name, agent_name, depth]
+    required_arguments: [session_id, parent_session_id, parent_session_name, agent_name, depth]
+  system.agent-scope:
+    template: |-
+      {heading}
+
+      ### {label}
+      {content}
+    allowed_arguments: [heading, label, content]
+    required_arguments: [heading, label, content]
+  system.working-directory:
+    template: 'Working directory: {working_directory}'
+    allowed_arguments: [working_directory]
+    required_arguments: [working_directory]
+  status.selection:
+    template: |-
+      Active profile: {profile}
+      Model: {model}{parent}
+    allowed_arguments: [profile, model, parent]
+    required_arguments: [profile, model, parent]
+  status.selection.parent:
+    template: "\nParent session: {parent}"
+    allowed_arguments: [parent]
+    required_arguments: [parent]
+  status.runtime:
+    template: 'Runtime:'
+    allowed_arguments: []
+    required_arguments: []
+  status.runtime.agent:
+    template: '{indent}- agent: {name} ({session_id})'
+    allowed_arguments: [indent, name, session_id]
+    required_arguments: [indent, name, session_id]
+  status.runtime.queue:
+    template: '{indent}  - queue: {name} ({size} items{description})'
+    allowed_arguments: [indent, name, size, description]
+    required_arguments: [indent, name, size, description]
+  status.runtime.queue-description:
+    template: ', description: {description}'
+    allowed_arguments: [description]
+    required_arguments: [description]
+  status.runtime.process:
+    template: '{indent}  - process: {id} (shell, {state}, name: {name})'
+    allowed_arguments: [indent, id, state, name]
+    required_arguments: [indent, id, state, name]
+  agent-session.child-completion:
+    template: |-
+      Child agent {agent_name} completed.
+      {result}
+    allowed_arguments: [agent_name, result]
+    required_arguments: [agent_name, result]
+  agent-session.active-work-reminder:
+    template: |-
+      This turn must not exit while direct subagents or processes are still running.{active_work}
+      Use the wait tool until no direct subagent or process remains. To interrupt a direct subagent, use agent_send to instruct it to complete. To interrupt a process, use interrupt_process. Do not finish this turn until all listed work has completed or been interrupted.
+    allowed_arguments: [active_work]
+    required_arguments: [active_work]
+  agent-session.runaway:
+    template: 'the turn exceeded its provider-request limit'
+    allowed_arguments: []
+    required_arguments: []
+  agent-session.final-request:
+    template: 'This is the final provider request allowed for the current turn. Tools are unavailable for this request. Do not request or invoke tools. Provide the best possible final answer using the information already available.'
+    allowed_arguments: []
+    required_arguments: []
+  agent-session.tools-restored:
+    template: 'A new turn has started and its provider-request budget has reset. Tool access is restored to the tools permitted for this turn.'
+    allowed_arguments: []
+    required_arguments: []
+  agent-session.interrupted-result:
+    template: 'Error: tool execution interrupted'
+    allowed_arguments: []
+    required_arguments: []
+  agent-session.interrupted-note:
+    template: '(interrupted)'
+    allowed_arguments: []
+    required_arguments: []
+  tool-result.text:
+    template: '{value}'
+    allowed_arguments: [value]
+    required_arguments: [value]
+  tool-result.output-blob-notice:
+    template: 'Full output is retained at {path}; metadata: {{literal}}.'
+    allowed_arguments: [path]
+    required_arguments: [path]
+  tool-result.question-answer:
+    template: 'Question: {question}\nAnswer: {answer}'
+    allowed_arguments: [question, answer]
+    required_arguments: [question, answer]
+  tool-result.error:
+    template: 'error: {message}'
+    allowed_arguments: [message]
+    required_arguments: [message]
+  mode.plan-workflow:
+    template: >-
+      {profile_prompt} Write the canonical Markdown plan to this exact file: {plan_artifact}. Write the required AgentTask v1 JSON artifact to this exact file: {task_artifact}. The JSON must be a strict object with schema_version equal to 1 and a nonempty tasks array; each task requires nonblank name, description, payload, and acceptance_criteria. Optional dependencies must be an array of distinct nonblank, case-sensitive names in the same sibling list; an optional model must be a nonblank string. Payload is either a nonblank string or a nonempty recursive task array. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {plan_directory}. Do not include the plan in your assistant response. Finish only after writing both canonical files.
+    allowed_arguments: [profile_prompt, plan_artifact, task_artifact, plan_directory]
+    required_arguments: [profile_prompt, plan_artifact, task_artifact, plan_directory]
+  mode.plan-repair-read:
+    template: >-
+      Plan artifacts could not be read. Repair the exact Markdown path '{plan_artifact}' and task JSON path '{task_artifact}': {error}
+    allowed_arguments: [plan_artifact, task_artifact, error]
+    required_arguments: [plan_artifact, task_artifact, error]
+  mode.plan-repair-blank-plan:
+    template: >-
+      The required Markdown plan artifact is blank. Write the complete plan to the exact path '{plan_artifact}', then finish again.
+    allowed_arguments: [plan_artifact]
+    required_arguments: [plan_artifact]
+  mode.plan-repair-blank-task:
+    template: >-
+      The required AgentTask JSON artifact is blank. Write valid schema_version 1 task JSON to the exact path '{task_artifact}', then finish again.
+    allowed_arguments: [task_artifact]
+    required_arguments: [task_artifact]
+  mode.plan-repair-invalid-task:
+    template: >-
+      The AgentTask JSON artifact at '{task_artifact}' is invalid: {error} Repair that exact file, then finish again.
+    allowed_arguments: [task_artifact, error]
+    required_arguments: [task_artifact, error]
+  mode.plan-implementation:
+    template: 'Implement the approved Markdown plan at {plan_artifact}. Call run_agent_tasks with the approved task JSON path {task_artifact}.'
+    allowed_arguments: [plan_artifact, task_artifact]
+    required_arguments: [plan_artifact, task_artifact]
+  agent-task.role-prompts:
+    template: |-
+      AgentTask role: {role}
+      {header}{feedback}{execution}{nested}{instruction}{declaration}{path}{response}
+    allowed_arguments: [role, header, feedback, execution, nested, instruction, declaration, path, response]
+    required_arguments: [role, header, feedback, execution, nested, instruction, declaration, path, response]
+  agent-task.ancestor-header:
+    template: '\nAncestor tasks (root to parent):'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.context-header:
+    template: '\nResearch context (root to current):'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.dependency-header:
+    template: '\nDirect dependency summaries:'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.header:
+    template: |-
+      Task: {task_name}
+      Description: {description}
+      Acceptance criteria: {acceptance_criteria}{ancestors}{contexts}{dependencies}
+    allowed_arguments: [task_name, description, acceptance_criteria, ancestors, contexts, dependencies]
+    required_arguments: [task_name, description, acceptance_criteria, ancestors, contexts, dependencies]
+  agent-task.feedback:
+    template: |-
+      Retry feedback:{items}
+    allowed_arguments: [items]
+    required_arguments: [items]
+  agent-task.nested-results:
+    template: |-
+      Nested task results (structured JSON):
+      {results}
+    allowed_arguments: [results]
+    required_arguments: [results]
+  agent-task.research:
+    template: |-
+      AgentTask role: research pre-hook{header}
+      Current task path: {path}
+      Original current task declaration:
+      {declaration}
+      Research and prepare this task. Return only strict JSON with no prose or code fence: {response}
+      Omit task_patch when no change is needed; when present omit every unchanged field.
+    allowed_arguments: [header, path, declaration, response]
+    required_arguments: [header, path, declaration, response]
+  agent-task.execution:
+    template: |-
+      AgentTask role: payload executor{header}{feedback}
+      Execute this instruction and return the execution result:
+      {instruction}
+    allowed_arguments: [header, feedback, instruction]
+    required_arguments: [header, feedback, instruction]
+  agent-task.leaf:
+    template: |-
+      AgentTask role: payload executor{header}{feedback}
+      Inspect, implement, and verify this instruction:
+      {instruction}
+      Return only one strict JSON object with no prose or code fence: {response}
+      Omit replacement_context to carry the returned current context into the next attempt.
+    allowed_arguments: [header, feedback, instruction, response]
+    required_arguments: [header, feedback, instruction, response]
+  agent-task.acceptance:
+    template: |-
+      AgentTask role: acceptance reviewer{header}{feedback}
+      Execution result:
+      {execution}{nested}
+      Assess the completed attempt. Return only one strict JSON object with no prose or code fence: {response}
+      A reject_and_retry context replaces this task's research context for later attempts and descendants; omit it to retain the existing context.
+    allowed_arguments: [header, feedback, execution, nested, response]
+    required_arguments: [header, feedback, execution, nested, response]
+  agent-task.role-failure:
+    template: '{role} agent {status}: {error}'
+    allowed_arguments: [role, status, error]
+    required_arguments: [role, status, error]
+  agent-task.truncated:
+    template: |-
+      {value}
+      [truncated]
+    allowed_arguments: [value]
+    required_arguments: [value]
+  compaction.summary-instructions:
+    template: 'Summarise the following conversation so it can continue. Keep decisions, file paths, open tasks, and relevant evidence from images. Be terse.'
+    allowed_arguments: []
+    required_arguments: []
+  compaction.summary-prefix:
+    template: "Summary of the earlier conversation:\n"
+    allowed_arguments: []
+    required_arguments: []
+  context.agent-scratch:
+    template: 'Persistent writable scratch directory for this agent: {path}. Use this directory for temporary files and durable artifacts that should remain available when this user session resumes.'
+    allowed_arguments: [path]
+    required_arguments: [path]
+  context.agent-history:
+    template: 'Your durable message and compaction history is projected to this JSONL file: {path}. SQLite remains authoritative, so Parrot may replace this file when the history changes.'
+    allowed_arguments: [path]
+    required_arguments: [path]
+  context.agents-file:
+    template: |-
+      --- {path} ---
+      {content}
+    allowed_arguments: [path, content]
+    required_arguments: [path, content]
+  context.expected-cli-utilities:
+    template: 'Available CLI utilities: {utilities}'
+    allowed_arguments: [utilities]
+    required_arguments: [utilities]
+  context.optional-cli-utilities:
+    template: 'Available optional CLI utilities: {utilities}'
+    allowed_arguments: [utilities]
+    required_arguments: [utilities]
+  context.date:
+    template: 'Date: {date}'
+    allowed_arguments: [date]
+    required_arguments: [date]
+  context.platform:
+    template: 'Platform: {platform}'
+    allowed_arguments: [platform]
+    required_arguments: [platform]
+  context.model-alias:
+    template: '- {name}: {model} — {usage}'
+    allowed_arguments: [name, model, usage]
+    required_arguments: [name, model, usage]
+  context.model-aliases:
+    template: |-
+      Configured model aliases may be passed anywhere a model selector is accepted, especially `agent_spawn.model`:
+      {aliases}
+    allowed_arguments: [aliases]
+    required_arguments: [aliases]
+  context.queue-guidance:
+    template: 'When a task has many work items, use a parent-owned queue and multiple worker subagents. Each agent resolves its own queues first and can also access only its direct parent''s queues; queue names must be unique across that edge in either creation order, while siblings may reuse a name. Queue listening is configured independently for each invoking agent. Root queues persist with the user session, but child-owned queues last only for that child''s lifetime.'
+    allowed_arguments: []
+    required_arguments: []
+  context.queue-guidance-with-close:
+    template: |-
+      When a task has many work items, use a parent-owned queue and multiple worker subagents. Each agent resolves its own queues first and can also access only its direct parent's queues; queue names must be unique across that edge in either creation order, while siblings may reuse a name. Queue listening is configured independently for each invoking agent. Root queues persist with the user session, but child-owned queues last only for that child's lifetime. Producers close a queue with queue_push(close:true) when no more items will arrive; items may be empty when closing. Consumers drain until queue_take reports closed with no items rather than guessing from an empty timeout.
+    allowed_arguments: []
+    required_arguments: []
+  context.security-profile:
+    template: |-
+      The following configured sandbox rules override every other prompt rule and instruction.
+      Rules, in enforcement order:{rules}
+    allowed_arguments: [rules]
+    required_arguments: [rules]
+  context.security-rule:
+    template: "\n- Path: \"{path}\"; Action: {action}"
+    allowed_arguments: [path, action]
+    required_arguments: [path, action]
+  context.subagents-none:
+    template: 'Available subagents: none'
+    allowed_arguments: []
+    required_arguments: []
+  context.subagents-header:
+    template: 'Available subagents; delegate according to their configured usage:'
+    allowed_arguments: []
+    required_arguments: []
+  context.subagent:
+    template: |-
+      - {id}: {usage}
+    allowed_arguments: [id, usage]
+    required_arguments: [id, usage]
+
 # Default model selected as provider/model, optionally followed by /variant.
 model: ""
 

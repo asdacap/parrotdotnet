@@ -24,7 +24,7 @@ internal sealed class QueueListenTool(AgentQueues queues) : ITool
         }
         catch (Exception failure) when (failure is System.Text.Json.JsonException or FormatException or QueueException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

@@ -189,7 +189,7 @@ internal sealed class ModeRegistryTests : IDisposable
             ModeRegistry.Build);
 
         var planDirectory = Path.Combine(_root, "plans", "plan");
-        var ownerModes = new UserSessionModes(registry, planDirectory);
+        var ownerModes = new UserSessionModes(registry, TestModels.PromptTemplates, planDirectory);
         var build = ownerModes.Resolve(ModeRegistry.Build);
         var plan = ownerModes.Resolve(ModeRegistry.Plan);
 
@@ -216,7 +216,7 @@ internal sealed class ModeRegistryTests : IDisposable
             Path.Combine(_root, "data"));
         var registry = Registry([new SandboxRule(_root, SandboxRuleAction.DenyWrite)]);
         var planDirectory = Path.Combine(paths.State, "sessions", "session", "plan");
-        var plan = new UserSessionModes(registry, planDirectory).Resolve(ModeRegistry.Plan);
+        var plan = new UserSessionModes(registry, TestModels.PromptTemplates, planDirectory).Resolve(ModeRegistry.Plan);
         plan.Prepare();
         var artifact = PlanArtifactIn(planDirectory);
         var outside = Path.Combine(_root, "outside.md");
@@ -358,12 +358,12 @@ internal sealed class ModeRegistryTests : IDisposable
     public async Task Fresh_owner_state_does_not_revive_an_artifact_from_an_earlier_attempt()
     {
         var planDirectory = Path.Combine(_root, "sessions", "same-owner", "plan");
-        var previous = new UserSessionModes(Registry(), planDirectory).Resolve(ModeRegistry.Plan);
+        var previous = new UserSessionModes(Registry(), TestModels.PromptTemplates, planDirectory).Resolve(ModeRegistry.Plan);
         previous.Prepare();
         var previousArtifact = PlanArtifactIn(planDirectory);
         await File.WriteAllTextAsync(previousArtifact, "stale plan");
 
-        var current = new UserSessionModes(Registry(), planDirectory).Resolve(ModeRegistry.Plan);
+        var current = new UserSessionModes(Registry(), TestModels.PromptTemplates, planDirectory).Resolve(ModeRegistry.Plan);
         current.Prepare();
         var artifacts = Directory.GetFiles(planDirectory, "plan-*.md");
         var currentArtifact = artifacts.Single(path => !string.Equals(path, previousArtifact, StringComparison.Ordinal));
@@ -378,8 +378,8 @@ internal sealed class ModeRegistryTests : IDisposable
         var registry = Registry();
         var firstDirectory = Path.Combine(_root, "sessions", "first", "plan");
         var secondDirectory = Path.Combine(_root, "sessions", "second", "plan");
-        var firstModes = new UserSessionModes(registry, firstDirectory);
-        var secondModes = new UserSessionModes(registry, secondDirectory);
+        var firstModes = new UserSessionModes(registry, TestModels.PromptTemplates, firstDirectory);
+        var secondModes = new UserSessionModes(registry, TestModels.PromptTemplates, secondDirectory);
         var first = firstModes.Resolve(ModeRegistry.Plan);
         var firstAgain = firstModes.Resolve(ModeRegistry.Plan);
         var second = secondModes.Resolve(ModeRegistry.Plan);
@@ -425,7 +425,7 @@ internal sealed class ModeRegistryTests : IDisposable
     private UserSessionModes OwnerModes(string ownerId) => OwnerModes(ownerId, Registry());
 
     private UserSessionModes OwnerModes(string ownerId, ModeRegistry registry) =>
-        new(registry, Path.Combine(_root, "sessions", ownerId, "plan"));
+        new(registry, TestModels.PromptTemplates, Path.Combine(_root, "sessions", ownerId, "plan"));
 
     private string PlanArtifact(string ownerId) =>
         PlanArtifactIn(Path.Combine(_root, "sessions", ownerId, "plan"));

@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Llm;
 
 namespace Parrot.Context;
@@ -6,12 +7,14 @@ internal sealed class Compactor(
     int triggerPercent,
     int targetPercent,
     int maximumInputTokens,
-    int summaryOutputTokens)
+    int summaryOutputTokens,
+    PromptTemplateCatalog promptTemplates)
 {
-    private const string SummaryInstructions = "Summarise the following conversation so it can continue. Keep decisions, "
-        + "file paths, open tasks, and relevant evidence from images. Be terse.";
+    private const string SummaryInstructionsTemplate = "compaction.summary-instructions";
+    private const string SummaryPrefixTemplate = "compaction.summary-prefix";
 
-    private const string SummaryPrefix = "Summary of the earlier conversation:\n";
+    private readonly string _summaryInstructions = promptTemplates.Render(SummaryInstructionsTemplate, []);
+    private readonly string _summaryPrefix = promptTemplates.Render(SummaryPrefixTemplate, []);
 
     public static long EstimateTokens(IReadOnlyList<LLMMessage> messages)
     {
@@ -189,7 +192,7 @@ internal sealed class Compactor(
             chunk,
             summaryTokens,
             cancellationToken).ConfigureAwait(false);
-        var summaryMessage = LLMMessage.System($"{SummaryPrefix}{summary}");
+        var summaryMessage = LLMMessage.System($"{_summaryPrefix}{summary}");
         IReadOnlyList<LLMMessage> compacted = [summaryMessage, fixedMessage, .. retained];
         var compactedTokens = EstimateInputTokens(instructions, tools, compacted);
         if (compactedTokens > contextWindow)
@@ -206,13 +209,6 @@ internal sealed class Compactor(
         return new CompactionResult(compacted, summaryMessage, retained.Count, watermark);
     }
 
-    private static long EstimateWithSummary(
-        string instructions,
-        IReadOnlyList<LLMToolDefinition> tools,
-        LLMMessage fixedMessage,
-        IReadOnlyList<LLMMessage> retained) =>
-        EstimateInputTokens(instructions, tools, [LLMMessage.System(SummaryPrefix), fixedMessage, .. retained]);
-
     private static long EstimateTokens(LLMMessage message) =>
         message.Contents.Sum(content => content.Kind switch
         {
@@ -224,37 +220,6 @@ internal sealed class Compactor(
             + EstimateStringTokens(call.ArgumentsJson))
         + EstimateStringTokens(message.ToolCallId)
         + 8;
-
-    private static long EstimateRequestTokens(
-        string precedingSummary,
-        IReadOnlyList<LLMMessage> chunk,
-        IReadOnlyList<LLMMessage> nextGroup)
-    {
-        var messages = RequestMessages(precedingSummary, chunk, nextGroup);
-        return EstimateTokens(messages);
-    }
-
-    private static long EstimateRequestTokens(string precedingSummary, IReadOnlyList<LLMMessage> chunk) =>
-        EstimateTokens(RequestMessages(precedingSummary, chunk, []));
-
-    private static List<LLMMessage> RequestMessages(
-        string precedingSummary,
-        IReadOnlyList<LLMMessage> chunk,
-        IReadOnlyList<LLMMessage> nextGroup)
-    {
-        var messages = new List<LLMMessage>
-        {
-            LLMMessage.System(SummaryInstructions),
-        };
-        if (precedingSummary.Length > 0)
-        {
-            messages.Add(LLMMessage.System($"{SummaryPrefix}{precedingSummary}"));
-        }
-
-        messages.AddRange(chunk);
-        messages.AddRange(nextGroup);
-        return messages;
-    }
 
     private static IEnumerable<IReadOnlyList<LLMMessage>> Groups(IReadOnlyList<LLMMessage> messages)
     {
@@ -273,6 +238,17 @@ internal sealed class Compactor(
         }
     }
 
+    private static string BoundSummary(string summary, int maximumOutputTokens)
+    {
+        if (EstimateStringTokens(summary) <= maximumOutputTokens)
+        {
+            return summary;
+        }
+
+        var maximumCharacters = checked(maximumOutputTokens * 4);
+        return summary[..Math.Min(summary.Length, maximumCharacters)];
+    }
+
     private static long EstimateStringTokens(string value) => (value.Length + 3L) / 4L;
 
     private static long EstimateImageTokens(int byteLength) =>
@@ -288,7 +264,45 @@ internal sealed class Compactor(
         return ((long)contextWindow * percentage) / 100;
     }
 
-    private static async Task<string> Summarise(
+    private long EstimateWithSummary(
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        LLMMessage fixedMessage,
+        IReadOnlyList<LLMMessage> retained) =>
+        EstimateInputTokens(instructions, tools, [LLMMessage.System(_summaryPrefix), fixedMessage, .. retained]);
+
+    private long EstimateRequestTokens(
+        string precedingSummary,
+        IReadOnlyList<LLMMessage> chunk,
+        IReadOnlyList<LLMMessage> nextGroup)
+    {
+        var messages = RequestMessages(precedingSummary, chunk, nextGroup);
+        return EstimateTokens(messages);
+    }
+
+    private long EstimateRequestTokens(string precedingSummary, IReadOnlyList<LLMMessage> chunk) =>
+        EstimateTokens(RequestMessages(precedingSummary, chunk, []));
+
+    private List<LLMMessage> RequestMessages(
+        string precedingSummary,
+        IReadOnlyList<LLMMessage> chunk,
+        IReadOnlyList<LLMMessage> nextGroup)
+    {
+        var messages = new List<LLMMessage>
+        {
+            LLMMessage.System(_summaryInstructions),
+        };
+        if (precedingSummary.Length > 0)
+        {
+            messages.Add(LLMMessage.System($"{_summaryPrefix}{precedingSummary}"));
+        }
+
+        messages.AddRange(chunk);
+        messages.AddRange(nextGroup);
+        return messages;
+    }
+
+    private async Task<string> Summarise(
         ProviderModel selectedModel,
         string precedingSummary,
         IReadOnlyList<LLMMessage> chunk,
@@ -323,16 +337,5 @@ internal sealed class Compactor(
         }
 
         return BoundSummary(summary, maximumOutputTokens);
-    }
-
-    private static string BoundSummary(string summary, int maximumOutputTokens)
-    {
-        if (EstimateStringTokens(summary) <= maximumOutputTokens)
-        {
-            return summary;
-        }
-
-        var maximumCharacters = checked(maximumOutputTokens * 4);
-        return summary[..Math.Min(summary.Length, maximumCharacters)];
     }
 }

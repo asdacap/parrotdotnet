@@ -1,9 +1,10 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Process;
 
 namespace Parrot.Context;
 
-internal sealed class ExpectedCliUtilitiesProvider(CliUtilityAvailability cliUtilities) : ISystemPromptProvider
+internal sealed class ExpectedCliUtilitiesProvider(CliUtilityAvailability cliUtilities, PromptTemplateCatalog templates) : ISystemPromptProvider
 {
     public string Key => "runtime:system-context:03-cli-utilities";
 
@@ -13,6 +14,8 @@ internal sealed class ExpectedCliUtilitiesProvider(CliUtilityAvailability cliUti
         var utilities = cliUtilities.AvailableExpected.Count == 0
             ? "none"
             : string.Join(", ", cliUtilities.AvailableExpected);
-        return new StaticSystemPrompt($"Available CLI utilities: {utilities}");
+        return new StaticSystemPrompt(templates.Render("context.expected-cli-utilities", [
+            new PromptTemplateArgument("utilities", utilities),
+        ]));
     }
 }

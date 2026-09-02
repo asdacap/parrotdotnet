@@ -11,7 +11,7 @@ internal sealed class QueueToolTests
     [Test]
     public async Task Queue_take_reports_open_empty_timeout_explicitly(CancellationToken cancellationToken)
     {
-        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-open", "main"));
+        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-open", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
         var result = await new QueueTakeTool(queues).Execute(
             new ToolInvocation("call", "{\"name\":\"work\",\"yield_after_ms\":20}"),
@@ -26,7 +26,7 @@ internal sealed class QueueToolTests
     [Test]
     public async Task Queue_push_close_allows_prompt_drain_completion(CancellationToken cancellationToken)
     {
-        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-close", "main"));
+        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-close", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
         var waiting = new QueueTakeTool(queues).Execute(
             new ToolInvocation("take", "{\"name\":\"work\",\"yield_after_ms\":30000}"),
@@ -50,7 +50,7 @@ internal sealed class QueueToolTests
     public async Task Queue_push_adds_final_items_closes_idempotently_and_rejects_late_items(
         CancellationToken cancellationToken)
     {
-        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-final", "main"));
+        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-final", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
         var tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
 
@@ -80,7 +80,7 @@ internal sealed class QueueToolTests
     [Test]
     public async Task Queue_push_requires_exactly_one_item_source(CancellationToken cancellationToken)
     {
-        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-sources", "main"));
+        using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-sources", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
         var tool = new QueuePushTool(queues, new ToolWorkspace(Environment.CurrentDirectory));
 

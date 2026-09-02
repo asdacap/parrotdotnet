@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Process;
 using Parrot.Queues;
 
@@ -8,7 +9,8 @@ namespace Parrot.Statuses;
 internal sealed class RuntimeTreeStatusProvider(
     AgentQueueCatalog queues,
     IProcessStatusSource processes,
-    IAgentStatusSource agents) : IStatusProvider
+    IAgentStatusSource agents,
+    PromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:queues";
 
@@ -21,7 +23,7 @@ internal sealed class RuntimeTreeStatusProvider(
         var activeAgents = agents.ActiveSnapshot();
         var activeProcesses = processes.Snapshot();
         var nodes = BuildNodes(query.SessionId, queueOwners, activeAgents, activeProcesses);
-        var lines = new List<string> { "Runtime:" };
+        var lines = new List<string> { templates.Render("status.runtime", []) };
         Append(lines, nodes, query.SessionId, 0, new HashSet<string>(StringComparer.Ordinal));
         return ValueTask.FromResult(StatusObservation.AvailableText(string.Join('\n', lines)));
     }
@@ -91,7 +93,13 @@ internal sealed class RuntimeTreeStatusProvider(
         return created;
     }
 
-    private static void Append(List<string> lines, Dictionary<string, Node> nodes, string sessionId, int depth, HashSet<string> seen)
+    private static string State(ActiveWorkState state) => state switch
+    {
+        ActiveWorkState.Running => "running",
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown active work state."),
+    };
+
+    private void Append(List<string> lines, Dictionary<string, Node> nodes, string sessionId, int depth, HashSet<string> seen)
     {
         if (!seen.Add(sessionId) || !nodes.TryGetValue(sessionId, out var node))
         {
@@ -99,18 +107,36 @@ internal sealed class RuntimeTreeStatusProvider(
         }
 
         var indent = new string(' ', depth * 2);
-        lines.Add($"{indent}- agent: {node.Name} ({node.SessionId})");
+        lines.Add(templates.Render("status.runtime.agent", [
+            new PromptTemplateArgument("indent", indent),
+            new PromptTemplateArgument("name", node.Name),
+            new PromptTemplateArgument("session_id", node.SessionId),
+        ]));
         foreach (var queue in node.Queues.OrderBy(queue => queue.Name, StringComparer.Ordinal))
         {
             var description = string.IsNullOrEmpty(queue.Description)
                 ? string.Empty
-                : $", description: {JsonSerializer.Serialize(queue.Description, StatusJsonContext.Default.String)}";
-            lines.Add($"{indent}  - queue: {queue.Name} ({queue.Size} items{description})");
+                : templates.Render("status.runtime.queue-description", [
+                    new PromptTemplateArgument(
+                        "description",
+                        JsonSerializer.Serialize(queue.Description, StatusJsonContext.Default.String)),
+                ]);
+            lines.Add(templates.Render("status.runtime.queue", [
+                new PromptTemplateArgument("indent", indent),
+                new PromptTemplateArgument("name", queue.Name),
+                new PromptTemplateArgument("size", queue.Size.ToString(System.Globalization.CultureInfo.CurrentCulture)),
+                new PromptTemplateArgument("description", description),
+            ]));
         }
 
         foreach (var process in node.Processes.OrderBy(process => process.ProcessId, StringComparer.Ordinal))
         {
-            lines.Add($"{indent}  - process: {process.Id} (shell, {State(process.State)}, name: {process.Name})");
+            lines.Add(templates.Render("status.runtime.process", [
+                new PromptTemplateArgument("indent", indent),
+                new PromptTemplateArgument("id", process.Id),
+                new PromptTemplateArgument("state", State(process.State)),
+                new PromptTemplateArgument("name", process.Name),
+            ]));
         }
 
         foreach (var child in node.Children.OrderBy(child => child.SessionId, StringComparer.Ordinal))
@@ -118,12 +144,6 @@ internal sealed class RuntimeTreeStatusProvider(
             Append(lines, nodes, child.SessionId, depth + 1, seen);
         }
     }
-
-    private static string State(ActiveWorkState state) => state switch
-    {
-        ActiveWorkState.Running => "running",
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown active work state."),
-    };
 
     private sealed class Node(string sessionId, string parentSessionId, string name)
     {

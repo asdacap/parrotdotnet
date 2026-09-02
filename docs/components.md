@@ -414,6 +414,7 @@ One per block. Fields are: what upstream it **absorbs**, the state it **owns**
   neither; omitted overrides inherit the predefined values. `default_profile`
   must name a user-selectable profile. Mode remains per-session state rather
   than a YAML key, and neither audience is classified by a fixed profile ID.
+- **Prompt templates.** The merged configuration exposes an immutable typed catalogue of stable template IDs. A user may recursively override one template field without copying its argument contract. Named placeholders are parsed once; allowed and required argument sets are explicit, doubled braces escape literals, and runtime values are substituted in one pass so their braces cannot become template syntax. Invalid definitions and render calls report the corresponding `prompt_templates.<id>` path.
 - **Tool definitions.** The shipped `predefined_config.yaml` owns each complete
   model-facing tool definition: its description and standard JSON Schema
   `parameters` object. User `config.yaml` recursively layers over descriptions

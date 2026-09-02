@@ -8,7 +8,7 @@ internal sealed class QueueInfoTool(AgentQueues queues) : ITool
 {
     public string Name => "queue_info";
 
-    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken) => QueueToolExecution.Execute(() =>
+    public Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken) => QueueToolExecution.Execute(invocation, () =>
     {
         var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueInfoToolInput);
         return QueueToolExecution.Serialize(queues.Get(QueueToolExecution.RequireName(input.Name)));

@@ -78,6 +78,12 @@ for a bare model selection.
 
 ## Configuration
 
+### Prompt templates
+
+`prompt_templates` is a typed catalogue of stable, named model-facing templates. User configuration recursively overrides individual fields, so replacing only `prompt_templates.<id>.template` preserves its predefined argument declarations. Placeholders are named (`{argument}`), must be declared in `allowed_arguments`, and every name in `required_arguments` must be supplied when rendering. `{{` and `}}` produce literal braces. Substituted runtime values are inserted in one pass, so braces within those values remain literal.
+
+Malformed templates, unknown or repeated placeholders, undeclared or duplicate render arguments, and missing required arguments are rejected with the relevant `prompt_templates.<id>` configuration path.
+
 Parrot writes an agent-readable `predefined_config.yaml` alongside the
 user-owned `config.yaml`. The user file is recursively layered over the
 predefined defaults and is never rewritten except by an interactive setting.

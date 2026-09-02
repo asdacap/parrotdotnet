@@ -19,11 +19,11 @@ internal sealed class WebFetchTool(WebFetcher fetcher) : ITool
         }
         catch (JsonException failure)
         {
-            return $"error: invalid web fetch arguments: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, $"invalid web fetch arguments: {failure.Message}");
         }
         catch (WebFetchException failure)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

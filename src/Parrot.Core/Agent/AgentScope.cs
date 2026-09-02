@@ -1,4 +1,4 @@
-using System.Text;
+using Parrot.Config;
 
 namespace Parrot.Agent;
 
@@ -6,9 +6,15 @@ internal sealed class AgentScope
 {
     private readonly ScopeChange[] _changes;
 
-    private AgentScope(ScopeChange[] changes) => _changes = changes;
+    private AgentScope(ScopeChange[] changes, PromptTemplateCatalog promptTemplates)
+    {
+        _changes = changes;
+        PromptTemplates = promptTemplates;
+    }
 
-    public static AgentScope Empty { get; } = new([]);
+    public PromptTemplateCatalog PromptTemplates { get; }
+
+    public static AgentScope Empty(PromptTemplateCatalog promptTemplates) => new([], promptTemplates);
 
     public AgentScope DeriveChild(string name, int depth, string requestedScope)
     {
@@ -25,7 +31,7 @@ internal sealed class AgentScope
         var changes = new ScopeChange[_changes.Length + 1];
         _changes.CopyTo(changes, 0);
         changes[^1] = new ScopeChange(name, depth, requestedScope);
-        return new AgentScope(changes);
+        return new AgentScope(changes, PromptTemplates);
     }
 
     public string Format(int currentDepth)
@@ -35,24 +41,21 @@ internal sealed class AgentScope
             return string.Empty;
         }
 
-        var prompt = new StringBuilder("## Scope");
-        foreach (var change in _changes)
+        var prompt = new System.Text.StringBuilder();
+        for (var index = 0; index < _changes.Length; index++)
         {
-            _ = prompt.Append("\n\n### ");
+            var change = _changes[index];
             var distance = currentDepth - change.Depth;
-            if (distance == 0)
-            {
-                _ = prompt.Append("Self");
-            }
-            else
-            {
-                _ = prompt.Append(Ordinal(distance))
-                    .Append(" Ancestor (")
-                    .Append(change.Name)
-                    .Append(')');
-            }
-
-            _ = prompt.Append('\n').Append(change.Content);
+            var label = distance == 0
+                ? "Self"
+                : $"{Ordinal(distance)} Ancestor ({change.Name})";
+            _ = prompt.Append(PromptTemplates.Render(
+                "system.agent-scope",
+                [
+                    new("heading", index == 0 ? "## Scope" : string.Empty),
+                    new("label", label),
+                    new("content", change.Content),
+                ]));
         }
 
         return prompt.ToString();

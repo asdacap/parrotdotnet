@@ -101,7 +101,7 @@ internal sealed class EditTool(
             or InvalidOperationException
             or ArgumentException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -24,6 +25,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         ISystemPromptProvider systemPromptProvider,
         AgentScratchDirectory scratch,
         Compactor compactor,
+        PromptTemplateCatalog promptTemplates,
         IMode mode,
         AgentSessionSecurity security,
         RuntimeStatus status,
@@ -45,6 +47,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             systemPromptProvider,
             scratch,
             compactor,
+            promptTemplates,
             mode,
             security,
             status,

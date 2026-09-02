@@ -29,7 +29,7 @@ internal static class QueueToolExecution
         },
         QueueToolJsonContext.Default.QueueTakeToolResult);
 
-    public static Task<ToolExecutionResult> Execute(Func<string> action)
+    public static Task<ToolExecutionResult> Execute(ToolInvocation invocation, Func<string> action)
     {
         try
         {
@@ -37,7 +37,7 @@ internal static class QueueToolExecution
         }
         catch (Exception failure) when (failure is JsonException or FormatException or QueueException)
         {
-            return Task.FromResult<ToolExecutionResult>($"error: {failure.Message}");
+            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, failure.Message));
         }
     }
 }

@@ -1,4 +1,5 @@
 using System.Text;
+using Parrot.Config;
 
 namespace Parrot.Agent;
 
@@ -15,10 +16,19 @@ internal sealed record AgentExecution(AgentExecutionStatus Status, string Output
     public static AgentExecution Canceled() =>
         new(AgentExecutionStatus.Canceled, string.Empty, "interrupted");
 
-    public string FormatCompletion(AgentIdentity identity)
+    public string FormatCompletion(AgentIdentity identity, PromptTemplateCatalog promptTemplates)
     {
         ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(promptTemplates);
 
+        var result = FormatResult(identity);
+        return Bound(promptTemplates.Render(
+            "agent-session.child-completion",
+            [new("agent_name", identity.Name), new("result", result)]));
+    }
+
+    private string FormatResult(AgentIdentity identity)
+    {
         var notification = new StringBuilder("Agent task notification\nChild agent session: ");
         AppendBounded(notification, identity.SessionId);
         _ = notification.Append("\nChild agent name: ");
@@ -39,6 +49,13 @@ internal sealed record AgentExecution(AgentExecutionStatus Status, string Output
         }
 
         return notification.ToString();
+    }
+
+    private static string Bound(string value)
+    {
+        var bounded = new StringBuilder();
+        AppendBounded(bounded, value);
+        return bounded.ToString();
     }
 
     private static void AppendBounded(StringBuilder notification, string value)

@@ -30,12 +30,12 @@ internal sealed class AgentSendTool(
 
             if (Encoding.UTF8.GetByteCount(message) > MaximumMessageBytes)
             {
-                return $"error: agent message exceeds {MaximumMessageBytes} UTF-8 bytes; split it into smaller messages";
+                return ToolResultFormatter.Error(invocation, $"agent message exceeds {MaximumMessageBytes} UTF-8 bytes; split it into smaller messages");
             }
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         try
@@ -46,14 +46,14 @@ internal sealed class AgentSendTool(
                 && !session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(
                     target.ResolvePolicySelection().SecurityProfile))
             {
-                return "error: cannot delegate to a more permissive agent";
+                return ToolResultFormatter.Error(invocation, "cannot delegate to a more permissive agent");
             }
 
             return (await target.Send(message, cancellationToken).ConfigureAwait(false)).Format();
         }
         catch (AgentRegistryException failure)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

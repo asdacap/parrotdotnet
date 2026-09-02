@@ -23,7 +23,7 @@ internal sealed class SetCheckpointTool(AgentSession session) : ITool
         }
         catch (Exception failure) when (failure is JsonException or FormatException or ArgumentException or Store.InputConflictException)
         {
-            return Task.FromResult<ToolExecutionResult>($"error: {failure.Message}");
+            return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, failure.Message));
         }
     }
 

@@ -24,7 +24,7 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, ImageArtifactReposi
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         (string Lexical, string Physical) resolved;
@@ -34,17 +34,17 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, ImageArtifactReposi
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         if (!ToolWorkspace.AllowsRead(resolved, selection.SecurityProfile))
         {
-            return "error: access denied";
+            return ToolResultFormatter.Error(invocation, "access denied");
         }
 
         if (!File.Exists(resolved.Physical))
         {
-            return "error: no such file or directory";
+            return ToolResultFormatter.Error(invocation, "no such file or directory");
         }
 
         try
@@ -60,7 +60,7 @@ internal sealed class ReadImageTool(ToolWorkspace workspace, ImageArtifactReposi
         }
         catch (Exception failure) when (failure is InvalidDataException or IOException or UnauthorizedAccessException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

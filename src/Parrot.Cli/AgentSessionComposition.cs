@@ -40,7 +40,8 @@ internal partial class AgentSessionComposition
                 return new ActiveWorkCompletionReminder(
                     arguments.Identity.SessionId,
                     arguments.Registry,
-                    processes);
+                    processes,
+                    arguments.PromptTemplates);
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
@@ -82,6 +83,7 @@ internal partial class AgentSessionComposition
                     todos,
                     toolOutputBlobs,
                     arguments.Compactor,
+                    arguments.PromptTemplates,
                     activeWorkReminder,
                     arguments.Mode,
                     arguments.Security,

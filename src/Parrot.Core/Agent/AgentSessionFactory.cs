@@ -19,6 +19,7 @@ internal sealed class AgentSessionFactory(
     AgentTaskConfig agentTasks,
     ModelRouter router,
     ISystemPromptProvider systemPromptProvider,
+    PromptTemplateCatalog promptTemplates,
     IAgentSessionScopeFactory scopes) : IAgentSessionFactory
 {
     private readonly ImageArtifactRepository _images = owner.Images;
@@ -46,7 +47,7 @@ internal sealed class AgentSessionFactory(
                 owner.Resources.ScratchRootDirectory);
             var prompts = new CompositeSystemPromptProvider(
                 "runtime:agent-session-system-prompt",
-                [systemPromptProvider, new ScratchDirectoryProvider(scratch)]);
+                [systemPromptProvider, new ScratchDirectoryProvider(scratch, promptTemplates)]);
             return scopes.Create(
                 identity,
                 model,
@@ -59,6 +60,7 @@ internal sealed class AgentSessionFactory(
                 prompts,
                 scratch,
                 compactor,
+                promptTemplates,
                 mode,
                 security,
                 status,

@@ -1,6 +1,8 @@
+using Parrot.Config;
+
 namespace Parrot.Statuses;
 
-internal sealed class SelectionStatusProvider : IStatusProvider
+internal sealed class SelectionStatusProvider(PromptTemplateCatalog templates) : IStatusProvider
 {
     public string Key => "runtime:selection";
 
@@ -9,10 +11,18 @@ internal sealed class SelectionStatusProvider : IStatusProvider
         cancellationToken.ThrowIfCancellationRequested();
         var parent = string.IsNullOrWhiteSpace(query.ParentSessionId)
             ? string.Empty
-            : string.IsNullOrWhiteSpace(query.ParentSessionName)
-                ? $"\nParent session: {query.ParentSessionId}"
-                : $"\nParent session: {query.ParentSessionId} ({query.ParentSessionName})";
-        return ValueTask.FromResult(StatusObservation.AvailableText(
-            $"Active profile: {query.Profile}\nModel: {query.RequestedModel}{parent}"));
+            : templates.Render("status.selection.parent", [
+                new PromptTemplateArgument("parent", GetParent(query)),
+            ]);
+        return ValueTask.FromResult(StatusObservation.AvailableText(templates.Render("status.selection", [
+            new PromptTemplateArgument("profile", query.Profile),
+            new PromptTemplateArgument("model", query.RequestedModel),
+            new PromptTemplateArgument("parent", parent),
+        ])));
     }
+
+    private static string GetParent(StatusQuery query) =>
+        string.IsNullOrWhiteSpace(query.ParentSessionName)
+            ? query.ParentSessionId
+            : $"{query.ParentSessionId} ({query.ParentSessionName})";
 }

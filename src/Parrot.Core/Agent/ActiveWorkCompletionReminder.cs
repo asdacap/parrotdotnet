@@ -1,4 +1,5 @@
 using System.Text;
+using Parrot.Config;
 using Parrot.Process;
 using Parrot.Statuses;
 
@@ -7,7 +8,8 @@ namespace Parrot.Agent;
 internal sealed class ActiveWorkCompletionReminder(
     string agentSessionId,
     AgentRegistry registry,
-    ShellProcessOwner processes)
+    ShellProcessOwner processes,
+    PromptTemplateCatalog promptTemplates)
 {
     public string? Build()
     {
@@ -19,18 +21,20 @@ internal sealed class ActiveWorkCompletionReminder(
             return null;
         }
 
-        var reminder = new StringBuilder(
-            "This turn must not exit while direct subagents or processes are still running.");
+        var activeWork = FormatActiveWork(children, ownedProcesses);
+        return promptTemplates.Render(
+            "agent-session.active-work-reminder",
+            [new PromptTemplateArgument("active_work", activeWork)]);
+    }
 
-        Append(reminder, "Running direct subagents", children);
-        Append(reminder, "Running processes", ownedProcesses);
-
-        _ = reminder.Append(
-            "\nUse the wait tool until no direct subagent or process remains. "
-            + "To interrupt a direct subagent, use agent_send to instruct it to complete. "
-            + "To interrupt a process, use interrupt_process. "
-            + "Do not finish this turn until all listed work has completed or been interrupted.");
-        return reminder.ToString();
+    private static string FormatActiveWork(
+        IReadOnlyList<ActiveWorkObservation> children,
+        IReadOnlyList<ActiveWorkObservation> ownedProcesses)
+    {
+        var work = new StringBuilder();
+        Append(work, "Running direct subagents", children);
+        Append(work, "Running processes", ownedProcesses);
+        return work.ToString();
     }
 
     private static void Append(

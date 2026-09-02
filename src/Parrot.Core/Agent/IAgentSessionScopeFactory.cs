@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -23,6 +24,7 @@ internal interface IAgentSessionScopeFactory
         ISystemPromptProvider systemPromptProvider,
         AgentScratchDirectory scratch,
         Compactor compactor,
+        PromptTemplateCatalog promptTemplates,
         IMode mode,
         AgentSessionSecurity security,
         RuntimeStatus status,

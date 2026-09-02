@@ -72,7 +72,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         QueueCatalogs.Add(queues);
         if (identity.ParentSessionId.Length > 0)
         {
-            _ = queues.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName));
+            _ = queues.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName, TestModels.PromptTemplates));
         }
 
         var agentQueues = queues.Register(identity);
@@ -87,8 +87,9 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             TestModels.MaterializePrompt(identity, root, root),
             new TodoCollection(identity.SessionId, eventRepository, eventBroker),
             new ToolOutputBlobStore(root),
-            new Parrot.Context.Compactor(90, 30, 60_000, 1024),
-            new ActiveWorkCompletionReminder(identity.SessionId, registry, processes),
+            new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
+            TestModels.PromptTemplates,
+            new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates),
             mode,
             SecurityProfileTestFactory.Create(securityProfile),
             status,

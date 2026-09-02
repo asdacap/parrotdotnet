@@ -68,163 +68,6 @@ internal sealed class AgentTaskGraphRunner(
         }
     }
 
-    private static string BuildResearchPrompt(
-        EffectiveAgentTask task,
-        IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
-        IReadOnlyList<AgentTaskResult> dependencies,
-        string path)
-    {
-        var prefix = Header("research pre-hook", task, ancestors, contexts, dependencies);
-        var suffix = new StringBuilder("\nCurrent task path: ").Append(path)
-            .Append("\nOriginal current task declaration:\n")
-            .Append(Bound(AgentTaskPromptFormatter.Format(task), MaxSummaryCharacters))
-            .Append("\nResearch and prepare this task. Return only strict JSON with no prose or code fence: ")
-            .Append("{\"context\":\"nonblank findings\",\"task_patch\":{\"description\":\"optional\",\"payload\":\"optional\",\"acceptance_criteria\":\"optional\",\"model\":\"optional\"}}. ")
-            .Append("Omit task_patch when no change is needed; when present omit every unchanged field.")
-            .ToString();
-        return ComposePrompt(prefix, suffix);
-    }
-
-    private static string BuildExecutionPrompt(
-        EffectiveAgentTask task,
-        IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
-        IReadOnlyList<AgentTaskResult> dependencies,
-        IReadOnlyList<string> feedback)
-    {
-        var prefix = Header("payload executor", task, ancestors, contexts, dependencies);
-        AppendFeedback(prefix, feedback);
-        var suffix = string.Concat(
-            "\nExecute this instruction and return the execution result:\n",
-            task.Payload.Instruction);
-        return ComposePrompt(prefix, suffix);
-    }
-
-    private static string BuildLeafPrompt(
-        EffectiveAgentTask task,
-        IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
-        IReadOnlyList<AgentTaskResult> dependencies,
-        IReadOnlyList<string> feedback)
-    {
-        var prefix = Header("payload executor", task, ancestors, contexts, dependencies);
-        AppendFeedback(prefix, feedback);
-        var suffix = new StringBuilder("\nInspect, implement, and verify this instruction:\n")
-            .Append(task.Payload.Instruction)
-            .Append("\nReturn only one strict JSON object with no prose or code fence: ")
-            .Append("{\"context\":\"nonblank\",\"verdict\":\"accept\",\"evidence\":\"nonblank\"}, ")
-            .Append("{\"context\":\"nonblank\",\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}, or ")
-            .Append("{\"context\":\"nonblank\",\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"replacement_context\":\"optional nonblank replacement context\"}. ")
-            .Append("Omit replacement_context to carry the returned current context into the next attempt.")
-            .ToString();
-        return ComposePrompt(prefix, suffix);
-    }
-
-    private static string BuildAcceptancePrompt(
-        EffectiveAgentTask task,
-        IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
-        IReadOnlyList<AgentTaskResult> dependencies,
-        IReadOnlyList<string> feedback,
-        string execution,
-        IReadOnlyList<AgentTaskResult>? nested)
-    {
-        var prefix = Header("acceptance reviewer", task, ancestors, contexts, dependencies);
-        AppendFeedback(prefix, feedback);
-        var suffix = new StringBuilder("\nExecution result:\n").Append(Bound(execution, MaxSummaryCharacters));
-        if (nested is not null)
-        {
-            _ = suffix.Append("\nNested task results (structured JSON):\n")
-                .Append(Bound(AgentTaskGraphResult.SerializeNested(nested), MaxSummaryCharacters));
-        }
-
-        _ = suffix.Append("\nAssess the completed attempt. Return only one strict JSON object with no prose or code fence: ")
-            .Append("{\"verdict\":\"accept\",\"evidence\":\"nonblank\"}, ")
-            .Append("{\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}, or ")
-            .Append("{\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"context\":\"optional nonblank replacement research context\"}. ")
-            .Append("A reject_and_retry context replaces this task's research context for later attempts and descendants; omit it to retain the existing context.");
-        return ComposePrompt(prefix, suffix.ToString());
-    }
-
-    private static StringBuilder Header(
-        string role,
-        EffectiveAgentTask task,
-        IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
-        IReadOnlyList<AgentTaskResult> dependencies)
-    {
-        var prompt = new StringBuilder("AgentTask role: ").Append(role)
-            .Append("\nTask: ").Append(task.Name)
-            .Append("\nDescription: ").Append(task.Description)
-            .Append("\nAcceptance criteria: ").Append(task.AcceptanceCriteria);
-        if (ancestors.Count > 0)
-        {
-            _ = prompt.Append("\nAncestor tasks (root to parent):");
-            foreach (var ancestor in ancestors)
-            {
-                _ = prompt.Append("\n[").Append(ancestor.Path).Append("] ")
-                    .Append(Bound(ancestor.Description, MaxSummaryCharacters));
-            }
-        }
-
-        if (contexts.Count > 0)
-        {
-            _ = prompt.Append("\nResearch context (root to current):");
-            foreach (var context in contexts)
-            {
-                _ = prompt.Append("\n[").Append(context.Path).Append("] ")
-                    .Append(Bound(context.Context, MaxContextCharacters));
-            }
-        }
-
-        if (dependencies.Count > 0)
-        {
-            _ = prompt.Append("\nDirect dependency summaries:");
-            foreach (var dependency in dependencies)
-            {
-                _ = prompt.Append("\n[").Append(dependency.Name).Append("] ")
-                    .Append(Bound(
-                        dependency.Execution
-                        ?? dependency.Verdict?.Evidence
-                        ?? dependency.Failure
-                        ?? dependency.Status.ToString(),
-                        MaxSummaryCharacters));
-            }
-        }
-
-        return prompt;
-    }
-
-    private static void AppendFeedback(StringBuilder prompt, IReadOnlyList<string> feedback)
-    {
-        if (feedback.Count == 0)
-        {
-            return;
-        }
-
-        _ = prompt.Append("\nRetry feedback:");
-        foreach (var item in feedback)
-        {
-            _ = prompt.Append("\n- ").Append(Bound(item, MaxSummaryCharacters));
-        }
-    }
-
-    private static string Bound(string text, int limit) => text.Length <= limit
-        ? text
-        : string.Concat(text.AsSpan(0, limit), "\n[truncated]");
-
-    private static string ComposePrompt(StringBuilder prefix, string suffix)
-    {
-        var available = MaxPromptCharacters - suffix.Length;
-        return available <= 0
-            ? suffix
-            : string.Concat(Bound(prefix.ToString(), available), suffix);
-    }
-
-    private static string RoleFailure(string role, AgentExecution result) =>
-        $"{role} agent {result.Status.ToString().ToLowerInvariant()}: {result.Error}";
-
     private static AgentTaskResult Failed(string name, string failure) => new(
         name,
         AgentTaskExecutionStatus.Failed,
@@ -275,6 +118,174 @@ internal sealed class AgentTaskGraphRunner(
             failure,
             null,
             nested);
+
+    private string BuildResearchPrompt(
+        EffectiveAgentTask task,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskResult> dependencies,
+        string path)
+    {
+        var header = Header(task, ancestors, contexts, dependencies);
+        return ComposePrompt(new StringBuilder(header), Render(
+            "agent-task.research",
+            ("header", string.Empty),
+            ("path", path),
+            ("declaration", Bound(AgentTaskPromptFormatter.Format(task), MaxSummaryCharacters)),
+            ("response", "{\"context\":\"nonblank findings\",\"task_patch\":{\"description\":\"optional\",\"payload\":\"optional\",\"acceptance_criteria\":\"optional\",\"model\":\"optional\"}}")));
+    }
+
+    private string BuildExecutionPrompt(
+        EffectiveAgentTask task,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskResult> dependencies,
+        IReadOnlyList<string> feedback)
+    {
+        var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        AppendFeedback(prompt, feedback);
+        return ComposePrompt(prompt, Render(
+            "agent-task.execution",
+            ("header", string.Empty),
+            ("feedback", string.Empty),
+            ("instruction", task.Payload.Instruction ?? throw new InvalidOperationException("An instruction payload is required."))));
+    }
+
+    private string BuildLeafPrompt(
+        EffectiveAgentTask task,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskResult> dependencies,
+        IReadOnlyList<string> feedback)
+    {
+        var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        AppendFeedback(prompt, feedback);
+        return ComposePrompt(prompt, Render(
+            "agent-task.leaf",
+            ("header", string.Empty),
+            ("feedback", string.Empty),
+            ("instruction", task.Payload.Instruction ?? throw new InvalidOperationException("An instruction payload is required.")),
+            ("response", "{\"context\":\"nonblank\",\"verdict\":\"accept\",\"evidence\":\"nonblank\"}, {\"context\":\"nonblank\",\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}, or {\"context\":\"nonblank\",\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"replacement_context\":\"optional nonblank replacement context\"}.")));
+    }
+
+    private string BuildAcceptancePrompt(
+        EffectiveAgentTask task,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskResult> dependencies,
+        IReadOnlyList<string> feedback,
+        string execution,
+        IReadOnlyList<AgentTaskResult>? nested)
+    {
+        var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        AppendFeedback(prompt, feedback);
+        var nestedText = nested is null
+            ? string.Empty
+            : string.Concat(
+                "\n",
+                Render(
+                    "agent-task.nested-results",
+                    ("results", Bound(AgentTaskGraphResult.SerializeNested(nested), MaxSummaryCharacters))));
+        return ComposePrompt(prompt, Render(
+            "agent-task.acceptance",
+            ("header", string.Empty),
+            ("feedback", string.Empty),
+            ("execution", Bound(execution, MaxSummaryCharacters)),
+            ("nested", nestedText),
+            ("response", "{\"verdict\":\"accept\",\"evidence\":\"nonblank\"}, {\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}, or {\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"context\":\"optional nonblank replacement research context\"}.")));
+    }
+
+    private string Render(string id, params (string Name, string Value)[] values) =>
+        configuration.PromptTemplates.Render(id, [.. values.Select(value => new PromptTemplateArgument(value.Name, value.Value))]);
+
+    private string Header(
+        EffectiveAgentTask task,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskResult> dependencies)
+    {
+        var ancestorText = new StringBuilder();
+        if (ancestors.Count > 0)
+        {
+            _ = ancestorText.Append(Render("agent-task.ancestor-header", []));
+            foreach (var ancestor in ancestors)
+            {
+                _ = ancestorText.Append("\n[").Append(ancestor.Path).Append("] ")
+                    .Append(Bound(ancestor.Description, MaxSummaryCharacters));
+            }
+        }
+
+        var contextText = new StringBuilder();
+        if (contexts.Count > 0)
+        {
+            _ = contextText.Append(Render("agent-task.context-header", []));
+            foreach (var context in contexts)
+            {
+                _ = contextText.Append("\n[").Append(context.Path).Append("] ")
+                    .Append(Bound(context.Context, MaxContextCharacters));
+            }
+        }
+
+        var dependencyText = new StringBuilder();
+        if (dependencies.Count > 0)
+        {
+            _ = dependencyText.Append(Render("agent-task.dependency-header", []));
+            foreach (var dependency in dependencies)
+            {
+                _ = dependencyText.Append("\n[").Append(dependency.Name).Append("] ")
+                    .Append(Bound(
+                        dependency.Execution
+                        ?? dependency.Verdict?.Evidence
+                        ?? dependency.Failure
+                        ?? dependency.Status.ToString(),
+                        MaxSummaryCharacters));
+            }
+        }
+
+        return Render(
+            "agent-task.header",
+            ("task_name", task.Name),
+            ("description", task.Description),
+            ("acceptance_criteria", task.AcceptanceCriteria),
+            ("ancestors", ancestorText.ToString()),
+            ("contexts", contextText.ToString()),
+            ("dependencies", dependencyText.ToString()));
+    }
+
+    private void AppendFeedback(StringBuilder prompt, IReadOnlyList<string> feedback)
+    {
+        if (feedback.Count == 0)
+        {
+            return;
+        }
+
+        var items = new StringBuilder();
+        foreach (var item in feedback)
+        {
+            _ = items.Append("\n- ").Append(Bound(item, MaxSummaryCharacters));
+        }
+
+        _ = prompt.Append(Render("agent-task.feedback", ("items", items.ToString())));
+    }
+
+    private string Bound(string text, int limit) => text.Length <= limit
+        ? text
+        : Render("agent-task.truncated", ("value", text.AsSpan(0, limit).ToString()));
+
+    private string ComposePrompt(StringBuilder prefix, string suffix)
+    {
+        var available = MaxPromptCharacters - suffix.Length;
+        return available <= 0
+            ? suffix
+            : string.Concat(Bound(prefix.ToString(), available), suffix);
+    }
+
+    private string RoleFailure(string role, AgentExecution result) =>
+        Render(
+            "agent-task.role-failure",
+            ("role", role),
+            ("status", result.Status.ToString().ToLowerInvariant()),
+            ("error", result.Error));
 
     private async Task<IReadOnlyList<AgentTaskResult>> RunSiblings(
         IReadOnlyList<AgentTask> tasks,

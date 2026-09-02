@@ -1,3 +1,5 @@
+using Parrot.Config;
+
 namespace Parrot.Tools;
 
 internal sealed record ToolInvocation(string CallId, string ArgumentsJson, long AssistantSequence)
@@ -6,4 +8,6 @@ internal sealed record ToolInvocation(string CallId, string ArgumentsJson, long 
         : this(callId, argumentsJson, 0)
     {
     }
+
+    public PromptTemplateCatalog? PromptTemplates { get; init; }
 }

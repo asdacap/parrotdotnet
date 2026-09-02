@@ -38,17 +38,17 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         if (pattern.Length == 0 || pattern.Contains('\0', StringComparison.Ordinal))
         {
-            return "error: glob pattern must be a non-empty string without NUL";
+            return ToolResultFormatter.Error(invocation, "glob pattern must be a non-empty string without NUL");
         }
 
         if (Path.IsPathFullyQualified(pattern) || pattern.Contains("..", StringComparison.Ordinal))
         {
-            return "error: glob pattern must be a relative search-root path without traversal";
+            return ToolResultFormatter.Error(invocation, "glob pattern must be a relative search-root path without traversal");
         }
 
         Regex regex;
@@ -62,7 +62,7 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
         }
         catch (Exception failure) when (failure is ArgumentException or NotSupportedException)
         {
-            return $"error: invalid glob pattern: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, $"invalid glob pattern: {failure.Message}");
         }
 
         (string Lexical, string Physical) root;
@@ -72,17 +72,17 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
         }
         catch (Exception failure) when (failure is InvalidOperationException or IOException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         if (!ToolWorkspace.AllowsRead(root, selection.SecurityProfile))
         {
-            return "error: access denied";
+            return ToolResultFormatter.Error(invocation, "access denied");
         }
 
         if (!Directory.Exists(root.Physical))
         {
-            return "error: no such directory";
+            return ToolResultFormatter.Error(invocation, "no such directory");
         }
 
         using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -116,14 +116,14 @@ internal sealed class GlobTool(ToolWorkspace workspace) : ITool
             var output = results.Count == 0 ? string.Empty : string.Join('\n', results) + "\n";
             return stopReason switch
             {
-                WalkStopReason.ResultLimit => output + "[glob results truncated: result limit reached]\n",
-                WalkStopReason.VisitLimit => output + "[glob results truncated: visit limit reached]\n",
+                WalkStopReason.ResultLimit => output + ToolResultFormatter.Marker(invocation, "[glob results truncated: result limit reached]\n"),
+                WalkStopReason.VisitLimit => output + ToolResultFormatter.Marker(invocation, "[glob results truncated: visit limit reached]\n"),
                 _ => output,
             };
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return "error: glob timed out";
+            return ToolResultFormatter.Error(invocation, "glob timed out");
         }
     }
 

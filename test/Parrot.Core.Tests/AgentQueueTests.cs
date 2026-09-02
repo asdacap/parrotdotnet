@@ -23,7 +23,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("direct-access");
         using var catalog = new AgentQueueCatalog(resources);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
         var parentQueue = root.Create("parent-work", "parent owned");
         var childQueue = child.Create("child-work", "child owned");
@@ -52,7 +52,7 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task A_direct_child_can_close_and_drain_its_parents_queue(CancellationToken cancellationToken)
     {
         using var catalog = new AgentQueueCatalog(Resources("child-close"));
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
         _ = root.Create("parent-work", "shared");
         _ = await root.Push("parent-work", ["final-item"], QueueDirection.Back, false, cancellationToken);
@@ -79,7 +79,7 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task Reverse_child_sibling_and_grandparent_access_is_denied_without_leaking_ownership()
     {
         using var catalog = new AgentQueueCatalog(Resources("denied-access"));
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         using var left = catalog.Register(Child("left-agent", "root-agent", "root", "left", 1));
         using var right = catalog.Register(Child("right-agent", "root-agent", "root", "right", 1));
         using var grandchild = catalog.Register(Child("grandchild-agent", "left-agent", "left", "grandchild", 2));
@@ -108,7 +108,7 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task Parent_child_name_collisions_are_rejected_in_both_create_orders()
     {
         using var catalog = new AgentQueueCatalog(Resources("collision-orders"));
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
 
         _ = root.Create("parent-first", string.Empty);
@@ -128,7 +128,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("concurrent-collision");
         using var catalog = new AgentQueueCatalog(resources);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         using var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
         using var start = new ManualResetEventSlim();
         var parentAttempt = Task.Run(() => TryCreate(root, "same-name", start));
@@ -148,7 +148,7 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task Siblings_can_use_the_same_name_without_sharing_data(CancellationToken cancellationToken)
     {
         using var catalog = new AgentQueueCatalog(Resources("sibling-isolation"));
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         using var left = catalog.Register(Child("left-agent", "root-agent", "root", "left", 1));
         using var right = catalog.Register(Child("right-agent", "root-agent", "root", "right", 1));
         var leftInfo = left.Create("shared-name", "left queue");
@@ -172,7 +172,7 @@ internal sealed class AgentQueueTests : IDisposable
     {
         var resources = Resources("child-cleanup");
         using var catalog = new AgentQueueCatalog(resources);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
         var childDirectory = resources.AgentQueueDirectory("child-agent");
         _ = child.Create("temporary-work", string.Empty);
@@ -206,7 +206,7 @@ internal sealed class AgentQueueTests : IDisposable
         using var catalog = new AgentQueueCatalog(resources);
 
         _ = await Assert.That(Directory.Exists(resources.AgentQueueRootDirectory)).IsFalse();
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         _ = await Assert.That(root.Get("root-work").Description).IsEqualTo("persistent");
     }
 
@@ -216,13 +216,13 @@ internal sealed class AgentQueueTests : IDisposable
         var resources = Resources("root-persistence");
         using (var firstCatalog = new AgentQueueCatalog(resources))
         {
-            using var firstRoot = firstCatalog.Register(AgentIdentity.Main("first-root", "root"));
+            using var firstRoot = firstCatalog.Register(AgentIdentity.Main("first-root", "root", TestModels.PromptTemplates));
             _ = firstRoot.Create("persistent-work", "survives");
             _ = await firstRoot.Push("persistent-work", ["item"], QueueDirection.Back, false, cancellationToken);
         }
 
         using var secondCatalog = new AgentQueueCatalog(resources);
-        using var secondRoot = secondCatalog.Register(AgentIdentity.Main("second-root", "root"));
+        using var secondRoot = secondCatalog.Register(AgentIdentity.Main("second-root", "root", TestModels.PromptTemplates));
         var restored = secondRoot.Get("persistent-work");
 
         _ = await Assert.That(restored.Description).IsEqualTo("survives");
@@ -252,7 +252,7 @@ internal sealed class AgentQueueTests : IDisposable
         CancellationToken cancellationToken)
     {
         using var catalog = new AgentQueueCatalog(Resources("listener-cleanup"));
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         var child = catalog.Register(Child("child-agent", "root-agent", "root", "child", 1));
         _ = root.Create("parent-work", string.Empty);
         _ = root.Local.Monitor("parent-work", child.SessionId, true);
@@ -280,7 +280,7 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task Empty_take_preserves_the_invoking_agents_listener_state(CancellationToken cancellationToken)
     {
         using var catalog = new AgentQueueCatalog(Resources("empty-listener"));
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         _ = root.Create("empty-work", string.Empty);
         _ = await root.Listen("empty-work", true, cancellationToken);
 
@@ -302,7 +302,7 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task A_canceled_push_does_not_mutate_the_queue()
     {
         using var catalog = new AgentQueueCatalog(Resources("canceled-push"));
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         _ = root.Create("work", string.Empty);
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
@@ -316,7 +316,7 @@ internal sealed class AgentQueueTests : IDisposable
     public async Task Inventory_aggregates_all_owners_and_removes_a_disposed_child(CancellationToken cancellationToken)
     {
         using var catalog = new AgentQueueCatalog(Resources("aggregate-inventory"));
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         var left = catalog.Register(Child("left-agent", "root-agent", "root", "left", 1));
         using var right = catalog.Register(Child("right-agent", "root-agent", "root", "right", 1));
         _ = root.Create("root-work", "root");
@@ -354,7 +354,7 @@ internal sealed class AgentQueueTests : IDisposable
             cancellationToken);
 
         using var catalog = new AgentQueueCatalog(resources);
-        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root"));
+        using var root = catalog.Register(AgentIdentity.Main("root-agent", "root", TestModels.PromptTemplates));
         var adopted = root.Get("legacy-work");
         var persisted = await File.ReadAllTextAsync(path, cancellationToken);
 
@@ -388,7 +388,7 @@ internal sealed class AgentQueueTests : IDisposable
         string parentName,
         string name,
         int depth) =>
-        AgentIdentity.Child(sessionId, parentSessionId, parentName, name, depth, AgentScope.Empty);
+        AgentIdentity.Child(sessionId, parentSessionId, parentName, name, depth, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
 
     private static QueueNotFoundException CaptureNotFound(Action action)
     {

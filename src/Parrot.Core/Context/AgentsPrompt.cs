@@ -1,8 +1,9 @@
 using Parrot.Agent;
+using Parrot.Config;
 
 namespace Parrot.Context;
 
-internal sealed class AgentsPrompt(string workingDirectory, string configDirectory) : ISystemPrompt
+internal sealed class AgentsPrompt(string workingDirectory, string configDirectory, PromptTemplateCatalog templates) : ISystemPrompt
 {
     private string _epochContext = string.Empty;
     private bool _renewed;
@@ -13,7 +14,10 @@ internal sealed class AgentsPrompt(string workingDirectory, string configDirecto
 
         foreach (var (path, content) in FindFiles())
         {
-            sections.Add($"--- {path} ---\n{content}");
+            sections.Add(templates.Render("context.agents-file", [
+                new PromptTemplateArgument("path", path),
+                new PromptTemplateArgument("content", content),
+            ]));
         }
 
         _epochContext = string.Join("\n\n", sections);

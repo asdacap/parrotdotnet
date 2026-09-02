@@ -56,7 +56,7 @@ internal sealed class StatusRegistryTests
     [Test]
     public async Task Selection_reports_a_complete_canonical_requested_selector()
     {
-        var observation = await new SelectionStatusProvider().Observe(
+        var observation = await new SelectionStatusProvider(TestModels.PromptTemplates).Observe(
             new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model/medium"),
             CancellationToken.None);
 
@@ -72,7 +72,7 @@ internal sealed class StatusRegistryTests
     [Arguments("parent", "main-agent")]
     public async Task Selection_reports_parent_context_when_present(string parentSessionId, string parentSessionName)
     {
-        var observation = await new SelectionStatusProvider().Observe(
+        var observation = await new SelectionStatusProvider(TestModels.PromptTemplates).Observe(
             new StatusQuery("child", parentSessionId, parentSessionName, "build", "low_llm"),
             CancellationToken.None);
 
@@ -103,8 +103,8 @@ internal sealed class StatusRegistryTests
     public async Task Runtime_tree_nests_queues_processes_and_active_agents(CancellationToken cancellationToken)
     {
         using var catalog = QueueCatalog("runtime-tree");
-        using var root = catalog.Register(AgentIdentity.Main("root", "main"));
-        using var child = catalog.Register(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty));
+        using var root = catalog.Register(AgentIdentity.Main("root", "main", TestModels.PromptTemplates));
+        using var child = catalog.Register(AgentIdentity.Child("child", "root", "main", "worker", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         _ = root.Create("work", "queued work");
         _ = child.Create("results", string.Empty);
         var provider = new RuntimeTreeStatusProvider(
@@ -112,7 +112,8 @@ internal sealed class StatusRegistryTests
             new ProcessStatusSource(
                 new ShellProcessStatusSnapshot("child", "fetch", "fetch", ActiveWorkState.Running),
                 new ShellProcessStatusSnapshot("root", "build", "build", ActiveWorkState.Running)),
-            new AgentStatusSource(new ActiveAgentSnapshot("child", "root", "worker")));
+            new AgentStatusSource(new ActiveAgentSnapshot("child", "root", "worker")),
+            TestModels.PromptTemplates);
 
         var observation = await provider.Observe(
             new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),
@@ -134,8 +135,8 @@ internal sealed class StatusRegistryTests
     public async Task Runtime_tree_reports_only_the_root_agent_when_idle(CancellationToken cancellationToken)
     {
         using var catalog = QueueCatalog("runtime-empty");
-        using var root = catalog.Register(AgentIdentity.Main("root", "main"));
-        var provider = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource());
+        using var root = catalog.Register(AgentIdentity.Main("root", "main", TestModels.PromptTemplates));
+        var provider = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource(), TestModels.PromptTemplates);
 
         var observation = await provider.Observe(
             new StatusQuery("root", string.Empty, string.Empty, "build", "provider/model"),

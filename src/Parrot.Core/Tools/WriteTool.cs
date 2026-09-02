@@ -61,7 +61,7 @@ internal sealed class WriteTool(
             or InvalidOperationException
             or ArgumentException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

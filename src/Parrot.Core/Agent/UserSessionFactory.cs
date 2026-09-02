@@ -1,3 +1,4 @@
+using Parrot.Config;
 using Parrot.Llm;
 using Parrot.Store;
 
@@ -6,6 +7,7 @@ namespace Parrot.Agent;
 internal sealed class UserSessionFactory(
     IAgentSessionFactorySource agentSessionFactories,
     ModeRegistry modes,
+    PromptTemplateCatalog promptTemplates,
     ProfileRegistry profiles,
     TimeSpan userInputTimeout,
     TimeProvider timeProvider) : IUserSessionFactory
@@ -24,7 +26,8 @@ internal sealed class UserSessionFactory(
             mode,
             resources,
             agentSessionFactories,
-            new UserSessionModes(modes),
+            new UserSessionModes(modes, promptTemplates),
+            promptTemplates,
             profiles,
             interactivePermissions,
             userInputTimeout,

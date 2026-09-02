@@ -327,7 +327,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         runtime.Parent,
         _broker,
         runtime.Repository,
-        new AgentTaskConfig(maximumAttempts));
+        new AgentTaskConfig(maximumAttempts, TestModels.PromptTemplates));
 
     private RuntimeContext Runtime(CancellationToken cancellationToken) =>
         Runtime(new AgentTaskQueueProvider([]), cancellationToken);
@@ -341,8 +341,8 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var router = new ModelRouter(providers, new ModelAliasCatalog(providers, []), $"{provider.Id}/model");
         var repository = new EventRepository(_database);
         var sessions = new AgentTaskTestSessionFactory(router);
-        var registry = TestModels.Registry(sessions, _broker, repository, TestModels.ProfileRegistry(), cancellationToken);
-        var identity = AgentIdentity.Main("tool-parent", "parent");
+        var registry = TestModels.Registry(sessions, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
+        var identity = AgentIdentity.Main("tool-parent", "parent", TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, cancellationToken);
         var parent = new AgentSession(
             identity,
@@ -355,7 +355,8 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             TestModels.MaterializePrompt(identity, _root, _root),
             new TodoCollection(identity.SessionId, repository, _broker),
             new ToolOutputBlobStore(_root),
-            new Parrot.Context.Compactor(90, 30, 60_000, 1024),
+            new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
+            TestModels.PromptTemplates,
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),

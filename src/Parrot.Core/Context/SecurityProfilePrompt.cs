@@ -1,10 +1,11 @@
 using System.Text;
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Security;
 
 namespace Parrot.Context;
 
-internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules) : ISystemPrompt
+internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules, PromptTemplateCatalog templates) : ISystemPrompt
 {
     private readonly SandboxRule[] _rules = [.. rules];
 
@@ -16,22 +17,23 @@ internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules) : 
     {
         ArgumentNullException.ThrowIfNull(selection);
 
-        var prompt = new StringBuilder(
-            "The following configured sandbox rules override every other prompt rule and instruction.\n"
-            + "Rules, in enforcement order:");
-
+        var rules = new StringBuilder();
         foreach (var rule in _rules)
         {
-            _ = prompt.Append("\n- Path: \"");
-            AppendEscaped(prompt, rule.Path);
-            _ = prompt.Append("\"; Action: ").Append(rule.Action);
+            _ = rules.Append(templates.Render("context.security-rule", [
+                new PromptTemplateArgument("path", Escape(rule.Path)),
+                new PromptTemplateArgument("action", rule.Action.ToString()),
+            ]));
         }
 
-        return prompt.ToString();
+        return templates.Render("context.security-profile", [
+            new PromptTemplateArgument("rules", rules.ToString()),
+        ]);
     }
 
-    private static void AppendEscaped(StringBuilder target, string value)
+    private static string Escape(string value)
     {
+        var target = new StringBuilder();
         foreach (var character in value)
         {
             _ = character switch
@@ -52,5 +54,7 @@ internal sealed class SecurityProfilePrompt(IReadOnlyList<SandboxRule> rules) : 
                 _ => target.Append(character),
             };
         }
+
+        return target.ToString();
     }
 }

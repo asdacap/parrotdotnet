@@ -100,6 +100,8 @@ internal static class TestModels
                 []),
         };
 
+    public static PromptTemplateCatalog PromptTemplates { get; } = LoadPromptTemplates();
+
     public static ToolDefinitionCatalog EmptyToolDefinitions { get; } = new(
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
 
@@ -123,7 +125,7 @@ internal static class TestModels
         QueueCatalogs.Add(catalog);
         if (identity.ParentSessionId.Length > 0)
         {
-            _ = catalog.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName));
+            _ = catalog.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName, TestModels.PromptTemplates));
         }
 
         return catalog.Register(identity);
@@ -143,6 +145,7 @@ internal static class TestModels
         EventBroker eventBroker,
         EventRepository eventRepository,
         ProfileRegistry profiles,
+        PromptTemplateCatalog promptTemplates,
         CancellationToken lifetime)
     {
         var root = Directory.CreateDirectory(
@@ -153,8 +156,8 @@ internal static class TestModels
             ProjectWorkspace.FromLaunchDirectory(root));
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
         var catalog = new AgentQueueCatalog(resources);
-        var registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, lifetime);
-        registry.AttachStatus(new RuntimeStatus(catalog, processes, registry));
+        var registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, lifetime);
+        registry.AttachStatus(new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates));
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
@@ -180,12 +183,13 @@ internal static class TestModels
             eventBroker,
             eventRepository,
             ProfileRegistry(),
+            TestModels.PromptTemplates,
             lifetime);
-        var status = new RuntimeStatus(catalog, processes, registry);
+        var status = new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates);
         registry.AttachStatus(status);
         if (identity.ParentSessionId.Length > 0)
         {
-            _ = catalog.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName));
+            _ = catalog.Register(AgentIdentity.Main(identity.ParentSessionId, identity.ParentSessionName, TestModels.PromptTemplates));
         }
 
         var queues = catalog.Register(identity);
@@ -195,7 +199,7 @@ internal static class TestModels
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
         return new AgentSessionDependencies(
-            new ActiveWorkCompletionReminder(identity.SessionId, registry, owner),
+            new ActiveWorkCompletionReminder(identity.SessionId, registry, owner, TestModels.PromptTemplates),
             Profile(),
             status,
             registry,
@@ -213,16 +217,16 @@ internal static class TestModels
             "test:system-prompt",
             [
                 new ConfiguredSystemPromptProvider("runtime:system-context:01-base", "Test base prompt."),
-                new AgentsPromptProvider(workingDirectory, configDirectory),
-                new ExpectedCliUtilitiesProvider(EmptyCliUtilities()),
-                new DateProvider("2026-07-24"),
-                new PlatformProvider(),
-                new WorkingDirectoryProvider(workingDirectory),
-                new OptionalCliUtilitiesProvider(EmptyCliUtilities()),
+                new AgentsPromptProvider(workingDirectory, configDirectory, TestModels.PromptTemplates),
+                new ExpectedCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
+                new DateProvider("2026-07-24", TestModels.PromptTemplates),
+                new PlatformProvider(TestModels.PromptTemplates),
+                new WorkingDirectoryProvider(workingDirectory, TestModels.PromptTemplates),
+                new OptionalCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
                 new SessionIdentityProvider(),
-                new SubagentsProvider(ProfileRegistry()),
-                new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal)),
-                new SecurityProfileProvider([]),
+                new SubagentsProvider(ProfileRegistry(), TestModels.PromptTemplates),
+                new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates),
+                new SecurityProfileProvider([], TestModels.PromptTemplates),
             ]);
 
     public static ModelRouter Route(ProviderModel model)
@@ -251,6 +255,15 @@ internal static class TestModels
         Parrot.Process.CliUtilityAvailability.Inspect(
             new CliUtilityCandidates([], []),
             new Parrot.Process.ExecutableLocator(string.Empty, string.Empty));
+
+    private static PromptTemplateCatalog LoadPromptTemplates()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("N"));
+        return Configuration.Load(
+            Path.Combine(root, "config.yaml"),
+            Path.Combine(root, "predefined_config.yaml"))
+            .PromptTemplates;
+    }
 
     private static ProfileConfig Profile(string prompt, bool readOnly) => new(
         prompt,

@@ -35,7 +35,7 @@ internal sealed class RunAgentTasksTool(
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         var hasPathSource = input.Path.ValueKind != JsonValueKind.Undefined;
@@ -43,8 +43,8 @@ internal sealed class RunAgentTasksTool(
         if (hasPathSource == hasArtifactSource)
         {
             return hasPathSource
-                ? "error: Tool arguments require exactly one nonblank 'path' or non-null 'artifact'."
-                : "error: Tool arguments require a string 'path'.";
+                ? ToolResultFormatter.Error(invocation, "Tool arguments require exactly one nonblank 'path' or non-null 'artifact'.")
+                : ToolResultFormatter.Error(invocation, "Tool arguments require a string 'path'.");
         }
 
         string? path = null;
@@ -52,19 +52,19 @@ internal sealed class RunAgentTasksTool(
         {
             if (input.Path.ValueKind != JsonValueKind.String)
             {
-                return "error: Tool arguments require a string 'path'.";
+                return ToolResultFormatter.Error(invocation, "Tool arguments require a string 'path'.");
             }
 
             path = input.Path.GetString();
             if (string.IsNullOrWhiteSpace(path))
             {
-                return "error: Tool arguments require a nonblank string 'path'.";
+                return ToolResultFormatter.Error(invocation, "Tool arguments require a nonblank string 'path'.");
             }
         }
 
         if (hasArtifactSource && input.Artifact.ValueKind == JsonValueKind.Null)
         {
-            return "error: Tool arguments require exactly one nonblank 'path' or non-null 'artifact'.";
+            return ToolResultFormatter.Error(invocation, "Tool arguments require exactly one nonblank 'path' or non-null 'artifact'.");
         }
 
         AgentTaskArtifact artifact;
@@ -74,7 +74,7 @@ internal sealed class RunAgentTasksTool(
             {
                 if (input.Artifact.ValueKind != JsonValueKind.Object)
                 {
-                    return "error: artifact must be an object.";
+                    return ToolResultFormatter.Error(invocation, "artifact must be an object.");
                 }
 
                 artifact = AgentTaskParser.ParseArtifact(input.Artifact.GetRawText());
@@ -97,11 +97,11 @@ internal sealed class RunAgentTasksTool(
         }
         catch (UnauthorizedAccessException)
         {
-            return "error: access denied";
+            return ToolResultFormatter.Error(invocation, "access denied");
         }
         catch (Exception failure) when (failure is ArgumentException or InvalidOperationException or IOException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         try
@@ -120,7 +120,7 @@ internal sealed class RunAgentTasksTool(
         }
         catch (Exception failure) when (failure is AgentRegistryException or LLMProviderException or ArgumentException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

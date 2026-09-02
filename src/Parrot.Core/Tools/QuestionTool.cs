@@ -19,16 +19,16 @@ internal sealed class QuestionTool(QuestionBroker broker) : ITool
             QuestionDefinition[] questions = [.. wireQuestions.Select(ToDomain)];
             var reply = await broker.Ask(questions, cancellationToken).ConfigureAwait(false);
             return reply.Kind == QuestionReplyKind.UserAway
-                ? "The user is away."
-                : FormatReply(questions, reply);
+                ? ToolResultFormatter.Text(invocation, "The user is away.")
+                : FormatReply(invocation, questions, reply);
         }
         catch (Exception failure) when (failure is JsonException or FormatException or QuestionException or QuestionRejectedException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 
-    private static string FormatReply(IReadOnlyList<QuestionDefinition> questions, QuestionReply reply)
+    private static string FormatReply(ToolInvocation invocation, IReadOnlyList<QuestionDefinition> questions, QuestionReply reply)
     {
         var answers = reply.Answers.ToDictionary(answer => answer.QuestionId, StringComparer.Ordinal);
         return string.Join("\n\n", questions.Select(question =>
@@ -38,7 +38,7 @@ internal sealed class QuestionTool(QuestionBroker broker) : ITool
             var values = answer.OptionIds
                 .Select(optionId => options[optionId].Label)
                 .Concat(answer.Custom.Length == 0 ? [] : [answer.Custom]);
-            return $"Question: {question.Prompt}\nAnswer: {string.Join(", ", values)}";
+            return ToolResultFormatter.QuestionAnswer(invocation, question.Prompt, string.Join(", ", values));
         }));
     }
 

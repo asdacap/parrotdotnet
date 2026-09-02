@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -35,6 +36,7 @@ internal sealed class AgentSession(
     TodoCollection todos,
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
+    PromptTemplateCatalog promptTemplates,
     ActiveWorkCompletionReminder activeWorkReminder,
     IMode mode,
     AgentSessionSecurity security,
@@ -44,28 +46,20 @@ internal sealed class AgentSession(
     AgentSessionActivity activity,
     CancellationToken lifetime)
 {
-    private const string RunawayMessage = "the turn exceeded its provider-request limit";
-    private const string FinalProviderRequestPrompt =
-        "This is the final provider request allowed for the current turn. Tools are unavailable for this request. "
-        + "Do not request or invoke tools. Provide the best possible final answer using the information already available.";
-
-    private const string ToolAvailabilityRestoredPrompt =
-        "A new turn has started and its provider-request budget has reset. "
-        + "Tool access is restored to the tools permitted for this turn.";
-
-    // What the model is told about a call the interrupt cut short. It is a tool
-    // result like any other, because the provider requires one per call.
-    private const string InterruptedResult = "Error: tool execution interrupted";
-
     private const string InterruptedFinish = "interrupted";
     private const int MaxAgentMessageBytes = 1024 * 1024;
     private const int MaxAgentResultBytes = 1024 * 1024;
+
+    private readonly string _runawayMessage = promptTemplates.Render("agent-session.runaway", []);
+    private readonly string _finalProviderRequestPrompt = promptTemplates.Render("agent-session.final-request", []);
+    private readonly string _toolAvailabilityRestoredPrompt = promptTemplates.Render("agent-session.tools-restored", []);
+    private readonly string _interruptedResult = promptTemplates.Render("agent-session.interrupted-result", []);
+    private readonly string _interruptedNote = promptTemplates.Render("agent-session.interrupted-note", []);
 
     // What the conversation records where the answer would have been. Without
     // it the history ends on the prompt that was stopped, and the next drain
     // reads that as a question still owed an answer -- so interrupting a turn
     // would start it again.
-    private const string InterruptedNote = "(interrupted)";
 
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
@@ -1014,8 +1008,8 @@ internal sealed class AgentSession(
                 var maxTurns = activeSelection.Profile.MaxTurns;
                 if (providerRequests >= maxTurns)
                 {
-                    await Fail(RunawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
-                    return AgentExecution.Failed(RunawayMessage);
+                    await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
+                    return AgentExecution.Failed(_runawayMessage);
                 }
 
                 var finalProviderRequest = providerRequests + 1 == maxTurns;
@@ -1061,8 +1055,8 @@ internal sealed class AgentSession(
 
                     if (providerRequests == maxTurns)
                     {
-                        await Fail(RunawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
-                        return AgentExecution.Failed(RunawayMessage);
+                        await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
+                        return AgentExecution.Failed(_runawayMessage);
                     }
 
                     continue;
@@ -1144,7 +1138,7 @@ internal sealed class AgentSession(
             // ending, because it is one.
             if (turnOpen)
             {
-                _history.Add(LLMMessage.Assistant(InterruptedNote, []));
+                _history.Add(LLMMessage.Assistant(_interruptedNote, []));
 
                 var ended = new Event
                 {
@@ -1157,9 +1151,9 @@ internal sealed class AgentSession(
                         OutputTokens = _statistics.OutputTokens,
                     },
                 };
-                await EmitEvent(ended, "assistant", InterruptedNote, CancellationToken.None)
+                await EmitEvent(ended, "assistant", _interruptedNote, CancellationToken.None)
                     .ConfigureAwait(false);
-                Activity.RecordAssistantMessage(InterruptedNote);
+                Activity.RecordAssistantMessage(_interruptedNote);
             }
 
             return AgentExecution.Canceled();
@@ -1431,8 +1425,8 @@ internal sealed class AgentSession(
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
         };
-        eventRepository.AppendFinalProviderRequestPrompt(published, FinalProviderRequestPrompt);
-        _history.Add(LLMMessage.System(FinalProviderRequestPrompt));
+        eventRepository.AppendFinalProviderRequestPrompt(published, _finalProviderRequestPrompt);
+        _history.Add(LLMMessage.System(_finalProviderRequestPrompt));
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
     }
 
@@ -1443,12 +1437,12 @@ internal sealed class AgentSession(
             Id = Identifier.EventId(),
             AgentSessionId = SessionId,
         };
-        if (!eventRepository.AppendToolAvailabilityRestoredPrompt(published, ToolAvailabilityRestoredPrompt))
+        if (!eventRepository.AppendToolAvailabilityRestoredPrompt(published, _toolAvailabilityRestoredPrompt))
         {
             return;
         }
 
-        _history.Add(LLMMessage.System(ToolAvailabilityRestoredPrompt));
+        _history.Add(LLMMessage.System(_toolAvailabilityRestoredPrompt));
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
     }
 
@@ -1614,7 +1608,10 @@ internal sealed class AgentSession(
         {
             var effective = ResolveSelection();
             var invocationSelection = selection with { SecurityProfile = effective.SecurityProfile };
-            var invocation = new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence);
+            var invocation = new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence)
+            {
+                PromptTemplates = promptTemplates,
+            };
             ToolExecutionResult result;
             var execution = Activity.BeginTool(tool.Name);
             try
@@ -1626,7 +1623,9 @@ internal sealed class AgentSession(
                 Activity.FinishTool(execution);
             }
 
-            var text = result.Text;
+            var text = promptTemplates.Render(
+                "tool-result.text",
+                [new PromptTemplateArgument("value", result.Text)]);
             if (ToolOutputBlobStore.IsOversized(text))
             {
                 text = await toolOutputBlobs.Persist(text, CancellationToken.None).ConfigureAwait(false);
@@ -1692,8 +1691,8 @@ internal sealed class AgentSession(
             call.Id,
             call.Name,
             ToolExecutionStatus.Cancelled,
-            [ConversationPart.TextPart(InterruptedResult)],
-            InterruptedResult));
+            [ConversationPart.TextPart(_interruptedResult)],
+            _interruptedResult));
     }
 
     private (Event Published, ToolExecutionTerminal Terminal) FailTool(LLMToolCall call, string message)
@@ -1704,7 +1703,9 @@ internal sealed class AgentSession(
             AgentSessionId = SessionId,
             ToolError = new ToolError { ToolCallId = call.Id, ToolName = call.Name, Message = message },
         };
-        var result = $"error: {message}";
+        var result = promptTemplates.Render(
+            "tool-result.error",
+            [new PromptTemplateArgument("message", message)]);
         return (failed, new ToolExecutionTerminal(
             call.Id,
             call.Name,

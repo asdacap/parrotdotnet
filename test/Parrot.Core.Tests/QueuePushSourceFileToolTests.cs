@@ -220,7 +220,7 @@ internal sealed partial class QueuePushSourceFileToolTests : IDisposable
     }
 
     private static AgentQueues CreateQueues(string id) =>
-        TestModels.Queues(AgentIdentity.Main($"queue-push-source-{id}", "main"));
+        TestModels.Queues(AgentIdentity.Main($"queue-push-source-{id}", "main", TestModels.PromptTemplates));
 
     private static ToolInvocation Invocation(string name, string sourceFile, string direction, bool close) =>
         new(

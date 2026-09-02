@@ -1,9 +1,10 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Llm;
 
 namespace Parrot.Context;
 
-internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentations) : ISystemPrompt
+internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentations, PromptTemplateCatalog templates) : ISystemPrompt
 {
     private readonly Dictionary<string, string> _augmentations = new(augmentations, StringComparer.Ordinal);
 
@@ -17,15 +18,18 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
         var sections = new List<string>();
         var aliases = selection.ResolvedModel.AliasSnapshot.Definitions.Values
             .Where(alias => alias.ModelString.Length > 0)
-            .Select(alias => $"- {alias.Name}: {alias.ModelString} — {alias.Usage}")
+            .Select(alias => templates.Render("context.model-alias", [
+                new PromptTemplateArgument("name", alias.Name),
+                new PromptTemplateArgument("model", alias.ModelString),
+                new PromptTemplateArgument("usage", alias.Usage),
+            ]))
             .ToArray();
 
         if (aliases.Length > 0)
         {
-            sections.Add(
-                "Configured model aliases may be passed anywhere a model selector is accepted, especially "
-                + "`agent_spawn.model`:\n"
-                + string.Join('\n', aliases));
+            sections.Add(templates.Render("context.model-aliases", [
+                new PromptTemplateArgument("aliases", string.Join('\n', aliases)),
+            ]));
         }
 
         var augmentation = Augmentation(selection.ResolvedModel);

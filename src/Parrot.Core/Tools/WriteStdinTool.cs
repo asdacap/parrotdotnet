@@ -28,7 +28,7 @@ internal sealed class WriteStdinTool(ShellProcessOwner processes) : ITool
 
             if (name.Length == 0)
             {
-                return "error: process name must not be empty";
+                return ToolResultFormatter.Error(invocation, "process name must not be empty");
             }
 
             var result = await processes.WriteStdin(name, text, yieldAfter, cancellationToken).ConfigureAwait(false);
@@ -36,7 +36,7 @@ internal sealed class WriteStdinTool(ShellProcessOwner processes) : ITool
         }
         catch (Exception failure) when (failure is JsonException or FormatException or InvalidOperationException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

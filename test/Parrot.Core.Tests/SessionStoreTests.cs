@@ -185,7 +185,7 @@ internal sealed class SessionStoreTests : IDisposable
             Paths(),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.ProfileRegistry(), TimeSpan.FromSeconds(30), TimeProvider.System),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), TimeSpan.FromSeconds(30), TimeProvider.System),
             router,
             Modes());
         return store.Open(router.Resolve(model.Selector));

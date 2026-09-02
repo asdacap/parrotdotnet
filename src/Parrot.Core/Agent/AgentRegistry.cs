@@ -1,4 +1,5 @@
 using System.Text;
+using Parrot.Config;
 using Parrot.Events;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -12,6 +13,7 @@ internal sealed class AgentRegistry(
     EventBroker eventBroker,
     EventRepository eventRepository,
     ProfileRegistry profiles,
+    PromptTemplateCatalog promptTemplates,
     CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource, IAgentStatusSource
 {
     private const string ParentRecipient = "parent";
@@ -82,7 +84,7 @@ internal sealed class AgentRegistry(
             var names = NamesFor(request.Parent.SessionId);
             var name = UniqueName(names, request.RequestedName, sessionId);
             var scope = request.Parent.ResolveScope().DeriveChild(name, depth, request.RequestedScope);
-            var identity = AgentIdentity.Child(sessionId, request.Parent.SessionId, request.Parent.Name, name, depth, scope);
+            var identity = AgentIdentity.Child(sessionId, request.Parent.SessionId, request.Parent.Name, name, depth, scope, promptTemplates);
             eventRepository.InitializeForkedAgentHistory(
                 request.Parent.SessionId,
                 sessionId,
@@ -245,7 +247,7 @@ internal sealed class AgentRegistry(
 
         try
         {
-            await parent.ReceiveAgentCompletion(child.Name, completed.FormatCompletion(child), CancellationToken.None)
+            await parent.ReceiveAgentCompletion(child.Name, completed.FormatCompletion(child, promptTemplates), CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception)

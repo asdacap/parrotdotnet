@@ -41,12 +41,12 @@ internal sealed class ExecCommandTool(
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         if (command.Length == 0)
         {
-            return "error: no command given";
+            return ToolResultFormatter.Error(invocation, "no command given");
         }
 
         if (name is not null)
@@ -55,7 +55,7 @@ internal sealed class ExecCommandTool(
 
             if (name.Length == 0)
             {
-                return "error: process name must not be empty";
+                return ToolResultFormatter.Error(invocation, "process name must not be empty");
             }
         }
 
@@ -78,7 +78,7 @@ internal sealed class ExecCommandTool(
         {
             // Deliberate containment: fail closed, and tell the model why rather
             // than run the command outside the sandbox.
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 

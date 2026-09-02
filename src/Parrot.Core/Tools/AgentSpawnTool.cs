@@ -38,7 +38,7 @@ internal sealed class AgentSpawnTool(
         }
         catch (Exception failure) when (failure is JsonException or FormatException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
 
         try
@@ -62,7 +62,7 @@ internal sealed class AgentSpawnTool(
         }
         catch (Exception failure) when (failure is AgentRegistryException or LLMProviderException or ArgumentException)
         {
-            return $"error: {failure.Message}";
+            return ToolResultFormatter.Error(invocation, failure.Message);
         }
     }
 
