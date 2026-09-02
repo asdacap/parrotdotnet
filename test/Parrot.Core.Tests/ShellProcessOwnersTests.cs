@@ -222,7 +222,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     {
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
-        return new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, events), new ToolOutputBlobStore(blobDirectory), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Registry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, events), new ToolOutputBlobStore(blobDirectory), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Registry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
     }
 
     private string CreateSandboxPassThrough()

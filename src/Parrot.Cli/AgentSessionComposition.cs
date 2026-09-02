@@ -84,6 +84,7 @@ internal partial class AgentSessionComposition
                     toolOutputBlobs,
                     arguments.Compactor,
                     arguments.PromptTemplates,
+                    arguments.Owner.ChildQuestions,
                     activeWorkReminder,
                     arguments.Mode,
                     arguments.Security,

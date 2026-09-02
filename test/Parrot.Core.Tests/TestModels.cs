@@ -5,6 +5,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
+using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
@@ -19,6 +20,7 @@ internal static class TestModels
     private static readonly ConcurrentBag<AgentQueueCatalog> QueueCatalogs = [];
     private static readonly ConcurrentBag<Parrot.Process.ShellProcessOwners> ProcessOwners = [];
     private static readonly ConcurrentBag<AgentRegistry> Registries = [];
+    private static readonly ConcurrentBag<ChildQuestionCoordinator> ChildQuestions = [];
 
     public static IReadOnlyDictionary<string, ProfileConfig> Profiles { get; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
@@ -134,6 +136,13 @@ internal static class TestModels
     public static ProfileRegistry ProfileRegistry() =>
         new(Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
 
+    public static ChildQuestionCoordinator TrackChildQuestions(AgentRegistry registry)
+    {
+        var coordinator = new ChildQuestionCoordinator(registry, PromptTemplates);
+        ChildQuestions.Add(coordinator);
+        return coordinator;
+    }
+
     public static IMode Profile()
     {
         var profile = ProfileRegistry().ResolveChild("test");
@@ -198,7 +207,10 @@ internal static class TestModels
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
+        var childQuestions = TestModels.TrackChildQuestions(registry);
+        ChildQuestions.Add(childQuestions);
         return new AgentSessionDependencies(
+            childQuestions,
             new ActiveWorkCompletionReminder(identity.SessionId, registry, owner, TestModels.PromptTemplates),
             Profile(),
             status,

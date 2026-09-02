@@ -1300,9 +1300,9 @@ internal sealed class ConfigurationTests : IDisposable
 
         var definitions = Load(path).ToolDefinitions.Definitions;
 
-        _ = await Assert.That(definitions.Count).IsEqualTo(23);
+        _ = await Assert.That(definitions.Count).IsEqualTo(24);
         _ = await Assert.That(definitions["question"].Description)
-            .StartsWith("Ask the user structured questions");
+            .StartsWith("Ask structured questions");
         using var question = JsonDocument.Parse(definitions["question"].ParametersJson);
         var schema = question.RootElement;
         _ = await Assert.That(schema.GetProperty("properties").GetProperty("questions")
@@ -1314,6 +1314,31 @@ internal sealed class ConfigurationTests : IDisposable
             .IsEqualTo("questions,custom");
         using var status = JsonDocument.Parse(definitions["status"].ParametersJson);
         _ = await Assert.That(status.RootElement.GetProperty("type").GetString()).IsEqualTo("object");
+    }
+
+    [Test]
+    public async Task Question_tools_have_strict_complete_schemas_and_thinker_exposes_both_tools()
+    {
+        var configuration = Load(Path.Combine(_directory, "missing.yaml"));
+        var definitions = configuration.ToolDefinitions.Definitions;
+
+        using var question = JsonDocument.Parse(definitions["question"].ParametersJson);
+        using var answer = JsonDocument.Parse(definitions["answer"].ParametersJson);
+        var questionSchema = question.RootElement;
+        var answerSchema = answer.RootElement;
+
+        _ = await Assert.That(questionSchema.GetProperty("additionalProperties").GetBoolean()).IsFalse();
+        _ = await Assert.That(string.Join(",", questionSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString())))
+            .IsEqualTo("questions");
+        _ = await Assert.That(answerSchema.GetProperty("additionalProperties").GetBoolean()).IsFalse();
+        _ = await Assert.That(string.Join(",", answerSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString())))
+            .IsEqualTo("agent_session_id,answers");
+        var answerItem = answerSchema.GetProperty("properties").GetProperty("answers").GetProperty("items");
+        _ = await Assert.That(answerItem.GetProperty("additionalProperties").GetBoolean()).IsFalse();
+        _ = await Assert.That(string.Join(",", answerItem.GetProperty("required").EnumerateArray().Select(item => item.GetString())))
+            .IsEqualTo("question_id,option_ids,custom");
+        _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools)
+            .Contains("question").And.Contains("answer");
     }
 
     [Test]

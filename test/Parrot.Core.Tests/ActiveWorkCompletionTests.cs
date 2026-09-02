@@ -5,6 +5,7 @@ using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Security;
 using Parrot.State;
@@ -46,7 +47,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var repository = new EventRepository(_database);
         using var queueCatalog = new AgentQueueCatalog(Resources());
         var factory = new CompletionAgentSessions(
-            router, processes, repository, _broker, queueCatalog, _workspace);
+            router, processes, repository, _broker, queueCatalog, _workspace, null);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
@@ -101,6 +102,82 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
     }
 
     [Test]
+    public async Task Pending_child_questions_guard_completion_before_active_work_and_mode(
+        CancellationToken cancellationToken)
+    {
+        using var parentProvider = new HeldProvider("parent", Answer("premature"), Answer("finished"));
+        using var childProvider = new HeldProvider("child");
+        var router = Router(parentProvider, childProvider);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var processes = Processes(string.Empty, lifetime.Token);
+        var repository = new EventRepository(_database);
+        using var queueCatalog = new AgentQueueCatalog(Resources());
+        ChildQuestionCoordinator? childQuestions = null;
+        var factory = new CompletionAgentSessions(
+            router,
+            processes,
+            repository,
+            _broker,
+            queueCatalog,
+            _workspace,
+            () => childQuestions ?? throw new InvalidOperationException("child questions are unavailable"));
+        await using var registry = new AgentRegistry(
+            factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        registry.AttachStatus(status);
+        childQuestions = TestModels.TrackChildQuestions(registry);
+        var mode = new CompletionMode(enforce: false, maxTurns: 3);
+        var parent = Session(
+            "parent",
+            parentProvider,
+            router,
+            repository,
+            registry,
+            processes,
+            queueCatalog,
+            status,
+            mode,
+            childQuestions,
+            lifetime.Token);
+        var firstChild = registry.Spawn(QuestionChildRequest(parent, router, "first"));
+        var secondChild = registry.Spawn(QuestionChildRequest(parent, router, "second"));
+        using var subscription = _broker.Subscribe();
+
+        _ = await parent.Send("finish", cancellationToken);
+        await parentProvider.Arrived(cancellationToken);
+        var firstQuestion = childQuestions.Ask(firstChild, [Question("first")], cancellationToken);
+        var secondQuestion = childQuestions.Ask(secondChild, [Question("second")], cancellationToken);
+        _ = await WaitForPendingQuestions(childQuestions, parent, 2, cancellationToken);
+        parentProvider.Release();
+        await parentProvider.Arrived(cancellationToken);
+
+        var beforeAnswers = Events(subscription);
+        _ = await Assert.That(mode.Completions).IsEqualTo(0);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(0);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(0);
+        _ = await Assert.That(beforeAnswers.Count(published =>
+            published.AgentSessionId == "parent"
+            && published.PayloadCase == Event.PayloadOneofCase.PendingChildQuestionReminderInjected)).IsEqualTo(1);
+        _ = await Assert.That(parentProvider.Requests[1].Messages).Contains(message =>
+            message.Role == LLMRole.Assistant && message.Content == "premature");
+        _ = await Assert.That(parentProvider.Requests[1].Messages).Contains(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains($"first ({firstChild.SessionId})", StringComparison.Ordinal)
+            && message.Content.Contains($"second ({secondChild.SessionId})", StringComparison.Ordinal)
+            && message.Content.Contains("answer", StringComparison.Ordinal));
+
+        childQuestions.Reply(parent, firstChild.SessionId, QuestionAnswer("first"));
+        childQuestions.Reply(parent, secondChild.SessionId, QuestionAnswer("second"));
+        _ = await Task.WhenAll(firstQuestion, secondQuestion);
+        parentProvider.Release();
+        await parent.Settled();
+
+        _ = await Assert.That(mode.Completions).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Disabled_profile_does_not_defer_for_active_direct_work(CancellationToken cancellationToken)
     {
         using var parentProvider = new HeldProvider("parent", Answer("finished"));
@@ -111,7 +188,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var repository = new EventRepository(_database);
         using var queueCatalog = new AgentQueueCatalog(Resources());
         var factory = new CompletionAgentSessions(
-            router, processes, repository, _broker, queueCatalog, _workspace);
+            router, processes, repository, _broker, queueCatalog, _workspace, null);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
@@ -158,7 +235,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var repository = new EventRepository(_database);
         using var queueCatalog = new AgentQueueCatalog(Resources());
         var factory = new CompletionAgentSessions(
-            router, processes, repository, _broker, queueCatalog, _workspace);
+            router, processes, repository, _broker, queueCatalog, _workspace, null);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
@@ -243,7 +320,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var repository = new EventRepository(_database);
         using var queueCatalog = new AgentQueueCatalog(Resources());
         var factory = new CompletionAgentSessions(
-            router, processes, repository, _broker, queueCatalog, _workspace);
+            router, processes, repository, _broker, queueCatalog, _workspace, null);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
@@ -309,7 +386,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var repository = new EventRepository(_database);
         using var queueCatalog = new AgentQueueCatalog(Resources());
         var factory = new CompletionAgentSessions(
-            router, processes, repository, _broker, queueCatalog, _workspace);
+            router, processes, repository, _broker, queueCatalog, _workspace, null);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
@@ -365,7 +442,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var repository = new EventRepository(_database);
         using var queueCatalog = new AgentQueueCatalog(Resources());
         var factory = new CompletionAgentSessions(
-            router, processes, repository, _broker, queueCatalog, _workspace);
+            router, processes, repository, _broker, queueCatalog, _workspace, null);
         await using var registry = new AgentRegistry(
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
@@ -402,6 +479,50 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
     }
 
     private static LLMEvent Answer(string text) => LLMEvent.Completed("stop", 1, 0, 1, text, []);
+
+    private static AgentLaunchRequest QuestionChildRequest(
+        AgentSession parent,
+        ModelRouter router,
+        string name) => new(
+            parent,
+            Turn(parent, router),
+            "worker",
+            new ModelSelector("child/model"),
+            name,
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.RetainedOnly);
+
+    private static Parrot.Questions.QuestionDefinition Question(string id) => new(
+        id,
+        string.Empty,
+        "Continue?",
+        [new Parrot.Questions.QuestionOption("yes", "Yes")],
+        false,
+        false);
+
+    private static QuestionReply QuestionAnswer(string id) =>
+        new([new Parrot.Questions.QuestionAnswer(id, ["yes"], string.Empty)]);
+
+    private static async Task<IReadOnlyList<PendingChildQuestionRequest>> WaitForPendingQuestions(
+        ChildQuestionCoordinator coordinator,
+        AgentSession parent,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var pending = coordinator.Pending(parent);
+            if (pending.Count == count)
+            {
+                return pending;
+            }
+
+            await Task.Delay(1, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
     {
@@ -458,13 +579,38 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         AgentQueueCatalog queueCatalog,
         RuntimeStatus status,
         IMode mode,
+        CancellationToken lifetime) =>
+        Session(
+            sessionId,
+            provider,
+            router,
+            repository,
+            registry,
+            processes,
+            queueCatalog,
+            status,
+            mode,
+            TestModels.TrackChildQuestions(registry),
+            lifetime);
+
+    private AgentSession Session(
+        string sessionId,
+        HeldProvider provider,
+        ModelRouter router,
+        EventRepository repository,
+        AgentRegistry registry,
+        ShellProcessOwners processes,
+        AgentQueueCatalog queueCatalog,
+        RuntimeStatus status,
+        IMode mode,
+        ChildQuestionCoordinator childQuestions,
         CancellationToken lifetime)
     {
         var owner = processes.Prepare(sessionId);
         processes.Register(owner);
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
-        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, new ActiveWorkCompletionReminder(sessionId, registry, owner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(sessionId, registry, owner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
         return session;
     }
@@ -483,7 +629,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
         var mode = TestModels.Profile();
-        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, new ActiveWorkCompletionReminder(sessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, TestModels.TrackChildQuestions(registry), new ActiveWorkCompletionReminder(sessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
         return session;
     }
@@ -576,7 +722,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         EventRepository repository,
         EventBroker broker,
         AgentQueueCatalog queueCatalog,
-        string workspace) : IAgentSessionFactory
+        string workspace,
+        Func<ChildQuestionCoordinator>? childQuestions) : IAgentSessionFactory
     {
         public IAgentSessionLease Create(
             AgentIdentity identity,
@@ -612,6 +759,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 new ToolOutputBlobStore(workspace),
                 new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
                 TestModels.PromptTemplates,
+                childQuestions is null ? TestModels.TrackChildQuestions(registry) : childQuestions(),
                 new ActiveWorkCompletionReminder(identity.SessionId, registry, owner, TestModels.PromptTemplates),
                 mode,
                 SecurityProfileTestFactory.Create(securityProfile),

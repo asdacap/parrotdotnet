@@ -400,6 +400,7 @@ message Event {
     PlanValidationRepairInjected plan_validation_repair_injected = 33;
     AgentTaskProgressSnapshot agent_task_progress_snapshot = 34;
     ProviderCallUsage provider_call_usage = 35;
+    PendingChildQuestionReminderInjected pending_child_question_reminder_injected = 36;
   }
 }
 
@@ -506,6 +507,10 @@ message StatusInjected {}
 // Transient notification that a durable system reminder about direct active
 // work was added to model history. Its text remains in history, not on the wire.
 message ActiveWorkReminderInjected {}
+
+// Transient notification that a no-tool response was retained and a durable
+// system reminder about unanswered direct-child questions was added to history.
+message PendingChildQuestionReminderInjected {}
 
 // Transient notification that a durable system prompt explains that this is the
 // final provider request of the turn and tools are unavailable.

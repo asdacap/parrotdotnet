@@ -82,7 +82,8 @@ internal sealed class UserSession : IAsyncDisposable
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, _lifetime.Token);
-        Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry, _promptTemplates, TimeProvider);
+        ChildQuestions = new ChildQuestionCoordinator(Registry, _promptTemplates);
+        Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry, _promptTemplates);
         Registry.AttachStatus(Status);
         foreach (var agentSessionId in _eventRepository.AgentHistorySessionIds())
         {
@@ -127,6 +128,8 @@ internal sealed class UserSession : IAsyncDisposable
     internal RuntimeStatus Status { get; }
 
     internal QuestionBroker Questions { get; }
+
+    internal ChildQuestionCoordinator ChildQuestions { get; }
 
     internal PermissionBroker Permissions { get; }
 
@@ -304,6 +307,7 @@ internal sealed class UserSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Questions.Dispose();
+        ChildQuestions.Dispose();
         Permissions.Dispose();
         await Registry.DisposeAsync().ConfigureAwait(false);
         await _lifetime.CancelAsync().ConfigureAwait(false);

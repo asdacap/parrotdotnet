@@ -127,6 +127,40 @@ internal sealed class AgentRegistry(
         }
     }
 
+    public AgentSession AuthorizeDirectChild(string parentSessionId, string childSessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(parentSessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
+
+        lock (_gate)
+        {
+            if (_entries.TryGetValue(childSessionId, out var child)
+                && string.Equals(child.Session.ParentSessionId, parentSessionId, StringComparison.Ordinal))
+            {
+                return child.Session;
+            }
+
+            throw new AgentRegistryException($"child agent not found: {childSessionId}");
+        }
+    }
+
+    public AgentSession AuthorizeDirectParent(AgentSession child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+
+        lock (_gate)
+        {
+            if (_entries.TryGetValue(child.SessionId, out var registered)
+                && ReferenceEquals(registered.Session, child)
+                && _parents.TryGetValue(child.ParentSessionId, out var parent))
+            {
+                return parent;
+            }
+
+            throw new AgentRegistryException($"parent agent not found: {child.ParentSessionId}");
+        }
+    }
+
     public AgentSession GetRecipient(AgentSession sender, string sessionIdOrName)
     {
         ArgumentNullException.ThrowIfNull(sender);

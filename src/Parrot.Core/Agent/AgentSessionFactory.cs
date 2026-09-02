@@ -102,7 +102,8 @@ internal sealed class AgentSessionFactory(
         new QueueListenToolFactory(),
         new QueuePushToolFactory(workspace),
         new QueueTakeToolFactory(),
-        new QuestionToolFactory(owner.Questions),
+        new QuestionToolFactory(owner.Questions, owner.ChildQuestions),
+        new AnswerToolFactory(owner.ChildQuestions),
         new RequestWritePermissionToolFactory(owner.Permissions),
     ];
 }

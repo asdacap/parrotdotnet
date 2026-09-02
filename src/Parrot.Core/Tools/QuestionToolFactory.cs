@@ -3,9 +3,11 @@ using Parrot.Questions;
 
 namespace Parrot.Tools;
 
-internal sealed class QuestionToolFactory(QuestionBroker broker) : IToolFactory
+internal sealed class QuestionToolFactory(
+    QuestionBroker userQuestions,
+    ChildQuestionCoordinator childQuestions) : IToolFactory
 {
-    public bool Supports(AgentSession session) => session.Depth == 0;
-
-    public ITool Create(AgentSession session) => new QuestionTool(broker);
+    public ITool Create(AgentSession session) => new QuestionTool(session.Depth == 0
+        ? new UserQuestionRequester(userQuestions)
+        : new ChildQuestionRequester(childQuestions, session));
 }

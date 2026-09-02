@@ -1504,6 +1504,40 @@ internal sealed class EventRepository
         RefreshAgentHistory(published.AgentSessionId);
     }
 
+    public void AppendPendingChildQuestionReminder(
+        Event published,
+        string assistantContent,
+        string reminder)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        published.PendingChildQuestionReminderInjected = new PendingChildQuestionReminderInjected();
+
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            _ = Record(transaction, published);
+            _ = Project(
+                transaction,
+                published.AgentSessionId,
+                ConversationOrigin.Model,
+                LLMRole.Assistant,
+                [ConversationPart.TextPart(assistantContent)],
+                [],
+                string.Empty);
+            _ = Project(
+                transaction,
+                published.AgentSessionId,
+                ConversationOrigin.System,
+                LLMRole.System,
+                [ConversationPart.TextPart(reminder)],
+                [],
+                string.Empty);
+            transaction.Commit();
+        }
+
+        RefreshAgentHistory(published.AgentSessionId);
+    }
+
     public void AppendActiveWorkReminder(Event published, string content)
     {
         ArgumentNullException.ThrowIfNull(published);

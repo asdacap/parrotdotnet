@@ -660,6 +660,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
+            dependencies.ChildQuestions,
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),

@@ -155,6 +155,19 @@ prompt_templates:
       {result}
     allowed_arguments: [agent_name, result]
     required_arguments: [agent_name, result]
+  agent-session.child-question:
+    template: |-
+      Child agent {agent_name} ({agent_session_id}) is waiting for an answer to these structured questions:
+      {questions}
+      Use answer with the agent_session_id shown above and one complete answer for every question. Invalid or partial answers leave the request pending.
+    allowed_arguments: [agent_name, agent_session_id, questions]
+    required_arguments: [agent_name, agent_session_id, questions]
+  agent-session.pending-child-question-reminder:
+    template: |-
+      This turn must not exit while direct child agents are waiting for answers.{children}
+      Use answer for every listed child before finishing this turn. Each request remains pending until one complete valid answer is submitted for every question.
+    allowed_arguments: [children]
+    required_arguments: [children]
   agent-session.active-work-reminder:
     template: |-
       This turn must not exit while direct subagents or processes are still running.{active_work}
@@ -193,6 +206,10 @@ prompt_templates:
     template: 'Question: {question}\nAnswer: {answer}'
     allowed_arguments: [question, answer]
     required_arguments: [question, answer]
+  tool-result.question-replied:
+    template: 'Answered the pending question from child agent {agent_session_id}.'
+    allowed_arguments: [agent_session_id]
+    required_arguments: [agent_session_id]
   tool-result.error:
     template: 'error: {message}'
     allowed_arguments: [message]
@@ -726,6 +743,8 @@ profiles:
       - set_checkpoint
       - read
       - agent_send
+      - question
+      - answer
       - wait
     max_turns: 256
     recursion_limit: 1
@@ -738,6 +757,45 @@ profiles:
 # descriptions or structural JSON Schema members while inheriting remaining entries.
 # Parameters use standard JSON Schema represented as YAML.
 tools:
+  answer:
+    description: Answer the pending structured questions from one direct child agent. The request remains pending when the child ID is invalid, unauthorized, stale, or any answer is incomplete or invalid.
+    parameters:
+      type: object
+      properties:
+        agent_session_id:
+          type: string
+          minLength: 1
+          description: Exact canonical session ID of the direct child whose pending question is being answered.
+        answers:
+          type: array
+          minItems: 1
+          maxItems: 32
+          description: Complete structured answers, with exactly one answer for every question in the pending request.
+          items:
+            type: object
+            properties:
+              question_id:
+                type: string
+                minLength: 1
+                description: Stable question ID from the child question steer.
+              option_ids:
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+                description: Selected option IDs from the child question steer.
+              custom:
+                type: string
+                description: Custom answer text; valid only when the question allows custom answers.
+            required:
+            - question_id
+            - option_ids
+            - custom
+            additionalProperties: false
+      required:
+      - agent_session_id
+      - answers
+      additionalProperties: false
   agent_send:
     description: Send a message to the specified agent. Send to the direct parent or to a descendant in this sender's own
       descendant tree and user session. Descendants use relative, slash-separated friendly-name paths such as child/grandchild;
@@ -900,8 +958,8 @@ tools:
       required:
       - name
   question:
-    description: Ask the user structured questions when a decision or missing information is needed. Use this instead of asking
-      questions in normal chat.
+    description: Ask structured questions when a decision or missing information is needed. The root agent asks the user; a
+      child agent asks its direct parent. Use this instead of asking questions in normal chat.
     parameters:
       type: object
       properties:

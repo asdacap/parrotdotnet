@@ -5,6 +5,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -37,6 +38,7 @@ internal sealed class AgentSession(
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
     PromptTemplateCatalog promptTemplates,
+    ChildQuestionCoordinator childQuestions,
     ActiveWorkCompletionReminder activeWorkReminder,
     IMode mode,
     AgentSessionSecurity security,
@@ -467,6 +469,33 @@ internal sealed class AgentSession(
         return new AgentSendResult(SessionId, Name, messageId, followUp);
     }
 
+    internal async Task ReceiveChildQuestion(
+        string message,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+
+        var admitted = await AdmitPartsAndWake(
+            [ConversationPart.TextPart(message)],
+            messageId,
+            Delivery.Steer,
+            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+            cancellationToken).ConfigureAwait(false);
+
+        if (ParentSessionId.Length == 0 || !admitted.FollowUp)
+        {
+            return;
+        }
+
+        lock (_executionGate)
+        {
+            _started = true;
+            _execution = Execute(message, messageId, admitted.SelectedDrain, cancellationToken);
+        }
+    }
+
     internal async Task ReceiveAgentCompletion(
         string name,
         string message,
@@ -755,32 +784,48 @@ internal sealed class AgentSession(
             completed = AgentExecution.Failed(BoundResult(failure.Message));
         }
 
-        var terminal = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-        if (completed.Status == AgentExecutionStatus.Succeeded)
+        ChildQuestionCompletionAttempt terminalCompletionAttempt;
+        while (true)
         {
-            terminal.AgentFinished = new AgentFinished
+            terminalCompletionAttempt = childQuestions.BeginCompletion(this);
+            if (terminalCompletionAttempt.Reminder is null)
             {
-                ParentAgentSessionId = identity.ParentSessionId,
-                Name = Name,
-            };
-        }
-        else
-        {
-            terminal.AgentFailed = new AgentFailed
-            {
-                ParentAgentSessionId = identity.ParentSessionId,
-                Name = Name,
-                Message = completed.Error,
-            };
+                break;
+            }
+
+            terminalCompletionAttempt.Dispose();
+            completed = BoundResult(await ResultSettled().ConfigureAwait(false));
         }
 
-        try
+        using (terminalCompletionAttempt)
         {
-            await EmitEvent(terminal, null, null, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception failure)
-        {
-            completed = AgentExecution.Failed(BoundResult(failure.Message));
+            var terminal = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
+            if (completed.Status == AgentExecutionStatus.Succeeded)
+            {
+                terminal.AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = identity.ParentSessionId,
+                    Name = Name,
+                };
+            }
+            else
+            {
+                terminal.AgentFailed = new AgentFailed
+                {
+                    ParentAgentSessionId = identity.ParentSessionId,
+                    Name = Name,
+                    Message = completed.Error,
+                };
+            }
+
+            try
+            {
+                await EmitEvent(terminal, null, null, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception failure)
+            {
+                completed = AgentExecution.Failed(BoundResult(failure.Message));
+            }
         }
 
         Activity.FinishExecution(activityExecution, completed);
@@ -1069,6 +1114,25 @@ internal sealed class AgentSession(
                     continue;
                 }
 
+                using var completionAttempt = childQuestions.BeginCompletion(this);
+                if (completionAttempt.Reminder is { } questionReminder)
+                {
+                    var published = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                    };
+                    eventRepository.AppendPendingChildQuestionReminder(
+                        published,
+                        completed.AssistantText,
+                        questionReminder);
+                    _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                    _history.Add(LLMMessage.System(questionReminder));
+                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    Activity.RecordAssistantMessage(completed.AssistantText);
+                    continue;
+                }
+
                 if (activeSelection.Profile.EnforceActiveWorkCompletion
                     && activeWorkReminder.Build() is { } reminder)
                 {
@@ -1080,6 +1144,7 @@ internal sealed class AgentSession(
                     eventRepository.AppendActiveWorkReminder(published, reminder);
                     _history.Add(LLMMessage.System(reminder));
                     await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    completionAttempt.Dispose();
                     continue;
                 }
 

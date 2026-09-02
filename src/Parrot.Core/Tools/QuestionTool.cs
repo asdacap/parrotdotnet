@@ -5,7 +5,7 @@ using Parrot.Questions;
 
 namespace Parrot.Tools;
 
-internal sealed class QuestionTool(QuestionBroker broker) : ITool
+internal sealed class QuestionTool(IQuestionRequester requester) : ITool
 {
     public string Name => "question";
 
@@ -17,12 +17,12 @@ internal sealed class QuestionTool(QuestionBroker broker) : ITool
                 ?? throw new FormatException("Tool arguments must be an object.");
             var wireQuestions = input.Questions ?? throw new FormatException("Tool arguments require an array 'questions'.");
             QuestionDefinition[] questions = [.. wireQuestions.Select(ToDomain)];
-            var reply = await broker.Ask(questions, cancellationToken).ConfigureAwait(false);
+            var reply = await requester.Ask(questions, cancellationToken).ConfigureAwait(false);
             return reply.Kind == QuestionReplyKind.UserAway
                 ? ToolResultFormatter.Text(invocation, "The user is away.")
                 : FormatReply(invocation, questions, reply);
         }
-        catch (Exception failure) when (failure is JsonException or FormatException or QuestionException or QuestionRejectedException)
+        catch (Exception failure) when (failure is JsonException or FormatException or AgentRegistryException or QuestionException or QuestionRejectedException)
         {
             return ToolResultFormatter.Error(invocation, failure.Message);
         }

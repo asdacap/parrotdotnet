@@ -89,6 +89,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             new ToolOutputBlobStore(root),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
+            TestModels.TrackChildQuestions(registry),
             new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates),
             mode,
             SecurityProfileTestFactory.Create(securityProfile),
