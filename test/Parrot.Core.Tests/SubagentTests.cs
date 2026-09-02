@@ -40,7 +40,6 @@ internal sealed class SubagentTests : IDisposable
             sessions, _broker, _repository, TestModels.ProfileRegistry(), cancellationToken);
         var parent = Session(provider, 0, "agent", cancellationToken);
         var spawn = new AgentSpawnTool(registry, Router(provider), parent);
-        var wait = new WaitAgentTool(registry, parent);
 
         var startedJson = (await spawn.Execute(
             new ToolInvocation(
@@ -57,37 +56,20 @@ internal sealed class SubagentTests : IDisposable
         _ = await Assert.That(sessionId).StartsWith("agent-session-");
         await provider.Arrived(cancellationToken);
 
-        var yieldedJson = (await wait.Execute(
-            new ToolInvocation(
-                "test-call",
-                $$"""{"session_id":"{{sessionId}}","yield_after_ms":1}"""),
-            Turn(parent, Router(provider)),
-            cancellationToken)).Text;
-        using var yielded = JsonDocument.Parse(yieldedJson);
-        _ = await Assert.That(yielded.RootElement.GetProperty("yielded").GetBoolean()).IsTrue();
-        _ = await Assert.That(yielded.RootElement.GetProperty("status").GetString()).IsEqualTo("running");
+        var child = registry.GetChild(parent, sessionId);
+        var yielded = await child.Wait(1, cancellationToken);
+        _ = await Assert.That(yielded.Yielded).IsTrue();
+        _ = await Assert.That(yielded.Status).IsEqualTo(AgentTaskStatus.Running);
 
         provider.Release();
-        var completedJson = (await wait.Execute(
-            new ToolInvocation(
-                "test-call",
-                """{"session_id":"child-helper"}"""),
-            Turn(parent, Router(provider)),
-            cancellationToken)).Text;
-        using var completed = JsonDocument.Parse(completedJson);
-        var retainedJson = (await wait.Execute(
-            new ToolInvocation(
-                "test-call",
-                $$"""{"session_id":"{{sessionId}}"}"""),
-            Turn(parent, Router(provider)),
-            cancellationToken)).Text;
-        using var retained = JsonDocument.Parse(retainedJson);
+        var completed = await child.Wait(0, cancellationToken);
+        var retained = await child.Wait(0, cancellationToken);
 
-        _ = await Assert.That(completed.RootElement.GetProperty("task_id").GetString()).IsEqualTo(sessionId);
-        _ = await Assert.That(completed.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
-        _ = await Assert.That(completed.RootElement.GetProperty("elapsed_ms").GetInt64() >= 0).IsTrue();
-        _ = await Assert.That(completed.RootElement.GetProperty("output").GetString()).IsEqualTo("child says hi");
-        _ = await Assert.That(retained.RootElement.GetProperty("output").GetString()).IsEqualTo("child says hi");
+        _ = await Assert.That(completed.SessionId).IsEqualTo(sessionId);
+        _ = await Assert.That(completed.Status).IsEqualTo(AgentTaskStatus.Succeeded);
+        _ = await Assert.That(completed.ElapsedMilliseconds >= 0).IsTrue();
+        _ = await Assert.That(completed.Output).IsEqualTo("child says hi");
+        _ = await Assert.That(retained.Output).IsEqualTo("child says hi");
         _ = await Assert.That(sessions.Identities.Single()?.Name).IsEqualTo("child-helper");
 
         var lifecycle = _repository.Replay()

@@ -442,9 +442,7 @@ internal sealed class ConfigurationTests : IDisposable
               future_tool: true
             """));
 
-        _ = await Assert.That(configuration.DisabledTools).Count().IsEqualTo(4);
-        _ = await Assert.That(configuration.DisabledTools).Contains("wait_agent");
-        _ = await Assert.That(configuration.DisabledTools).Contains("wait_process");
+        _ = await Assert.That(configuration.DisabledTools).Count().IsEqualTo(2);
         _ = await Assert.That(configuration.DisabledTools).Contains("web_fetch");
         _ = await Assert.That(configuration.DisabledTools).Contains("future_tool");
         _ = await Assert.That(configuration.DisabledTools).DoesNotContain("agent_spawn");
@@ -1318,7 +1316,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         var definitions = Load(path).ToolDefinitions.Definitions;
 
-        _ = await Assert.That(definitions.Count).IsEqualTo(26);
+        _ = await Assert.That(definitions.Count).IsEqualTo(23);
         _ = await Assert.That(definitions["question"].Description)
             .StartsWith("Ask the user structured questions");
         using var question = JsonDocument.Parse(definitions["question"].ParametersJson);
@@ -1370,11 +1368,6 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(exception.Message).IsEqualTo(message);
     }
-
-    private static string SnakeCase(string name) => string.Concat(name.Select((character, index) =>
-        index > 0 && char.IsUpper(character)
-            ? $"_{char.ToLowerInvariant(character)}"
-            : char.ToLowerInvariant(character).ToString()));
 
     private Configuration Load(string path) =>
         Configuration.Load(path, Path.Combine(_directory, "predefined_config.yaml"));

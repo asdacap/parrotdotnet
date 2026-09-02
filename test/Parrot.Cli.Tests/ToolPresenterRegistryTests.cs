@@ -231,7 +231,6 @@ internal sealed class ToolPresenterRegistryTests
         var read = new ReadToolPresenter().PresentTerminal(
             new ToolCallPresentation("main", "read", "{\"path\":\"src/App.cs\",\"offset\":12}"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "12: class App", string.Empty));
-        var wait = new WaitAgentToolPresenter();
 
         var spawnReport = ((IToolPresentationValue)(spawn
             ?? throw new InvalidOperationException("Spawn report missing."))).Report;
@@ -246,8 +245,6 @@ internal sealed class ToolPresenterRegistryTests
         _ = await Assert.That(string.Join('\n', readLines)).DoesNotContain("12: class App");
         _ = await Assert.That(spawnReport.Metadata.SuccessIcon).IsEqualTo("♟");
         _ = await Assert.That(spawnReport.Metadata.TerminalOnly).IsTrue();
-        _ = await Assert.That(wait.Metadata.LiveOnly).IsTrue();
-        _ = await Assert.That(wait.Metadata.Modeline).IsTrue();
     }
 
     private sealed class SensitiveFailingToolPresenter : IToolPresenter

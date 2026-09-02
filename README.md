@@ -636,13 +636,8 @@ the user session. For a sender with a registered direct parent, the
 case-sensitive literal `parent`, actual parent ID, or actual parent friendly name
 resolves to that parent and takes precedence over a colliding direct-child
 friendly name; direct-child names resolve last. For a root sender, `parent` has
-no special meaning and can resolve a direct child with that name. `wait_agent`
-remains direct-child-only and preserves its canonical child lookup semantics: a
-canonical child ID or direct-child friendly name.
-When each child execution finishes, Parrot automatically sends its terminal
-status and result to its direct parent as normal steering input. A parent can use
-`wait_agent` when it needs to block for the retained child result instead.
-
+no special meaning and can resolve a direct child with that name.When each child execution finishes, Parrot automatically sends its terminal
+status and result to its direct parent as normal steering input.
 `agent_spawn.scope` is optional. When omitted or empty, it inherits the
 parent's scope. A supplied scope changes only the scope hierarchy in the child
 prompt; it is informational only and does not change permissions, session
@@ -657,11 +652,8 @@ Timeout output inventories only that agent's accessible queues, alongside its
 active processes and direct subagents; `queue_listen` controls wake eligibility,
 not inclusion in this agent-facing status. The external client inventory spans
 the user session and identifies each queue's owning agent, without changing
-which agents can access that queue. This activity wait is distinct from the
-specialized `wait_agent`, which reads a retained direct-child result,
-and `wait_process`, which waits for one named process.
-
-When `exec_command` or `wait_process` yields, its result carries the
+which agents can access that queue.
+When `exec_command` yields, its result carries the
 authoritative typed yielded-process handoff rather than requiring clients to
 recognize or parse result text. For a normal non-PTY pipe run, that handoff
 provides distinct absolute paths to UTF-8 text stdout and stderr files in the
@@ -769,9 +761,7 @@ built-in tool under `tools`: its description and its standard JSON Schema
 model-visible types, required fields, defaults, enums, patterns, and bounds.
 Runtime tools own execution only; their source-generated JSON deserializers,
 explicit validation, sandbox rules, security profiles, and permission checks
-remain authoritative. In particular, the shipped `grep` definition says “.NET
-non-backtracking regular expressions”; it does not claim RE2 compatibility.
-
+remain authoritative.
 Put personal settings in `config.yaml` in the same directory. It is never
 created or overwritten by loading configuration. Parrot recursively merges its
 mapping over `predefined_config.yaml`: nested mappings combine by key, and

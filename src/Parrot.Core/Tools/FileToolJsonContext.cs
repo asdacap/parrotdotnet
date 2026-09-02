@@ -6,6 +6,5 @@ namespace Parrot.Tools;
 [JsonSerializable(typeof(ReadTool.Input), TypeInfoPropertyName = "ReadToolInput")]
 [JsonSerializable(typeof(ReadImageTool.Input), TypeInfoPropertyName = "ReadImageToolInput")]
 [JsonSerializable(typeof(GlobTool.Input), TypeInfoPropertyName = "GlobToolInput")]
-[JsonSerializable(typeof(GrepTool.Input), TypeInfoPropertyName = "GrepToolInput")]
 [JsonSerializable(typeof(WebFetchTool.Input), TypeInfoPropertyName = "WebFetchToolInput")]
 internal sealed partial class FileToolJsonContext : JsonSerializerContext;

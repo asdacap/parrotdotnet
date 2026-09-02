@@ -25,8 +25,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
     [Arguments("read", "{\"path\":\"private/secret.txt\"}", "error: access denied")]
     [Arguments("read", "{\"path\":\"alias/secret.txt\"}", "error: access denied")]
     [Arguments("glob", "{\"pattern\":\"**\"}", "")]
-    [Arguments("grep", "{\"pattern\":\"secret\"}", "")]
-    [Arguments("grep", "{\"pattern\":\"secret\",\"path\":\"alias/secret.txt\"}", "error: access denied")]
     public async Task Does_not_disclose_denied_paths(
         string toolName,
         string arguments,
@@ -46,7 +44,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         {
             "read" => new ReadTool(new ToolWorkspace(_root)),
             "glob" => new GlobTool(new ToolWorkspace(_root)),
-            "grep" => new GrepTool(new ToolWorkspace(_root)),
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 
@@ -61,7 +58,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
     [Test]
     [Arguments("read", "{\"path\":\"alias/visible.txt\"}")]
     [Arguments("glob", "{\"pattern\":\"alias\"}")]
-    [Arguments("grep", "{\"pattern\":\"visible\",\"path\":\"alias/visible.txt\"}")]
     public async Task Does_not_disclose_a_denied_symlink_alias(
         string toolName,
         string arguments,
@@ -81,7 +77,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         {
             "read" => new ReadTool(new ToolWorkspace(_root)),
             "glob" => new GlobTool(new ToolWorkspace(_root)),
-            "grep" => new GrepTool(new ToolWorkspace(_root)),
             _ => throw new InvalidOperationException($"Unknown tool '{toolName}'."),
         };
 
@@ -113,16 +108,8 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             new ToolInvocation("test-call", "{\"path\":\"alias\"}"),
             Turn(security),
             cancellationToken)).Text;
-        var matches = (await new GrepTool(workspace).Execute(
-            new ToolInvocation(
-                "test-call",
-                "{\"pattern\":\"hidden\",\"path\":\"alias\"}"),
-            Turn(security),
-            cancellationToken)).Text;
-
         _ = await Assert.That(listing).Contains("visible.txt");
         _ = await Assert.That(listing).DoesNotContain("hidden.txt");
-        _ = await Assert.That(matches).IsEmpty();
     }
 
     [Test]
@@ -151,51 +138,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
     }
 
     [Test]
-    public async Task Grep_uses_a_direct_external_file_basename(CancellationToken cancellationToken)
-    {
-        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
-        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
-        var externalFile = Path.Combine(externalDirectory, "outside.txt");
-        await File.WriteAllTextAsync(externalFile, "external text", cancellationToken);
-
-        var result = (await new GrepTool(new ToolWorkspace(workspaceDirectory)).Execute(
-            new ToolInvocation(
-                "test-call",
-                FormatSearchArguments("external", externalFile)),
-            Turn(Permissive()),
-            cancellationToken)).Text;
-
-        _ = await Assert.That(result).IsEqualTo("outside.txt:1:external text\n");
-    }
-
-    [Test]
-    public async Task External_directory_searches_use_paths_relative_to_the_requested_root(
-        CancellationToken cancellationToken)
-    {
-        var workspaceDirectory = Directory.CreateDirectory(Path.Combine(_root, "workspace")).FullName;
-        var externalDirectory = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
-        var nestedDirectory = Directory.CreateDirectory(Path.Combine(externalDirectory, "nested")).FullName;
-        await File.WriteAllTextAsync(Path.Combine(nestedDirectory, "file.txt"), "external text", cancellationToken);
-        var workspace = new ToolWorkspace(workspaceDirectory);
-
-        var grep = (await new GrepTool(workspace).Execute(
-            new ToolInvocation(
-                "test-call",
-                FormatSearchArguments("external", externalDirectory)),
-            Turn(Permissive()),
-            cancellationToken)).Text;
-        var glob = (await new GlobTool(workspace).Execute(
-            new ToolInvocation(
-                "test-call",
-                FormatGlobArguments("**", externalDirectory)),
-            Turn(Permissive()),
-            cancellationToken)).Text;
-
-        _ = await Assert.That(grep).IsEqualTo("nested/file.txt:1:external text\n");
-        _ = await Assert.That(glob).IsEqualTo("nested/\nnested/file.txt\n");
-    }
-
-    [Test]
     public async Task An_external_symlink_is_readable_when_neither_path_is_denied(
         CancellationToken cancellationToken)
     {
@@ -213,12 +155,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
                 FormatPathArguments(Path.Combine("alias", "file.txt"))),
             Turn(security),
             cancellationToken)).Text;
-        var grep = (await new GrepTool(workspace).Execute(
-            new ToolInvocation(
-                "test-call",
-                FormatSearchArguments("external", Path.Combine("alias", "file.txt"))),
-            Turn(security),
-            cancellationToken)).Text;
         var glob = (await new GlobTool(workspace).Execute(
             new ToolInvocation(
                 "test-call",
@@ -227,13 +163,11 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             cancellationToken)).Text;
 
         _ = await Assert.That(read).Contains("1: external text");
-        _ = await Assert.That(grep).IsEqualTo("file.txt:1:external text\n");
         _ = await Assert.That(glob).IsEqualTo("file.txt\n");
     }
 
     [Test]
     [Arguments("read")]
-    [Arguments("grep")]
     [Arguments("glob")]
     public async Task A_lexically_denied_external_symlink_root_is_rejected(
         string toolName,
@@ -257,7 +191,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
 
     [Test]
     [Arguments("read")]
-    [Arguments("grep")]
     [Arguments("glob")]
     public async Task A_physically_denied_external_symlink_root_is_rejected(
         string toolName,
@@ -301,12 +234,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
                 FormatPathArguments(externalDirectory)),
             Turn(security),
             cancellationToken)).Text;
-        var grep = (await new GrepTool(workspace).Execute(
-            new ToolInvocation(
-                "test-call",
-                FormatSearchArguments("matching", externalDirectory)),
-            Turn(security),
-            cancellationToken)).Text;
         var glob = (await new GlobTool(workspace).Execute(
             new ToolInvocation(
                 "test-call",
@@ -315,7 +242,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
             cancellationToken)).Text;
 
         _ = await Assert.That(read).IsEqualTo("visible.txt\n");
-        _ = await Assert.That(grep).IsEqualTo("visible.txt:1:matching text\n");
         _ = await Assert.That(glob).IsEqualTo("visible.txt\n");
     }
 
@@ -328,12 +254,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
         {
             "read" => (await new ReadTool(workspace).Execute(
                 new ToolInvocation("test-call", FormatPathArguments(path)),
-                Turn(security),
-                cancellationToken)).Text,
-            "grep" => (await new GrepTool(workspace).Execute(
-                new ToolInvocation(
-                    "test-call",
-                    FormatSearchArguments("external", path)),
                 Turn(security),
                 cancellationToken)).Text,
             "glob" => (await new GlobTool(workspace).Execute(
@@ -349,14 +269,6 @@ internal sealed class FilesystemReadSecurityTests : IDisposable
 
     private static string FormatPathArguments(string path) =>
         string.Concat("{\"path\":\"", JsonEncodedText.Encode(path), "\"}");
-
-    private static string FormatSearchArguments(string pattern, string path) =>
-        string.Concat(
-            "{\"pattern\":\"",
-            JsonEncodedText.Encode(pattern),
-            "\",\"path\":\"",
-            JsonEncodedText.Encode(path),
-            "\"}");
 
     private static string FormatGlobArguments(string pattern, string path) =>
         string.Concat(

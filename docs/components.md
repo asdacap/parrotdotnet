@@ -859,9 +859,7 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   the case-sensitive literal `parent`, actual parent id, or actual parent
   friendly name resolves to that parent and takes precedence over a colliding
   direct-child friendly name; direct-child names resolve last. A root therefore
-  falls through and may resolve its direct child named `parent`. `wait_agent`
-  remains direct-child-only and retains its ordinary child resolution: a
-  canonical child id or direct-child friendly name, without a parent alias.
+  falls through and may resolve its direct child named `parent`.
 - **Outbound** `Configuration`, `AgentSession`.
 - **Boundary** no.
 - **Security inheritance.** A spawned child restricts its configured profile
@@ -877,8 +875,7 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   creates, names, retains, observes, and owns the lifetime of background child
   sessions. It does not admit input or wait for turns: those operations belong
   to the retrieved `AgentSession`, keeping one owner for drain concurrency and
-  terminal results. `agent_spawn` returns immediately and `wait_agent` waits or
-  yields without canceling the child. Each child publishes a durable
+  terminal results. `agent_spawn` returns immediately without canceling the child. Each child publishes a durable
   `AgentStarted` event followed by exactly one `AgentFinished` or `AgentFailed`
   event; cancellation is a failure carrying the retained interruption message.
   User-session shutdown cancels and joins every child. Profiles, generic task
@@ -919,7 +916,6 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   execution reports after its durable terminal lifecycle event; an idle child
   parent receives it through its own execution lifecycle so nested completions
   propagate one level at a time. The root admits it as ordinary steering input.
-  `wait_agent` remains a retained-result read and never creates a notification.
   Unlike upstream's process-wide asynchronous notifier, this registry-scoped
   path is awaited by the terminal child execution and is bounded by the
   user-session registry lifetime. Parent delivery failures are best effort and
@@ -1003,8 +999,7 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   `error: Tool argument 'env' must contain only string values.`; and a name
   that is empty or contains `=` or NUL, or a value containing NUL, reports
   `error: Tool argument 'env' contains an invalid environment value.`
-  `wait_process` requires `name` and accepts
-  optional `yield_after_ms`; `interrupt_process` requires `name` and accepts an
+  `interrupt_process` requires `name` and accepts an
   optional integer `signal` from 1 through 64, defaulting to 2 (`SIGINT`). The
   host may reject an in-range number that is not a valid signal at runtime. The
   signal is sent only to the tracked outer wrapper: the outer bubblewrap process
@@ -1015,7 +1010,7 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   not wait, escalate, consume output, or retire the process. If the wrapper survives,
   the process stays reserved and running, and ordinary later completion handles
   its result. User-session lifetime cancellation and disposal still force-kill
-  the entire process tree. A yield from `exec_command` or `wait_process` returns
+  the entire process tree. A yield from `exec_command` returns
   the authoritative typed yielded-process handoff without stopping the process;
   clients do not infer the handoff by parsing ordinary result text. For a normal
   non-PTY pipe run, the handoff contains distinct absolute paths to UTF-8 text
@@ -1027,22 +1022,18 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   through its durable steer queue unless a successful wait claims it.
   Non-yielded executions retain their ordinary terminal result behavior, and
   normal completed-result formatting and overflow notices remain compatible.
-  `wait_process` replaces the earlier `wait_shell` name so the lifecycle tools
-  use process terminology.
 - **Generic activity wait.** `wait` pauses the invoking agent for incoming
   activity and returns early for a new message, direct-child completion,
   unclaimed yielded-process completion, or an item from an accessible queue the
   invoker enabled through `queue_listen`. Listening registrations are per
   invoking agent: enabling a queue for one consumer neither enables nor disables
-  it for another. This differs from the specialized waits: `wait_agent` reads or
-  awaits one retained direct-child result, while `wait_process` awaits one named
-  process.
+  it for another.
 - **Builtin mutations.** `write` creates or replaces one file with exact UTF-8
   content. `edit` performs exact ordinal string replacement; without
   `replace_all` it requires exactly one match, while `replace_all` permits zero
   or more. Both write directly under the active filesystem security profile;
   they do not restore the dropped transactional change machinery.
-- **Filesystem policy.** `read`, `glob`, `grep`, `write`, and `edit` operate
+- **Filesystem policy.** `read`, `glob`, `write`, and `edit` operate
   under the active filesystem security profile. The host root is read-only by
   default; configured `deny_read` rules remain effective, and `allow_write`
   rules grant only their matched paths. Runtime-owned plans and blobs remain
@@ -1056,14 +1047,6 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   Structural schema and descriptions come entirely from merged configuration;
   runtime deserialization, validation, execution, and security remain separate
   authorities and may intentionally differ after a user override.
-- **Divergence** `grep` uses .NET's `RegexOptions.NonBacktracking` engine
-  rather than Go's RE2. The two reject the same pathological inputs (both
-  guarantee linear time), but the accepted syntax differs: .NET non-backtracking
-  does not support backreferences, lookaheads, or lookbehinds, while RE2 does
-  not support backreferences either but has a different unicode class syntax.
-  The tool description says ".NET non-backtracking regular expressions" rather
-  than claiming RE2 compatibility.
-
 ### `IToolFactory` — rank 7, M3
 
 - **Absorbs** the registry half of `tool`.

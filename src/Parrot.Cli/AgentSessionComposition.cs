@@ -29,7 +29,6 @@ internal partial class AgentSessionComposition
                 ctx.Inject<ShellProcessOwner>(out var processes);
                 return arguments.ToolFactories
                     .Prepend<IToolFactory>(new InterruptProcessToolFactory(processes))
-                    .Prepend(new WaitProcessToolFactory(processes))
                     .Prepend(new WriteStdinToolFactory(processes))
                     .Prepend(new ExecCommandToolFactory(processes))
                     .ToArray();

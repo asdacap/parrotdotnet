@@ -435,9 +435,7 @@ internal sealed class EnhancedHierarchyTests
         using var view = new RawActivityView(
             Draw,
             Commit,
-            new ToolPresenterRegistry(
-                [new WaitAgentToolPresenter(), new WaitProcessToolPresenter()],
-                new GenericToolPresenter()),
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
             static (_, _) => Task.CompletedTask);
         await view.Render(
             new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
@@ -453,38 +451,6 @@ internal sealed class EnhancedHierarchyTests
             new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
             cancellationToken);
         await view.Render(
-            new Event
-            {
-                AgentSessionId = "child",
-                ToolStarted = new ToolStarted { ToolCallId = "agent-wait", ToolName = "wait_agent" },
-            },
-            cancellationToken);
-
-        _ = await Assert.That(drawn[^1]).Contains("⠋ [worker] agent worker Working: wait_agent");
-        _ = await Assert.That(drawn[^1]).DoesNotContain("  ⠋ [worker] agent worker Working: wait_agent");
-        _ = await Assert.That(drawn[^1]).DoesNotContain("Wait for");
-
-        await view.Render(
-            new Event
-            {
-                AgentSessionId = "child",
-                ToolStarted = new ToolStarted { ToolCallId = "process-wait", ToolName = "wait_process" },
-            },
-            cancellationToken);
-
-        _ = await Assert.That(drawn[^1]).Contains("Working: wait_process");
-        _ = await Assert.That(drawn[^1]).DoesNotContain("wait process-wait");
-
-        await view.Render(
-            new Event
-            {
-                AgentSessionId = "child",
-                ToolFinished = new ToolFinished { ToolCallId = "process-wait", ToolName = "wait_process" },
-            },
-            cancellationToken);
-
-        _ = await Assert.That(drawn[^1]).Contains("Working: wait_agent");
-        await view.Render(
             new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "completed work" } },
             cancellationToken);
         await view.Render(
@@ -493,14 +459,6 @@ internal sealed class EnhancedHierarchyTests
 
         _ = await Assert.That(string.Join('|', committed))
             .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished");
-        await view.Render(
-            new Event
-            {
-                AgentSessionId = "child",
-                ToolCancelled = new ToolCancelled { ToolCallId = "agent-wait", ToolName = "wait_agent" },
-            },
-            cancellationToken);
-
         _ = await Assert.That(string.Join('|', committed))
             .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished");
         _ = await Assert.That(drawn[^1]).DoesNotContain("agent main");

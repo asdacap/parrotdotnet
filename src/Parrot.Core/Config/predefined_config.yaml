@@ -408,7 +408,6 @@ profiles:
       - set_checkpoint
       - read
       - agent_send
-      - wait_agent
       - wait
     max_turns: 256
     recursion_limit: 1
@@ -524,7 +523,7 @@ tools:
       visibility target, but child-process buffering is outside Parrot's control. The files remain after completion and session
       resume. PTY runs are excluded and pathless. Completed formatting and overflow notices remain compatible. All normal-pipe
       output is retained, and oversized completed output may additionally create the legacy formatted blob; quotas and garbage
-      collection are not included. Completion after a yield is steered back to this agent unless wait_process claims it.
+      collection are not included. Completion after a yield is steered back to this agent.
     parameters:
       type: object
       properties:
@@ -562,24 +561,6 @@ tools:
         path:
           type: string
           description: Optional workspace-relative or authorized absolute directory to search.
-      required:
-      - pattern
-      additionalProperties: false
-  grep:
-    description: Search text files with .NET non-backtracking regular expressions. Relative paths resolve within the workspace;
-      absolute paths require read permission.
-    parameters:
-      type: object
-      properties:
-        pattern:
-          type: string
-          description: .NET non-backtracking regular expression to search for.
-        path:
-          type: string
-          description: Optional workspace-relative or authorized absolute file or directory to search.
-        include:
-          type: string
-          description: Optional root-relative glob pattern restricting searched files, including **.
       required:
       - pattern
       additionalProperties: false
@@ -935,43 +916,6 @@ tools:
           default: 10000
           description: Maximum time to wait in milliseconds.
       additionalProperties: false
-  wait_agent:
-    description: Wait for a child agent session to complete, yielding if the requested period elapses. Canonical session IDs
-      resolve globally; friendly names resolve among this session's direct children. Waiting never stops the agent.
-    parameters:
-      type: object
-      properties:
-        session_id:
-          type: string
-          minLength: 1
-          description: Child agent session ID or friendly name.
-        yield_after_ms:
-          type: integer
-          minimum: 0
-          description: Yield if the agent has not completed after this many milliseconds. Zero or omitted waits indefinitely.
-      required:
-      - session_id
-      additionalProperties: false
-  wait_process:
-    description: Wait for a shell process owned by this agent session. A timeout returns its authoritative typed yielded-process
-      handoff without stopping it, allowing a later wait. Normal non-PTY pipe handoffs include distinct absolute UTF-8 text
-      stdout and stderr paths in this agent's scratch blob area; do not parse result text. New Parrot chunks have an approximately
-      100 ms normal-local-load visibility target, subject to child-process buffering. Files persist after completion and session
-      resume. PTY is excluded and pathless; completed formatting and overflow notices remain compatible. All normal-pipe output
-      is retained, oversized completed output may also have the legacy formatted blob, and quotas and garbage collection are not
-      included.
-    parameters:
-      type: object
-      properties:
-        name:
-          type: string
-          description: Reserved shell process name
-        yield_after_ms:
-          type: integer
-          minimum: 0
-          description: Return the process name if still running after this many milliseconds
-      required:
-      - name
   web_fetch:
     description: Fetch bounded HTTP or HTTPS text with GET or HEAD after exact network permission review.
     parameters:
@@ -1025,9 +969,7 @@ tools:
       additionalProperties: false
 # Tools disabled globally, keyed by tool ID. True disables a tool; false in a
 # higher-precedence layer re-enables an inherited disabled entry.
-disabled_tools:
-  wait_agent: true
-  wait_process: true
+disabled_tools: {}
 
 # Child-agent concurrency and nesting limits.
 subagents:

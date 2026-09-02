@@ -611,7 +611,7 @@ internal sealed class EventPayloadTests
             LLMEventKind.TextDelta => LLMEvent.TextDelta("fragment"),
             LLMEventKind.ReasoningDelta => LLMEvent.ReasoningDelta(
                 "thought", LLMReasoningKind.Summary, "reasoning-1", completed: true),
-            LLMEventKind.ToolCallDelta => LLMEvent.ToolCallDelta("call", "grep", "{}"),
+            LLMEventKind.ToolCallDelta => LLMEvent.ToolCallDelta("call", "glob", "{}"),
             _ => LLMEvent.Retry(2, TimeSpan.FromSeconds(1), "429"),
         };
 

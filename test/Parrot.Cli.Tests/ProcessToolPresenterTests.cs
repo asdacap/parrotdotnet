@@ -317,20 +317,6 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
-    public async Task Wait_process_is_live_only_and_modeline_eligible()
-    {
-        var presenter = new WaitProcessToolPresenter();
-        var call = new ToolCallPresentation("main", "wait_process", "{\"name\":\"build\"}");
-        var terminal = new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, "build", string.Empty);
-
-        var live = (IToolPresentationValue)presenter.PresentLive(call, 0);
-
-        _ = await Assert.That(live.Report.Metadata.LiveOnly).IsTrue();
-        _ = await Assert.That(live.Report.Metadata.Modeline).IsTrue();
-        _ = await Assert.That(presenter.PresentTerminal(call, terminal)).IsNull();
-    }
-
-    [Test]
     [MethodDataSource(nameof(Presentations))]
     public async Task Presenters_render_tool_specific_labels_details_and_reported_failures(
         IToolPresenter presenter,

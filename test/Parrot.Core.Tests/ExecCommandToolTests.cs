@@ -132,9 +132,8 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(Path.GetDirectoryName(spilledPath)).IsEqualTo(scratch.BlobDirectory);
 
         var yielded = await Execute(tool, """{"command":"sleep 0.05; printf '%s' \"$LATER_VALUE\"","env":{"LATER_VALUE":"later"},"name":"later","yield_after_ms":0}""", selection, cancellationToken);
-        var waited = await Execute(new WaitProcessTool(processes), """{"name":"later"}""", selection, cancellationToken);
+        var waited = (await processes.Claim("later").Wait(null, cancellationToken)).Format();
         var reusedAfterCompletion = await Execute(tool, """{"command":"printf reused","name":"later"}""", selection, cancellationToken);
-        var unknown = await Execute(new WaitProcessTool(processes), """{"name":"missing"}""", selection, cancellationToken);
         var defaultSignalProcess = await Execute(
             tool,
             """{"command":"sleep 30","name":"default-signal","yield_after_ms":0}""",
@@ -145,11 +144,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             """{"name":"default-signal"}""",
             selection,
             cancellationToken);
-        var defaultCompletion = await Execute(
-            new WaitProcessTool(processes),
-            """{"name":"default-signal"}""",
-            selection,
-            cancellationToken);
+        var defaultCompletion = (await processes.Claim("default-signal").Wait(null, cancellationToken)).Format();
         var running = await Execute(tool, """{"command":"sleep 30","name":"running","yield_after_ms":0}""", selection, cancellationToken);
         var runningDuplicate = await Execute(tool, """{"command":"true","name":"running"}""", selection, cancellationToken);
         var signaled = await Execute(
@@ -158,7 +153,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             selection,
             cancellationToken);
         var killed = await Execute(new InterruptProcessTool(processes), """{"name":"running","signal":9}""", selection, cancellationToken);
-        var waitedAfterKill = await Execute(new WaitProcessTool(processes), """{"name":"running"}""", selection, cancellationToken);
+        var waitedAfterKill = (await processes.Claim("running").Wait(null, cancellationToken)).Format();
         var reusedAfterKill = await Execute(tool, """{"command":"printf restarted","name":"running"}""", selection, cancellationToken);
         var invalidLowSignal = await Execute(
             new InterruptProcessTool(processes),
@@ -180,22 +175,21 @@ internal sealed class ExecCommandToolTests : IDisposable
         _ = await Assert.That(yielded.Text).Contains("\nstderr: ");
         _ = await Assert.That(yielded.YieldedProcess?.StdoutPath).IsNotNull();
         _ = await Assert.That(yielded.YieldedProcess?.StderrPath).IsNotNull();
-        _ = await Assert.That(waited.Text).StartsWith("Process exited with code 0 after ");
-        _ = await Assert.That(waited.Text).EndsWith("s\n[stdout]\nlater");
+        _ = await Assert.That(waited).StartsWith("Process exited with code 0 after ");
+        _ = await Assert.That(waited).EndsWith("s\n[stdout]\nlater");
         _ = await Assert.That(reusedAfterCompletion.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(reusedAfterCompletion.Text).EndsWith("s\n[stdout]\nreused");
-        _ = await Assert.That(unknown.Text).IsEqualTo("error: Unknown shell process 'missing'.");
         _ = await Assert.That(defaultSignalProcess.Text)
             .StartsWith("default-signal\nProcess output is streaming.\nstdout: ");
         _ = await Assert.That(defaultSignaled.Text).IsEqualTo("Signal 2 sent to shell process 'default-signal'.");
-        _ = await Assert.That(defaultCompletion.Text).StartsWith("Process exited with code ");
+        _ = await Assert.That(defaultCompletion).StartsWith("Process exited with code ");
         _ = await Assert.That(running.Text)
             .StartsWith("running\nProcess output is streaming.\nstdout: ");
         _ = await Assert.That(runningDuplicate.Text)
             .IsEqualTo("error: Shell process name 'running' is already reserved.");
         _ = await Assert.That(signaled.Text).IsEqualTo("Signal 17 sent to shell process 'running'.");
         _ = await Assert.That(killed.Text).IsEqualTo("Signal 9 sent to shell process 'running'.");
-        _ = await Assert.That(waitedAfterKill.Text).StartsWith("Process exited with code ");
+        _ = await Assert.That(waitedAfterKill).StartsWith("Process exited with code ");
         _ = await Assert.That(reusedAfterKill.Text).StartsWith("Process exited with code 0 after ");
         _ = await Assert.That(reusedAfterKill.Text).EndsWith("s\n[stdout]\nrestarted");
         _ = await Assert.That(invalidLowSignal.Text)
@@ -207,13 +201,6 @@ internal sealed class ExecCommandToolTests : IDisposable
 
     private static Task<ToolExecutionResult> Execute(
         ExecCommandTool tool,
-        string argumentsJson,
-        AgentTurnSelection selection,
-        CancellationToken cancellationToken) =>
-        tool.Execute(new ToolInvocation("call-id", argumentsJson), selection, cancellationToken);
-
-    private static Task<ToolExecutionResult> Execute(
-        WaitProcessTool tool,
         string argumentsJson,
         AgentTurnSelection selection,
         CancellationToken cancellationToken) =>
