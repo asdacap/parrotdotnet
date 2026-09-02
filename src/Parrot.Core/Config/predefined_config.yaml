@@ -468,10 +468,12 @@ cli_utilities:
   optional:
     - bat
     - bun
+    - cal
     - cargo
     - clang
     - cmake
     - composer
+    - date
     - delta
     - deno
     - docker
@@ -501,7 +503,11 @@ cli_utilities:
     - ruby
     - rustc
     - shellcheck
+    - sleep
     - swift
+    - time
+    - timeout
+    - touch
     - tree
     - yarn
 
