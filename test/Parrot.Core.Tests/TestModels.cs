@@ -157,7 +157,7 @@ internal static class TestModels
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
         var catalog = new AgentQueueCatalog(resources);
         var registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, lifetime);
-        registry.AttachStatus(new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates));
+        registry.AttachStatus(new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System));
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
@@ -185,7 +185,7 @@ internal static class TestModels
             ProfileRegistry(),
             TestModels.PromptTemplates,
             lifetime);
-        var status = new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         if (identity.ParentSessionId.Length > 0)
         {

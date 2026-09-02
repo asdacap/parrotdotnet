@@ -46,7 +46,8 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(Roles(provider.Requests[0])).IsEqualTo("System | User");
             _ = await Assert.That(provider.Requests[0].Instructions).IsNotEmpty();
             var buildStatus = provider.Requests[0].Messages[0].Content;
-            _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Prompt}\n\nRuntime:\n- agent: main-agent (");
+            _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Prompt}\n\nGenerated at: ");
+            _ = await Assert.That(buildStatus).Contains("\n\nRuntime:\n- agent: main-agent (");
             _ = await Assert.That(CountOccurrences(buildStatus, session.Mode.Prompt)).IsEqualTo(1);
             await AssertStatusOrder(buildStatus, "Active profile: build");
             provider.Release();

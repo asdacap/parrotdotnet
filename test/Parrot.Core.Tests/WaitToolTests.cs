@@ -59,7 +59,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var subagents = new AgentStatusSource(
             new ActiveAgentSnapshot("child", "agent", "worker"));
         var tool = new WaitTool(
-            new RuntimeStatus(queueCatalog, processes, subagents, TestModels.PromptTemplates),
+            new RuntimeStatus(queueCatalog, processes, subagents, TestModels.PromptTemplates, TimeProvider.System),
             session,
             time);
 
@@ -105,7 +105,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var unobservedProcesses = new UnobservedProcessStatusSource();
         var unobservedAgents = new UnobservedAgentStatusSource();
         var tool = new WaitTool(
-            new RuntimeStatus(queueCatalog, unobservedProcesses, unobservedAgents, TestModels.PromptTemplates),
+            new RuntimeStatus(queueCatalog, unobservedProcesses, unobservedAgents, TestModels.PromptTemplates, TimeProvider.System),
             session,
             TimeProvider.System);
         _ = repository.Admit(
@@ -131,7 +131,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         var tool = new WaitTool(
-            new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource(), TestModels.PromptTemplates),
+            new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource(), TestModels.PromptTemplates, TimeProvider.System),
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken);
@@ -151,7 +151,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         var tool = new WaitTool(
-            new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource(), TestModels.PromptTemplates),
+            new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource(), TestModels.PromptTemplates, TimeProvider.System),
             session,
             TimeProvider.System);
         var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken);
@@ -177,7 +177,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var unobservedProcesses = new UnobservedProcessStatusSource();
         var unobservedAgents = new UnobservedAgentStatusSource();
         var tool = new WaitTool(
-            new RuntimeStatus(queueCatalog, unobservedProcesses, unobservedAgents, TestModels.PromptTemplates),
+            new RuntimeStatus(queueCatalog, unobservedProcesses, unobservedAgents, TestModels.PromptTemplates, TimeProvider.System),
             session,
             TimeProvider.System);
         using var canceled = new CancellationTokenSource();
@@ -201,7 +201,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         var processes = new ProcessStatusSource();
         var agents = new AgentStatusSource();
-        var factory = new WaitToolFactory(new RuntimeStatus(queueCatalog, processes, agents, TestModels.PromptTemplates), TimeProvider.System);
+        var factory = new WaitToolFactory(new RuntimeStatus(queueCatalog, processes, agents, TestModels.PromptTemplates, TimeProvider.System), TimeProvider.System);
         var session = Session(provider, [factory], repository, queueCatalog, queues);
 
         _ = await session.Admit("first", "message-1", Delivery.Steer, cancellationToken);
@@ -486,7 +486,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var processOwner = processes.Prepare(identity.SessionId);
         processes.Register(processOwner);
         var registry = PrepareRegistry(repository);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new TodoCollection("agent", repository, _broker), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, registry, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
         queues.Attach(session);

@@ -55,7 +55,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var status = new RuntimeStatus(queues, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queues, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var parent = factory.Build(
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
@@ -118,7 +118,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var status = new RuntimeStatus(queues, processes, registry, TestModels.PromptTemplates);
+        var status = new RuntimeStatus(queues, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var parent = factory.Build(
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
