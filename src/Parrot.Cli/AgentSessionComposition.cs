@@ -131,7 +131,12 @@ internal partial class AgentSessionComposition
             .Bind<AgentSpawnToolFactory>().As(Lifetime.Scoped).To<AgentSpawnToolFactory>()
             .Bind<RunAgentTasksToolFactory>().As(Lifetime.Scoped).To<RunAgentTasksToolFactory>()
             .Bind<SetCheckpointToolFactory>().As(Lifetime.Scoped).To<SetCheckpointToolFactory>()
-            .Bind<SetExitReminderToolFactory>().As(Lifetime.Scoped).To<SetExitReminderToolFactory>()
+            .Bind<SetExitReminderToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<ExitReminder>(out var reminder);
+                return new SetExitReminderToolFactory(reminder, arguments.PromptTemplates);
+            })
             .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To<AgentSendToolFactory>()
             .Bind<AgentStatusToolFactory>().As(Lifetime.Scoped).To<AgentStatusToolFactory>()
             .Bind<WaitToolFactory>().As(Lifetime.Scoped).To<WaitToolFactory>()
