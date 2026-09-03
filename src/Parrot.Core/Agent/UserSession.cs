@@ -81,7 +81,8 @@ internal sealed class UserSession : IAsyncDisposable
         QueueCatalog = agentSessionFactories.CreateQueueCatalog(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
         _agentSessions = agentSessionFactories.Create(this);
-        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, _lifetime.Token);
+        var retainedAgents = new RetainedAgentBudget(1024);
+        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, _lifetime.Token);
         Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry, _promptTemplates, TimeProvider);
         Registry.AttachStatus(Status);
         foreach (var agentSessionId in _eventRepository.AgentHistorySessionIds())
@@ -287,8 +288,8 @@ internal sealed class UserSession : IAsyncDisposable
         return admission;
     }
 
-    // Stops the main turn in flight. Registry-owned children outlive the tool
-    // call that spawned them and are stopped separately at user-session shutdown.
+    // Stops the main turn in flight. Parent-owned children outlive the tool
+    // call that spawned them and are stopped recursively at user-session shutdown.
     public Task Interrupt(CancellationToken cancellationToken) =>
         Main().Interrupt(cancellationToken);
 

@@ -9,6 +9,7 @@ internal sealed record AgentIdentity(
     string Name,
     int Depth,
     AgentScope Scope,
+    AgentPolicyLineage PolicyLineage,
     PromptTemplateCatalog PromptTemplates)
 {
     public string Context
@@ -47,6 +48,7 @@ internal sealed record AgentIdentity(
             rootAgentName,
             0,
             AgentScope.Empty(promptTemplates),
+            AgentPolicyLineage.Root(),
             promptTemplates);
 
     public static AgentIdentity Child(
@@ -57,5 +59,24 @@ internal sealed record AgentIdentity(
         int depth,
         AgentScope scope,
         PromptTemplateCatalog promptTemplates) =>
-        new(sessionId, parentSessionId, parentSessionName, name, depth, scope, promptTemplates);
+        new(
+            sessionId,
+            parentSessionId,
+            parentSessionName,
+            name,
+            depth,
+            scope,
+            AgentPolicyLineage.Root(),
+            promptTemplates);
+
+    public static AgentIdentity ChildWithPolicyLineage(
+        string sessionId,
+        string parentSessionId,
+        string parentSessionName,
+        string name,
+        int depth,
+        AgentScope scope,
+        AgentPolicyLineage policyLineage,
+        PromptTemplateCatalog promptTemplates) =>
+        new(sessionId, parentSessionId, parentSessionName, name, depth, scope, policyLineage, promptTemplates);
 }

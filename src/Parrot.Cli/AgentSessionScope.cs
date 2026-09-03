@@ -10,7 +10,8 @@ internal sealed class AgentSessionScope(
     ChildQuestionCoordinator childQuestions,
     AgentQueues queues) : IAgentSessionScope
 {
-    private bool _disposed;
+    private readonly Lock _gate = new();
+    private Task? _shutdown;
 
     public AgentSession Session { get; } = session;
 
@@ -20,13 +21,23 @@ internal sealed class AgentSessionScope(
 
     public ValueTask DisposeAsync()
     {
-        if (!_disposed)
+        lock (_gate)
         {
-            _disposed = true;
+            _shutdown ??= ShutDown();
+            return new ValueTask(_shutdown);
+        }
+    }
+
+    private async Task ShutDown()
+    {
+        try
+        {
+            await ChildRegistry.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
             ChildQuestions.Dispose();
             queues.Dispose();
         }
-
-        return ValueTask.CompletedTask;
     }
 }

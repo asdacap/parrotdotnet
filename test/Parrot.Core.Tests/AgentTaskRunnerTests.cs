@@ -594,7 +594,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         await canceled.CancelAsync();
         _ = await Assert.That(running).Throws<OperationCanceledException>();
 
-        _ = await Assert.That(registry.ActiveDirectChildren(runtime.Parent.SessionId)).IsEmpty();
+        _ = await Assert.That(runtime.Parent.ChildRegistry.ObserveActive()).IsEmpty();
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(snapshots[^1].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Canceled);
@@ -644,7 +644,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             cancellationToken);
         var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        var parentScope = AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) => new AgentSession(
+        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (children, childQuestions) => new AgentSession(
             identity,
             new ModelSelector($"{provider.Id}/model"),
             router,
@@ -662,7 +662,6 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             dependencies.Profile,
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,
-            registry,
             children,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),

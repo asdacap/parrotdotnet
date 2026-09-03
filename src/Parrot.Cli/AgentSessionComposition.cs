@@ -68,7 +68,7 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ChildRegistry(arguments.Identity, arguments.Registry);
+                return new ChildRegistry(arguments.Identity, arguments.ParentScope, arguments.Registry);
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
@@ -106,7 +106,6 @@ internal partial class AgentSessionComposition
                     arguments.Mode,
                     arguments.Security,
                     arguments.Status,
-                    arguments.Registry,
                     children,
                     arguments.Queues,
                     activity,

@@ -43,7 +43,6 @@ internal sealed class AgentSession(
     IMode mode,
     AgentSessionSecurity security,
     RuntimeStatus status,
-    AgentRegistry registry,
     ChildRegistry childRegistry,
     AgentQueues queues,
     AgentSessionActivity activity,
@@ -129,8 +128,6 @@ internal sealed class AgentSession(
     internal AgentIdentity Identity => identity;
 
     internal ChildRegistry ChildRegistry { get; } = childRegistry;
-
-    internal AgentRegistry Registry => registry;
 
     internal AgentSessionActivity Activity { get; } = activity
         ?? throw new ArgumentNullException(nameof(activity));
@@ -274,9 +271,18 @@ internal sealed class AgentSession(
         _ = eventRepository.RecordCheckpoint(SessionId, title, assistantSequence, toolCallId);
     }
 
-    internal AgentSelection ResolvePolicySelection() => registry?.ResolveSelection(this) ?? Selection();
+    internal AgentSelection ResolvePolicySelection()
+    {
+        var selected = Selection();
+        return selected with
+        {
+            SecurityProfile = identity.PolicyLineage.Resolve(selected.SecurityProfile),
+        };
+    }
 
     internal AgentScope ResolveScope() => identity.Scope;
+
+    internal AgentPolicyLineage ResolvePolicyLineage() => identity.PolicyLineage;
 
     internal bool IsIdle() => State == DrainState.Idle;
 
@@ -836,7 +842,7 @@ internal sealed class AgentSession(
         }
 
         Activity.FinishExecution(activityExecution, completed);
-        await registry.Deliver(identity, completed).ConfigureAwait(false);
+        await ChildRegistry.DeliverCompletion(identity, completed).ConfigureAwait(false);
 
         return completed;
     }

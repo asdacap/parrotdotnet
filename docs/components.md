@@ -872,10 +872,12 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 ### `AgentRegistry` — rank 9, M5
 
 - **Absorbs** `agent` (registry, provider resolution), `subagent`.
-- **Owns** agent profiles, the user-session-wide canonical child session table,
-  per-parent direct-child friendly-name namespaces, recursion limits, and
-  **the lifetime of every spawned child session**.
-- **Inbound** resolve an agent profile; create and retrieve a child session.
+- **Owns** user-session admission, the shared retained-agent budget and cancellation
+  boundary, root scope registration, and non-owning canonical status traversal.
+  Each agent-scoped `ChildRegistry` exclusively owns that agent's direct-child
+  scopes, friendly-name namespace, pending reservations, recursion accounting,
+  completion policy, and child lifetime.
+- **Inbound** register the root and coordinate session-wide profile, budget, and status services. Child creation and retrieval enter through the owning `ChildRegistry`.
   Friendly names are unique and resolvable only among one caller's direct
   children. `agent_send` can address the sender's direct parent or a descendant
   within the sender's own descendant tree and user session. Descendants use
@@ -899,10 +901,11 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   branch-local. The user-session scratch root is a mandatory runtime write grant
   applied after this inheritance, so it remains writable to every agent in that
   user session.
-- **Note** mutually dependent with `AgentSession`; both rank 9. The registry
-  creates, names, retains, observes, and owns the lifetime of background child
-  sessions. It does not admit input or wait for turns: those operations belong
-  to the retrieved `AgentSession`, keeping one owner for drain concurrency and
+- **Note** mutually dependent with `AgentSession`; both rank 9. A scoped
+  `ChildRegistry` creates, names, retains, observes, and owns each direct child;
+  recursive traversal follows those ownership edges. The user-session registry
+  never owns or disposes non-root scopes. Neither registry admits input or waits
+  for turns: those operations belong to the retrieved `AgentSession`, keeping one owner for drain concurrency and
   terminal results. `agent_spawn` returns immediately without canceling the child. Each child publishes a durable
   `AgentStarted` event followed by exactly one `AgentFinished` or `AgentFailed`
   event; cancellation is a failure carrying the retained interruption message.
@@ -939,8 +942,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   or any other runtime authority.
 - **Completion delivery.** Absorbing the terminal notification path from
   `internal/agent`, `internal/tool`, and the former `internal/subagent`
-  completion notifier, the registry resolves only a child's registered direct
-  parent and admits a bounded, trusted terminal notification there. A child
+  completion notifier, the spawning parent's `ChildRegistry` snapshots its
+  direct-child completion policy and parent endpoint, then admits a bounded,
+  trusted terminal notification outside its lock. A child
   execution reports after its durable terminal lifecycle event; an idle child
   parent receives it through its own execution lifecycle so nested completions
   propagate one level at a time. The root admits it as ordinary steering input.
