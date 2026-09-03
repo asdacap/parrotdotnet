@@ -27,20 +27,20 @@ internal sealed partial class SubagentTests
         var coordinator = TestModels.CreateChildQuestions(parent);
         var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
         var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "child"));
-        var options = new[] { new QuestionOption("blue", "Blue") };
-        var questions = new[] { new QuestionDefinition("colour", "Colour", "Pick", options, false, false) };
+        var options = new[] { "Blue" };
+        var questions = new[] { new QuestionDefinition("Colour", "Pick", options, false, false) };
         var asking = coordinator.Ask(child, questions, cancellationToken);
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         await provider.Arrived(cancellationToken);
         var steer = string.Join('\n', provider.Requests.Single().Messages.Select(message => message.Content));
 
         _ = await Assert.That(steer).Contains($"Child agent {child.Name} ({child.SessionId})");
-        _ = await Assert.That(steer).Contains("Question ID: colour");
+        _ = await Assert.That(steer).Contains("Question 1:");
         _ = await Assert.That(steer).Contains("Header: Colour");
         _ = await Assert.That(steer).Contains("Prompt: Pick");
         _ = await Assert.That(steer).Contains("Multiple: false");
         _ = await Assert.That(steer).Contains("Custom: false");
-        _ = await Assert.That(steer).Contains("- blue: Blue");
+        _ = await Assert.That(steer).Contains("- Blue");
         _ = await Assert.That(_repository.Replay()).Contains(published =>
             published.AgentSessionId == parent.SessionId
             && published.PayloadCase == ProtocolEvent.PayloadOneofCase.InputAdmitted
@@ -48,13 +48,13 @@ internal sealed partial class SubagentTests
         provider.Release();
         await parent.Settled();
 
-        options[0] = new QuestionOption("red", "Red");
-        questions[0] = new QuestionDefinition("changed", string.Empty, "Changed", [], false, true);
+        options[0] = "Red";
+        questions[0] = new QuestionDefinition(string.Empty, "Changed", [], false, true);
 
         _ = await Assert.That(pending.AskingAgentSessionId).IsEqualTo(child.SessionId);
         _ = await Assert.That(pending.AskingAgentName).IsEqualTo(child.Name);
         _ = await Assert.That(pending.ParentAgentSessionId).IsEqualTo(parent.SessionId);
-        _ = await Assert.That(pending.Questions.Single().Options.Single().Id).IsEqualTo("blue");
+        _ = await Assert.That(pending.Questions.Single().Options.Single()).IsEqualTo("Blue");
         _ = await Assert.That(coordinator.Pending(unrelated)).IsEmpty();
         _ = await Assert.That(async () =>
             await coordinator.Ask(child, [Question("duplicate")], cancellationToken))
@@ -62,11 +62,11 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(() => coordinator.Reply(
             unrelated,
             child.SessionId,
-            Answer("colour", "blue"))).Throws<AgentRegistryException>();
+            Answer("blue"))).Throws<AgentRegistryException>();
         _ = await Assert.That(() => coordinator.Reply(
             parent,
             child.SessionId,
-            Answer("colour", "red"))).Throws<QuestionException>();
+            new QuestionReply([new QuestionAnswer(string.Empty)]))).Throws<QuestionException>();
         _ = await Assert.That(coordinator.Pending(parent)).Count().IsEqualTo(1);
 
         var attempts = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => Task.Run(
@@ -74,7 +74,7 @@ internal sealed partial class SubagentTests
             {
                 try
                 {
-                    coordinator.Reply(parent, child.SessionId, Answer("colour", "blue"));
+                    coordinator.Reply(parent, child.SessionId, Answer("blue"));
                     return true;
                 }
                 catch (QuestionRejectedException)
@@ -85,12 +85,12 @@ internal sealed partial class SubagentTests
             cancellationToken)));
 
         _ = await Assert.That(attempts.Count(static succeeded => succeeded)).IsEqualTo(1);
-        _ = await Assert.That((await asking).Answers.Single().OptionIds.Single()).IsEqualTo("blue");
+        _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("blue");
         _ = await Assert.That(coordinator.Pending(parent)).IsEmpty();
         _ = await Assert.That(() => coordinator.Reply(
             parent,
             child.SessionId,
-            Answer("colour", "blue"))).Throws<QuestionRejectedException>();
+            Answer("blue"))).Throws<QuestionRejectedException>();
     }
 
     [Test]
@@ -113,10 +113,10 @@ internal sealed partial class SubagentTests
         var asking = coordinator.Ask(child, [Question("continue")], cancellationToken);
         _ = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         var arguments = $$"""
-            {"agent_session_id":"{{child.SessionId}}","answers":[{"question_id":"continue","option_ids":["yes"],"custom":""}]}
+            {"agent_session_id":"{{child.SessionId}}","answers":["yes"]}
             """;
         var invalidArguments = $$"""
-            {"agent_session_id":"{{child.SessionId}}","answers":[{"question_id":"continue","option_ids":["unknown"],"custom":""}]}
+            {"agent_session_id":"{{child.SessionId}}","answers":[""]}
             """;
 
         var unauthorized = await new AnswerTool(coordinator, unrelated).Execute(
@@ -129,7 +129,7 @@ internal sealed partial class SubagentTests
             cancellationToken);
 
         _ = await Assert.That(unauthorized.Text).StartsWith("error: child agent not found:");
-        _ = await Assert.That(invalid.Text).IsEqualTo("error: unknown option id: unknown");
+        _ = await Assert.That(invalid.Text).IsEqualTo("error: question answers cannot be empty");
         _ = await Assert.That(coordinator.Pending(parent)).Count().IsEqualTo(1);
 
         var answered = await new AnswerTool(coordinator, parent).Execute(
@@ -138,7 +138,7 @@ internal sealed partial class SubagentTests
             cancellationToken);
 
         _ = await Assert.That(answered.Text).IsEqualTo($"Answered the pending question from child agent {child.SessionId}.");
-        _ = await Assert.That((await asking).Answers.Single().OptionIds.Single()).IsEqualTo("yes");
+        _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
         _ = await Assert.That(coordinator.Pending(parent)).IsEmpty();
         await provider.Arrived(cancellationToken);
         provider.Release();
@@ -194,7 +194,7 @@ internal sealed partial class SubagentTests
             await firstCoordinator.Ask(firstChild, [Question("late")], cancellationToken))
             .Throws<ObjectDisposedException>();
 
-        secondCoordinator.Reply(secondParent, secondChild.SessionId, Answer("isolated", "yes"));
+        secondCoordinator.Reply(secondParent, secondChild.SessionId, Answer("yes"));
         _ = await isolated;
     }
 
@@ -203,11 +203,11 @@ internal sealed partial class SubagentTests
     [Arguments("{}")]
     [Arguments("{\"agent_session_id\":\"{0}\"}")]
     [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[]}")]
-    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[{\"question_id\":\"missing\",\"option_ids\":[\"yes\"],\"custom\":\"\"}]}")]
-    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[{\"question_id\":\"continue\",\"option_ids\":[\"yes\",\"yes\"],\"custom\":\"\"}]}")]
-    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[{\"question_id\":\"continue\",\"option_ids\":[\"yes\"],\"custom\":\"\"},{\"question_id\":\"continue\",\"option_ids\":[\"yes\"],\"custom\":\"\"}]}")]
-    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[{\"question_id\":\"continue\",\"option_ids\":[\"yes\"],\"custom\":\"free text\"}]}")]
-    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[{\"question_id\":\"continue\",\"option_ids\":[\"yes\"],\"custom\":\"\",\"extra\":true}]}")]
+    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[null]}")]
+    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[\"\"]}")]
+    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[\"yes\",\"no\"]}")]
+    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[{\"text\":\"yes\"}]}")]
+    [Arguments("{\"agent_session_id\":\"{0}\",\"answers\":[\"yes\"],\"extra\":true}")]
     public async Task Malformed_incomplete_duplicate_and_stale_answers_leave_child_request_pending(
         string argumentsTemplate,
         CancellationToken cancellationToken)
@@ -235,9 +235,9 @@ internal sealed partial class SubagentTests
 
         _ = await Assert.That(result.Text).StartsWith("error:");
         _ = await Assert.That(coordinator.Pending(parent)).HasSingleItem();
-        coordinator.Reply(parent, child.SessionId, Answer("continue", "yes"));
-        _ = await Assert.That((await asking).Answers.Single().OptionIds).HasSingleItem();
-        _ = await Assert.That(() => coordinator.Reply(parent, child.SessionId, Answer("continue", "yes")))
+        coordinator.Reply(parent, child.SessionId, Answer("yes"));
+        _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
+        _ = await Assert.That(() => coordinator.Reply(parent, child.SessionId, Answer("yes")))
             .Throws<QuestionRejectedException>();
         _ = await Assert.That(pending.Id).IsNotEqualTo(string.Empty);
     }
@@ -270,9 +270,9 @@ internal sealed partial class SubagentTests
             .Contains(content => content.Contains(child.SessionId, StringComparison.Ordinal));
         _ = await Assert.That(coordinator.Pending(root)).IsEmpty();
 
-        coordinator.Reply(parent, child.SessionId, Answer("nested", "yes"));
+        coordinator.Reply(parent, child.SessionId, Answer("yes"));
         provider.Release();
-        _ = await Assert.That((await asking).Answers.Single().OptionIds).HasSingleItem();
+        _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
         await parent.Settled();
         _ = await Assert.That(provider.Requests).HasSingleItem();
     }
@@ -306,8 +306,8 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(reminder.Reminder).Contains(first.Name);
         _ = await Assert.That(reminder.Reminder).Contains(second.Name);
         reminder.Dispose();
-        coordinator.Reply(parent, first.SessionId, Answer("first", "yes"));
-        coordinator.Reply(parent, second.SessionId, Answer("second", "yes"));
+        coordinator.Reply(parent, first.SessionId, Answer("yes"));
+        coordinator.Reply(parent, second.SessionId, Answer("yes"));
         _ = await Task.WhenAll(firstAsking, secondAsking);
         provider.Release();
         await parent.Settled();
@@ -333,7 +333,7 @@ internal sealed partial class SubagentTests
         var childQuestions = rootScope.ChildQuestions;
         var rootFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Root());
         var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope));
-        const string request = "{\"questions\":[{\"id\":\"choice\",\"prompt\":\"Choose\",\"options\":[{\"id\":\"yes\",\"label\":\"Yes\"}]}]}";
+        const string request = "{\"questions\":[{\"prompt\":\"Choose\",\"options\":[\"Yes\"]}]}";
 
         var rootExecution = rootFactory.Create(root).Execute(
             new ToolInvocation("root-question", request),
@@ -342,7 +342,7 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(userQuestions.Pending()).HasSingleItem();
         _ = await Assert.That(childQuestions.Pending(root)).IsEmpty();
         userQuestions.Reply(userQuestions.Pending().Single().Id, new QuestionReply(
-            [new QuestionAnswer("choice", ["yes"], string.Empty)]));
+            [new QuestionAnswer("yes")]));
         _ = await rootExecution;
 
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -426,16 +426,15 @@ internal sealed partial class SubagentTests
             string.Empty,
             AgentCompletionDeliveryPolicy.Automatic);
 
-    private static QuestionDefinition Question(string id) => new(
-        id,
-        string.Empty,
-        "Continue?",
-        [new QuestionOption("yes", "Yes")],
+    private static QuestionDefinition Question(string prompt) => new(
+        "Continue",
+        prompt,
+        ["Yes"],
         false,
         false);
 
-    private static QuestionReply Answer(string questionId, string optionId) =>
-        new([new QuestionAnswer(questionId, [optionId], string.Empty)]);
+    private static QuestionReply Answer(string text) =>
+        new([new QuestionAnswer(text)]);
 
     private static async Task<PendingChildQuestionRequest> WaitForChildQuestion(
         ChildQuestionCoordinator coordinator,

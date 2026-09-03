@@ -349,10 +349,9 @@ internal sealed class EnhancedCliTests
         var pending = new PendingQuestion { Id = "question-request" };
         pending.Questions.Add(new QuestionDefinition
         {
-            Id = "colour",
             Header = "Question",
             Prompt = "Pick a colour",
-            Options = { new QuestionOption { Id = "blue", Label = "Blue" } },
+            Options = { "Blue" },
         });
         driver.Invoker.AddPendingQuestion(pending);
 
@@ -365,8 +364,49 @@ internal sealed class EnhancedCliTests
 
         var reply = driver.Invoker.QuestionReplies.Single();
         _ = await Assert.That(reply.QuestionRequestId).IsEqualTo("question-request");
-        _ = await Assert.That(reply.Answers.Single().QuestionId).IsEqualTo("colour");
-        _ = await Assert.That(reply.Answers.Single().OptionIds.Single()).IsEqualTo("blue");
+        _ = await Assert.That(reply.Answers.Single().Text).IsEqualTo("Blue");
+
+        driver.Input.End();
+        _ = await running;
+    }
+
+    [Test]
+    public async Task Multiple_choice_question_replies_with_selected_labels_in_option_order(
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var running = driver.Drive(cancellationToken);
+        driver.Input.Type("ask me");
+        await driver.Sent(1, cancellationToken);
+        await PublishQuestionStart(driver);
+        await WaitForQuestionList(driver, 1, cancellationToken);
+
+        var pending = new PendingQuestion { Id = "question-request" };
+        pending.Questions.Add(new QuestionDefinition
+        {
+            Header = "Question",
+            Prompt = "Pick colours",
+            Options = { "One", "Two", "Three" },
+            Multiple = true,
+        });
+        driver.Invoker.AddPendingQuestion(pending);
+
+        await driver.OutputContains("Pick colours", cancellationToken);
+        var beforeSecondPicker = driver.Output.Length;
+        driver.Input.Type(string.Empty);
+        await driver.OutputContainsAfter(beforeSecondPicker, "Two", cancellationToken);
+        var beforeDonePicker = driver.Output.Length;
+        driver.Input.Type(string.Empty);
+        await driver.OutputContainsAfter(beforeDonePicker, "Done", cancellationToken);
+        driver.Input.Type("\u001b[B");
+        while (driver.Invoker.QuestionReplies.Count < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        var reply = driver.Invoker.QuestionReplies.Single();
+        _ = await Assert.That(reply.QuestionRequestId).IsEqualTo("question-request");
+        _ = await Assert.That(reply.Answers.Single().Text).IsEqualTo("One, Two");
 
         driver.Input.End();
         _ = await running;
@@ -413,10 +453,9 @@ internal sealed class EnhancedCliTests
         var pending = Question("question-request", "First choice");
         pending.Questions.Add(new QuestionDefinition
         {
-            Id = "second",
             Header = "Question",
             Prompt = "Second choice",
-            Options = { new QuestionOption { Id = "two", Label = "Two" } },
+            Options = { "Two" },
         });
         driver.Invoker.AddPendingQuestion(pending);
 
@@ -1277,10 +1316,9 @@ internal sealed class EnhancedCliTests
         var pending = new PendingQuestion { Id = requestId };
         pending.Questions.Add(new QuestionDefinition
         {
-            Id = "first",
             Header = "Question",
             Prompt = prompt,
-            Options = { new QuestionOption { Id = "one", Label = "One" } },
+            Options = { "One" },
         });
         return pending;
     }

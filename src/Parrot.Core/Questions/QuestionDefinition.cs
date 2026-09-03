@@ -1,9 +1,8 @@
 namespace Parrot.Questions;
 
 internal sealed record QuestionDefinition(
-    string Id,
     string Header,
     string Prompt,
-    IReadOnlyList<QuestionOption> Options,
+    IReadOnlyList<string> Options,
     bool Multiple,
     bool Custom);

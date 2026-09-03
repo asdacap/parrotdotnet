@@ -31,10 +31,7 @@ internal sealed class AnswerTool(ChildQuestionCoordinator questions) : ITool
                 ?? throw new FormatException("Tool arguments require a string 'agent_session_id'.");
             var wireAnswers = input.Answers
                 ?? throw new FormatException("Tool arguments require an array 'answers'.");
-            var reply = new QuestionReply([.. wireAnswers.Select(answer => new QuestionAnswer(
-                answer.QuestionId ?? string.Empty,
-                answer.OptionIds ?? [],
-                answer.Custom ?? string.Empty))]);
+            var reply = new QuestionReply([.. wireAnswers.Select(answer => new QuestionAnswer(answer ?? string.Empty))]);
 
             if (_parent is null)
             {
@@ -63,18 +60,6 @@ internal sealed class AnswerTool(ChildQuestionCoordinator questions) : ITool
         public string? AgentSessionId { get; init; }
 
         [JsonPropertyName("answers")]
-        public Answer[]? Answers { get; init; }
-
-        internal sealed class Answer
-        {
-            [JsonPropertyName("question_id")]
-            public string? QuestionId { get; init; }
-
-            [JsonPropertyName("option_ids")]
-            public string[]? OptionIds { get; init; }
-
-            [JsonPropertyName("custom")]
-            public string? Custom { get; init; }
-        }
+        public string[]? Answers { get; init; }
     }
 }

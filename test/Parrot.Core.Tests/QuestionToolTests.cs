@@ -15,7 +15,7 @@ internal sealed class QuestionToolTests
         var tool = new QuestionTool(new UserQuestionRequester(broker));
         const string argumentsJson =
             """
-            {"questions":[{"id":"colour","header":"Palette","prompt":"Pick a colour","options":[{"id":"blue","label":"Blue"}],"multiple":true,"custom":true}]}
+            {"questions":[{"header":"Palette","prompt":"Pick a colour","options":["Blue"],"multiple":true,"custom":true}]}
             """;
         var executing = tool.Execute(
             new ToolInvocation("test-call", argumentsJson),
@@ -24,15 +24,13 @@ internal sealed class QuestionToolTests
         var pending = await WaitForPending(broker, cancellationToken);
         var question = pending.Questions.Single();
 
-        _ = await Assert.That(question.Id).IsEqualTo("colour");
         _ = await Assert.That(question.Header).IsEqualTo("Palette");
         _ = await Assert.That(question.Prompt).IsEqualTo("Pick a colour");
-        _ = await Assert.That(question.Options.Single().Id).IsEqualTo("blue");
-        _ = await Assert.That(question.Options.Single().Label).IsEqualTo("Blue");
+        _ = await Assert.That(question.Options.Single()).IsEqualTo("Blue");
         _ = await Assert.That(question.Multiple).IsTrue();
         _ = await Assert.That(question.Custom).IsTrue();
 
-        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("colour", ["blue"], string.Empty)]));
+        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("Blue")]));
 
         _ = await Assert.That((await executing).Text).IsEqualTo("Question: Pick a colour\nAnswer: Blue");
     }
@@ -43,7 +41,7 @@ internal sealed class QuestionToolTests
         using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
         const string argumentsJson =
             """
-            {"questions":[{"id":"colour","prompt":"Pick colours","options":[{"id":"red","label":"Red"},{"id":"blue","label":"Blue"}],"multiple":true,"custom":true},{"id":"size","prompt":"Pick a size","options":[{"id":"large","label":"Large"}]}]}
+            {"questions":[{"prompt":"Pick colours","options":["Red","Blue"],"multiple":true,"custom":true},{"prompt":"Pick a size","options":["Large"]}]}
             """;
         var executing = new QuestionTool(new UserQuestionRequester(broker)).Execute(
             new ToolInvocation("test-call", argumentsJson),
@@ -53,8 +51,8 @@ internal sealed class QuestionToolTests
 
         broker.Reply(pending.Id, new QuestionReply(
         [
-            new QuestionAnswer("size", ["large"], string.Empty),
-            new QuestionAnswer("colour", ["blue", "red"], "Green"),
+            new QuestionAnswer("Blue, Red, Green"),
+            new QuestionAnswer("Large"),
         ]));
 
         _ = await Assert.That((await executing).Text).IsEqualTo(
@@ -82,7 +80,7 @@ internal sealed class QuestionToolTests
         var executing = new QuestionTool(new UserQuestionRequester(broker)).Execute(
             new ToolInvocation(
                 "test-call",
-                """{"questions":[{"id":"colour","prompt":"Pick","options":[{"id":"blue","label":"Blue"}]}]}"""),
+                """{"questions":[{"prompt":"Pick","options":["Blue"]}]}"""),
             Selection(),
             cancellationToken);
         _ = await WaitForPending(broker, cancellationToken);
@@ -100,7 +98,7 @@ internal sealed class QuestionToolTests
         var executing = new QuestionTool(new UserQuestionRequester(broker)).Execute(
             new ToolInvocation(
                 "test-call",
-                """{"questions":[{"id":"colour","prompt":"Pick","options":[{"id":"blue","label":"Blue"}]}]}"""),
+                """{"questions":[{"prompt":"Pick","options":["Blue"]}]}"""),
             Selection(),
             cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
