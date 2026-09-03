@@ -159,13 +159,13 @@ prompt_templates:
     template: |-
       Child agent {agent_name} ({agent_session_id}) is waiting for an answer to these structured questions:
       {questions}
-      Use answer with the agent_session_id shown above and one complete answer for every question. Invalid or partial answers leave the request pending.
+      Use answer with the agent_session_id shown above and one nonblank textual answer for every question in the order shown. Invalid or partial answers leave the request pending.
     allowed_arguments: [agent_name, agent_session_id, questions]
     required_arguments: [agent_name, agent_session_id, questions]
   agent-session.pending-child-question-reminder:
     template: |-
       This turn must not exit while direct child agents are waiting for answers.{children}
-      Use answer for every listed child before finishing this turn. Each request remains pending until one complete valid answer is submitted for every question.
+      Use answer for every listed child before finishing this turn. Each request remains pending until one nonblank textual answer is submitted for every question in the order shown.
     allowed_arguments: [children]
     required_arguments: [children]
   agent-session.active-work-reminder:
@@ -777,8 +777,7 @@ profiles:
 # Parameters use standard JSON Schema represented as YAML.
 tools:
   answer:
-    description:
-      Answer the pending structured questions from one direct child agent.
+    description: Answer the pending ordered questions from one direct child agent.
     parameters:
       type: object
       properties:
@@ -790,28 +789,10 @@ tools:
           type: array
           minItems: 1
           maxItems: 32
-          description: Complete structured answers, with exactly one answer for every question in the pending request.
+          description: One nonblank textual answer for every question, in the order shown in the child question steer.
           items:
-            type: object
-            properties:
-              question_id:
-                type: string
-                minLength: 1
-                description: Stable question ID from the child question steer.
-              option_ids:
-                type: array
-                items:
-                  type: string
-                  minLength: 1
-                description: Selected option IDs from the child question steer.
-              custom:
-                type: string
-                description: Custom answer text; valid only when the question allows custom answers.
-            required:
-            - question_id
-            - option_ids
-            - custom
-            additionalProperties: false
+            type: string
+            minLength: 1
       required:
       - agent_session_id
       - answers
@@ -974,8 +955,7 @@ tools:
       required:
       - name
   question:
-    description: Ask structured questions when a decision or missing information is needed. The root agent asks the user; a
-      child agent asks its direct parent. Use this instead of asking questions in normal chat.
+    description: Ask ordered questions when a decision or missing information is needed. The root agent asks the user; a child agent asks its direct parent. Use this instead of asking questions in normal chat.
     parameters:
       type: object
       properties:
@@ -984,10 +964,6 @@ tools:
           items:
             type: object
             properties:
-              id:
-                type: string
-                minLength: 1
-                description: Stable identifier used to match the user's answer to this question.
               header:
                 type: string
                 description: Short heading displayed with the question.
@@ -998,21 +974,9 @@ tools:
               options:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                      minLength: 1
-                      description: Stable identifier for this answer option.
-                    label:
-                      type: string
-                      minLength: 1
-                      description: Answer text shown to the user.
-                  required:
-                  - id
-                  - label
-                  additionalProperties: false
-                description: Selectable answers offered to the user.
+                  type: string
+                  minLength: 1
+                description: Plain-text selectable answers offered to the user.
               multiple:
                 type: boolean
                 description: Whether the user may select more than one answer.
@@ -1020,12 +984,11 @@ tools:
                 type: boolean
                 description: Whether the user may supply a custom answer.
             required:
-            - id
             - prompt
             additionalProperties: false
           minItems: 1
           maxItems: 32
-          description: Structured questions to ask the user.
+          description: Questions whose answers are returned in the same order.
       required:
       - questions
       additionalProperties: false

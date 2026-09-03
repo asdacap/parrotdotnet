@@ -11,10 +11,10 @@ internal sealed class QuestionBrokerTests
         var asking = broker.Ask([Question("colour", false, false)], cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
-        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("colour", ["blue"], string.Empty)]));
+        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue")]));
 
         var reply = await asking;
-        _ = await Assert.That(reply.Answers.Single().OptionIds.Single()).IsEqualTo("blue");
+        _ = await Assert.That(reply.Answers.Single().Text).IsEqualTo("blue");
         _ = await Assert.That(broker.Pending()).IsEmpty();
     }
 
@@ -27,11 +27,11 @@ internal sealed class QuestionBrokerTests
 
         _ = await Assert.That(() => broker.Reply(
             pending.Id,
-            new QuestionReply([new QuestionAnswer("colour", ["red"], string.Empty)])))
+            new QuestionReply([new QuestionAnswer(string.Empty)])))
             .Throws<QuestionException>();
         _ = await Assert.That(broker.Pending().Single().Id).IsEqualTo(pending.Id);
 
-        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("colour", ["blue"], string.Empty)]));
+        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue")]));
         _ = await asking;
     }
 
@@ -42,11 +42,10 @@ internal sealed class QuestionBrokerTests
         var asking = broker.Ask([Question("colour", true, true)], cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
-        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("colour", ["blue", "green"], "violet")]));
+        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue, green, violet")]));
 
         var answer = (await asking).Answers.Single();
-        _ = await Assert.That(answer.OptionIds).Count().IsEqualTo(2);
-        _ = await Assert.That(answer.Custom).IsEqualTo("violet");
+        _ = await Assert.That(answer.Text).IsEqualTo("blue, green, violet");
     }
 
     [Test]
@@ -64,7 +63,7 @@ internal sealed class QuestionBrokerTests
         _ = await Assert.That(broker.Pending()).IsEmpty();
         _ = await Assert.That(() => broker.Reply(
             pending.Id,
-            new QuestionReply([new QuestionAnswer("colour", ["blue"], string.Empty)])))
+            new QuestionReply([new QuestionAnswer("blue")])))
             .Throws<QuestionException>();
     }
 
@@ -78,7 +77,7 @@ internal sealed class QuestionBrokerTests
 
         time.Advance(TimeSpan.FromDays(1));
         _ = await Assert.That(asking.IsCompleted).IsFalse();
-        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("colour", ["blue"], string.Empty)]));
+        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue")]));
 
         _ = await Assert.That((await asking).Kind).IsEqualTo(QuestionReplyKind.Answered);
     }
@@ -92,12 +91,12 @@ internal sealed class QuestionBrokerTests
         var pending = await WaitForPending(broker, cancellationToken);
         await time.WaitForTimer(cancellationToken);
 
-        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("colour", ["blue"], string.Empty)]));
+        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue")]));
         time.Advance(TimeSpan.FromMinutes(20));
 
         var reply = await asking;
         _ = await Assert.That(reply.Kind).IsEqualTo(QuestionReplyKind.Answered);
-        _ = await Assert.That(reply.Answers.Single().OptionIds.Single()).IsEqualTo("blue");
+        _ = await Assert.That(reply.Answers.Single().Text).IsEqualTo("blue");
     }
 
     [Test]
@@ -108,7 +107,7 @@ internal sealed class QuestionBrokerTests
         var asking = broker.Ask([Question("colour", false, false)], stopping.Token);
         var pending = await WaitForPending(broker, cancellationToken);
 
-        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("colour", ["blue"], string.Empty)]));
+        broker.Reply(pending.Id, new QuestionReply([new QuestionAnswer("blue")]));
         await stopping.CancelAsync();
 
         _ = await Assert.That((await asking).Kind).IsEqualTo(QuestionReplyKind.Answered);
@@ -135,7 +134,7 @@ internal sealed class QuestionBrokerTests
         _ = await Assert.That(broker.Pending()).IsEmpty();
         _ = await Assert.That(() => broker.Reply(
             pending.Id,
-            new QuestionReply([new QuestionAnswer("colour", ["blue"], string.Empty)])))
+            new QuestionReply([new QuestionAnswer("blue")])))
             .Throws<QuestionException>();
     }
 
@@ -170,7 +169,7 @@ internal sealed class QuestionBrokerTests
     }
 
     private static QuestionDefinition Question(string id, bool multiple, bool custom) =>
-        new(id, string.Empty, "Pick a colour", [new QuestionOption("blue", "Blue"), new QuestionOption("green", "Green")], multiple, custom);
+        new(id, "Pick a colour", ["Blue", "Green"], multiple, custom);
 
     private static async Task<PendingQuestionRequest> WaitForPending(
         QuestionBroker broker,

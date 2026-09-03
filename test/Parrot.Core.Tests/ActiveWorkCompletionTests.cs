@@ -505,14 +505,13 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
 
     private static Parrot.Questions.QuestionDefinition Question(string id) => new(
         id,
-        string.Empty,
         "Continue?",
-        [new Parrot.Questions.QuestionOption("yes", "Yes")],
+        ["Yes"],
         false,
         false);
 
     private static QuestionReply QuestionAnswer(string id) =>
-        new([new Parrot.Questions.QuestionAnswer(id, ["yes"], string.Empty)]);
+        new([new Parrot.Questions.QuestionAnswer(id)]);
 
     private static async Task<IReadOnlyList<PendingChildQuestionRequest>> WaitForPendingQuestions(
         ChildQuestionCoordinator coordinator,

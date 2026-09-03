@@ -626,7 +626,7 @@ internal sealed class BasicCli(
             await output.WriteLineAsync(question.Prompt.AsMemory(), cancellationToken).ConfigureAwait(false);
             foreach (var option in question.Options)
             {
-                await output.WriteLineAsync($"  {option.Id}: {option.Label}".AsMemory(), cancellationToken).ConfigureAwait(false);
+                await output.WriteLineAsync($"  {option}".AsMemory(), cancellationToken).ConfigureAwait(false);
             }
 
             await output.WriteLineAsync("answer (or /cancel)".AsMemory(), cancellationToken).ConfigureAwait(false);
@@ -652,17 +652,7 @@ internal sealed class BasicCli(
                 return;
             }
 
-            var answer = new QuestionAnswer { QuestionId = question.Id };
-            if (question.Custom && entered.StartsWith("/custom ", StringComparison.Ordinal))
-            {
-                answer.Custom = entered[8..].Trim();
-            }
-            else
-            {
-                answer.OptionIds.AddRange(entered.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
-            }
-
-            reply.Answers.Add(answer);
+            reply.Answers.Add(new QuestionAnswer { Text = entered });
         }
 
         try

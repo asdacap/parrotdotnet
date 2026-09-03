@@ -1302,7 +1302,7 @@ internal sealed class ConfigurationTests : IDisposable
 
         _ = await Assert.That(definitions.Count).IsEqualTo(24);
         _ = await Assert.That(definitions["question"].Description)
-            .StartsWith("Ask structured questions");
+            .StartsWith("Ask ordered questions");
         using var question = JsonDocument.Parse(definitions["question"].ParametersJson);
         var schema = question.RootElement;
         _ = await Assert.That(schema.GetProperty("properties").GetProperty("questions")
@@ -1334,9 +1334,8 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(string.Join(",", answerSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString())))
             .IsEqualTo("agent_session_id,answers");
         var answerItem = answerSchema.GetProperty("properties").GetProperty("answers").GetProperty("items");
-        _ = await Assert.That(answerItem.GetProperty("additionalProperties").GetBoolean()).IsFalse();
-        _ = await Assert.That(string.Join(",", answerItem.GetProperty("required").EnumerateArray().Select(item => item.GetString())))
-            .IsEqualTo("question_id,option_ids,custom");
+        _ = await Assert.That(answerItem.GetProperty("type").GetString()).IsEqualTo("string");
+        _ = await Assert.That(answerItem.GetProperty("minLength").GetInt32()).IsEqualTo(1);
         _ = await Assert.That(configuration.Profiles["thinker"].AllowedTools)
             .Contains("question").And.Contains("answer");
     }

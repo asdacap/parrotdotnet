@@ -241,7 +241,7 @@ internal sealed class ChildQuestionCoordinator(
                 _ = questions.AppendLine();
             }
 
-            _ = questions.AppendLine($"Question ID: {question.Id}");
+            _ = questions.AppendLine($"Question {index + 1}:");
             _ = questions.AppendLine($"Header: {question.Header}");
             _ = questions.AppendLine($"Prompt: {question.Prompt}");
             _ = questions.AppendLine($"Multiple: {question.Multiple.ToString().ToLowerInvariant()}");
@@ -249,7 +249,7 @@ internal sealed class ChildQuestionCoordinator(
             _ = questions.AppendLine("Options:");
             foreach (var option in question.Options)
             {
-                _ = questions.AppendLine($"- {option.Id}: {option.Label}");
+                _ = questions.AppendLine($"- {option}");
             }
         }
 

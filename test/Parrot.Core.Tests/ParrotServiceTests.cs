@@ -294,6 +294,49 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task In_process_question_calls_preserve_options_and_ordered_text_answers(
+        CancellationToken cancellationToken)
+    {
+        var sessions = new DirectAgentSessions();
+        await using var service = Service(Store(sessions));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+        var asking = sessions.Owners.Single().Questions.Ask(
+            [new Parrot.Questions.QuestionDefinition(
+                "Decision",
+                "Pick colours",
+                ["One", "Two", "Three"],
+                true,
+                false)],
+            cancellationToken);
+
+        var listed = await client.ListPendingQuestionsAsync(
+            new ListPendingQuestionsRequest { UserSessionId = session.Id },
+            cancellationToken: cancellationToken);
+        var pending = listed.Questions.Single();
+        var question = pending.Questions.Single();
+
+        _ = await Assert.That(question.Header).IsEqualTo("Decision");
+        _ = await Assert.That(question.Prompt).IsEqualTo("Pick colours");
+        _ = await Assert.That(string.Join('|', question.Options)).IsEqualTo("One|Two|Three");
+        _ = await Assert.That(question.Multiple).IsTrue();
+        _ = await Assert.That(question.Custom).IsFalse();
+
+        _ = await client.ReplyQuestionAsync(
+            new ReplyQuestionRequest
+            {
+                UserSessionId = session.Id,
+                QuestionRequestId = pending.Id,
+                Answers = { new QuestionAnswer { Text = "One, Two" } },
+            },
+            cancellationToken: cancellationToken);
+
+        var reply = await asking;
+        _ = await Assert.That(reply.Answers.Single().Text).IsEqualTo("One, Two");
+    }
+
+    [Test]
     public async Task In_process_permission_calls_map_pending_replies_and_errors(
         CancellationToken cancellationToken)
     {

@@ -393,10 +393,9 @@ internal sealed class BasicCliTests
             {
                 new QuestionDefinition
                 {
-                    Id = "choice-1",
                     Header = "Decision",
                     Prompt = "Choose an approach",
-                    Options = { new QuestionOption { Id = "one", Label = "One" } },
+                    Options = { "One" },
                 },
             },
         });
@@ -424,6 +423,8 @@ internal sealed class BasicCliTests
         _ = await Assert.That(string.Join(" | ", driver.Invoker.Sent)).IsEqualTo("first prompt | second prompt");
         _ = await Assert.That(driver.Invoker.QuestionReplies).HasSingleItem();
         _ = await Assert.That(driver.Invoker.QuestionReplies[0].QuestionRequestId).IsEqualTo("question-1");
+        _ = await Assert.That(driver.Invoker.QuestionReplies[0].Answers.Single().Text)
+            .IsEqualTo(enhanced ? "One" : "one");
         _ = await Assert.That(driver.Invoker.PendingQuestions).IsEmpty();
     }
 

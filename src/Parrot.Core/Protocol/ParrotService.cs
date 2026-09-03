@@ -405,10 +405,7 @@ internal sealed class ParrotService(
         {
             Find(request.UserSessionId).Questions.Reply(
                 request.QuestionRequestId,
-                new QuestionReply([.. request.Answers.Select(answer => new global::Parrot.Questions.QuestionAnswer(
-                    answer.QuestionId,
-                    [.. answer.OptionIds],
-                    answer.Custom))]));
+                new QuestionReply([.. request.Answers.Select(answer => new global::Parrot.Questions.QuestionAnswer(answer.Text))]));
             return Task.FromResult(new ReplyQuestionResponse());
         }
         catch (QuestionException failure)
@@ -608,17 +605,12 @@ internal sealed class ParrotService(
         {
             var converted = new QuestionDefinition
             {
-                Id = question.Id,
                 Header = question.Header,
                 Prompt = question.Prompt,
                 Multiple = question.Multiple,
                 Custom = question.Custom,
             };
-            converted.Options.AddRange(question.Options.Select(option => new QuestionOption
-            {
-                Id = option.Id,
-                Label = option.Label,
-            }));
+            converted.Options.AddRange(question.Options);
             return converted;
         }));
         return pending;

@@ -648,45 +648,27 @@ internal sealed class EnhancedCli(
         {
             foreach (var question in pending.Questions)
             {
-                var choices = question.Options
-                    .Select(option => new SlashDialogOption(option.Id, option.Label, option.Id))
-                    .ToList();
                 const string customId = "__custom__";
-                if (question.Custom)
-                {
-                    choices.Add(new SlashDialogOption(customId, "Custom answer", "Write an answer"));
-                }
+                const string doneId = "__done__";
+                var title = $"{question.Header} {question.Prompt}".Trim();
 
-                var selected = await dialog.Select(
-                    $"{question.Header} {question.Prompt}".Trim(),
-                    choices,
-                    interaction.Token).ConfigureAwait(false);
-                if (lifetime.IsClosed)
+                if (!question.Multiple)
                 {
-                    return;
-                }
-
-                if (selected is null)
-                {
-                    await StopReconciling().ConfigureAwait(false);
-                    if (!lifetime.IsClosed)
+                    var choices = question.Options
+                        .Select((option, index) => new SlashDialogOption($"__option_{index}__", option, option))
+                        .ToList();
+                    if (question.Custom)
                     {
-                        await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
+                        choices.Add(new SlashDialogOption(customId, "Custom answer", "Write an answer"));
                     }
 
-                    return;
-                }
-
-                var answer = new QuestionAnswer { QuestionId = question.Id };
-                if (selected.Id == customId)
-                {
-                    var custom = await dialog.ReadText(question.Prompt, interaction.Token).ConfigureAwait(false);
+                    var selected = await dialog.Select(title, choices, interaction.Token).ConfigureAwait(false);
                     if (lifetime.IsClosed)
                     {
                         return;
                     }
 
-                    if (string.IsNullOrWhiteSpace(custom))
+                    if (selected is null)
                     {
                         await StopReconciling().ConfigureAwait(false);
                         if (!lifetime.IsClosed)
@@ -697,11 +679,108 @@ internal sealed class EnhancedCli(
                         return;
                     }
 
-                    answer.Custom = custom.Trim();
+                    string answerText;
+                    if (selected.Id == customId)
+                    {
+                        var custom = await dialog.ReadText(question.Prompt, interaction.Token).ConfigureAwait(false);
+                        if (lifetime.IsClosed)
+                        {
+                            return;
+                        }
+
+                        if (string.IsNullOrWhiteSpace(custom))
+                        {
+                            await StopReconciling().ConfigureAwait(false);
+                            if (!lifetime.IsClosed)
+                            {
+                                await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
+                            }
+
+                            return;
+                        }
+
+                        answerText = custom.Trim();
+                    }
+                    else
+                    {
+                        answerText = selected.Label;
+                    }
+
+                    if (lifetime.IsClosed)
+                    {
+                        return;
+                    }
+
+                    reply.Answers.Add(new QuestionAnswer { Text = answerText });
+                    continue;
                 }
-                else
+
+                var selectedIndexes = new HashSet<int>();
+                string? customAnswer = null;
+                while (true)
                 {
-                    answer.OptionIds.Add(selected.Id);
+                    var choices = question.Options
+                        .Select((option, index) => (Option: option, Index: index))
+                        .Where(item => !selectedIndexes.Contains(item.Index))
+                        .Select(item => new SlashDialogOption($"__option_{item.Index}__", item.Option, item.Option))
+                        .ToList();
+                    if (question.Custom && customAnswer is null)
+                    {
+                        choices.Add(new SlashDialogOption(customId, "Custom answer", "Write an answer"));
+                    }
+
+                    if (selectedIndexes.Count > 0 || customAnswer is not null)
+                    {
+                        choices.Add(new SlashDialogOption(doneId, "Done", "Finish selecting"));
+                    }
+
+                    var selected = await dialog.Select(title, choices, interaction.Token).ConfigureAwait(false);
+                    if (lifetime.IsClosed)
+                    {
+                        return;
+                    }
+
+                    if (selected is null)
+                    {
+                        await StopReconciling().ConfigureAwait(false);
+                        if (!lifetime.IsClosed)
+                        {
+                            await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
+                        }
+
+                        return;
+                    }
+
+                    if (selected.Id == doneId)
+                    {
+                        break;
+                    }
+
+                    if (selected.Id == customId)
+                    {
+                        var custom = await dialog.ReadText(question.Prompt, interaction.Token).ConfigureAwait(false);
+                        if (lifetime.IsClosed)
+                        {
+                            return;
+                        }
+
+                        if (string.IsNullOrWhiteSpace(custom))
+                        {
+                            await StopReconciling().ConfigureAwait(false);
+                            if (!lifetime.IsClosed)
+                            {
+                                await RejectQuestion(pending.Id, userSessionId, cancellationToken).ConfigureAwait(false);
+                            }
+
+                            return;
+                        }
+
+                        customAnswer = custom.Trim();
+                    }
+                    else
+                    {
+                        _ = selectedIndexes.Add(question.Options.IndexOf(selected.Label));
+                    }
                 }
 
                 if (lifetime.IsClosed)
@@ -709,7 +788,10 @@ internal sealed class EnhancedCli(
                     return;
                 }
 
-                reply.Answers.Add(answer);
+                var selectedText = question.Options
+                    .Where((_, index) => selectedIndexes.Contains(index))
+                    .Concat(customAnswer is null ? [] : [customAnswer]);
+                reply.Answers.Add(new QuestionAnswer { Text = string.Join(", ", selectedText) });
             }
 
             await StopReconciling().ConfigureAwait(false);
