@@ -759,7 +759,8 @@ profiles:
 # Parameters use standard JSON Schema represented as YAML.
 tools:
   answer:
-    description: Answer the pending structured questions from one direct child agent. The request remains pending when the child ID is invalid, unauthorized, stale, or any answer is incomplete or invalid.
+    description:
+      Answer the pending structured questions from one direct child agent.
     parameters:
       type: object
       properties:
@@ -798,9 +799,9 @@ tools:
       - answers
       additionalProperties: false
   agent_send:
-    description: Send a message to the specified agent. Send to the direct parent or to a descendant in this sender's own
-      descendant tree and user session. Descendants use relative, slash-separated friendly-name paths such as child/grandchild;
-      paths only travel downward, never upward, and do not authorize arbitrary canonical IDs for descendants.
+    description: Send a message to the specified agent. Send to the direct parent or direct child or to a descendant in this sender's own
+      descendant tree. Descendants use relative, slash-separated friendly-name paths such as child/grandchild;
+      paths only travel downward.
     parameters:
       type: object
       properties:
@@ -821,7 +822,7 @@ tools:
       - message
       additionalProperties: false
   agent_status:
-    description: Report the current human-readable activity of one direct child agent without adding it to the system prompt.
+    description: Report the current activity of one direct child agent.
     parameters:
       type: object
       properties:
@@ -893,14 +894,10 @@ tools:
       - new_string
       additionalProperties: false
   exec_command:
-    description: Run a sandboxed shell command. Optionally reserve a name unique among this agent session's running processes
-      and yield without stopping it; completed process names can be reused and omitted names are generated. A normal non-PTY
-      pipe yield's authoritative typed handoff includes distinct absolute UTF-8 text stdout and stderr paths in this agent's
-      scratch blob area; do not parse result text. New Parrot chunks are flushed with an approximately 100 ms normal-local-load
-      visibility target, but child-process buffering is outside Parrot's control. The files remain after completion and session
-      resume. PTY runs are excluded and pathless. Completed formatting and overflow notices remain compatible. All normal-pipe
-      output is retained, and oversized completed output may additionally create the legacy formatted blob; quotas and garbage
-      collection are not included. Completion after a yield is steered back to this agent.
+    description: Run a shell command. Command run sandbox by default. Optionally reserve a name unique among this agent session's running processes
+      and yield without stopping it; completed process names can be reused and omitted names are generated.
+      Yielded run will send notification to caller once done. Additionally, a non-PTY pipe yield's includes text stdout and stderr paths
+      in this agent's scratch blob area for live parsing if needed. The files remain after completion.
     parameters:
       type: object
       properties:
@@ -917,8 +914,8 @@ tools:
           description: Name unique among running processes; completed names can be reused and omitted names are generated
         yield_after_ms:
           type: integer
-          minimum: 0
-          description: Return the process name if still running after this many milliseconds
+          minimum: 500
+          description: Return the process name if still running after this many milliseconds. 0 mean yield immediately. undefined means block indefinitely.
         tty:
           type: boolean
           default: false
