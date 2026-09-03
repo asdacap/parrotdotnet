@@ -35,9 +35,9 @@ system_prompts:
 
     ## Agent Tasks
 
-    Agent tasks are meant to be somewhat a horizontal or a feature concern. Composite tasks use distinct research and validation turns on one retained composite agent, which owns nested child agents; a fresh instruction leaf uses one retained payload agent that implements and verifies the instruction in one call. Do not create separate research or acceptance tasks. Each task should have a limited altitude: a program-level task should break work into feature-level tasks, and a high-level task should break work down one abstraction level, recursively. The terminal leaf should be small enough for a small llm worker to follow reliably, this mean specific requirement over open ended requirement, somewhat like the expectation of a senior vs junior engineer.
+    Agent tasks are meant to be somewhat a horizontal or a feature concern. Composite tasks use distinct preparation and validation turns on one retained composite agent, which owns nested child agents; a fresh instruction leaf uses one retained payload agent that implements and verifies the instruction in one call. Research may be used during preparation but is not required; do not create separate preparation or acceptance tasks. Each task should have a limited altitude: a program-level task should break work into feature-level tasks, and a high-level task should break work down one abstraction level, recursively. The terminal leaf should be small enough for a small llm worker to follow reliably, this mean specific requirement over open ended requirement, somewhat like the expectation of a senior vs junior engineer.
 
-    Composite research runs once at the task altitude and can alter the effective payload if necessary. Every leaf response returns required nonblank context and exactly one of three strict verdicts: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction string or task array. Only reject_and_retry starts a retry; its replacement context may update later attempts and descendants, otherwise the leaf response's required current context remains effective. There are user configurable maximum attempt, so reject_and_retry may halt. A final reject_and_retry retains its feedback and replacement context as the latest effective result. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
+    Composite preparation runs once at the task altitude, builds useful context, and can apply a narrow run-local correction to the effective payload or inner graph if necessary. Every leaf response returns required nonblank context and exactly one of three strict verdicts: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction string or task array. Only reject_and_retry starts a retry; its replacement context may update later attempts and descendants, otherwise the leaf response's required current context remains effective. There are user configurable maximum attempt, so reject_and_retry may halt. A final reject_and_retry retains its feedback and replacement context as the latest effective result. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
 
   runtime:system-context:03-subagent-pattern: >-
     # Common subagent spawn strategy
@@ -254,7 +254,7 @@ prompt_templates:
     allowed_arguments: []
     required_arguments: []
   agent-task.context-header:
-    template: '\nResearch context (root to current):'
+    template: '\nPreparation context (root to current):'
     allowed_arguments: []
     required_arguments: []
   agent-task.dependency-header:
@@ -291,13 +291,13 @@ prompt_templates:
     template: 'AgentTask {role} for {task_name}'
     allowed_arguments: [role, task_name]
     required_arguments: [role, task_name]
-  agent-task.research:
+  agent-task.prepare:
     template: |-
-      AgentTask role: research pre-hook{header}
+      AgentTask role: prepare{header}
       Current task path: {path}
       Original current task declaration:
       {declaration}
-      Research and prepare this task. Return only strict JSON with no prose or code fence: {{"context":"nonblank findings","task_patch":{{"description":"optional","payload":"optional","acceptance_criteria":"optional","model":"optional"}}}}
+      Prepare this task by building useful context and optionally applying a narrow run-local correction to the effective task or inner graph. Return only strict JSON with no prose or code fence: {{"context":"nonblank preparation context","task_patch":{{"description":"optional","payload":"optional","acceptance_criteria":"optional","model":"optional"}}}}
       Omit task_patch when no change is needed; when present omit every unchanged field.
     allowed_arguments: [header, path, declaration]
     required_arguments: [header, path, declaration]
@@ -322,8 +322,8 @@ prompt_templates:
       AgentTask role: acceptance reviewer{header}{feedback}
       Execution result:
       {execution}{nested}
-      Assess the completed attempt. Return only one strict JSON object with no prose or code fence: {{"verdict":"accept","evidence":"nonblank"}}, {{"verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","context":"optional nonblank replacement research context"}}.
-      A reject_and_retry context replaces this task's research context for later attempts and descendants; omit it to retain the existing context.
+      Assess the completed attempt. Return only one strict JSON object with no prose or code fence: {{"verdict":"accept","evidence":"nonblank"}}, {{"verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","context":"optional nonblank replacement preparation context"}}.
+      A reject_and_retry context replaces this task's preparation context for later attempts and descendants; omit it to retain the existing context.
     allowed_arguments: [header, feedback, execution, nested]
     required_arguments: [header, feedback, execution, nested]
   agent-task.role-failure:
@@ -705,12 +705,12 @@ profiles:
     enforce_active_work_completion: true
     is_user_selectable: false
     is_agent_selectable: true
-  agent-task-pre-hook:
-    usage: Research and validate a composite AgentTask in one retained session.
+  agent-task-prepare:
+    usage: Prepare and validate a composite AgentTask in one retained session.
     prompt: |-
-      You are the retained composite agent for an AgentTask. Follow the current templated turn: first research and prepare the task, then later validate its nested results in this same session. You own any nested task agents created for this composite task.
+      You are the retained composite agent for an AgentTask. Follow the current templated turn: first prepare the task, then later validate its nested results in this same session. You own any nested task agents created for this composite task.
 
-      During research, inspect the task context and relevant code, resolve material implementation details, and return only the research findings and, when needed, a narrowly corrected task instruction. During validation, review the completed task against its acceptance contract and return the requested strict verdict with focused evidence. Do not implement the task or modify the workspace.
+      During preparation, build useful context from the task and relevant code, and optionally apply a narrow run-local correction to the effective task or inner graph. Return only the preparation context and, when needed, the narrowly corrected task instruction. During validation, review the completed task against its acceptance contract and return the requested strict verdict with focused evidence. Do not implement the task or modify the workspace.
     max_turns: 128
     recursion_limit: 4
     read_only: false
@@ -1207,7 +1207,7 @@ tools:
       type: object
       additionalProperties: false
   run_agent_tasks:
-    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only children; instruction leaves use agent-task-payload for combined implementation and verification, while composites use distinct research and validation turns on one retained composite agent that owns nested child agents, then return hierarchical JSON evidence.
+    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only children; instruction leaves use agent-task-payload for combined implementation and verification, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then return hierarchical JSON evidence.
     parameters:
       type: object
       properties:

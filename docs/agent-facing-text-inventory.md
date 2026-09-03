@@ -1,6 +1,6 @@
 # Agent-facing text inventory
 
-This is a pre-migration inventory. It changes no prompt ownership. The exhaustive per-file classification is in `agent-facing-text-inventory.tsv`.
+This is the maintained agent-facing text inventory. It changes no prompt ownership. The exhaustive per-file classification is in `agent-facing-text-inventory.tsv`.
 
 ## Scope and boundary rules
 

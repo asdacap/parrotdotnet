@@ -55,9 +55,9 @@ internal static class TestModels
                 false,
                 true,
                 []),
-            ["agent-task-pre-hook"] = new ProfileConfig(
-                "You are an AgentTask research pre-hook.",
-                "Research an AgentTask and return its findings.",
+            ["agent-task-prepare"] = new ProfileConfig(
+                "You are an AgentTask preparation agent.",
+                "Prepare an AgentTask and return its preparation context.",
                 null,
                 128,
                 4,
