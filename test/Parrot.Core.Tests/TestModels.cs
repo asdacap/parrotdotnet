@@ -150,6 +150,23 @@ internal static class TestModels
         EventRepository eventRepository,
         ProfileRegistry profiles,
         PromptTemplateCatalog promptTemplates,
+        CancellationToken lifetime) =>
+        RegistryWithBudget(
+            agentSessions,
+            eventBroker,
+            eventRepository,
+            profiles,
+            promptTemplates,
+            new RetainedAgentBudget(1024),
+            lifetime);
+
+    public static AgentRegistry RegistryWithBudget(
+        IAgentSessionFactory agentSessions,
+        EventBroker eventBroker,
+        EventRepository eventRepository,
+        ProfileRegistry profiles,
+        PromptTemplateCatalog promptTemplates,
+        RetainedAgentBudget retainedAgents,
         CancellationToken lifetime)
     {
         var root = Directory.CreateDirectory(
@@ -160,7 +177,7 @@ internal static class TestModels
             ProjectWorkspace.FromLaunchDirectory(root));
         var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
         var catalog = new AgentQueueCatalog(resources);
-        var registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, lifetime);
+        var registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, retainedAgents, lifetime);
         registry.AttachStatus(new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System));
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
@@ -188,6 +205,7 @@ internal static class TestModels
             eventRepository,
             ProfileRegistry(),
             TestModels.PromptTemplates,
+            new RetainedAgentBudget(1024),
             lifetime);
         var status = new RuntimeStatus(catalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
@@ -202,7 +220,7 @@ internal static class TestModels
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
-        var children = new ChildRegistry(identity, registry);
+        var children = new ChildRegistry(identity, AgentSessionParentScope.Root(), registry);
         var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         return new AgentSessionDependencies(
             childQuestions,

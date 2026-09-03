@@ -17,7 +17,7 @@ internal sealed partial class SubagentTests
         using var provider = new SteppedProvider();
         var router = Router(provider);
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -26,7 +26,7 @@ internal sealed partial class SubagentTests
         var parent = Session(provider, 0, "parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
         var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
-        var child = registry.Spawn(QuestionChildRequest(parent, router, "child"));
+        var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "child"));
         var options = new[] { new QuestionOption("blue", "Blue") };
         var questions = new[] { new QuestionDefinition("colour", "Colour", "Pick", options, false, false) };
         var asking = coordinator.Ask(child, questions, cancellationToken);
@@ -100,7 +100,7 @@ internal sealed partial class SubagentTests
         using var provider = new SteppedProvider();
         var router = Router(provider);
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -109,7 +109,7 @@ internal sealed partial class SubagentTests
         var parent = Session(provider, 0, "parent-tool", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
         var unrelated = Session(provider, 0, "unrelated-tool", registry, cancellationToken);
-        var child = registry.Spawn(QuestionChildRequest(parent, router, "tool-child"));
+        var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "tool-child"));
         var asking = coordinator.Ask(child, [Question("continue")], cancellationToken);
         _ = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         var arguments = $$"""
@@ -152,14 +152,14 @@ internal sealed partial class SubagentTests
         using var provider = new SteppedProvider();
         var router = Router(provider);
         await using var firstRegistry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
         await using var secondRegistry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -169,13 +169,13 @@ internal sealed partial class SubagentTests
         var secondParent = Session(provider, 0, "second-parent", secondRegistry, cancellationToken);
         var firstCoordinator = new ChildQuestionCoordinator(firstParent.ChildRegistry, TestModels.PromptTemplates);
         var secondCoordinator = new ChildQuestionCoordinator(secondParent.ChildRegistry, TestModels.PromptTemplates);
-        var firstChild = firstRegistry.Spawn(QuestionChildRequest(firstParent, router, "first-child"));
-        var secondChild = secondRegistry.Spawn(QuestionChildRequest(secondParent, router, "second-child"));
+        var firstChild = firstParent.ChildRegistry.Spawn(QuestionChildRequest(firstParent, router, "first-child"));
+        var secondChild = secondParent.ChildRegistry.Spawn(QuestionChildRequest(secondParent, router, "second-child"));
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var cancelled = firstCoordinator.Ask(firstChild, [Question("cancelled")], stopping.Token);
         _ = await WaitForChildQuestion(firstCoordinator, firstParent, cancellationToken);
         var disposed = firstCoordinator.Ask(
-            firstRegistry.Spawn(QuestionChildRequest(firstParent, router, "disposed-child")),
+            firstParent.ChildRegistry.Spawn(QuestionChildRequest(firstParent, router, "disposed-child")),
             [Question("disposed")],
             cancellationToken);
         var isolated = secondCoordinator.Ask(secondChild, [Question("isolated")], cancellationToken);
@@ -215,7 +215,7 @@ internal sealed partial class SubagentTests
         using var provider = new SteppedProvider();
         var router = Router(provider);
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -223,7 +223,7 @@ internal sealed partial class SubagentTests
             cancellationToken);
         var parent = Session(provider, 0, "answer-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
-        var child = registry.Spawn(QuestionChildRequest(parent, router, "answer-child"));
+        var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "answer-child"));
         var asking = coordinator.Ask(child, [Question("continue")], cancellationToken);
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         var arguments = argumentsTemplate.Replace("{0}", child.SessionId, StringComparison.Ordinal);
@@ -249,16 +249,16 @@ internal sealed partial class SubagentTests
         using var provider = new SteppedProvider();
         var router = Router(provider);
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
         var root = Session(provider, 0, "question-root", registry, cancellationToken);
-        var parent = registry.Spawn(QuestionChildRequest(root, router, "question-parent"));
+        var parent = root.ChildRegistry.Spawn(QuestionChildRequest(root, router, "question-parent"));
         var coordinator = TestModels.CreateChildQuestions(parent);
-        var child = registry.Spawn(QuestionChildRequest(parent, router, "question-child"));
+        var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "question-child"));
 
         var asking = coordinator.Ask(child, [Question("nested")], cancellationToken);
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
@@ -284,7 +284,7 @@ internal sealed partial class SubagentTests
         using var provider = new SteppedProvider();
         var router = Router(provider);
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -292,8 +292,8 @@ internal sealed partial class SubagentTests
             cancellationToken);
         var parent = Session(provider, 0, "multiple-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
-        var first = registry.Spawn(QuestionChildRequest(parent, router, "first-question-child"));
-        var second = registry.Spawn(QuestionChildRequest(parent, router, "second-question-child"));
+        var first = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "first-question-child"));
+        var second = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "second-question-child"));
 
         var firstAsking = coordinator.Ask(first, [Question("first")], cancellationToken);
         var secondAsking = coordinator.Ask(second, [Question("second")], cancellationToken);
@@ -321,7 +321,7 @@ internal sealed partial class SubagentTests
         using var userQuestions = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
         var router = Router(provider);
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -329,7 +329,7 @@ internal sealed partial class SubagentTests
             cancellationToken);
         var root = Session(provider, 0, "factory-root", registry, cancellationToken);
         var rootScope = _rootScopes[^1];
-        var child = registry.Spawn(QuestionChildRequest(root, router, "factory-child"));
+        var child = root.ChildRegistry.Spawn(QuestionChildRequest(root, router, "factory-child"));
         var childQuestions = rootScope.ChildQuestions;
         var rootFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Root());
         var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope));
@@ -366,7 +366,7 @@ internal sealed partial class SubagentTests
         using var provider = new SteppedProvider();
         var router = Router(provider);
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -374,7 +374,7 @@ internal sealed partial class SubagentTests
             cancellationToken);
         var parent = Session(provider, 0, "reservation-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
-        var child = registry.Spawn(QuestionChildRequest(parent, router, "reservation-child"));
+        var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "reservation-child"));
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var reservation = coordinator.BeginCompletion(parent);
         var asking = coordinator.Ask(child, [Question("reserved")], stopping.Token);
@@ -391,7 +391,7 @@ internal sealed partial class SubagentTests
         using var provider = new SteppedProvider();
         var router = Router(provider);
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(router, deliversCompletions: false),
+            new TestAgentSessions(router),
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -399,15 +399,15 @@ internal sealed partial class SubagentTests
             cancellationToken);
         var root = Session(provider, 0, "root", registry, cancellationToken);
         var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
-        var child = registry.Spawn(QuestionChildRequest(root, router, "child"));
-        var grandchild = registry.Spawn(QuestionChildRequest(child, router, "grandchild"));
+        var child = root.ChildRegistry.Spawn(QuestionChildRequest(root, router, "child"));
+        var grandchild = child.ChildRegistry.Spawn(QuestionChildRequest(child, router, "grandchild"));
 
-        _ = await Assert.That(registry.AuthorizeDirectChild(root.SessionId, child.SessionId)).IsSameReferenceAs(child);
-        _ = await Assert.That(() => registry.AuthorizeDirectChild(root.SessionId, grandchild.SessionId))
+        _ = await Assert.That(root.ChildRegistry.AuthorizeDirectChild(child.SessionId)).IsSameReferenceAs(child);
+        _ = await Assert.That(() => root.ChildRegistry.AuthorizeDirectChild(grandchild.SessionId))
             .Throws<AgentRegistryException>();
-        _ = await Assert.That(() => registry.AuthorizeDirectChild(unrelated.SessionId, child.SessionId))
+        _ = await Assert.That(() => unrelated.ChildRegistry.AuthorizeDirectChild(child.SessionId))
             .Throws<AgentRegistryException>();
-        _ = await Assert.That(() => registry.AuthorizeDirectChild(root.SessionId, child.Name))
+        _ = await Assert.That(() => root.ChildRegistry.AuthorizeDirectChild(child.Name))
             .Throws<AgentRegistryException>();
     }
 

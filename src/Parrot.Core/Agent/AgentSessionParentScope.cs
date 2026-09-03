@@ -11,6 +11,10 @@ internal sealed class AgentSessionParentScope
     internal ChildQuestionCoordinator ChildQuestions => Parent?.ChildQuestions
         ?? throw new AgentRegistryException("child agent identity requires a parent scope");
 
+    internal AgentPolicyLineage PolicyLineage => Parent is { } parent
+        ? parent.Session.ResolvePolicyLineage().Link(parent.Session)
+        : AgentPolicyLineage.Root();
+
     internal IAgentSessionScope? Parent { get; }
 
     public static AgentSessionParentScope Root() => new(null);

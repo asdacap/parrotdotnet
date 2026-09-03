@@ -5,15 +5,17 @@ namespace Parrot.Agent;
 
 internal sealed class AgentSessionDirectScope : IAgentSessionScope
 {
-    private bool _disposed;
+    private readonly Lock _gate = new();
+    private Task? _shutdown;
 
     private AgentSessionDirectScope(
         AgentIdentity owner,
+        AgentSessionParentScope parentScope,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
         Func<ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession)
     {
-        ChildRegistry = new ChildRegistry(owner, registry);
+        ChildRegistry = new ChildRegistry(owner, parentScope, registry);
         ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
         try
         {
@@ -39,19 +41,30 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
 
     public static AgentSessionDirectScope Build(
         AgentIdentity owner,
+        AgentSessionParentScope parentScope,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
         Func<ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession) =>
-        new(owner, registry, promptTemplates, buildSession);
+        new(owner, parentScope, registry, promptTemplates, buildSession);
 
     public ValueTask DisposeAsync()
     {
-        if (!_disposed)
+        lock (_gate)
         {
-            _disposed = true;
+            _shutdown ??= ShutDown();
+            return new ValueTask(_shutdown);
+        }
+    }
+
+    private async Task ShutDown()
+    {
+        try
+        {
+            await ChildRegistry.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
             ChildQuestions.Dispose();
         }
-
-        return ValueTask.CompletedTask;
     }
 }

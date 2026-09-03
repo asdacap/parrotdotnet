@@ -77,7 +77,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         }
 
         var agentQueues = queues.Register(identity);
-        return AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) =>
+        return AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (children, childQuestions) =>
         {
             var session = new AgentSession(
             identity,
@@ -97,7 +97,6 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             mode,
             SecurityProfileTestFactory.Create(securityProfile),
             status,
-            registry,
             children,
             agentQueues,
             new AgentSessionActivity(TimeProvider.System),
