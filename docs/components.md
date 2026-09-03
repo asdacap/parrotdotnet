@@ -137,15 +137,18 @@ authority for a subsequently altered artifact. This approved workflow remains
 path-based even though direct callers may embed an artifact.
 
 **Schema and scope.** The JSON envelope is
-`{"schema_version":1,"tasks":[...]}`. A sibling list is nonempty. Each task
-has nonblank `name`, `description`, `payload`, and `acceptance_criteria`, with
-optional `dependencies` and `model`; payload is either a nonblank instruction or
-a recursive nonempty sibling list. Unknown fields, null required values,
-duplicate names or dependencies, missing/self/cyclic references, and
+`{"schema_version":1,"tasks":[root]}` and its artifact `tasks` array contains
+exactly one top-level root task. Each task has nonblank `name`, `description`,
+`payload`, and `acceptance_criteria`, with optional `dependencies` and `model`;
+payload is either a nonblank instruction or a recursive nonempty sibling list.
+Nested sibling lists may contain multiple tasks. Unknown fields, null required
+values, duplicate names or dependencies, missing/self/cyclic references, and
 cross-level dependencies are invalid. Dependency names are case-sensitive and
 local to their immediate sibling list. This makes a nested payload a hierarchy
 of independently validated sibling DAGs, not one graph with globally addressable
-names.
+names. This single-root requirement is a compatibility change: wrap prior
+multiple roots in one composite parent and put those roots in its nested payload,
+so one retained composite agent prepares and validates the entire flow.
 
 **Invocation source.** `run_agent_tasks` requires exactly one of `path` or
 `artifact`. The path form performs the regular-file, symbolic-link, and invoking

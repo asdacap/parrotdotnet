@@ -280,14 +280,18 @@ The v1 artifact has this strict envelope:
 }
 ```
 
-`schema_version` must be `1`, and `tasks` must be nonempty. Every task requires
-nonblank `name`, `description`, `payload`, and `acceptance_criteria`; `model`
-and `dependencies` are optional. A payload is either a nonblank instruction or
-a nonempty recursive sibling task array. Unknown fields and null required
-values are rejected. Names and dependencies are case-sensitive. Dependencies
-are distinct, must name another task in the same sibling list, and may not be
-self-references or cycles; a task cannot depend on a nested task or a task in
-another branch.
+`schema_version` must be `1`, and the artifact `tasks` array must contain exactly
+one top-level root task. Every task requires nonblank `name`, `description`,
+`payload`, and `acceptance_criteria`; `model` and `dependencies` are optional. A
+payload is either a nonblank instruction or a nonempty recursive sibling task
+array; nested sibling arrays may contain multiple tasks. Unknown fields and
+null required values are rejected. Names and dependencies are case-sensitive.
+Dependencies are distinct, must name another task in the same sibling list, and
+may not be self-references or cycles; a task cannot depend on a nested task or a
+task in another branch. This is a compatibility change from earlier artifacts:
+wrap prior multiple roots in one composite parent, placing them in its nested
+payload, so one retained composite agent can prepare and validate the entire
+flow.
 
 `run_agent_tasks` requires exactly one graph source. A `path` names a readable
 regular non-symbolic-link artifact and is checked against the invoking security
