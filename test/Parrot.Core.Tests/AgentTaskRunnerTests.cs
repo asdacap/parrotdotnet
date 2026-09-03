@@ -497,15 +497,19 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Accepted_leaf_result_is_used_as_dependency_summary(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"root preparation\"}",
             "{\"result\":\"dependency result\",\"verdict\":\"accept\",\"evidence\":\"dependency proof\"}",
             "{\"result\":\"dependent context\",\"verdict\":\"accept\",\"evidence\":\"dependent proof\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"root proof\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[
-              {"name":"prerequisite","description":"Prerequisite","payload":"work","acceptance_criteria":"Done"},
-              {"name":"dependent","dependencies":["prerequisite"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Done"}
+              {"name":"root","description":"Root","payload":[
+                {"name":"prerequisite","description":"Prerequisite","payload":"work","acceptance_criteria":"Done"},
+                {"name":"dependent","dependencies":["prerequisite"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Done"}
+              ],"acceptance_criteria":"Root done"}
             ]}
             """);
 
@@ -513,7 +517,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
-        var dependentPrompt = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var dependentPrompt = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(dependentPrompt).Contains("[prerequisite] dependency result");
     }
 
@@ -522,6 +526,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"root preparation\"}",
             "{\"context\":\"unrelated preparation\"}",
             "{\"result\":\"cousin result\",\"verdict\":\"accept\",\"evidence\":\"cousin evidence\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"unrelated evidence\"}",
@@ -530,19 +535,22 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             "{\"result\":\"failed child result\",\"verdict\":\"reject_and_halt\",\"feedback\":\"failed child feedback\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"parent acceptance evidence\"}",
             "{\"result\":\"dependent result\",\"verdict\":\"accept\",\"evidence\":\"dependent evidence\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"root acceptance evidence\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[
-              {"name":"unrelated","description":"Unrelated","payload":[
-                {"name":"cousin","description":"Cousin","payload":"cousin work","acceptance_criteria":"Cousin done"}
-              ],"acceptance_criteria":"Unrelated done"},
-              {"name":"parent","dependencies":["unrelated"],"description":"Parent","payload":[
-                {"name":"successful-child","description":"Successful child","payload":"successful work","acceptance_criteria":"Successful done"},
-                {"name":"failed-child","dependencies":["successful-child"],"description":"Failed child","payload":"failed work","acceptance_criteria":"Failed done"}
-              ],"acceptance_criteria":"Parent decides"},
-              {"name":"dependent","dependencies":["parent"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Dependent done"}
+              {"name":"root","description":"Root","payload":[
+                {"name":"unrelated","description":"Unrelated","payload":[
+                  {"name":"cousin","description":"Cousin","payload":"cousin work","acceptance_criteria":"Cousin done"}
+                ],"acceptance_criteria":"Unrelated done"},
+                {"name":"parent","dependencies":["unrelated"],"description":"Parent","payload":[
+                  {"name":"successful-child","description":"Successful child","payload":"successful work","acceptance_criteria":"Successful done"},
+                  {"name":"failed-child","dependencies":["successful-child"],"description":"Failed child","payload":"failed work","acceptance_criteria":"Failed done"}
+                ],"acceptance_criteria":"Parent decides"},
+                {"name":"dependent","dependencies":["parent"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Dependent done"}
+              ],"acceptance_criteria":"Root decides"}
             ]}
             """);
 
@@ -550,7 +558,10 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(graphResult.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
-        var parentResult = graphResult.Tasks[1].Result
+        _ = await Assert.That(graphResult.Tasks).HasSingleItem();
+        var rootTasks = graphResult.Tasks[0].Tasks
+            ?? throw new InvalidOperationException("Root composite tasks were not produced.");
+        var parentResult = rootTasks[1].Result
             ?? throw new InvalidOperationException("Composite result was not produced.");
         _ = await Assert.That(parentResult).Contains("\"name\":\"successful-child\"");
         _ = await Assert.That(parentResult).Contains("\"result\":\"successful child result\"");
@@ -558,12 +569,12 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(parentResult).Contains("\"result\":\"failed child result\"");
         _ = await Assert.That(parentResult).Contains("\"status\":\"failed\"");
 
-        var parentAcceptancePrompt = provider.Requests[6].Messages.Last(message => message.Role == LLMRole.User).Content;
+        var parentAcceptancePrompt = provider.Requests[7].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(parentAcceptancePrompt).Contains("Nested task results (structured JSON):");
         _ = await Assert.That(parentAcceptancePrompt).Contains("\"result\":\"successful child result\"");
         _ = await Assert.That(parentAcceptancePrompt).Contains("\"result\":\"failed child result\"");
 
-        var dependentPrompt = provider.Requests[7].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var dependentPrompt = provider.Requests[8].Messages.Single(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(dependentPrompt).Contains($"[parent] {parentResult}");
         _ = await Assert.That(dependentPrompt).DoesNotContain("parent acceptance evidence");
         _ = await Assert.That(dependentPrompt).DoesNotContain("unrelated evidence");
@@ -575,14 +586,18 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Failed_dependency_blocks_the_complete_pending_subtree(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"root preparation\"}",
             "{\"result\":\"prerequisite context\",\"verdict\":\"reject_and_halt\",\"feedback\":\"not done\"}",
+            "{\"verdict\":\"reject_and_halt\",\"feedback\":\"root cannot proceed\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[
-              {"name":"prerequisite","description":"Prerequisite","payload":"work","acceptance_criteria":"Done"},
-              {"name":"dependent","dependencies":["prerequisite"],"description":"Dependent","payload":[{"name":"nested","description":"Nested","payload":"nested work","acceptance_criteria":"Nested done"}],"acceptance_criteria":"Dependent done"}
+              {"name":"root","description":"Root","payload":[
+                {"name":"prerequisite","description":"Prerequisite","payload":"work","acceptance_criteria":"Done"},
+                {"name":"dependent","dependencies":["prerequisite"],"description":"Dependent","payload":[{"name":"nested","description":"Nested","payload":"nested work","acceptance_criteria":"Nested done"}],"acceptance_criteria":"Dependent done"}
+              ],"acceptance_criteria":"Root done"}
             ]}
             """);
 
@@ -590,11 +605,13 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
-        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
         var final = ProgressEvents("blocked-subtree")[^1];
+        _ = await Assert.That(final.RootNodes).HasSingleItem();
         _ = await Assert.That(final.RootNodes[0].Status).IsEqualTo(AgentTaskProgressStatus.Failed);
-        _ = await Assert.That(final.RootNodes[1].Status).IsEqualTo(AgentTaskProgressStatus.Blocked);
-        _ = await Assert.That(final.RootNodes[1].Children.Single().Status)
+        _ = await Assert.That(final.RootNodes[0].Children[0].Status).IsEqualTo(AgentTaskProgressStatus.Failed);
+        _ = await Assert.That(final.RootNodes[0].Children[1].Status).IsEqualTo(AgentTaskProgressStatus.Blocked);
+        _ = await Assert.That(final.RootNodes[0].Children[1].Children.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Blocked);
     }
 
@@ -607,9 +624,11 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         await using var registry = runtime.Registry;
         var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[
-              {"name":"fast","description":"Fast","payload":"fast work","acceptance_criteria":"Done"},
-              {"name":"slow","description":"Slow","payload":"slow work","acceptance_criteria":"Done"},
-              {"name":"dependent","dependencies":["fast"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Done"}
+              {"name":"root","description":"Root","payload":[
+                {"name":"fast","description":"Fast","payload":"fast work","acceptance_criteria":"Done"},
+                {"name":"slow","description":"Slow","payload":"slow work","acceptance_criteria":"Done"},
+                {"name":"dependent","dependencies":["fast"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Done"}
+              ],"acceptance_criteria":"Root done"}
             ]}
             """);
 
@@ -619,15 +638,18 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         _ = await Assert.That(provider.MaximumActive >= 2).IsTrue();
         _ = await Assert.That(provider.DependentStartedBeforeSlowFinished).IsTrue();
-        _ = await Assert.That(string.Join(",", result.Tasks.Select(task => task.Name))).IsEqualTo("fast,slow,dependent");
+        _ = await Assert.That(result.Tasks).HasSingleItem();
+        var scheduledTasks = result.Tasks[0].Tasks
+            ?? throw new InvalidOperationException("Root composite tasks were not produced.");
+        _ = await Assert.That(string.Join(",", scheduledTasks.Select(task => task.Name))).IsEqualTo("fast,slow,dependent");
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(snapshots.All(snapshot =>
-            string.Join(',', snapshot.RootNodes.Select(node => node.Name)) == "fast,slow,dependent"))
+            snapshot.RootNodes.Count == 1 && string.Join(',', snapshot.RootNodes[0].Children.Select(node => node.Name)) == "fast,slow,dependent"))
             .IsTrue();
         var fastSucceeded = snapshots.ToList().FindIndex(snapshot =>
-            snapshot.RootNodes[0].Status == AgentTaskProgressStatus.Succeeded);
+            snapshot.RootNodes[0].Children[0].Status == AgentTaskProgressStatus.Succeeded);
         var dependentRunning = snapshots.ToList().FindIndex(snapshot =>
-            snapshot.RootNodes[2].Status == AgentTaskProgressStatus.Running);
+            snapshot.RootNodes[0].Children[2].Status == AgentTaskProgressStatus.Running);
         _ = await Assert.That(dependentRunning > fastSucceeded).IsTrue();
     }
 

@@ -216,7 +216,7 @@ prompt_templates:
     required_arguments: [message]
   mode.plan-workflow:
     template: >-
-      {profile_prompt} Write the canonical Markdown plan to this exact file: {plan_artifact}. Write the required AgentTask v1 JSON artifact to this exact file: {task_artifact}. The JSON must be a strict object with schema_version equal to 1 and a nonempty tasks array; each task requires nonblank name, description, payload, and acceptance_criteria. Optional dependencies must be an array of distinct nonblank, case-sensitive names in the same sibling list; an optional model must be a nonblank string. Payload is either a nonblank string or a nonempty recursive task array. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {plan_directory}. Do not include the plan in your assistant response. Finish only after writing both canonical files.
+      {profile_prompt} Write the canonical Markdown plan to this exact file: {plan_artifact}. Write the required AgentTask v1 JSON artifact to this exact file: {task_artifact}. The JSON must be a strict object with schema_version equal to 1 and a tasks array containing exactly one top-level root task; each task requires nonblank name, description, payload, and acceptance_criteria. Optional dependencies must be an array of distinct nonblank, case-sensitive names in the same sibling list; an optional model must be a nonblank string. Payload is either a nonblank string or a nonempty recursive task array. If the flow has multiple work items, put them as nested sibling tasks in the payload of one composite root so that one retained composite agent can prepare and validate the entire flow. You may write optional supporting artifacts under this plan directory and reference them from the canonical plan: {plan_directory}. Do not include the plan in your assistant response. Finish only after writing both canonical files.
     allowed_arguments: [profile_prompt, plan_artifact, task_artifact, plan_directory]
     required_arguments: [profile_prompt, plan_artifact, task_artifact, plan_directory]
   mode.plan-repair-read:
@@ -231,7 +231,7 @@ prompt_templates:
     required_arguments: [plan_artifact]
   mode.plan-repair-blank-task:
     template: >-
-      The required AgentTask JSON artifact is blank. Write valid schema_version 1 task JSON to the exact path '{task_artifact}', then finish again.
+      The required AgentTask JSON artifact is blank. Write valid schema_version 1 task JSON with exactly one top-level root task to the exact path '{task_artifact}', then finish again.
     allowed_arguments: [task_artifact]
     required_arguments: [task_artifact]
   mode.plan-repair-invalid-task:
@@ -619,7 +619,7 @@ profiles:
     prompt: |-
       You are Parrot's plan mode. Inspect the project and write a plan to the designated canonical Markdown file beneath the provided plan directory. Write only plan artifacts there; never run commands that may write elsewhere or implement changes.
 
-      Write a correlated pair at the two exact runtime-designated paths: the complete human-readable Markdown plan and a strict AgentTask JSON artifact. The JSON envelope is {"schema_version":1,"tasks":[...]}. Tasks require nonblank name, description, payload, and acceptance_criteria; dependencies and model are optional. When present, dependencies must be an array of distinct nonblank strings naming tasks in the same sibling list, and model must be a nonblank string. Dependencies are case-sensitive. Payload is exactly a nonblank string or a nonempty recursive task array. Unknown fields, null required values, duplicate names/dependencies, missing/self/cyclic dependencies, and cross-level dependencies are invalid. Finish only after both files are nonblank and valid; when a validation diagnostic is returned, repair the named artifact in the same turn.
+      Write a correlated pair at the two exact runtime-designated paths: the complete human-readable Markdown plan and a strict AgentTask JSON artifact. The JSON envelope is {"schema_version":1,"tasks":[root]}; it must contain exactly one top-level root task. Tasks require nonblank name, description, payload, and acceptance_criteria; dependencies and model are optional. When present, dependencies must be an array of distinct nonblank strings naming tasks in the same sibling list, and model must be a nonblank string. Payload is exactly a nonblank string or a nonempty recursive task array. For multiple work items, use one composite root and place the work items in its nested payload so one retained composite agent prepares and validates the entire flow. Unknown fields, null required values, duplicate names/dependencies, missing/self/cyclic dependencies, and cross-level dependencies are invalid. Finish only after both files are nonblank and valid; when a validation diagnostic is returned, repair the named artifact in the same turn.
 
       Use the originating request as the feature brief. If it cannot identify the desired observable outcome and affected users or interfaces, or leaves a material user-owned behavior, compatibility, rollout, or acceptance decision unresolved, request only the missing facts and mark affected work gated; do not infer them. The plan serves the user and harness: the user confirms the goal before execution detail; ready packages are executable or delegatable without material rediscovery, while gated packages await recorded resolution.
 
@@ -1213,7 +1213,7 @@ tools:
       type: object
       additionalProperties: false
   run_agent_tasks:
-    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only children; instruction leaves use agent-task-payload for implementation and verification with strict result JSON, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then return hierarchical JSON evidence.
+    description: Execute an approved AgentTask v1 artifact with exactly one top-level root synchronously through fresh retained-only children; instruction leaves use agent-task-payload for implementation and verification with strict result JSON, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then return hierarchical JSON evidence. Put multiple work items in nested sibling payloads beneath the single root so one retained composite agent prepares and validates the entire flow.
     parameters:
       type: object
       properties:
@@ -1233,7 +1233,7 @@ tools:
       $defs:
         artifact:
           type: object
-          description: AgentTask v1 artifact containing one or more root tasks.
+          description: AgentTask v1 artifact containing exactly one top-level root task.
           properties:
             schema_version:
               type: integer
@@ -1242,9 +1242,10 @@ tools:
             tasks:
               type: array
               minItems: 1
+              maxItems: 1
               items:
                 $ref: '#/$defs/task'
-              description: Root tasks in the AgentTask graph.
+              description: The single top-level root task in the AgentTask graph.
           required:
           - schema_version
           - tasks

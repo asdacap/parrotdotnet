@@ -72,6 +72,43 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     }
 
     [Test]
+    public async Task Rejects_multi_root_embedded_artifacts_before_execution(CancellationToken cancellationToken)
+    {
+        const string arguments =
+            "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"},{\"name\":\"second\",\"description\":\"Second\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
+        var provider = new AgentTaskQueueProvider([]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var tool = Tool(runtime);
+
+        var result = await tool.Execute(new ToolInvocation("multi-root-call", arguments), runtime.Selection, cancellationToken);
+
+        _ = await Assert.That(result.Text).IsEqualTo("error: tasks must contain exactly one root task.");
+        _ = await Assert.That(provider.Requests).IsEmpty();
+    }
+
+    [Test]
+    public async Task Rejects_multi_root_path_artifacts_before_execution(CancellationToken cancellationToken)
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(_root, "multi-root.json"),
+            "{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"},{\"name\":\"second\",\"description\":\"Second\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}",
+            cancellationToken);
+        var provider = new AgentTaskQueueProvider([]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var tool = Tool(runtime);
+
+        var result = await tool.Execute(
+            new ToolInvocation("multi-root-path-call", "{\"path\":\"multi-root.json\"}"),
+            runtime.Selection,
+            cancellationToken);
+
+        _ = await Assert.That(result.Text).IsEqualTo("error: tasks must contain exactly one root task.");
+        _ = await Assert.That(provider.Requests).IsEmpty();
+    }
+
+    [Test]
     public async Task Configured_attempt_budget_limits_embedded_artifact_execution(CancellationToken cancellationToken)
     {
         const string arguments =

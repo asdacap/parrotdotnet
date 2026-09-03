@@ -18,7 +18,13 @@ internal static class AgentTaskParser
             throw Invalid("schema_version must equal 1.");
         }
 
-        var tasks = ParseTasks(root.GetProperty("tasks"), "tasks");
+        var taskArray = root.GetProperty("tasks");
+        if (taskArray.GetArrayLength() != 1)
+        {
+            throw Invalid("tasks must contain exactly one root task.");
+        }
+
+        var tasks = ParseTasks(taskArray, "tasks");
         return new AgentTaskArtifact(AgentTaskArtifact.Version1, tasks);
     }
 

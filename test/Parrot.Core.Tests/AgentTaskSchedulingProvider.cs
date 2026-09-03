@@ -30,8 +30,10 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
         var active = Interlocked.Increment(ref _active);
         SetMaximum(active);
         var prompt = string.Join('\n', request.Messages.Select(message => message.Content));
-        var preparation = prompt.Contains("AgentTask role: prepare", StringComparison.Ordinal);
-        var combinedPayload = prompt.Contains("AgentTask role: payload executor", StringComparison.Ordinal)
+        var acceptance = prompt.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal);
+        var preparation = !acceptance && prompt.Contains("AgentTask role: prepare", StringComparison.Ordinal);
+        var combinedPayload = !acceptance
+            && prompt.Contains("AgentTask role: payload executor", StringComparison.Ordinal)
             && prompt.Contains("Inspect, implement, and verify this instruction:", StringComparison.Ordinal);
         var initialPayload = combinedPayload
             && (prompt.Contains("Task: fast", StringComparison.Ordinal)
@@ -67,10 +69,10 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
 
             var answer = preparation
                 ? "{\"context\":\"preparation ready\"}"
-                : combinedPayload
-                    ? "{\"result\":\"payload ready\",\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
-                    : prompt.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal)
-                        ? "{\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
+                : acceptance
+                    ? "{\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
+                    : combinedPayload
+                        ? "{\"result\":\"payload ready\",\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
                         : "executed";
             yield return LLMEvent.Completed("stop", 1, 0, 1, answer, []);
         }
