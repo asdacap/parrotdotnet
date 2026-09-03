@@ -6,10 +6,8 @@ namespace Parrot.Agent;
 
 internal sealed class ChildRegistry(
     AgentIdentity owner,
-    AgentSessionParentScope parentScope,
     AgentRegistry authority)
 {
-    private const string ParentRecipient = "parent";
     private const int MaxDepth = 4;
     private readonly Dictionary<string, ChildEntry> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
@@ -25,6 +23,8 @@ internal sealed class ChildRegistry(
     private Task? _shutdown;
 
     internal string OwnerSessionId => owner.SessionId;
+
+    internal AgentRegistry Authority => authority;
 
     public AgentSession Spawn(AgentLaunchRequest request)
     {
@@ -45,7 +45,7 @@ internal sealed class ChildRegistry(
             throw new AgentRegistryException("subagent depth limit reached");
         }
 
-        var registeredOwnerScope = RequireRegisteredOwnerScope();
+        var registeredOwnerScope = RequireOwnerScope();
         var profile = authority.ResolveChildProfile(request.RequestedProfile);
         var status = authority.RequireStatus();
         var retainedReservation = authority.ReserveRetainedAgent();
@@ -141,20 +141,10 @@ internal sealed class ChildRegistry(
         }
     }
 
-    public AgentSession ResolveStatusTarget(string sessionIdOrName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
-        _ = RequireRegisteredOwnerScope();
-        var canonical = authority.FindScope(sessionIdOrName);
-        return canonical is not null && canonical.Session.Depth > 0
-            ? canonical.Session
-            : ResolveDirectChild(sessionIdOrName);
-    }
-
     public AgentSession AuthorizeDirectChild(string childSessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
-        _ = RequireRegisteredOwnerScope();
+        _ = RequireOwnerScope();
 
         lock (_gate)
         {
@@ -176,45 +166,12 @@ internal sealed class ChildRegistry(
             throw new AgentRegistryException($"parent agent not found: {child.ParentSessionId}");
         }
 
-        return RequireRegisteredOwnerScope().Session;
-    }
-
-    public AgentSession ResolveRecipient(string sessionIdOrName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
-        _ = RequireRegisteredOwnerScope();
-
-        if (sessionIdOrName.Contains('/', StringComparison.Ordinal))
-        {
-            return ResolveDescendantPath(sessionIdOrName);
-        }
-
-        var canonical = authority.FindScope(sessionIdOrName);
-        if (canonical is not null)
-        {
-            if (string.Equals(canonical.Session.SessionId, owner.ParentSessionId, StringComparison.Ordinal)
-                || string.Equals(canonical.Session.ParentSessionId, owner.SessionId, StringComparison.Ordinal))
-            {
-                return canonical.Session;
-            }
-
-            throw new AgentRegistryException("only parent/child may be sent");
-        }
-
-        if (parentScope.Parent is { } parent
-            && (string.Equals(sessionIdOrName, ParentRecipient, StringComparison.Ordinal)
-                || string.Equals(sessionIdOrName, owner.ParentSessionId, StringComparison.Ordinal)
-                || string.Equals(sessionIdOrName, owner.ParentSessionName, StringComparison.Ordinal)))
-        {
-            return parent.Session;
-        }
-
-        return ResolveDirectChild(sessionIdOrName);
+        return RequireOwnerScope().Session;
     }
 
     public IReadOnlyList<ActiveWorkObservation> ObserveActive()
     {
-        _ = RequireRegisteredOwnerScope();
+        _ = RequireOwnerScope();
         lock (_gate)
         {
             return [.. _entries.Values
@@ -286,6 +243,25 @@ internal sealed class ChildRegistry(
         }
     }
 
+    internal IAgentSessionScope RequireOwnerScope()
+    {
+        if (!authority.IsAccepting)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        IAgentSessionScope scope;
+        lock (_gate)
+        {
+            EnsureAccepting();
+            scope = _ownerScope ?? throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
+        }
+
+        return authority.ContainsScope(scope)
+            ? scope
+            : throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
+    }
+
     internal AgentSession ResolveDirectChild(string sessionIdOrName)
     {
         lock (_gate)
@@ -345,13 +321,52 @@ internal sealed class ChildRegistry(
             child.ChildRegistry.SnapshotDescendants().Prepend(child.Session))];
     }
 
-    internal Task DeliverCompletion(AgentIdentity child, AgentExecution completed)
+    internal async Task ReceiveCompletion(AgentIdentity child, AgentExecution completed)
     {
         ArgumentNullException.ThrowIfNull(child);
         ArgumentNullException.ThrowIfNull(completed);
-        return parentScope.Parent is { } parent
-            ? parent.ChildRegistry.Deliver(child, completed)
-            : Task.CompletedTask;
+
+        AgentSession? parent;
+        lock (_gate)
+        {
+            parent = _accepting
+                && _entries.TryGetValue(child.SessionId, out var entry)
+                && ReferenceEquals(entry.Scope.Session.Identity, child)
+                && entry.DeliveryPolicy == AgentCompletionDeliveryPolicy.Automatic
+                ? _ownerScope?.Session
+                : null;
+        }
+
+        if (parent is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await parent.ReceiveAgentCompletion(
+                child.Name,
+                completed.FormatCompletion(child, owner.PromptTemplates),
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    internal AgentSession ResolveNamedChild(string name)
+    {
+        lock (_gate)
+        {
+            if (_accepting
+                && _names.TryGetValue(name, out var sessionId)
+                && _entries.TryGetValue(sessionId, out var child))
+            {
+                return child.Scope.Session;
+            }
+        }
+
+        throw new AgentRegistryException($"child agent not found: {name}");
     }
 
     private static string Sanitize(string name)
@@ -383,36 +398,6 @@ internal sealed class ChildRegistry(
         }
 
         return sanitized.ToString().TrimEnd('-');
-    }
-
-    private async Task Deliver(AgentIdentity child, AgentExecution completed)
-    {
-        AgentSession? parent;
-        lock (_gate)
-        {
-            parent = _accepting
-                && _entries.TryGetValue(child.SessionId, out var entry)
-                && ReferenceEquals(entry.Scope.Session.Identity, child)
-                && entry.DeliveryPolicy == AgentCompletionDeliveryPolicy.Automatic
-                ? _ownerScope?.Session
-                : null;
-        }
-
-        if (parent is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await parent.ReceiveAgentCompletion(
-                child.Name,
-                completed.FormatCompletion(child, owner.PromptTemplates),
-                CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception)
-        {
-        }
     }
 
     private string UniqueName(string requestedName, string sessionId)
@@ -555,66 +540,6 @@ internal sealed class ChildRegistry(
         {
             ExceptionDispatchInfo.Capture(failure).Throw();
         }
-    }
-
-    private AgentSession ResolveDescendantPath(string path)
-    {
-        var registry = this;
-        AgentSession? descendant = null;
-
-        foreach (var segment in path.Split('/', StringSplitOptions.None))
-        {
-            if (segment.Length == 0)
-            {
-                throw new AgentRegistryException($"child agent not found: {path}");
-            }
-
-            try
-            {
-                descendant = registry.ResolveNamedChild(segment);
-                registry = descendant.ChildRegistry;
-            }
-            catch (AgentRegistryException)
-            {
-                throw new AgentRegistryException($"child agent not found: {path}");
-            }
-        }
-
-        return descendant ?? throw new AgentRegistryException($"child agent not found: {path}");
-    }
-
-    private AgentSession ResolveNamedChild(string name)
-    {
-        lock (_gate)
-        {
-            if (_accepting
-                && _names.TryGetValue(name, out var sessionId)
-                && _entries.TryGetValue(sessionId, out var child))
-            {
-                return child.Scope.Session;
-            }
-        }
-
-        throw new AgentRegistryException($"child agent not found: {name}");
-    }
-
-    private IAgentSessionScope RequireRegisteredOwnerScope()
-    {
-        if (!authority.IsAccepting)
-        {
-            throw new AgentRegistryException("the user session is shutting down");
-        }
-
-        IAgentSessionScope scope;
-        lock (_gate)
-        {
-            EnsureAccepting();
-            scope = _ownerScope ?? throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
-        }
-
-        return authority.ContainsScope(scope)
-            ? scope
-            : throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
     }
 
     private IAgentSessionScope[] SnapshotChildScopes()

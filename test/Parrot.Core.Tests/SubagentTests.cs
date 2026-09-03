@@ -62,7 +62,7 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await Assert.That(sessionId).StartsWith("agent-session-");
         await provider.Arrived(cancellationToken);
 
-        var child = parent.ChildRegistry.ResolveStatusTarget(sessionId);
+        var child = parent.Resolver.ResolveStatusTarget(sessionId);
         var yielded = await child.Wait(1, cancellationToken);
         _ = await Assert.That(yielded.Yielded).IsTrue();
         _ = await Assert.That(yielded.Status).IsEqualTo(AgentTaskStatus.Running);
@@ -196,8 +196,8 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await Assert.That(first.Name).IsEqualTo("helper");
         _ = await Assert.That(sibling.Name).IsEqualTo("helper-2");
         _ = await Assert.That(otherBranch.Name).IsEqualTo("helper");
-        _ = await Assert.That(firstParent.ChildRegistry.ResolveStatusTarget("helper")).IsSameReferenceAs(first);
-        _ = await Assert.That(secondParent.ChildRegistry.ResolveStatusTarget("helper")).IsSameReferenceAs(otherBranch);
+        _ = await Assert.That(firstParent.Resolver.ResolveStatusTarget("helper")).IsSameReferenceAs(first);
+        _ = await Assert.That(secondParent.Resolver.ResolveStatusTarget("helper")).IsSameReferenceAs(otherBranch);
     }
 
     [Test]
@@ -300,12 +300,12 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
 
-        _ = await Assert.That(secondParent.ChildRegistry.ResolveStatusTarget(target.SessionId)).IsSameReferenceAs(target);
-        var unrelated = await Assert.That(() => secondParent.ChildRegistry.ResolveRecipient(target.SessionId))
+        _ = await Assert.That(secondParent.Resolver.ResolveStatusTarget(target.SessionId)).IsSameReferenceAs(target);
+        var unrelated = await Assert.That(() => secondParent.Resolver.ResolveRecipient(target.SessionId))
             .Throws<AgentRegistryException>();
         _ = await Assert.That(unrelated?.Message).IsEqualTo("only parent/child may be sent");
-        _ = await Assert.That(() => secondParent.ChildRegistry.ResolveStatusTarget("helper")).Throws<AgentRegistryException>();
-        _ = await Assert.That(() => secondParent.ChildRegistry.ResolveRecipient("helper")).Throws<AgentRegistryException>();
+        _ = await Assert.That(() => secondParent.Resolver.ResolveStatusTarget("helper")).Throws<AgentRegistryException>();
+        _ = await Assert.That(() => secondParent.Resolver.ResolveRecipient("helper")).Throws<AgentRegistryException>();
     }
 
     [Test]
@@ -365,10 +365,10 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
 
-        _ = await Assert.That(caller.ChildRegistry.ResolveRecipient(parent.Name)).IsSameReferenceAs(parent);
-        _ = await Assert.That(caller.ChildRegistry.ResolveStatusTarget(parent.Name)).IsSameReferenceAs(parentNameCollision);
+        _ = await Assert.That(caller.Resolver.ResolveRecipient(parent.Name)).IsSameReferenceAs(parent);
+        _ = await Assert.That(caller.Resolver.ResolveStatusTarget(parent.Name)).IsSameReferenceAs(parentNameCollision);
         _ = await Assert.That(canonicalCollision.Name).IsEqualTo(parentNameCollision.SessionId);
-        _ = await Assert.That(caller.ChildRegistry.ResolveRecipient(canonicalCollision.Name))
+        _ = await Assert.That(caller.Resolver.ResolveRecipient(canonicalCollision.Name))
             .IsSameReferenceAs(parentNameCollision);
     }
 
@@ -418,7 +418,7 @@ internal sealed partial class SubagentTests : IDisposable
             0,
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
-        var send = new AgentSendTool(sender.ChildRegistry, sender);
+        var send = new AgentSendTool(sender.Resolver, sender);
 
         var result = (await send.Execute(
             new ToolInvocation(
@@ -470,8 +470,8 @@ internal sealed partial class SubagentTests : IDisposable
             AgentCompletionDeliveryPolicy.RetainedOnly));
 
         _ = await Assert.That(second.Name).IsEqualTo(first.Name);
-        _ = await Assert.That(firstParent.ChildRegistry.ResolveStatusTarget(first.Name)).IsSameReferenceAs(first);
-        _ = await Assert.That(secondParent.ChildRegistry.ResolveStatusTarget(first.Name)).IsSameReferenceAs(second);
+        _ = await Assert.That(firstParent.Resolver.ResolveStatusTarget(first.Name)).IsSameReferenceAs(first);
+        _ = await Assert.That(secondParent.Resolver.ResolveStatusTarget(first.Name)).IsSameReferenceAs(second);
     }
 
     [Test]
@@ -521,11 +521,11 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
 
-        _ = await Assert.That(caller.ChildRegistry.ResolveRecipient("parent")).IsSameReferenceAs(parent);
-        _ = await Assert.That(caller.ChildRegistry.ResolveRecipient(parent.SessionId)).IsSameReferenceAs(parent);
-        _ = await Assert.That(caller.ChildRegistry.ResolveRecipient(parent.Name)).IsSameReferenceAs(parent);
-        _ = await Assert.That(caller.ChildRegistry.ResolveStatusTarget("parent")).IsSameReferenceAs(namedParent);
-        _ = await Assert.That(caller.ChildRegistry.ResolveStatusTarget(namedParent.SessionId)).IsSameReferenceAs(namedParent);
+        _ = await Assert.That(caller.Resolver.ResolveRecipient("parent")).IsSameReferenceAs(parent);
+        _ = await Assert.That(caller.Resolver.ResolveRecipient(parent.SessionId)).IsSameReferenceAs(parent);
+        _ = await Assert.That(caller.Resolver.ResolveRecipient(parent.Name)).IsSameReferenceAs(parent);
+        _ = await Assert.That(caller.Resolver.ResolveStatusTarget("parent")).IsSameReferenceAs(namedParent);
+        _ = await Assert.That(caller.Resolver.ResolveStatusTarget(namedParent.SessionId)).IsSameReferenceAs(namedParent);
     }
 
     [Test]
@@ -554,9 +554,9 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
 
-        _ = await Assert.That(root.ChildRegistry.ResolveRecipient("parent")).IsSameReferenceAs(child);
-        _ = await Assert.That(root.ChildRegistry.ResolveStatusTarget("parent")).IsSameReferenceAs(child);
-        var missing = await Assert.That(() => emptyRoot.ChildRegistry.ResolveRecipient("parent"))
+        _ = await Assert.That(root.Resolver.ResolveRecipient("parent")).IsSameReferenceAs(child);
+        _ = await Assert.That(root.Resolver.ResolveStatusTarget("parent")).IsSameReferenceAs(child);
+        var missing = await Assert.That(() => emptyRoot.Resolver.ResolveRecipient("parent"))
             .Throws<AgentRegistryException>();
         _ = await Assert.That(missing?.Message).IsEqualTo("child agent not found: parent");
     }
@@ -574,7 +574,7 @@ internal sealed partial class SubagentTests : IDisposable
             TestModels.PromptTemplates,
             cancellationToken);
         var session = Session(provider, 0, "root-id", registry, cancellationToken);
-        var send = new AgentSendTool(session.ChildRegistry, session);
+        var send = new AgentSendTool(session.Resolver, session);
         var root = Path.Combine(Path.GetTempPath(), "parrot-agent-send-documentation", Guid.NewGuid().ToString("N"));
         var configuration = Configuration.Load(
             Path.Combine(root, "config.yaml"),
@@ -637,16 +637,16 @@ internal sealed partial class SubagentTests : IDisposable
         var target = Spawn(parentNamed, "explorer", "target");
         var unrelatedTarget = Spawn(duplicate, "explorer", "target");
 
-        _ = await Assert.That(root.ChildRegistry.ResolveRecipient("first/duplicate/parent/target"))
+        _ = await Assert.That(root.Resolver.ResolveRecipient("first/duplicate/parent/target"))
             .IsSameReferenceAs(target);
-        _ = await Assert.That(first.ChildRegistry.ResolveRecipient("duplicate/parent/target"))
+        _ = await Assert.That(first.Resolver.ResolveRecipient("duplicate/parent/target"))
             .IsSameReferenceAs(target);
-        _ = await Assert.That(root.ChildRegistry.ResolveRecipient("duplicate/target"))
+        _ = await Assert.That(root.Resolver.ResolveRecipient("duplicate/target"))
             .IsSameReferenceAs(unrelatedTarget);
-        _ = await Assert.That(nestedDuplicate.ChildRegistry.ResolveRecipient("parent/target"))
+        _ = await Assert.That(nestedDuplicate.Resolver.ResolveRecipient("parent/target"))
             .IsSameReferenceAs(target);
 
-        var sent = (await new AgentSendTool(root.ChildRegistry, root).Execute(
+        var sent = (await new AgentSendTool(root.Resolver, root).Execute(
             new ToolInvocation(
                 "test-call",
                 """{"session_id":"first/duplicate/parent/target","message":"deep work"}"""),
@@ -668,13 +668,13 @@ internal sealed partial class SubagentTests : IDisposable
                      $"first/{nestedDuplicate.SessionId}", $"{first.SessionId}/duplicate",
                  })
         {
-            var error = await Assert.That(() => root.ChildRegistry.ResolveRecipient(path)).Throws<AgentRegistryException>();
+            var error = await Assert.That(() => root.Resolver.ResolveRecipient(path)).Throws<AgentRegistryException>();
             _ = await Assert.That(error?.Message).IsEqualTo($"child agent not found: {path}");
             _ = await Assert.That(error?.Message).DoesNotContain(target.SessionId);
             _ = await Assert.That(error?.Message).DoesNotContain(unrelatedTarget.SessionId);
         }
 
-        _ = await Assert.That(() => root.ChildRegistry.ResolveStatusTarget("first/duplicate"))
+        _ = await Assert.That(() => root.Resolver.ResolveStatusTarget("first/duplicate"))
             .Throws<AgentRegistryException>();
     }
 
@@ -757,7 +757,7 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await Assert.That(_repository.Replay().Select(item => item.PayloadCase))
             .Contains(Event.PayloadOneofCase.AgentStarted)
             .And.Contains(Event.PayloadOneofCase.AgentFinished);
-        var retained = parent.ChildRegistry.ResolveStatusTarget(child.SessionId).Activity.Capture();
+        var retained = parent.Resolver.ResolveStatusTarget(child.SessionId).Activity.Capture();
         _ = await Assert.That(retained.State).IsEqualTo(DrainState.Idle);
         _ = await Assert.That(retained.TerminalOutcome?.Status).IsEqualTo(AgentExecutionStatus.Succeeded);
         _ = await Assert.That(retained.TerminalOutcome?.Output).IsEqualTo("child result");
@@ -1035,7 +1035,7 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
         _ = await spawned.Send("initial", cancellationToken);
-        var send = new AgentSendTool(parent.ChildRegistry, parent);
+        var send = new AgentSendTool(parent.Resolver, parent);
 
         await provider.Arrived(cancellationToken);
         var steeredJson = (await send.Execute(
@@ -1106,7 +1106,7 @@ internal sealed partial class SubagentTests : IDisposable
             0,
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
-        var send = new AgentSendTool(child.ChildRegistry, child);
+        var send = new AgentSendTool(child.Resolver, child);
 
         var sent = (await send.Execute(
             new ToolInvocation(
@@ -1151,7 +1151,7 @@ internal sealed partial class SubagentTests : IDisposable
             0,
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
-        var send = new AgentSendTool(child.ChildRegistry, child);
+        var send = new AgentSendTool(child.Resolver, child);
 
         var sent = (await send.Execute(
             new ToolInvocation(
@@ -1196,7 +1196,7 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await spawned.Send("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
-        var sending = new AgentSendTool(parent.ChildRegistry, parent).Execute(
+        var sending = new AgentSendTool(parent.Resolver, parent).Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}"""),
@@ -1239,7 +1239,7 @@ internal sealed partial class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         var boundary = new string('x', 32 * 1024);
 
-        var sentJson = (await new AgentSendTool(parent.ChildRegistry, parent).Execute(
+        var sentJson = (await new AgentSendTool(parent.Resolver, parent).Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"session_id":"{{spawned.SessionId}}","message":"{{boundary}}"}"""),
@@ -1277,7 +1277,7 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly));
         _ = await spawned.Send("initial", cancellationToken);
-        var send = new AgentSendTool(parent.ChildRegistry, parent);
+        var send = new AgentSendTool(parent.Resolver, parent);
 
         var malformed = (await send.Execute(new ToolInvocation("test-call", "{}"), Turn(parent, Router(provider)), cancellationToken)).Text;
         var blank = (await send.Execute(
@@ -1292,7 +1292,7 @@ internal sealed partial class SubagentTests : IDisposable
                 """{"session_id":"missing","message":"hello"}"""),
             Turn(parent, Router(provider)),
             cancellationToken)).Text;
-        var invisible = (await new AgentSendTool(stranger.ChildRegistry, stranger).Execute(
+        var invisible = (await new AgentSendTool(stranger.Resolver, stranger).Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}"""),
@@ -1607,7 +1607,7 @@ internal sealed partial class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await spawned.Wait(0, cancellationToken);
-        var send = new AgentSendTool(parent.ChildRegistry, parent);
+        var send = new AgentSendTool(parent.Resolver, parent);
         _ = (await send.Execute(
             new ToolInvocation(
                 "test-call",
@@ -1671,7 +1671,7 @@ internal sealed partial class SubagentTests : IDisposable
             AgentSessionParentScope.Root(),
             registry,
             TestModels.PromptTemplates,
-            (children, childQuestions) => new AgentSession(identity, new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, children, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken)));
+            (sessionParentScope, children, childQuestions) => new AgentSession(identity, sessionParentScope, new AgentResolver(identity, sessionParentScope, children, children.Authority), new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, children, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken)));
         var parent = parentScope.Session;
         registry.RegisterRootScope(parentScope);
         var spawning = Task.Run(() => parent.ChildRegistry.Spawn(Request()), cancellationToken);
@@ -1733,7 +1733,7 @@ internal sealed partial class SubagentTests : IDisposable
             AgentSessionParentScope.Root(),
             registry,
             TestModels.PromptTemplates,
-            (children, childQuestions) => new AgentSession(identity, new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, children, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
+            (sessionParentScope, children, childQuestions) => new AgentSession(identity, sessionParentScope, new AgentResolver(identity, sessionParentScope, children, children.Authority), new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, children, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
         await using var firstWrapper = new TrackingAgentSessionScope(candidate);
 
         _ = await Assert.That(() => registry.RegisterRootScope(firstWrapper))
@@ -1906,8 +1906,8 @@ internal sealed partial class SubagentTests : IDisposable
             ? AgentIdentity.Main(sessionId, name, TestModels.PromptTemplates)
             : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", name, depth, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        var scope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (children, childQuestions) =>
-            new AgentSession(identity, new ModelSelector("stepped/model"), router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, children, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
+        var scope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
+            new AgentSession(identity, sessionParentScope, new AgentResolver(identity, sessionParentScope, children, children.Authority), new ModelSelector("stepped/model"), router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, children, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
         if (depth == 0)
         {
             registry.RegisterRootScope(scope);
@@ -2046,9 +2046,9 @@ internal sealed partial class SubagentTests : IDisposable
             ProcessOwners.Add(processes);
             QueueCatalogs.Add(queueCatalog);
 
-            var scope = AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (children, childQuestions) =>
+            var scope = AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
             {
-                var session = new AgentSession(identity, model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System), children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                var session = new AgentSession(identity, sessionParentScope, new AgentResolver(identity, sessionParentScope, children, children.Authority), model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System), children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
                 queues.Attach(session);
                 return session;
             });

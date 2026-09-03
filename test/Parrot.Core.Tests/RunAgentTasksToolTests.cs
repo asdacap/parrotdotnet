@@ -350,8 +350,10 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var registry = TestModels.Registry(sessions, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var identity = AgentIdentity.Main("tool-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, cancellationToken);
-        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (children, childQuestions) => new AgentSession(
+        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) => new AgentSession(
             identity,
+            sessionParentScope,
+            new AgentResolver(identity, sessionParentScope, children, children.Authority),
             new ModelSelector($"{provider.Id}/model"),
             router,
             _broker,

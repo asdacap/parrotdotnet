@@ -452,7 +452,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection("agent", new EventRepository(database), broker), new ToolOutputBlobStore(_workspace), new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection("agent", new EventRepository(database), broker), new ToolOutputBlobStore(_workspace), new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         _ = await session.Send(
             "keep this prompt", Identifier.MessageId(), Delivery.Steer, cancellationToken);
@@ -485,6 +485,8 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         AgentSession Build(bool compact) => new(
             identity,
+            AgentSessionParentScope.Root(),
+            new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry),
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             broker,
@@ -564,7 +566,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection("agent", repository, broker), new ToolOutputBlobStore(_workspace), new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection("agent", repository, broker), new ToolOutputBlobStore(_workspace), new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         foreach (var prompt in new[] { "first", "second", "third" })
         {

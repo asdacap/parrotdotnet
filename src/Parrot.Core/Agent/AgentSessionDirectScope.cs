@@ -13,13 +13,13 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
         AgentSessionParentScope parentScope,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
-        Func<ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession)
+        Func<AgentSessionParentScope, ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession)
     {
-        ChildRegistry = new ChildRegistry(owner, parentScope, registry);
+        ChildRegistry = new ChildRegistry(owner, registry);
         ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
         try
         {
-            Session = buildSession(ChildRegistry, ChildQuestions);
+            Session = buildSession(parentScope, ChildRegistry, ChildQuestions);
             ChildRegistry.ValidateOwner(Session.Identity);
             if (!ReferenceEquals(Session.ChildRegistry, ChildRegistry))
             {
@@ -44,7 +44,7 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
         AgentSessionParentScope parentScope,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
-        Func<ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession) =>
+        Func<AgentSessionParentScope, ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession) =>
         new(owner, parentScope, registry, promptTemplates, buildSession);
 
     public ValueTask DisposeAsync()

@@ -68,7 +68,7 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ChildRegistry(arguments.Identity, arguments.ParentScope, arguments.Registry);
+                return new ChildRegistry(arguments.Identity, arguments.Registry);
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
@@ -79,17 +79,26 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<ChildRegistry>(out var children);
+                return new AgentResolver(arguments.Identity, arguments.ParentScope, children, arguments.Registry);
+            })
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<TodoCollection>(out var todos);
                 ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
                 ctx.Inject<ShellProcessOwner>(out var processes);
                 ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
                 ctx.Inject<AgentSessionActivity>(out var activity);
                 ctx.Inject<ChildRegistry>(out var children);
+                ctx.Inject<AgentResolver>(out var resolver);
                 ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
                 ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
                 ctx.Inject<ISystemPrompt>(out var systemPrompt);
                 var session = new AgentSession(
                     arguments.Identity,
+                    arguments.ParentScope,
+                    resolver,
                     arguments.Model,
                     arguments.Router,
                     arguments.EventBroker,

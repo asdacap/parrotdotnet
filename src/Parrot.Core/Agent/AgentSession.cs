@@ -27,6 +27,8 @@ namespace Parrot.Agent;
 // _drainGate is the whole of its synchronisation.
 internal sealed class AgentSession(
     AgentIdentity identity,
+    AgentSessionParentScope parentScope,
+    AgentResolver resolver,
     ModelSelector model,
     ModelRouter router,
     EventBroker eventBroker,
@@ -126,6 +128,10 @@ internal sealed class AgentSession(
     public DrainState State { get; private set; }
 
     internal AgentIdentity Identity => identity;
+
+    internal AgentResolver Resolver { get; } = resolver;
+
+    internal AgentSessionParentScope ParentScope => parentScope;
 
     internal ChildRegistry ChildRegistry { get; } = childRegistry;
 
@@ -842,7 +848,10 @@ internal sealed class AgentSession(
         }
 
         Activity.FinishExecution(activityExecution, completed);
-        await ChildRegistry.DeliverCompletion(identity, completed).ConfigureAwait(false);
+        if (parentScope.Parent is { } parent)
+        {
+            await parent.ChildRegistry.ReceiveCompletion(identity, completed).ConfigureAwait(false);
+        }
 
         return completed;
     }

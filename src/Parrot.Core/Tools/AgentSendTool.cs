@@ -6,7 +6,7 @@ using Parrot.Agent;
 namespace Parrot.Tools;
 
 internal sealed class AgentSendTool(
-    ChildRegistry children,
+    AgentResolver resolver,
     AgentSession session) : ITool
 {
     private const int MaximumMessageBytes = 32 * 1024;
@@ -40,7 +40,7 @@ internal sealed class AgentSendTool(
 
         try
         {
-            var target = children.ResolveRecipient(sessionId);
+            var target = resolver.ResolveRecipient(sessionId);
 
             if (!string.Equals(target.SessionId, session.ParentSessionId, StringComparison.Ordinal)
                 && !session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(

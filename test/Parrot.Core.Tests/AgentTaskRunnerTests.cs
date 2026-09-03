@@ -644,8 +644,10 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             cancellationToken);
         var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (children, childQuestions) => new AgentSession(
+        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) => new AgentSession(
             identity,
+            sessionParentScope,
+            new AgentResolver(identity, sessionParentScope, children, children.Authority),
             new ModelSelector($"{provider.Id}/model"),
             router,
             _broker,

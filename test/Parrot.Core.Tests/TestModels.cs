@@ -220,7 +220,7 @@ internal static class TestModels
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
-        var children = new ChildRegistry(identity, AgentSessionParentScope.Root(), registry);
+        var children = new ChildRegistry(identity, registry);
         var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         return new AgentSessionDependencies(
             childQuestions,

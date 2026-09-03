@@ -8,6 +8,7 @@ using Parrot.Process;
 namespace Parrot.Tools;
 
 internal sealed class AgentStatusTool(
+    AgentResolver resolver,
     ChildRegistry children,
     ShellProcessOwners processes) : ITool
 {
@@ -42,7 +43,7 @@ internal sealed class AgentStatusTool(
 
         try
         {
-            var child = children.ResolveStatusTarget(sessionId);
+            var child = resolver.ResolveStatusTarget(sessionId);
             _ = children.AuthorizeDirectChild(child.SessionId);
             var activity = child.Activity.Capture();
             return Task.FromResult<ToolExecutionResult>(Format(child, activity));
