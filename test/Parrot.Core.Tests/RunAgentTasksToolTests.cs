@@ -403,6 +403,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             TestModels.PromptTemplates,
             childQuestions,
             dependencies.ActiveWorkReminder,
+            dependencies.ExitReminder,
             dependencies.Profile,
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,

@@ -131,6 +131,7 @@ internal partial class AgentSessionComposition
             .Bind<AgentSpawnToolFactory>().As(Lifetime.Scoped).To<AgentSpawnToolFactory>()
             .Bind<RunAgentTasksToolFactory>().As(Lifetime.Scoped).To<RunAgentTasksToolFactory>()
             .Bind<SetCheckpointToolFactory>().As(Lifetime.Scoped).To<SetCheckpointToolFactory>()
+            .Bind<SetExitReminderToolFactory>().As(Lifetime.Scoped).To<SetExitReminderToolFactory>()
             .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To<AgentSendToolFactory>()
             .Bind<AgentStatusToolFactory>().As(Lifetime.Scoped).To<AgentStatusToolFactory>()
             .Bind<WaitToolFactory>().As(Lifetime.Scoped).To<WaitToolFactory>()
@@ -141,6 +142,11 @@ internal partial class AgentSessionComposition
             .Bind<QueuePushToolFactory>().As(Lifetime.Scoped).To<QueuePushToolFactory>()
             .Bind<QueueTakeToolFactory>().As(Lifetime.Scoped).To<QueueTakeToolFactory>()
             .Bind<RequestWritePermissionToolFactory>().As(Lifetime.Scoped).To<RequestWritePermissionToolFactory>()
+            .Bind<ExitReminder>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return new ExitReminder(arguments.EventRepository, arguments.PromptTemplates, arguments.Identity.SessionId);
+            })
             .Bind<IReadOnlyList<IToolFactory>>("toolFactories").As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<ExecCommandToolFactory>(out var execCommand);
@@ -157,6 +163,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSpawnToolFactory>(out var agentSpawn);
                 ctx.Inject<RunAgentTasksToolFactory>(out var runAgentTasks);
                 ctx.Inject<SetCheckpointToolFactory>(out var setCheckpoint);
+                ctx.Inject<SetExitReminderToolFactory>(out var setExitReminder);
                 ctx.Inject<AgentSendToolFactory>(out var agentSend);
                 ctx.Inject<AgentStatusToolFactory>(out var agentStatus);
                 ctx.Inject<WaitToolFactory>(out var wait);
@@ -183,6 +190,7 @@ internal partial class AgentSessionComposition
                     agentSpawn,
                     runAgentTasks,
                     setCheckpoint,
+                    setExitReminder,
                     agentSend,
                     agentStatus,
                     wait,
@@ -238,6 +246,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
                 ctx.Inject<ShellProcessOwner>(out var processes);
                 ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
+                ctx.Inject<ExitReminder>(out var exitReminder);
                 ctx.Inject<AgentSessionActivity>(out var activity);
                 ctx.Inject<ChildRegistry>(out var children);
                 ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
@@ -258,6 +267,7 @@ internal partial class AgentSessionComposition
                     arguments.PromptTemplates,
                     childQuestions,
                     activeWorkReminder,
+                    exitReminder,
                     arguments.Mode,
                     arguments.Security,
                     arguments.Status,
