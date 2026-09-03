@@ -452,11 +452,11 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         _ = await session.Send(
-            "keep this prompt", Identifier.MessageId(), Delivery.Steer, cancellationToken);
-        _ = await session.ResultSettled();
+            [ConversationPart.TextPart("keep this prompt")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await session.Settled();
 
         var inferenceRequest = provider.Requests.Single();
         _ = await Assert.That(inferenceRequest.Instructions).Contains("2026-07-24");
@@ -486,7 +486,6 @@ internal sealed class CompactorAndContextTests : IDisposable
         AgentSession Build(bool compact) => new(
             identity,
             AgentSessionParentScope.Root(),
-            new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry),
             new ModelSelector(model.Selector),
             TestModels.Route(model),
             broker,
@@ -510,8 +509,8 @@ internal sealed class CompactorAndContextTests : IDisposable
         var session = Build(compact: true);
         foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
         {
-            _ = await session.Send(prompt, Identifier.MessageId(), Delivery.Steer, cancellationToken);
-            _ = await session.ResultSettled();
+            _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            await session.Settled();
         }
 
         var snapshot = repository.Compaction("agent")
@@ -539,8 +538,8 @@ internal sealed class CompactorAndContextTests : IDisposable
 
         var requestsBeforeRestart = provider.Requests.Count;
         var restarted = Build(compact: false);
-        _ = await restarted.Send("after restart", Identifier.MessageId(), Delivery.Steer, cancellationToken);
-        _ = await restarted.ResultSettled();
+        _ = await restarted.Send([ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await restarted.Settled();
 
         var restoredRequest = provider.Requests.Skip(requestsBeforeRestart).Single();
         _ = await Assert.That(restoredRequest.Messages[0].Content).IsEqualTo(snapshot.Summary);
@@ -565,12 +564,12 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         foreach (var prompt in new[] { "first", "second", "third" })
         {
-            _ = await session.Send(prompt, Identifier.MessageId(), Delivery.Steer, cancellationToken);
-            _ = await session.ResultSettled();
+            _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            await session.Settled();
         }
 
         var lifecycle = repository.Replay()

@@ -311,7 +311,8 @@ internal sealed class ParrotServiceTests : IDisposable
         var file = Path.Combine(directory, "generated.txt");
         await File.WriteAllTextAsync(file, "before", cancellationToken);
         var request = sessions.Owners.Single().Permissions.Request(
-            sessions.Sessions.Single(),
+            sessions.Identities.Single(),
+            sessions.Securities.Single(),
             "update generated files",
             [SecurityWriteTarget.Resolve(directory), SecurityWriteTarget.Resolve(file)],
             cancellationToken);
@@ -361,8 +362,10 @@ internal sealed class ParrotServiceTests : IDisposable
             .IsEqualTo(PermissionAction.Deny);
         _ = await Assert.That(invalid?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(missing?.StatusCode).IsEqualTo(StatusCode.NotFound);
-        _ = await Assert.That(sessions.Sessions.Single().ResolveSelection().SecurityProfile.AllowsWrite(directory)).IsTrue();
-        _ = await Assert.That(sessions.Sessions.Single().ResolveSelection().SecurityProfile.AllowsWrite(file)).IsTrue();
+        var security = sessions.Securities.Single();
+        var currentSecurityProfile = sessions.Sessions.Single().Selection().SecurityProfile;
+        _ = await Assert.That(security.Capture(currentSecurityProfile).AllowsWrite(directory)).IsTrue();
+        _ = await Assert.That(security.Capture(currentSecurityProfile).AllowsWrite(file)).IsTrue();
     }
 
     [Test]
@@ -381,7 +384,8 @@ internal sealed class ParrotServiceTests : IDisposable
             Path.GetPathRoot(_root) ?? throw new InvalidOperationException("Test root has no filesystem root."));
 
         var reply = await sessions.Owners.Single().Permissions.Request(
-            sessions.Sessions.Single(),
+            sessions.Identities.Single(),
+            sessions.Securities.Single(),
             "update generated files",
             [target],
             cancellationToken);
@@ -391,7 +395,8 @@ internal sealed class ParrotServiceTests : IDisposable
 
         _ = await Assert.That(reply.Decision).IsEqualTo(PermissionDecision.Reject);
         _ = await Assert.That(listed.Permissions).IsEmpty();
-        _ = await Assert.That(sessions.Sessions.Single().ResolveSelection().SecurityProfile.AllowsWrite(target.Path)).IsFalse();
+        var currentSecurityProfile = sessions.Sessions.Single().Selection().SecurityProfile;
+        _ = await Assert.That(sessions.Securities.Single().Capture(currentSecurityProfile).AllowsWrite(target.Path)).IsFalse();
     }
 
     [Test]
@@ -576,7 +581,7 @@ internal sealed class ParrotServiceTests : IDisposable
         await using var service = Service(store);
         var context = new InProcessServerCallContext(cancellationToken);
         var session = await service.CreateSession(new CreateSessionRequest { Model = Selection }, context);
-        var queues = sessions.Sessions.Single().Queues;
+        var queues = sessions.Queues.Single();
         _ = queues.Create("release", "release tasks");
         _ = await queues.Push("release", ["one", "two"], QueueDirection.Back, false, cancellationToken);
 

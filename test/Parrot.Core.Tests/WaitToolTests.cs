@@ -211,25 +211,28 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var factory = new WaitToolFactory(new RuntimeStatus(queueCatalog, processes, agents, TestModels.PromptTemplates, TimeProvider.System), TimeProvider.System);
         var session = Session(provider, [factory], repository, queueCatalog, queues);
 
-        _ = await session.Admit("first", "message-1", Delivery.Steer, cancellationToken);
+        _ = await session.Send(
+            [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
-        _ = await session.Admit("first", "message-1", Delivery.Steer, cancellationToken);
+        _ = await session.Send(
+            [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, cancellationToken);
         await Task.Delay(20, cancellationToken);
         _ = await Assert.That(session.IsWaitingForIncomingInput()).IsTrue();
-        _ = await session.Admit("wakeup", "message-2", Delivery.Steer, cancellationToken);
+        _ = await session.Send(
+            [ConversationPart.TextPart("wakeup")], "message-2", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
 
         var request = provider.Requests[1];
         _ = await Assert.That(request.Messages.Count(message => message.Content == "wakeup")).IsEqualTo(1);
         _ = await Assert.That(request.Messages.Single(message => message.Role == LLMRole.Tool).Content)
             .IsEqualTo("wait interrupted");
-        _ = await Assert.That(session.State).IsEqualTo(DrainState.Running);
+        _ = await Assert.That(session.Activity.Capture().State).IsEqualTo(DrainState.Running);
 
         provider.Release();
         await session.Settled();
-        _ = await Assert.That(session.State).IsEqualTo(DrainState.Idle);
+        _ = await Assert.That(session.Activity.Capture().State).IsEqualTo(DrainState.Idle);
         var lifecycle = repository.Replay().Where(published => published.PayloadCase is
             Event.PayloadOneofCase.ToolStarted or Event.PayloadOneofCase.ToolFinished).ToArray();
         _ = await Assert.That(lifecycle.Length).IsEqualTo(2);
@@ -423,21 +426,22 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         _ = await owner.Send("first", "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
-        var session = await sessions.WaitForSession(cancellationToken);
-        _ = session.Queues.Create("ignored", string.Empty);
-        _ = await session.Queues.Push("ignored", ["no wake"], QueueDirection.Back, false, cancellationToken);
-        _ = session.Queues.Create("work", string.Empty);
-        _ = await session.Queues.Listen("work", true, cancellationToken);
-        _ = await session.Queues.Push("work", ["queued"], QueueDirection.Back, false, cancellationToken);
-        _ = await Assert.That(session.Queues.Get("work").Size).IsEqualTo(1);
+        _ = await sessions.WaitForSession(cancellationToken);
+        var agentQueues = await sessions.WaitForQueues(cancellationToken);
+        _ = agentQueues.Create("ignored", string.Empty);
+        _ = await agentQueues.Push("ignored", ["no wake"], QueueDirection.Back, false, cancellationToken);
+        _ = agentQueues.Create("work", string.Empty);
+        _ = await agentQueues.Listen("work", true, cancellationToken);
+        _ = await agentQueues.Push("work", ["queued"], QueueDirection.Back, false, cancellationToken);
+        _ = await Assert.That(agentQueues.Get("work").Size).IsEqualTo(1);
 
         provider.Release();
         await provider.Arrived(cancellationToken);
 
         _ = await Assert.That(string.Join('\n', provider.Requests[1].Messages.Select(message => message.Content)))
             .Contains("Queue notification from \"work\":\n\nqueued");
-        _ = await Assert.That(session.Queues.Get("work").Size).IsEqualTo(0);
-        _ = await Assert.That(session.Queues.Get("ignored").Size).IsEqualTo(1);
+        _ = await Assert.That(agentQueues.Get("work").Size).IsEqualTo(0);
+        _ = await Assert.That(agentQueues.Get("ignored").Size).IsEqualTo(1);
         provider.Release();
     }
 
@@ -498,7 +502,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var children = new ChildRegistry(identity, registry);
         var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         _childQuestions.Add(childQuestions);
-        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new AgentResolver(identity, AgentSessionParentScope.Root(), children, registry), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, children, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, children, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
         queues.Attach(session);
         return session;
     }
@@ -641,6 +645,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
     private sealed class WaitAgentSessions(ModelRouter router, TimeProvider timeProvider, string root) : IAgentSessionFactorySource
     {
         private readonly TaskCompletionSource<AgentSession> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<AgentQueues> _createdQueues = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public IAgentSessionFactory Create(AgentUserSession owner) => new Factory(this, owner, router, timeProvider, root);
 
@@ -652,6 +657,9 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         public async Task<AgentSession> WaitForSession(CancellationToken cancellationToken) =>
             await _created.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        public async Task<AgentQueues> WaitForQueues(CancellationToken cancellationToken) =>
+            await _createdQueues.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         private sealed class Factory(
             WaitAgentSessions source,
@@ -677,8 +685,9 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 var queues = owner.QueueCatalog.Register(identity);
                 return AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
                 {
-                    var session = new AgentSession(identity, sessionParentScope, new AgentResolver(identity, sessionParentScope, children, children.Authority), model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                    var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
                     queues.Attach(session);
+                    _ = source._createdQueues.TrySetResult(queues);
                     _ = source._created.TrySetResult(session);
                     return session;
                 });

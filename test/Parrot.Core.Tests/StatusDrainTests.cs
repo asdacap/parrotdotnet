@@ -39,7 +39,7 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsTrue();
 
             var firstStatus = ObserveStatus(session, cancellationToken);
-            _ = await session.Send("first prompt", "message-1", Delivery.Steer, cancellationToken);
+            _ = await session.Send([ConversationPart.TextPart("first prompt")], "message-1", Delivery.Steer, cancellationToken);
             await provider.Arrived(cancellationToken);
             await firstStatus;
 
@@ -62,7 +62,7 @@ internal sealed class StatusDrainTests : IDisposable
             session.UpdateMode(ModeRegistry.Plan);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsTrue();
 
-            _ = await session.Send("plan prompt", "message-2", Delivery.Steer, cancellationToken);
+            _ = await session.Send([ConversationPart.TextPart("plan prompt")], "message-2", Delivery.Steer, cancellationToken);
             await provider.Arrived(cancellationToken);
             _ = await Assert.That(StatusMessages(repository).Count).IsEqualTo(2);
             _ = await Assert.That(provider.Requests[1].Messages.Count(message => message.Role == LLMRole.System))
@@ -78,7 +78,7 @@ internal sealed class StatusDrainTests : IDisposable
             await session.Interrupt(cancellationToken);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();
 
-            _ = await session.Send("retry", "message-3", Delivery.Steer, cancellationToken);
+            _ = await session.Send([ConversationPart.TextPart("retry")], "message-3", Delivery.Steer, cancellationToken);
             await provider.Arrived(cancellationToken);
             _ = await Assert.That(provider.Requests[2].Messages.Count(message =>
                 message.Role == LLMRole.System && message.Content.Contains("Active profile:", StringComparison.Ordinal)))
@@ -136,7 +136,7 @@ internal sealed class StatusDrainTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
 
-        _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         var planArtifact = Directory.GetFiles(
             Path.Combine(
@@ -213,7 +213,7 @@ internal sealed class StatusDrainTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
 
-        _ = await session.Send("plan", "message", Delivery.Steer, cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("plan")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         var planArtifact = Directory.GetFiles(
             Path.Combine(_root, "sessions", "user", "scratch", AgentSessionId(repository), "plan"),
@@ -257,7 +257,7 @@ internal sealed class StatusDrainTests : IDisposable
             Answer("done"));
         await using var session = Session(provider, database, modes, "model", includeStatusTool: true);
 
-        _ = await session.Send("prompt", "message", Delivery.Steer, cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
@@ -283,7 +283,7 @@ internal sealed class StatusDrainTests : IDisposable
             Answer("done"));
         await using var session = Session(provider, database, modes, "model");
 
-        _ = await session.Send("prompt", "message", Delivery.Steer, cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         session.UpdateSelection(TestModels.Resolve(
             new ProviderModel(provider, new LLMModel("next-model", provider.Id))));

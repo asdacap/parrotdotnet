@@ -2,12 +2,14 @@ using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
+using Parrot.Web;
 
 namespace Parrot.Agent;
 
@@ -18,7 +20,10 @@ internal sealed record AgentSessionScopeArguments(
     ModelRouter Router,
     EventBroker EventBroker,
     EventRepository EventRepository,
-    IReadOnlyList<IToolFactory> ToolFactories,
+    ToolWorkspace Workspace,
+    ImageArtifactRepository Images,
+    WebFetcher WebFetcher,
+    AgentTaskConfig AgentTasks,
     ToolDefinitionCatalog ToolDefinitions,
     IReadOnlyList<string> ReadOnlyExecCommandPrefixes,
     ShellProcessOwners ShellProcesses,
@@ -28,6 +33,7 @@ internal sealed record AgentSessionScopeArguments(
     PromptTemplateCatalog PromptTemplates,
     IMode Mode,
     AgentSessionSecurity Security,
+    PermissionBroker Permissions,
     RuntimeStatus Status,
     AgentRegistry Registry,
     AgentQueues Queues,

@@ -6,6 +6,7 @@ using Parrot.Agent;
 namespace Parrot.Tools;
 
 internal sealed class AgentSendTool(
+    AgentIdentity identity,
     AgentResolver resolver,
     AgentSession session) : ITool
 {
@@ -42,7 +43,7 @@ internal sealed class AgentSendTool(
         {
             var target = resolver.ResolveRecipient(sessionId);
 
-            if (!string.Equals(target.SessionId, session.ParentSessionId, StringComparison.Ordinal)
+            if (!string.Equals(target.SessionId, identity.ParentSessionId, StringComparison.Ordinal)
                 && !session.ResolvePolicySelection().SecurityProfile.AllowsDelegationTo(
                     target.ResolvePolicySelection().SecurityProfile))
             {

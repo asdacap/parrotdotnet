@@ -3,12 +3,14 @@ using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
+using Parrot.Web;
 
 namespace Parrot.Cli;
 
@@ -21,7 +23,10 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         ModelRouter router,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        ToolWorkspace workspace,
+        ImageArtifactRepository images,
+        WebFetcher webFetcher,
+        AgentTaskConfig agentTasks,
         ToolDefinitionCatalog toolDefinitions,
         IReadOnlyList<string> readOnlyExecCommandPrefixes,
         ShellProcessOwners shellProcesses,
@@ -31,6 +36,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         PromptTemplateCatalog promptTemplates,
         IMode mode,
         AgentSessionSecurity security,
+        PermissionBroker permissions,
         RuntimeStatus status,
         AgentRegistry registry,
         AgentQueues queues,
@@ -46,7 +52,10 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             router,
             eventBroker,
             eventRepository,
-            toolFactories,
+            workspace,
+            images,
+            webFetcher,
+            agentTasks,
             toolDefinitions,
             readOnlyExecCommandPrefixes,
             shellProcesses,
@@ -56,6 +65,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             promptTemplates,
             mode,
             security,
+            permissions,
             status,
             registry,
             queues,

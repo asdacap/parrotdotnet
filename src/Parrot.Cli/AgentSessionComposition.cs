@@ -28,14 +28,41 @@ internal partial class AgentSessionComposition
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<ShellProcessOwner>(out var processes);
+                ctx.Inject<ChildRegistry>(out var children);
+                ctx.Inject<AgentResolver>(out var resolver);
                 ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
-                return arguments.ToolFactories
-                    .Prepend<IToolFactory>(new AnswerToolFactory(childQuestions))
-                    .Prepend(new QuestionToolFactory(arguments.UserQuestions, arguments.ParentScope))
-                    .Prepend(new InterruptProcessToolFactory(processes))
-                    .Prepend(new WriteStdinToolFactory(processes))
-                    .Prepend(new ExecCommandToolFactory(processes, arguments.ReadOnlyExecCommandPrefixes))
-                    .ToArray();
+                return new IToolFactory[]
+                {
+                    new ExecCommandToolFactory(processes, arguments.ReadOnlyExecCommandPrefixes),
+                    new WriteStdinToolFactory(processes),
+                    new InterruptProcessToolFactory(processes),
+                    new QuestionToolFactory(arguments.UserQuestions, arguments.ParentScope),
+                    new AnswerToolFactory(childQuestions),
+                    new ReadToolFactory(arguments.Workspace),
+                    new ReadImageToolFactory(arguments.Workspace, arguments.Images),
+                    new GlobToolFactory(arguments.Workspace),
+                    new WriteToolFactory(arguments.Workspace),
+                    new EditToolFactory(arguments.Workspace),
+                    new WebFetchToolFactory(arguments.WebFetcher),
+                    new AgentSpawnToolFactory(children, arguments.Router),
+                    new RunAgentTasksToolFactory(
+                        arguments.Workspace,
+                        arguments.Router,
+                        arguments.EventBroker,
+                        arguments.EventRepository,
+                        arguments.AgentTasks),
+                    new SetCheckpointToolFactory(),
+                    new AgentSendToolFactory(arguments.Identity, resolver),
+                    new AgentStatusToolFactory(resolver, children, arguments.ShellProcesses),
+                    new WaitToolFactory(arguments.Status, arguments.TimeProvider),
+                    new StatusToolFactory(arguments.Status),
+                    new QueueCreateToolFactory(arguments.Queues),
+                    new QueueInfoToolFactory(arguments.Queues),
+                    new QueueListenToolFactory(arguments.Queues),
+                    new QueuePushToolFactory(arguments.Queues, arguments.Workspace),
+                    new QueueTakeToolFactory(arguments.Queues),
+                    new RequestWritePermissionToolFactory(arguments.Identity, arguments.Security, arguments.Permissions),
+                };
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
@@ -82,14 +109,12 @@ internal partial class AgentSessionComposition
                 ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
                 ctx.Inject<AgentSessionActivity>(out var activity);
                 ctx.Inject<ChildRegistry>(out var children);
-                ctx.Inject<AgentResolver>(out var resolver);
                 ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
                 ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
                 ctx.Inject<ISystemPrompt>(out var systemPrompt);
                 var session = new AgentSession(
                     arguments.Identity,
                     arguments.ParentScope,
-                    resolver,
                     arguments.Model,
                     arguments.Router,
                     arguments.EventBroker,

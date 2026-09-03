@@ -82,7 +82,6 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             var session = new AgentSession(
             identity,
             sessionParentScope,
-            new AgentResolver(identity, sessionParentScope, children, children.Authority),
             model,
             router,
             eventBroker,

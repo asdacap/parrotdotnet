@@ -37,7 +37,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             [new SandboxRule(_root, SandboxRuleAction.DenyWrite)],
             [],
             []);
-        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile));
+        var tool = BuildTool(broker, SecurityProfileTestFactory.Create(profile));
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
 
@@ -90,8 +90,9 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             ],
             [],
             []);
-        var session = Session(database, events, profile);
-        var tool = new RequestWritePermissionTool(broker, session);
+        var security = SecurityProfileTestFactory.Create(profile);
+        var session = Session(database, events, security);
+        var tool = BuildTool(broker, security);
 
         var result = (await tool.Execute(
             new ToolInvocation(
@@ -102,7 +103,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
 
         _ = await Assert.That(result).Contains("already allowed by the current security profile");
         _ = await Assert.That(broker.Pending()).IsEmpty();
-        _ = await Assert.That(session.ResolveSelection().SecurityProfile.AllowsWrite(path)).IsTrue();
+        _ = await Assert.That(security.Capture(profile).AllowsWrite(path)).IsTrue();
     }
 
     [Test]
@@ -122,7 +123,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             [new SandboxRule(_root, SandboxRuleAction.DenyWrite)],
             [],
             []);
-        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile));
+        var tool = BuildTool(broker, SecurityProfileTestFactory.Create(profile));
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
         var executing = tool.Execute(
@@ -151,7 +152,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
         var profile = SecurityProfile.Compose(readOnly: true, [], [], []);
-        var tool = new RequestWritePermissionTool(broker, Session(database, events, profile));
+        var tool = BuildTool(broker, SecurityProfileTestFactory.Create(profile));
         var path = Path.Combine(_root, "dependency");
         await File.WriteAllTextAsync(path, "content", cancellationToken);
 
@@ -165,6 +166,11 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
         _ = await Assert.That(result).Contains("not permitted by the current security profile");
         _ = await Assert.That(broker.Pending()).IsEmpty();
     }
+
+    private static RequestWritePermissionTool BuildTool(
+        PermissionBroker broker,
+        AgentSessionSecurity security) =>
+        new(AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates), security, broker);
 
     private static AgentTurnSelection Selection(SecurityProfile profile)
     {
@@ -198,12 +204,12 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
     private static AgentSession Session(
         SessionDatabase database,
         EventBroker events,
-        SecurityProfile securityProfile)
+        AgentSessionSecurity security)
     {
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var repository = new EventRepository(database);
         var identity = AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(securityProfile), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, security, dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
     }
 }

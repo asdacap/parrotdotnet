@@ -51,12 +51,14 @@ internal sealed class PermissionBroker : IDisposable
     }
 
     public async Task<PermissionReply> Request(
-        AgentSession agentSession,
+        AgentIdentity identity,
+        AgentSessionSecurity security,
         string reason,
         IReadOnlyList<SecurityWriteTarget> targets,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(agentSession);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(security);
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         ArgumentNullException.ThrowIfNull(targets);
 
@@ -82,7 +84,7 @@ internal sealed class PermissionBroker : IDisposable
         }
 
         var id = Identifier.PermissionRequestId();
-        var pending = new PendingRequest(agentSession, reason, copiedTargets);
+        var pending = new PendingRequest(identity, security, reason, copiedTargets);
 
         lock (_gate)
         {
@@ -94,7 +96,7 @@ internal sealed class PermissionBroker : IDisposable
                 var published = new Event
                 {
                     Id = Identifier.EventId(),
-                    AgentSessionId = agentSession.SessionId,
+                    AgentSessionId = identity.SessionId,
                     PermissionPending = ToProtocol(id, pending),
                 };
                 _ = _repository.Append(published, null, null);
@@ -177,7 +179,7 @@ internal sealed class PermissionBroker : IDisposable
             {
                 try
                 {
-                    pending.AgentSession.ApproveWrites(pending.Targets);
+                    pending.Security.Approve(pending.Targets);
                 }
                 catch (InvalidOperationException failure)
                 {
@@ -210,14 +212,14 @@ internal sealed class PermissionBroker : IDisposable
     }
 
     private static PermissionPending ToDomain(string id, PendingRequest request) =>
-        new(id, request.AgentSession.SessionId, request.Reason, request.Targets, DeclaredChoices);
+        new(id, request.Identity.SessionId, request.Reason, request.Targets, DeclaredChoices);
 
     private static PendingPermission ToProtocol(string id, PendingRequest request)
     {
         var pending = new PendingPermission
         {
             Id = id,
-            AgentSessionId = request.AgentSession.SessionId,
+            AgentSessionId = request.Identity.SessionId,
             Reason = request.Reason,
         };
         pending.Targets.AddRange(request.Targets.Select(target => new ProtocolPermissionTarget
@@ -249,14 +251,17 @@ internal sealed class PermissionBroker : IDisposable
     }
 
     private sealed class PendingRequest(
-        AgentSession agentSession,
+        AgentIdentity identity,
+        AgentSessionSecurity security,
         string reason,
         IReadOnlyList<SecurityWriteTarget> targets)
     {
         private PermissionException? _failure;
         private PermissionReply? _outcome;
 
-        public AgentSession AgentSession { get; } = agentSession;
+        public AgentIdentity Identity { get; } = identity;
+
+        public AgentSessionSecurity Security { get; } = security;
 
         public string Reason { get; } = reason;
 

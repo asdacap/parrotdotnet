@@ -18,6 +18,8 @@ namespace Parrot.Core.Tests;
 internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 {
     private readonly List<AgentIdentity> _identities = [];
+    private readonly List<AgentSessionSecurity> _securities = [];
+    private readonly List<AgentQueues> _queues = [];
     private readonly List<AgentSession> _sessions = [];
     private readonly List<UserSession> _owners = [];
     private ModelRouter? _router;
@@ -25,6 +27,10 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
     private bool _includeStatusTool;
 
     public IReadOnlyList<AgentIdentity> Identities => _identities;
+
+    public IReadOnlyList<AgentSessionSecurity> Securities => _securities;
+
+    public IReadOnlyList<AgentQueues> Queues => _queues;
 
     public IReadOnlyList<AgentSession> Sessions => _sessions;
 
@@ -67,9 +73,12 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             owner.ShellProcesses.Register(processes);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
             var queues = owner.QueueCatalog.Register(identity);
+            source._queues.Add(queues);
+            var security = SecurityProfileTestFactory.Create(securityProfile);
+            source._securities.Add(security);
             return AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
             {
-                var session = new AgentSession(identity, sessionParentScope, new AgentResolver(identity, sessionParentScope, children, children.Authority), model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, children, queues, new AgentSessionActivity(source._timeProvider), lifetime);
+                var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), mode, security, status, children, queues, new AgentSessionActivity(source._timeProvider), lifetime);
                 queues.Attach(session);
                 source._sessions.Add(session);
                 return session;
