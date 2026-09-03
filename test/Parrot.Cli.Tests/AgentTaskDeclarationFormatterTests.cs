@@ -5,24 +5,27 @@ namespace Parrot.Cli.Tests;
 internal sealed class AgentTaskDeclarationFormatterTests
 {
     [Test]
-    public async Task Format_renders_complete_nested_declarations_and_omits_only_previous_sibling_dependency()
+    public async Task Format_renders_only_names_and_descriptions_in_declaration_order()
     {
         var declarations = new[]
         {
             Leaf("first", [], "First description", "First instruction", "First criteria", "low_llm"),
-            Leaf("second", ["first"], "Second description", "Second instruction", "Second criteria", null),
+            Leaf("second", ["first"], "Second description", "Second instruction", "Second criteria", "provider/model"),
             new PlanTaskDeclaration
             {
                 Name = "composite",
-                Status = AgentTaskProgressStatus.Pending,
+                Status = AgentTaskProgressStatus.Succeeded,
                 Dependencies = { "first", "second" },
                 Description = "Composite description",
+                Instruction = "Composite instruction",
                 AcceptanceCriteria = "Composite criteria",
+                Model = "composite-model",
                 Children = new PlanTaskDeclarationChildren
                 {
                     Tasks =
                     {
-                        Leaf("child", ["external"], "Child description", "Child instruction", "Child criteria", null),
+                        Leaf("child", ["external"], "Child description", "Child instruction", "Child criteria", "child-model"),
+                        Leaf("last child", [], "Last child description", "Last child instruction", "Last child criteria", null),
                     },
                 },
             },
@@ -33,70 +36,93 @@ internal sealed class AgentTaskDeclarationFormatterTests
         _ = await Assert.That(rendered).IsEqualTo(
             "Agent tasks:\n" +
             "- name: first\n" +
-            "  status: pending\n" +
             "  description: First description\n" +
-            "  payload: First instruction\n" +
-            "  acceptance_criteria: First criteria\n" +
-            "  model: low_llm\n" +
             "- name: second\n" +
-            "  status: pending\n" +
             "  description: Second description\n" +
-            "  payload: Second instruction\n" +
-            "  acceptance_criteria: Second criteria\n" +
             "- name: composite\n" +
-            "  status: pending\n" +
-            "  dependencies: [first, second]\n" +
             "  description: Composite description\n" +
-            "  payload:\n" +
             "    - name: child\n" +
-            "      status: pending\n" +
-            "      dependencies: [external]\n" +
             "      description: Child description\n" +
-            "      payload: Child instruction\n" +
-            "      acceptance_criteria: Child criteria\n" +
-            "  acceptance_criteria: Composite criteria");
+            "    - name: last child\n" +
+            "      description: Last child description");
+
+        _ = await Assert.That(rendered).DoesNotContain("status:");
+        _ = await Assert.That(rendered).DoesNotContain("dependencies:");
+        _ = await Assert.That(rendered).DoesNotContain("payload:");
+        _ = await Assert.That(rendered).DoesNotContain("instruction");
+        _ = await Assert.That(rendered).DoesNotContain("acceptance_criteria:");
+        _ = await Assert.That(rendered).DoesNotContain("model:");
+        _ = await Assert.That(rendered).DoesNotContain("First instruction");
+        _ = await Assert.That(rendered).DoesNotContain("Composite criteria");
+        _ = await Assert.That(rendered).DoesNotContain("child-model");
     }
 
     [Test]
-    public async Task Format_sanitizes_and_indents_multiline_values_without_block_markers()
+    public async Task Format_sanitizes_names_and_multiline_descriptions_without_block_markers()
     {
         var declarations = new[]
         {
             Leaf(
-                "task\u001b[2J",
+                "task\u001b[2J\nname\tvalue",
                 ["dependency\nname"],
-                "first line\nsecond\tline",
-                new string('x', 81),
+                "first line\nsecond\tline\u001b[H",
+                "instruction",
                 "criteria",
-                "model\u001b[H"),
+                "model"),
         };
 
         var rendered = string.Join('\n', AgentTaskDeclarationFormatter.Format(declarations));
 
-        _ = await Assert.That(rendered).Contains("- name: task[2J");
-        _ = await Assert.That(rendered).Contains("dependencies: [dependency name]");
-        _ = await Assert.That(rendered).Contains("  description:\n    first line\n    second    line");
-        _ = await Assert.That(rendered).Contains("  payload:\n    " + new string('x', 81));
-        _ = await Assert.That(rendered).Contains("model: model[H");
-        _ = await Assert.That(rendered).DoesNotContain("\u001b");
-        _ = await Assert.That(rendered).DoesNotContain("|-");
+        _ = await Assert.That(rendered).IsEqualTo(
+            "Agent tasks:\n" +
+            "- name: task[2J name    value\n" +
+            "  description:\n" +
+            "    first line\n" +
+            "    second    line[H");
+        _ = await Assert.That(rendered).DoesNotContain('\u001b');
+        _ = await Assert.That(rendered).DoesNotContain("|-", StringComparison.Ordinal);
+        _ = await Assert.That(rendered).DoesNotContain("dependency");
+        _ = await Assert.That(rendered).DoesNotContain("instruction");
+        _ = await Assert.That(rendered).DoesNotContain("criteria");
+        _ = await Assert.That(rendered).DoesNotContain("model");
     }
 
     [Test]
-    public async Task Format_for_width_wraps_without_omitting_content()
+    public async Task Format_for_width_wraps_unicode_names_and_descriptions_with_hanging_indentation()
     {
         var declarations = new[]
         {
-            Leaf("日本語-task", [], "description words", "instruction words", "criteria words", null),
+            Leaf(
+                "日本語-task",
+                [],
+                "説明文 words\nsecond line",
+                "instruction words",
+                "criteria words",
+                "narrow-model"),
         };
 
         var rendered = AgentTaskDeclarationFormatter.FormatForWidth(declarations, 16);
 
+        _ = await Assert.That(rendered[0]).IsEqualTo("Agent tasks:");
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("instruction");
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("criteria");
+        _ = await Assert.That(string.Join('\n', rendered)).DoesNotContain("narrow-model");
+        var wrapped = string.Join('\n', rendered);
         var compacted = string.Concat(rendered).Replace(" ", string.Empty, StringComparison.Ordinal);
-        _ = await Assert.That(rendered.Count).IsGreaterThan(7);
         _ = await Assert.That(compacted).Contains("日本語-task");
-        _ = await Assert.That(compacted).Contains("instructionwords");
-        _ = await Assert.That(compacted).Contains("criteriawords");
+        _ = await Assert.That(wrapped).Contains("説明文");
+        _ = await Assert.That(wrapped).Contains("second line");
+        _ = await Assert.That(rendered.Count).IsGreaterThan(5);
+
+        foreach (var line in rendered.Skip(1))
+        {
+            _ = await Assert.That(Parrot.Cli.Enhanced.TerminalText.Width(line)).IsLessThanOrEqualTo(16);
+        }
+
+        var descriptionLine = rendered.ToList().IndexOf("  description:");
+        _ = await Assert.That(descriptionLine).IsGreaterThan(0);
+        _ = await Assert.That(rendered[descriptionLine + 1]).StartsWith("    ");
+        _ = await Assert.That(rendered[descriptionLine + 2]).StartsWith("    ");
     }
 
     private static PlanTaskDeclaration Leaf(

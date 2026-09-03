@@ -34,60 +34,26 @@ internal static class AgentTaskDeclarationFormatter
     private static List<RenderedLine> Render(IReadOnlyList<PlanTaskDeclaration> declarations)
     {
         var lines = new List<RenderedLine> { new("Agent tasks:", string.Empty) };
-        Append(declarations, string.Empty, null, lines);
+        Append(declarations, string.Empty, lines);
         return lines;
     }
 
     private static void Append(
         IReadOnlyList<PlanTaskDeclaration> declarations,
         string itemIndent,
-        string? previousSiblingName,
         List<RenderedLine> lines)
     {
-        for (var index = 0; index < declarations.Count; index++)
+        foreach (var declaration in declarations)
         {
-            var declaration = declarations[index];
-            var name = Scalar(declaration.Name);
+            var name = InlineValue(declaration.Name);
             lines.Add(new RenderedLine($"{itemIndent}- name: {name}", itemIndent + "  "));
-            lines.Add(new RenderedLine(
-                $"{itemIndent}  status: {declaration.Status.ToString().ToLowerInvariant()}",
-                itemIndent + "    "));
-
-            if (ShouldRenderDependencies(declaration, previousSiblingName))
-            {
-                lines.Add(new RenderedLine(
-                    $"{itemIndent}  dependencies: [{string.Join(", ", declaration.Dependencies.Select(InlineScalar))}]",
-                    itemIndent + "    "));
-            }
-
             AppendScalar(lines, itemIndent + "  ", "description", declaration.Description);
             if (declaration.PayloadCase == PlanTaskDeclaration.PayloadOneofCase.Children)
             {
-                lines.Add(new RenderedLine($"{itemIndent}  payload:", itemIndent + "    "));
-                Append(declaration.Children.Tasks, itemIndent + "    ", null, lines);
+                Append(declaration.Children.Tasks, itemIndent + "    ", lines);
             }
-            else
-            {
-                AppendScalar(lines, itemIndent + "  ", "payload", declaration.Instruction);
-            }
-
-            AppendScalar(lines, itemIndent + "  ", "acceptance_criteria", declaration.AcceptanceCriteria);
-            if (declaration.HasModel)
-            {
-                lines.Add(new RenderedLine(
-                    $"{itemIndent}  model: {InlineScalar(declaration.Model)}",
-                    itemIndent + "    "));
-            }
-
-            previousSiblingName = declaration.Name;
         }
     }
-
-    private static bool ShouldRenderDependencies(
-        PlanTaskDeclaration declaration,
-        string? previousSiblingName) =>
-        declaration.Dependencies.Count > 0 &&
-        (declaration.Dependencies.Count != 1 || declaration.Dependencies[0] != previousSiblingName);
 
     private static void AppendScalar(
         List<RenderedLine> lines,
@@ -118,9 +84,7 @@ internal static class AgentTaskDeclarationFormatter
         }
     }
 
-    private static string Scalar(string value) => InlineScalar(TerminalText.Sanitize(value));
-
-    private static string InlineScalar(string value) =>
+    private static string InlineValue(string value) =>
         TerminalText.Sanitize(value).Replace('\n', ' ');
 
     private readonly record struct RenderedLine(string Text, string HangingIndent);
