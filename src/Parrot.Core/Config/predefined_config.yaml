@@ -279,16 +279,28 @@ prompt_templates:
       {results}
     allowed_arguments: [results]
     required_arguments: [results]
+  agent-task.nested-summary:
+    template: 'nested task graph: {succeeded}/{total} tasks succeeded'
+    allowed_arguments: [succeeded, total]
+    required_arguments: [succeeded, total]
+  agent-task.blocked-dependency:
+    template: 'dependency did not succeed'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task.child-scope:
+    template: 'AgentTask {role} for {task_name}'
+    allowed_arguments: [role, task_name]
+    required_arguments: [role, task_name]
   agent-task.research:
     template: |-
       AgentTask role: research pre-hook{header}
       Current task path: {path}
       Original current task declaration:
       {declaration}
-      Research and prepare this task. Return only strict JSON with no prose or code fence: {response}
+      Research and prepare this task. Return only strict JSON with no prose or code fence: {{"context":"nonblank findings","task_patch":{{"description":"optional","payload":"optional","acceptance_criteria":"optional","model":"optional"}}}}
       Omit task_patch when no change is needed; when present omit every unchanged field.
-    allowed_arguments: [header, path, declaration, response]
-    required_arguments: [header, path, declaration, response]
+    allowed_arguments: [header, path, declaration]
+    required_arguments: [header, path, declaration]
   agent-task.execution:
     template: |-
       AgentTask role: payload executor{header}{feedback}
@@ -301,19 +313,19 @@ prompt_templates:
       AgentTask role: payload executor{header}{feedback}
       Inspect, implement, and verify this instruction:
       {instruction}
-      Return only one strict JSON object with no prose or code fence: {response}
+      Return only one strict JSON object with no prose or code fence: {{"context":"nonblank","verdict":"accept","evidence":"nonblank"}}, {{"context":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"context":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_context":"optional nonblank replacement context"}}.
       Omit replacement_context to carry the returned current context into the next attempt.
-    allowed_arguments: [header, feedback, instruction, response]
-    required_arguments: [header, feedback, instruction, response]
+    allowed_arguments: [header, feedback, instruction]
+    required_arguments: [header, feedback, instruction]
   agent-task.acceptance:
     template: |-
       AgentTask role: acceptance reviewer{header}{feedback}
       Execution result:
       {execution}{nested}
-      Assess the completed attempt. Return only one strict JSON object with no prose or code fence: {response}
+      Assess the completed attempt. Return only one strict JSON object with no prose or code fence: {{"verdict":"accept","evidence":"nonblank"}}, {{"verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","context":"optional nonblank replacement research context"}}.
       A reject_and_retry context replaces this task's research context for later attempts and descendants; omit it to retain the existing context.
-    allowed_arguments: [header, feedback, execution, nested, response]
-    required_arguments: [header, feedback, execution, nested, response]
+    allowed_arguments: [header, feedback, execution, nested]
+    required_arguments: [header, feedback, execution, nested]
   agent-task.role-failure:
     template: '{role} agent {status}: {error}'
     allowed_arguments: [role, status, error]

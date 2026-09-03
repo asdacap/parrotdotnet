@@ -81,19 +81,6 @@ internal sealed class AgentTaskGraphRunner(
         null,
         null);
 
-    private static AgentTaskResult Blocked(string name, IReadOnlyList<string> dependencies) => new(
-        name,
-        AgentTaskExecutionStatus.Blocked,
-        0,
-        null,
-        null,
-        null,
-        null,
-        null,
-        "dependency did not succeed",
-        dependencies,
-        null);
-
     private static System.Collections.ObjectModel.ReadOnlyCollection<string>? RetainFeedback(List<string> feedback) =>
         feedback.Count == 0 ? null : feedback.AsReadOnly();
 
@@ -119,6 +106,19 @@ internal sealed class AgentTaskGraphRunner(
             null,
             nested);
 
+    private AgentTaskResult Blocked(string name, IReadOnlyList<string> dependencies) => new(
+        name,
+        AgentTaskExecutionStatus.Blocked,
+        0,
+        null,
+        null,
+        null,
+        null,
+        null,
+        Render("agent-task.blocked-dependency", []),
+        dependencies,
+        null);
+
     private string BuildResearchPrompt(
         EffectiveAgentTask task,
         IReadOnlyList<AgentTaskAncestor> ancestors,
@@ -131,8 +131,7 @@ internal sealed class AgentTaskGraphRunner(
             "agent-task.research",
             ("header", string.Empty),
             ("path", path),
-            ("declaration", Bound(AgentTaskPromptFormatter.Format(task), MaxSummaryCharacters)),
-            ("response", "{\"context\":\"nonblank findings\",\"task_patch\":{\"description\":\"optional\",\"payload\":\"optional\",\"acceptance_criteria\":\"optional\",\"model\":\"optional\"}}")));
+            ("declaration", Bound(AgentTaskPromptFormatter.Format(task), MaxSummaryCharacters))));
     }
 
     private string BuildExecutionPrompt(
@@ -164,8 +163,7 @@ internal sealed class AgentTaskGraphRunner(
             "agent-task.leaf",
             ("header", string.Empty),
             ("feedback", string.Empty),
-            ("instruction", task.Payload.Instruction ?? throw new InvalidOperationException("An instruction payload is required.")),
-            ("response", "{\"context\":\"nonblank\",\"verdict\":\"accept\",\"evidence\":\"nonblank\"}, {\"context\":\"nonblank\",\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}, or {\"context\":\"nonblank\",\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"replacement_context\":\"optional nonblank replacement context\"}.")));
+            ("instruction", task.Payload.Instruction ?? throw new InvalidOperationException("An instruction payload is required."))));
     }
 
     private string BuildAcceptancePrompt(
@@ -191,8 +189,7 @@ internal sealed class AgentTaskGraphRunner(
             ("header", string.Empty),
             ("feedback", string.Empty),
             ("execution", Bound(execution, MaxSummaryCharacters)),
-            ("nested", nestedText),
-            ("response", "{\"verdict\":\"accept\",\"evidence\":\"nonblank\"}, {\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}, or {\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"context\":\"optional nonblank replacement research context\"}.")));
+            ("nested", nestedText)));
     }
 
     private string Render(string id, params (string Name, string Value)[] values) =>
@@ -826,7 +823,10 @@ internal sealed class AgentTaskGraphRunner(
                     compositeAgent,
                     cancellationToken).ConfigureAwait(false);
                 var succeeded = nested.Count(result => result.Status == AgentTaskExecutionStatus.Succeeded);
-                execution = $"nested task graph: {succeeded}/{nested.Count} tasks succeeded";
+                execution = Render(
+                    "agent-task.nested-summary",
+                    ("succeeded", succeeded.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    ("total", nested.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             }
 
             var acceptanceRun = await RunRole(
@@ -987,7 +987,7 @@ internal sealed class AgentTaskGraphRunner(
                     ResolveRoleProfile(role),
                     model,
                     requestedName,
-                    $"AgentTask {role} for {taskName}",
+                    Render("agent-task.child-scope", ("role", role), ("task_name", taskName)),
                     HistoryForkSelection.Parse(string.Empty),
                     0,
                     string.Empty,
