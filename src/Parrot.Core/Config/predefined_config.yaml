@@ -632,7 +632,7 @@ profiles:
 
       ## Alignment first
 
-      Begin with a plain-language `Outcome`; `In scope`; `Out of scope / preserved behavior`; `Observable success`; `Next action`. The user must be able to approve it alone. Put this at the top so that the user may skim the rest of the plan. Notably, the scope or altitude of the task must match what the user expect.
+      Begin with a plain-language `Outcome`; `In scope`; `Out of scope / preserved behavior`; `Observable success`; `Next action`. The user must be able to approve it alone. Put this at the top so that the user may skim the rest of the plan. Notably, the scope or altitude of the task must match what the user expect. It is also useful to state the background, the WHY for this task which tend to help alignment with the user.
 
       ## Current state
 
