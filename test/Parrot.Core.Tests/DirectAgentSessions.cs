@@ -67,9 +67,9 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             owner.ShellProcesses.Register(processes);
             var router = source._router ?? throw new InvalidOperationException("model router is not configured");
             var queues = owner.QueueCatalog.Register(identity);
-            return AgentSessionDirectScope.Build(identity.SessionId, registry, TestModels.PromptTemplates, childQuestions =>
+            return AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) =>
             {
-                var session = new AgentSession(identity, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, registry, queues, new AgentSessionActivity(source._timeProvider), lifetime);
+                var session = new AgentSession(identity, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, registry, children, queues, new AgentSessionActivity(source._timeProvider), lifetime);
                 queues.Attach(session);
                 source._sessions.Add(session);
                 return session;

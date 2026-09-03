@@ -77,7 +77,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         }
 
         var agentQueues = queues.Register(identity);
-        return AgentSessionDirectScope.Build(identity.SessionId, registry, TestModels.PromptTemplates, childQuestions =>
+        return AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) =>
         {
             var session = new AgentSession(
             identity,
@@ -93,11 +93,12 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
             childQuestions,
-            new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates),
+            new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates),
             mode,
             SecurityProfileTestFactory.Create(securityProfile),
             status,
             registry,
+            children,
             agentQueues,
             new AgentSessionActivity(TimeProvider.System),
             lifetime);

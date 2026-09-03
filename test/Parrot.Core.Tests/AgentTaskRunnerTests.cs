@@ -35,7 +35,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await Runner(registry, runtime, "runner-call")
+        var result = await Runner(runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -98,7 +98,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        _ = await Runner(registry, runtime, "acceptance-contract")
+        _ = await Runner(runtime, "acceptance-contract")
             .Run(artifact, cancellationToken);
 
         var prompt = provider.Requests[0].Messages.Single(message => message.Role == LLMRole.User).Content;
@@ -120,7 +120,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await Runner(registry, runtime, "invalid-leaf-response")
+        var result = await Runner(runtime, "invalid-leaf-response")
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -151,7 +151,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"first payload","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await Runner(registry, runtime, "bounded-leaf-response")
+        var result = await Runner(runtime, "bounded-leaf-response")
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -177,7 +177,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"leaf","description":"Implement leaf","payload":"Do leaf work","acceptance_criteria":"Leaf is proven"}]}
             """);
 
-        var result = await RunnerWithAttempts(registry, runtime, "halt-contract", 2)
+        var result = await RunnerWithAttempts(runtime, "halt-contract", 2)
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -204,7 +204,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await Runner(registry, runtime, "runner-call")
+        var result = await Runner(runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -230,7 +230,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await RunnerWithAttempts(registry, runtime, "runner-call", 2)
+        var result = await RunnerWithAttempts(runtime, "runner-call", 2)
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -255,7 +255,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await Runner(registry, runtime, "runner-call")
+        var result = await Runner(runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -285,7 +285,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await Runner(registry, runtime, "replacement-context")
+        var result = await Runner(runtime, "replacement-context")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("replacement context");
@@ -308,7 +308,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await Runner(registry, runtime, "retained-context")
+        var result = await Runner(runtime, "retained-context")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("initial context");
@@ -328,7 +328,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"retry","description":"Retry task","payload":"first payload","acceptance_criteria":"Must pass"}]}
             """);
 
-        var result = await RunnerWithAttempts(registry, runtime, "final-context", 1)
+        var result = await RunnerWithAttempts(runtime, "final-context", 1)
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
@@ -350,7 +350,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"child","description":"Child","payload":"child work","acceptance_criteria":"Child proof"}],"acceptance_criteria":"Parent decides"}]}
             """);
 
-        var result = await Runner(registry, runtime, "runner-call")
+        var result = await Runner(runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         var task = result.Tasks.Single();
@@ -379,7 +379,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"old-child","description":"Old child","payload":"old work","acceptance_criteria":"Old proof"}],"acceptance_criteria":"Parent proof"}]}
             """);
 
-        var result = await Runner(registry, runtime, "research-replacement")
+        var result = await Runner(runtime, "research-replacement")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -413,7 +413,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":"first work","acceptance_criteria":"Parent proof"}]}
             """);
 
-        var result = await Runner(registry, runtime, "retry-replacement")
+        var result = await Runner(runtime, "retry-replacement")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -471,7 +471,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"top","description":"Top","payload":[{"name":"child","description":"Child","payload":[{"name":"leaf","description":"Leaf","payload":"leaf work","acceptance_criteria":"Leaf done"}],"acceptance_criteria":"Child done"}],"acceptance_criteria":"Top done"}]}
             """);
 
-        var result = await Runner(registry, runtime, "recursive-composites")
+        var result = await Runner(runtime, "recursive-composites")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -509,7 +509,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             ]}
             """);
 
-        var result = await Runner(registry, runtime, "dependency-evidence")
+        var result = await Runner(runtime, "dependency-evidence")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -532,7 +532,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             ]}
             """);
 
-        var result = await Runner(registry, runtime, "blocked-subtree")
+        var result = await Runner(runtime, "blocked-subtree")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
@@ -559,7 +559,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             ]}
             """);
 
-        var result = await Runner(registry, runtime, "runner-call")
+        var result = await Runner(runtime, "runner-call")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
@@ -587,7 +587,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"cancel","description":"Cancel task","payload":"work","acceptance_criteria":"Done"}]}
             """);
         using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var running = Runner(registry, runtime, "runner-call")
+        var running = Runner(runtime, "runner-call")
             .Run(artifact, canceled.Token);
         await provider.WaitUntilArrived(cancellationToken);
 
@@ -610,16 +610,13 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Where(snapshot => snapshot.OriginToolCallId == originToolCallId)];
 
     private AgentTaskGraphRunner Runner(
-        AgentRegistry registry,
         RuntimeContext runtime,
-        string originToolCallId) => RunnerWithAttempts(registry, runtime, originToolCallId, 5);
+        string originToolCallId) => RunnerWithAttempts(runtime, originToolCallId, 5);
 
     private AgentTaskGraphRunner RunnerWithAttempts(
-        AgentRegistry registry,
         RuntimeContext runtime,
         string originToolCallId,
         int maximumAttempts) => new(
-            registry,
             runtime.Router,
             runtime.Parent,
             runtime.Selection,
@@ -647,7 +644,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             cancellationToken);
         var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        var parent = new AgentSession(
+        var parentScope = AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) => new AgentSession(
             identity,
             new ModelSelector($"{provider.Id}/model"),
             router,
@@ -660,20 +657,18 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             new ToolOutputBlobStore(Path.GetTempPath()),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
-            dependencies.ChildQuestions,
+            childQuestions,
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,
             registry,
+            children,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
-            cancellationToken);
-        registry.RegisterRootScope(AgentSessionDirectScope.Build(
-            parent.SessionId,
-            registry,
-            TestModels.PromptTemplates,
-            _ => parent));
+            cancellationToken));
+        registry.RegisterRootScope(parentScope);
+        var parent = parentScope.Session;
         var selected = parent.Selection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,

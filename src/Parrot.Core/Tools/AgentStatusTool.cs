@@ -8,9 +8,8 @@ using Parrot.Process;
 namespace Parrot.Tools;
 
 internal sealed class AgentStatusTool(
-    AgentRegistry agents,
-    ShellProcessOwners processes,
-    AgentSession session) : ITool
+    ChildRegistry children,
+    ShellProcessOwners processes) : ITool
 {
     public string Name => "agent_status";
 
@@ -43,12 +42,8 @@ internal sealed class AgentStatusTool(
 
         try
         {
-            var child = agents.GetChild(session, sessionId);
-            if (!string.Equals(child.ParentSessionId, session.SessionId, StringComparison.Ordinal))
-            {
-                return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.Error(invocation, $"child agent not found: {sessionId}"));
-            }
-
+            var child = children.ResolveStatusTarget(sessionId);
+            _ = children.AuthorizeDirectChild(child.SessionId);
             var activity = child.Activity.Capture();
             return Task.FromResult<ToolExecutionResult>(Format(child, activity));
         }
@@ -144,15 +139,15 @@ internal sealed class AgentStatusTool(
 
     private void AppendActive(StringBuilder report, string childSessionId)
     {
-        var children = agents.ActiveDirectChildren(childSessionId);
+        var activeChildren = children.AuthorizeDirectChild(childSessionId).ChildRegistry.ObserveActive();
         _ = report.Append("\nActive direct subagents:");
-        if (children.Count == 0)
+        if (activeChildren.Count == 0)
         {
             _ = report.Append(" none");
         }
         else
         {
-            foreach (var child in children)
+            foreach (var child in activeChildren)
             {
                 _ = report.Append("\n- ").Append(child.Name).Append(" (").Append(child.Id).Append(')');
             }

@@ -44,6 +44,7 @@ internal sealed class AgentSession(
     AgentSessionSecurity security,
     RuntimeStatus status,
     AgentRegistry registry,
+    ChildRegistry childRegistry,
     AgentQueues queues,
     AgentSessionActivity activity,
     CancellationToken lifetime)
@@ -124,6 +125,12 @@ internal sealed class AgentSession(
     // gets an answer that was true when it asked, which is all any answer to
     // that question can be.
     public DrainState State { get; private set; }
+
+    internal AgentIdentity Identity => identity;
+
+    internal ChildRegistry ChildRegistry { get; } = childRegistry;
+
+    internal AgentRegistry Registry => registry;
 
     internal AgentSessionActivity Activity { get; } = activity
         ?? throw new ArgumentNullException(nameof(activity));

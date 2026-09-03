@@ -7,7 +7,7 @@ using Parrot.Store;
 namespace Parrot.Tools;
 
 internal sealed class AgentSpawnTool(
-    AgentRegistry agents,
+    ChildRegistry children,
     ModelRouter router,
     AgentSession session) : ITool
 {
@@ -46,7 +46,7 @@ internal sealed class AgentSpawnTool(
             var model = requestedModel.Length == 0
                 ? selection.RequestedModel
                 : router.Resolve(requestedModel).RequestedSelector;
-            var agent = agents.Spawn(new AgentLaunchRequest(
+            var agent = children.Spawn(new AgentLaunchRequest(
                 session,
                 selection,
                 requestedProfile,

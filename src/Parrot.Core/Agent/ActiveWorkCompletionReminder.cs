@@ -6,22 +6,21 @@ using Parrot.Statuses;
 namespace Parrot.Agent;
 
 internal sealed class ActiveWorkCompletionReminder(
-    string agentSessionId,
-    AgentRegistry registry,
+    ChildRegistry children,
     ShellProcessOwner processes,
     PromptTemplateCatalog promptTemplates)
 {
     public string? Build()
     {
-        var children = registry.ActiveDirectChildren(agentSessionId);
+        var activeChildren = children.ObserveActive();
         var ownedProcesses = processes.Active();
 
-        if (children.Count == 0 && ownedProcesses.Count == 0)
+        if (activeChildren.Count == 0 && ownedProcesses.Count == 0)
         {
             return null;
         }
 
-        var activeWork = FormatActiveWork(children, ownedProcesses);
+        var activeWork = FormatActiveWork(activeChildren, ownedProcesses);
         return promptTemplates.Render(
             "agent-session.active-work-reminder",
             [new PromptTemplateArgument("active_work", activeWork)]);

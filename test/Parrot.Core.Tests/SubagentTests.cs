@@ -45,7 +45,7 @@ internal sealed partial class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        var spawn = new AgentSpawnTool(registry, Router(provider), parent);
+        var spawn = new AgentSpawnTool(parent.ChildRegistry, Router(provider), parent);
 
         var startedJson = (await spawn.Execute(
             new ToolInvocation(
@@ -129,7 +129,7 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty);
         var spawnSequence = _repository.Conversation(parent.SessionId)[^1].Sequence;
 
-        var result = await new AgentSpawnTool(registry, Router(provider), parent).Execute(
+        var result = await new AgentSpawnTool(parent.ChildRegistry, Router(provider), parent).Execute(
             new ToolInvocation(
                 "spawn-call",
                 "{\"prompt\":\"new work\",\"agent\":\"worker\",\"fork\":\"full\"}",
@@ -418,7 +418,7 @@ internal sealed partial class SubagentTests : IDisposable
             0,
             string.Empty,
             AgentCompletionDeliveryPolicy.Automatic));
-        var send = new AgentSendTool(registry, sender);
+        var send = new AgentSendTool(sender.ChildRegistry, sender);
 
         var result = (await send.Execute(
             new ToolInvocation(
@@ -574,7 +574,7 @@ internal sealed partial class SubagentTests : IDisposable
             TestModels.PromptTemplates,
             cancellationToken);
         var session = Session(provider, 0, "root-id", registry, cancellationToken);
-        var send = new AgentSendTool(registry, session);
+        var send = new AgentSendTool(session.ChildRegistry, session);
         var root = Path.Combine(Path.GetTempPath(), "parrot-agent-send-documentation", Guid.NewGuid().ToString("N"));
         var configuration = Configuration.Load(
             Path.Combine(root, "config.yaml"),
@@ -646,7 +646,7 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await Assert.That(registry.GetRecipient(nestedDuplicate, "parent/target"))
             .IsSameReferenceAs(target);
 
-        var sent = (await new AgentSendTool(registry, root).Execute(
+        var sent = (await new AgentSendTool(root.ChildRegistry, root).Execute(
             new ToolInvocation(
                 "test-call",
                 """{"session_id":"first/duplicate/parent/target","message":"deep work"}"""),
@@ -851,7 +851,7 @@ internal sealed partial class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        var spawn = new AgentSpawnTool(registry, Router(provider), parent);
+        var spawn = new AgentSpawnTool(parent.ChildRegistry, Router(provider), parent);
 
         _ = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"inspect","agent":"explore"}"""), Turn(parent, Router(provider)), cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
@@ -916,7 +916,7 @@ internal sealed partial class SubagentTests : IDisposable
             sessions, _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var parent = Session(provider, 0, "agent", registry, cancellationToken);
         parent.UpdateSelection(parent.Selection().RequestedModel, Profile(ModeRegistry.Build, readOnly: false, []));
-        var spawn = new AgentSpawnTool(registry, Router(provider), parent);
+        var spawn = new AgentSpawnTool(parent.ChildRegistry, Router(provider), parent);
         var capturedSelection = Turn(parent, Router(provider));
         parent.UpdateSelection(
             new ModelSelector("stepped/replacement"),
@@ -949,7 +949,7 @@ internal sealed partial class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(sessions, _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var parent = Session(provider, 0, "agent", registry, cancellationToken);
         parent.UpdateSelection(new ModelSelector("fast"), parent.Selection().Profile);
-        var spawn = new AgentSpawnTool(registry, router, parent);
+        var spawn = new AgentSpawnTool(parent.ChildRegistry, router, parent);
 
         foreach (var arguments in new[]
         {
@@ -999,7 +999,7 @@ internal sealed partial class SubagentTests : IDisposable
         var sessions = new TestAgentSessions(router, deliversCompletions: false);
         await using var registry = TestModels.Registry(sessions, _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        var spawn = new AgentSpawnTool(registry, router, parent);
+        var spawn = new AgentSpawnTool(parent.ChildRegistry, router, parent);
 
         var result = (await spawn.Execute(
             new ToolInvocation(
@@ -1035,7 +1035,7 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.Automatic));
         _ = await spawned.Send("initial", cancellationToken);
-        var send = new AgentSendTool(registry, parent);
+        var send = new AgentSendTool(parent.ChildRegistry, parent);
 
         await provider.Arrived(cancellationToken);
         var steeredJson = (await send.Execute(
@@ -1106,7 +1106,7 @@ internal sealed partial class SubagentTests : IDisposable
             0,
             string.Empty,
             AgentCompletionDeliveryPolicy.Automatic));
-        var send = new AgentSendTool(registry, child);
+        var send = new AgentSendTool(child.ChildRegistry, child);
 
         var sent = (await send.Execute(
             new ToolInvocation(
@@ -1151,7 +1151,7 @@ internal sealed partial class SubagentTests : IDisposable
             0,
             string.Empty,
             AgentCompletionDeliveryPolicy.Automatic));
-        var send = new AgentSendTool(registry, child);
+        var send = new AgentSendTool(child.ChildRegistry, child);
 
         var sent = (await send.Execute(
             new ToolInvocation(
@@ -1196,7 +1196,7 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await spawned.Send("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
-        var sending = new AgentSendTool(registry, parent).Execute(
+        var sending = new AgentSendTool(parent.ChildRegistry, parent).Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"session_id":"{{spawned.SessionId}}","message":"boundary"}"""),
@@ -1239,7 +1239,7 @@ internal sealed partial class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         var boundary = new string('x', 32 * 1024);
 
-        var sentJson = (await new AgentSendTool(registry, parent).Execute(
+        var sentJson = (await new AgentSendTool(parent.ChildRegistry, parent).Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"session_id":"{{spawned.SessionId}}","message":"{{boundary}}"}"""),
@@ -1277,7 +1277,7 @@ internal sealed partial class SubagentTests : IDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.Automatic));
         _ = await spawned.Send("initial", cancellationToken);
-        var send = new AgentSendTool(registry, parent);
+        var send = new AgentSendTool(parent.ChildRegistry, parent);
 
         var malformed = (await send.Execute(new ToolInvocation("test-call", "{}"), Turn(parent, Router(provider)), cancellationToken)).Text;
         var blank = (await send.Execute(
@@ -1292,7 +1292,7 @@ internal sealed partial class SubagentTests : IDisposable
                 """{"session_id":"missing","message":"hello"}"""),
             Turn(parent, Router(provider)),
             cancellationToken)).Text;
-        var invisible = (await new AgentSendTool(registry, stranger).Execute(
+        var invisible = (await new AgentSendTool(stranger.ChildRegistry, stranger).Execute(
             new ToolInvocation(
                 "test-call",
                 $$"""{"session_id":"{{spawned.SessionId}}","message":"hello"}"""),
@@ -1329,7 +1329,7 @@ internal sealed partial class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var parent = Session(provider, 0, "parent", registry, cancellationToken);
-        var spawn = new AgentSpawnTool(registry, Router(provider), parent);
+        var spawn = new AgentSpawnTool(parent.ChildRegistry, Router(provider), parent);
 
         var result = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"work","agent":"build"}"""), Turn(parent, Router(provider)), cancellationToken)).Text;
 
@@ -1355,7 +1355,7 @@ internal sealed partial class SubagentTests : IDisposable
             TestModels.PromptTemplates,
             cancellationToken);
         var parent = Session(provider, 0, "parent", registry, cancellationToken);
-        var result = (await new AgentSpawnTool(registry, Router(provider), parent).Execute(
+        var result = (await new AgentSpawnTool(parent.ChildRegistry, Router(provider), parent).Execute(
             new ToolInvocation("test-call", "{\"prompt\":\"work\",\"agent\":\"worker\"}"),
             Turn(parent, Router(provider)),
             cancellationToken)).Text;
@@ -1376,7 +1376,7 @@ internal sealed partial class SubagentTests : IDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider), deliversCompletions: false), _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var parent = Session(provider, 0, "parent", registry, cancellationToken);
-        var spawn = new AgentSpawnTool(registry, Router(provider), parent);
+        var spawn = new AgentSpawnTool(parent.ChildRegistry, Router(provider), parent);
         var idle = registry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
@@ -1394,7 +1394,7 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await idle.Wait(0, cancellationToken);
 
         var deepParent = Session(provider, 4, "deep-parent", registry, cancellationToken);
-        var tooDeep = (await new AgentSpawnTool(registry, Router(provider), deepParent).Execute(
+        var tooDeep = (await new AgentSpawnTool(deepParent.ChildRegistry, Router(provider), deepParent).Execute(
             new ToolInvocation(
                 "test-call",
                 """{"prompt":"too deep","agent":"worker"}"""),
@@ -1434,7 +1434,7 @@ internal sealed partial class SubagentTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await spawned.Wait(0, cancellationToken);
-        var send = new AgentSendTool(registry, parent);
+        var send = new AgentSendTool(parent.ChildRegistry, parent);
         _ = (await send.Execute(
             new ToolInvocation(
                 "test-call",
@@ -1491,16 +1491,14 @@ internal sealed partial class SubagentTests : IDisposable
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parentRegistry = TestModels.Registry(
-            new UnsupportedAgentSessionFactory(),
-            _broker,
-            _repository,
-            TestModels.ProfileRegistry(),
+        var identity = AgentIdentity.Main("parent", string.Empty, TestModels.PromptTemplates);
+        using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
+        var parentScope = new TrackingAgentSessionScope(AgentSessionDirectScope.Build(
+            identity,
+            registry,
             TestModels.PromptTemplates,
-            cancellationToken);
-        var parent = Session(provider, 0, "parent", parentRegistry, cancellationToken);
-        var parentScope = new TrackingAgentSessionScope(
-            AgentSessionDirectScope.Build(parent.SessionId, registry, TestModels.PromptTemplates, _ => parent));
+            (children, childQuestions) => new AgentSession(identity, new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, registry, children, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken)));
+        var parent = parentScope.Session;
         registry.RegisterRootScope(parentScope);
         var spawning = Task.Run(() => registry.Spawn(Request()), cancellationToken);
         await sessions.WaitUntilEntered(cancellationToken);
@@ -1533,6 +1531,47 @@ internal sealed partial class SubagentTests : IDisposable
             "worker",
             parent.Selection().RequestedModel,
             "blocked",
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic);
+    }
+
+    [Test]
+    public async Task Child_registries_are_identity_bound_and_distinct_per_scope(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        var sessions = new TestAgentSessions(Router(provider), deliversCompletions: false);
+        await using var registry = TestModels.Registry(
+            sessions,
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        var firstParent = Session(provider, 0, "first-parent", registry, cancellationToken);
+        var firstScope = _rootScopes[^1];
+        var secondParent = Session(provider, 0, "second-parent", registry, cancellationToken);
+        var secondScope = _rootScopes[^1];
+
+        _ = await Assert.That(ReferenceEquals(firstScope.ChildRegistry, secondScope.ChildRegistry)).IsFalse();
+        var mismatch = await Assert.That(() => firstScope.ChildRegistry.Spawn(Request(secondParent)))
+            .Throws<AgentRegistryException>();
+        var child = firstScope.ChildRegistry.Spawn(Request(firstParent));
+
+        _ = await Assert.That(mismatch?.Message)
+            .IsEqualTo("launch parent does not match child registry owner: expected first-parent, actual second-parent");
+        _ = await Assert.That(child.ParentSessionId).IsEqualTo(firstParent.SessionId);
+        _ = await Assert.That(ReferenceEquals(firstScope.ChildRegistry, sessions.Scopes.Single().ChildRegistry)).IsFalse();
+
+        AgentLaunchRequest Request(AgentSession parent) => new(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             0,
@@ -1659,20 +1698,22 @@ internal sealed partial class SubagentTests : IDisposable
             ? AgentIdentity.Main(sessionId, name, TestModels.PromptTemplates)
             : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", name, depth, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        var session = new AgentSession(identity, new ModelSelector("stepped/model"), router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Registry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        var scope = AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) =>
+            new AgentSession(identity, new ModelSelector("stepped/model"), router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, _repository, _broker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, registry, children, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
         if (depth == 0)
         {
-            var rootScope = AgentSessionDirectScope.Build(session.SessionId, registry, TestModels.PromptTemplates, _ => session);
-            registry.RegisterRootScope(rootScope);
-            _rootScopes.Add(rootScope);
+            registry.RegisterRootScope(scope);
+            _rootScopes.Add(scope);
         }
 
-        return session;
+        return scope.Session;
     }
 
     private sealed class TrackingAgentSessionScope(IAgentSessionScope scope) : IAgentSessionScope
     {
         public AgentSession Session => scope.Session;
+
+        public ChildRegistry ChildRegistry => scope.ChildRegistry;
 
         public Questions.ChildQuestionCoordinator ChildQuestions => scope.ChildQuestions;
 
@@ -1806,9 +1847,9 @@ internal sealed partial class SubagentTests : IDisposable
             ProcessOwners.Add(processes);
             QueueCatalogs.Add(queueCatalog);
 
-            var scope = AgentSessionDirectScope.Build(identity.SessionId, registry, TestModels.PromptTemplates, childQuestions =>
+            var scope = AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) =>
             {
-                var session = new AgentSession(identity, model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System), completionRegistry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                var session = new AgentSession(identity, model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System), completionRegistry, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
                 queues.Attach(session);
                 return session;
             });

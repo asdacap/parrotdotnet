@@ -3,9 +3,7 @@ using Parrot.Process;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentStatusToolFactory(
-    AgentRegistry agents,
-    ShellProcessOwners processes) : IToolFactory
+internal sealed class AgentStatusToolFactory(ShellProcessOwners processes) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new AgentStatusTool(agents, processes, session);
+    public ITool Create(AgentSession session) => new AgentStatusTool(session.ChildRegistry, processes);
 }

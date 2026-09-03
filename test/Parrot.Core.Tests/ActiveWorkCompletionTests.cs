@@ -21,18 +21,12 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
 
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly EventBroker _broker = new();
-    private readonly List<ChildQuestionCoordinator> _childQuestions = [];
     private readonly List<IAgentSessionScope> _rootScopes = [];
 
     public ActiveWorkCompletionTests() => Directory.CreateDirectory(_workspace);
 
     public void Dispose()
     {
-        foreach (var childQuestions in _childQuestions)
-        {
-            childQuestions.Dispose();
-        }
-
         foreach (var rootScope in _rootScopes)
         {
             rootScope.ChildQuestions.Dispose();
@@ -97,7 +91,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             && message.Content.Contains(child.SessionId, StringComparison.Ordinal))).IsTrue();
 
         childProvider.Release();
-        await child.Settled();
+        _ = await child.Wait(0, cancellationToken);
         parentProvider.Release();
         await parent.Settled();
 
@@ -135,7 +129,6 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
-        var ownedChildQuestions = TestModels.CreateChildQuestions(registry, "parent");
         var mode = new CompletionMode(enforce: false, maxTurns: 3);
         var parent = Session(
             "parent",
@@ -147,8 +140,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             queueCatalog,
             status,
             mode,
-            ownedChildQuestions,
             lifetime.Token);
+        var ownedChildQuestions = _rootScopes[^1].ChildQuestions;
         var firstChild = registry.Spawn(QuestionChildRequest(parent, router, "first"));
         var secondChild = registry.Spawn(QuestionChildRequest(parent, router, "second"));
         using var subscription = _broker.Subscribe();
@@ -579,13 +572,6 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             $"{providers[0].Id}/model");
     }
 
-    private ChildQuestionCoordinator CreateChildQuestions(AgentRegistry registry, string ownerSessionId)
-    {
-        var childQuestions = TestModels.CreateChildQuestions(registry, ownerSessionId);
-        _childQuestions.Add(childQuestions);
-        return childQuestions;
-    }
-
     private AgentSession Session(
         string sessionId,
         HeldProvider provider,
@@ -596,43 +582,18 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         AgentQueueCatalog queueCatalog,
         RuntimeStatus status,
         IMode mode,
-        CancellationToken lifetime) =>
-        Session(
-            sessionId,
-            provider,
-            router,
-            repository,
-            registry,
-            processes,
-            queueCatalog,
-            status,
-            mode,
-            CreateChildQuestions(registry, sessionId),
-            lifetime);
-
-    private AgentSession Session(
-        string sessionId,
-        HeldProvider provider,
-        ModelRouter router,
-        EventRepository repository,
-        AgentRegistry registry,
-        ShellProcessOwners processes,
-        AgentQueueCatalog queueCatalog,
-        RuntimeStatus status,
-        IMode mode,
-        ChildQuestionCoordinator childQuestions,
         CancellationToken lifetime)
     {
         var owner = processes.Prepare(sessionId);
         processes.Register(owner);
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
-        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(sessionId, registry, owner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
-        queues.Attach(session);
-        var rootScope = AgentSessionDirectScope.Build(session.SessionId, registry, TestModels.PromptTemplates, _ => session);
+        var rootScope = AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) =>
+            new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime));
+        queues.Attach(rootScope.Session);
         registry.RegisterRootScope(rootScope);
         _rootScopes.Add(rootScope);
-        return session;
+        return rootScope.Session;
     }
 
     private AgentSession BareSession(
@@ -649,7 +610,9 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
         var mode = TestModels.Profile();
-        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, CreateChildQuestions(registry, identity.SessionId), new ActiveWorkCompletionReminder(sessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        var children = new ChildRegistry(identity, registry);
+        var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
+        var session = new AgentSession(identity, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new TodoCollection(sessionId, repository, _broker), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(mode.SecurityProfile), status, registry, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
         return session;
     }
@@ -767,7 +730,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 TestModels.ProfileRegistry(),
                 TestModels.PromptTemplates,
                 lifetime);
-            return AgentSessionDirectScope.Build(identity.SessionId, registry, TestModels.PromptTemplates, scopedChildQuestions =>
+            return AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, scopedChildQuestions) =>
             {
                 var session = new AgentSession(
                 identity,
@@ -783,11 +746,12 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
                 TestModels.PromptTemplates,
                 scopedChildQuestions,
-                new ActiveWorkCompletionReminder(identity.SessionId, registry, owner, TestModels.PromptTemplates),
+                new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates),
                 mode,
                 SecurityProfileTestFactory.Create(securityProfile),
                 status,
                 completionRegistry,
+                children,
                 queues,
                 new AgentSessionActivity(TimeProvider.System),
                 lifetime);

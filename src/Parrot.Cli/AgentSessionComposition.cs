@@ -41,9 +41,9 @@ internal partial class AgentSessionComposition
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<ShellProcessOwner>(out var processes);
+                ctx.Inject<ChildRegistry>(out var children);
                 return new ActiveWorkCompletionReminder(
-                    arguments.Identity.SessionId,
-                    arguments.Registry,
+                    children,
                     processes,
                     arguments.PromptTemplates);
             })
@@ -68,10 +68,13 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ChildQuestionCoordinator(
-                    arguments.Identity.SessionId,
-                    arguments.Registry,
-                    arguments.PromptTemplates);
+                return new ChildRegistry(arguments.Identity, arguments.Registry);
+            })
+            .Bind().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<ChildRegistry>(out var children);
+                return new ChildQuestionCoordinator(children, arguments.PromptTemplates);
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
@@ -81,6 +84,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<ShellProcessOwner>(out var processes);
                 ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
                 ctx.Inject<AgentSessionActivity>(out var activity);
+                ctx.Inject<ChildRegistry>(out var children);
                 ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
                 ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
                 ctx.Inject<ISystemPrompt>(out var systemPrompt);
@@ -103,6 +107,7 @@ internal partial class AgentSessionComposition
                     arguments.Security,
                     arguments.Status,
                     arguments.Registry,
+                    children,
                     arguments.Queues,
                     activity,
                     arguments.Lifetime);
@@ -111,5 +116,6 @@ internal partial class AgentSessionComposition
                 return session;
             })
             .Root<AgentSession>("Session")
+            .Root<ChildRegistry>("Children")
             .Root<ChildQuestionCoordinator>("ChildQuestions");
 }

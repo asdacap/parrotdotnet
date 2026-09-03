@@ -41,7 +41,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     {
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(registry, runtime);
+        var tool = Tool(runtime);
 
         var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
 
@@ -64,7 +64,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     {
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(registry, runtime);
+        var tool = Tool(runtime);
 
         var result = await tool.Execute(new ToolInvocation("call", arguments), runtime.Selection, cancellationToken);
 
@@ -82,7 +82,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = ToolWithAttempts(registry, runtime, 2);
+        var tool = ToolWithAttempts(runtime, 2);
 
         var result = await tool.Execute(new ToolInvocation("retry-call", arguments), runtime.Selection, cancellationToken);
 
@@ -127,7 +127,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(registry, runtime);
+        var tool = Tool(runtime);
 
         var result = await tool.Execute(new ToolInvocation("transition-call", arguments), runtime.Selection, cancellationToken);
 
@@ -165,7 +165,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(registry, runtime);
+        var tool = Tool(runtime);
         var denied = runtime.Selection with
         {
             SecurityProfile = SecurityProfile.Compose(false, [], [new SandboxRule(_root, SandboxRuleAction.DenyRead)], []),
@@ -197,7 +197,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         await File.WriteAllTextAsync(artifact, "{}", cancellationToken);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(registry, runtime);
+        var tool = Tool(runtime);
         var denied = runtime.Selection with
         {
             SecurityProfile = SecurityProfile.Compose(
@@ -223,7 +223,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = File.CreateSymbolicLink(Path.Combine(_root, "alias.json"), artifact);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(registry, runtime);
+        var tool = Tool(runtime);
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"path\":\"alias.json\"}"),
@@ -250,7 +250,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         using var subscription = _broker.Subscribe();
-        var tool = Tool(registry, runtime);
+        var tool = Tool(runtime);
         var running = tool.Execute(
             new ToolInvocation("distinctive-call", "{\"path\":\"artifact.json\"}"),
             runtime.Selection,
@@ -286,7 +286,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(_root, "artifact.json"), "{}", cancellationToken);
         var runtime = Runtime(cancellationToken);
         await using var registry = runtime.Registry;
-        var tool = Tool(registry, runtime);
+        var tool = Tool(runtime);
 
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"path\":\"artifact.json\"}"),
@@ -324,12 +324,11 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         return [.. observed];
     }
 
-    private RunAgentTasksTool Tool(AgentRegistry registry, RuntimeContext runtime) =>
-        ToolWithAttempts(registry, runtime, 5);
+    private RunAgentTasksTool Tool(RuntimeContext runtime) =>
+        ToolWithAttempts(runtime, 5);
 
-    private RunAgentTasksTool ToolWithAttempts(AgentRegistry registry, RuntimeContext runtime, int maximumAttempts) => new(
+    private RunAgentTasksTool ToolWithAttempts(RuntimeContext runtime, int maximumAttempts) => new(
         new ToolWorkspace(_root),
-        registry,
         runtime.Router,
         runtime.Parent,
         _broker,
@@ -351,7 +350,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var registry = TestModels.Registry(sessions, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var identity = AgentIdentity.Main("tool-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, cancellationToken);
-        var parent = new AgentSession(
+        var parentScope = AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) => new AgentSession(
             identity,
             new ModelSelector($"{provider.Id}/model"),
             router,
@@ -364,20 +363,18 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             new ToolOutputBlobStore(_root),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
-            dependencies.ChildQuestions,
+            childQuestions,
             dependencies.ActiveWorkReminder,
             dependencies.Profile,
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,
             registry,
+            children,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
-            cancellationToken);
-        registry.RegisterRootScope(AgentSessionDirectScope.Build(
-            parent.SessionId,
-            registry,
-            TestModels.PromptTemplates,
-            _ => parent));
+            cancellationToken));
+        registry.RegisterRootScope(parentScope);
+        var parent = parentScope.Session;
         var selected = parent.Selection();
         return new RuntimeContext(
             router,

@@ -8,15 +8,21 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
     private bool _disposed;
 
     private AgentSessionDirectScope(
-        string ownerSessionId,
+        AgentIdentity owner,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
-        Func<ChildQuestionCoordinator, AgentSession> buildSession)
+        Func<ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession)
     {
-        ChildQuestions = new ChildQuestionCoordinator(ownerSessionId, registry, promptTemplates);
+        ChildRegistry = new ChildRegistry(owner, registry);
+        ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
         try
         {
-            Session = buildSession(ChildQuestions);
+            Session = buildSession(ChildRegistry, ChildQuestions);
+            ChildRegistry.ValidateOwner(Session.Identity);
+            if (!ReferenceEquals(Session.ChildRegistry, ChildRegistry))
+            {
+                throw new AgentRegistryException("agent session does not retain its scope child registry");
+            }
         }
         catch
         {
@@ -27,14 +33,16 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
 
     public AgentSession Session { get; }
 
+    public ChildRegistry ChildRegistry { get; }
+
     public ChildQuestionCoordinator ChildQuestions { get; }
 
     public static AgentSessionDirectScope Build(
-        string ownerSessionId,
+        AgentIdentity owner,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
-        Func<ChildQuestionCoordinator, AgentSession> buildSession) =>
-        new(ownerSessionId, registry, promptTemplates, buildSession);
+        Func<ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession) =>
+        new(owner, registry, promptTemplates, buildSession);
 
     public ValueTask DisposeAsync()
     {

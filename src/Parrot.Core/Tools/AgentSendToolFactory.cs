@@ -2,8 +2,8 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class AgentSendToolFactory(AgentRegistry agents) : IToolFactory
+internal sealed class AgentSendToolFactory : IToolFactory
 {
     public ITool Create(AgentSession session) =>
-        new AgentSendTool(agents, session);
+        new AgentSendTool(session.ChildRegistry, session);
 }

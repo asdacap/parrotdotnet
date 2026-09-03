@@ -65,6 +65,7 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         var composition = new AgentSessionComposition(arguments);
         return new AgentSessionScope(
             composition.Session,
+            composition.Children,
             composition.ChildQuestions,
             queues);
     }

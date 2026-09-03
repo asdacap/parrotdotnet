@@ -6,12 +6,15 @@ namespace Parrot.Cli;
 
 internal sealed class AgentSessionScope(
     AgentSession session,
+    ChildRegistry children,
     ChildQuestionCoordinator childQuestions,
     AgentQueues queues) : IAgentSessionScope
 {
     private bool _disposed;
 
     public AgentSession Session { get; } = session;
+
+    public ChildRegistry ChildRegistry { get; } = children;
 
     public ChildQuestionCoordinator ChildQuestions { get; } = childQuestions;
 

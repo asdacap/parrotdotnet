@@ -7,7 +7,6 @@ using Parrot.Store;
 namespace Parrot.AgentTasks;
 
 internal sealed class AgentTaskGraphRunner(
-    AgentRegistry agents,
     ModelRouter router,
     AgentSession owner,
     AgentTurnSelection selection,
@@ -982,7 +981,7 @@ internal sealed class AgentTaskGraphRunner(
             if (retainedAgent is null)
             {
                 var requestedName = role == "execute" ? taskName : $"{taskName}-{role}";
-                child = agents.Spawn(new AgentLaunchRequest(
+                child = owningAgent.ChildRegistry.Spawn(new AgentLaunchRequest(
                     owningAgent,
                     selection,
                     ResolveRoleProfile(role),

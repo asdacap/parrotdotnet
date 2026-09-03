@@ -495,9 +495,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(repository);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
-        var childQuestions = TestModels.CreateChildQuestions(registry, identity.SessionId);
+        var children = new ChildRegistry(identity, registry);
+        var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         _childQuestions.Add(childQuestions);
-        var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new TodoCollection("agent", repository, _broker), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(identity.SessionId, registry, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, registry, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        var session = new AgentSession(identity, new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new TodoCollection("agent", repository, _broker), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, registry, children, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
         queues.Attach(session);
         return session;
     }
@@ -673,9 +674,9 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 var processes = owner.ShellProcesses.Prepare(identity.SessionId);
                 owner.ShellProcesses.Register(processes);
                 var queues = owner.QueueCatalog.Register(identity);
-                return AgentSessionDirectScope.Build(identity.SessionId, registry, TestModels.PromptTemplates, childQuestions =>
+                return AgentSessionDirectScope.Build(identity, registry, TestModels.PromptTemplates, (children, childQuestions) =>
                 {
-                    var session = new AgentSession(identity, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.Combine(root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(identity.SessionId, registry, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, registry, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                    var session = new AgentSession(identity, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new TodoCollection(identity.SessionId, eventRepository, eventBroker), new ToolOutputBlobStore(Path.Combine(root, "blobs")), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), mode, SecurityProfileTestFactory.Create(securityProfile), status, registry, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
                     queues.Attach(session);
                     _ = source._created.TrySetResult(session);
                     return session;

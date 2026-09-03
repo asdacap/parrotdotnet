@@ -47,113 +47,7 @@ internal sealed class AgentRegistry(
         }
     }
 
-    public AgentSession Spawn(AgentLaunchRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(request.Parent);
-        ArgumentNullException.ThrowIfNull(request.Selection);
-        ArgumentNullException.ThrowIfNull(request.RequestedScope);
-        var profile = profiles.ResolveChild(request.RequestedProfile);
-        RuntimeStatus status;
-        AgentIdentity identity;
-        AgentSessionParentScope parentScope;
-        Security.SecurityProfile securityProfile;
-
-        lock (_gate)
-        {
-            if (!_accepting)
-            {
-                throw new AgentRegistryException("the user session is shutting down");
-            }
-
-            if (_entries.Count + _pendingSpawns >= MaxRetained)
-            {
-                throw new AgentRegistryException("subagent retention limit reached");
-            }
-
-            var depth = request.Parent.Depth + 1;
-
-            if (depth > MaxDepth)
-            {
-                throw new AgentRegistryException("subagent depth limit reached");
-            }
-
-            securityProfile = ResolveSecurityProfile(request.Parent).RestrictWith(profile.SecurityProfile);
-            if (ProfileOccurrences(request.Parent, profile.Id)
-                + _pendingProfiles.GetValueOrDefault((request.Parent.SessionId, profile.Id))
-                >= profile.RecursionLimit)
-            {
-                throw new AgentRegistryException("subagent profile recursion limit reached");
-            }
-
-            if (!_scopes.TryGetValue(request.Parent.SessionId, out var registeredParentScope)
-                || !ReferenceEquals(registeredParentScope.Session, request.Parent))
-            {
-                throw new AgentRegistryException($"parent agent scope not found: {request.Parent.SessionId}");
-            }
-
-            parentScope = AgentSessionParentScope.Child(registeredParentScope);
-            status = _status
-                ?? throw new AgentRegistryException("the runtime status is not attached");
-            var sessionId = Identifier.AgentSession();
-            var names = NamesFor(request.Parent.SessionId);
-            var name = UniqueName(names, request.RequestedName, sessionId);
-            var agentScope = request.Parent.ResolveScope().DeriveChild(name, depth, request.RequestedScope);
-            identity = AgentIdentity.Child(sessionId, request.Parent.SessionId, request.Parent.Name, name, depth, agentScope, promptTemplates);
-            _parents[request.Parent.SessionId] = request.Parent;
-            names.Add(name, sessionId);
-            _pendingSpawns++;
-            var pendingProfile = (request.Parent.SessionId, profile.Id);
-            _pendingProfiles[pendingProfile] = _pendingProfiles.GetValueOrDefault(pendingProfile) + 1;
-        }
-
-        var historyInitialized = false;
-        IAgentSessionScope? createdScope = null;
-        try
-        {
-            eventRepository.InitializeForkedAgentHistory(
-                request.Parent.SessionId,
-                identity.SessionId,
-                request.AssistantSequence,
-                request.SpawnToolCallId,
-                request.Fork);
-            historyInitialized = true;
-            createdScope = agentSessions.Create(
-                identity,
-                parentScope,
-                request.Model,
-                eventBroker,
-                eventRepository,
-                new NoopMode(profile, securityProfile),
-                securityProfile,
-                status,
-                this,
-                _lifetime.Token);
-            RegisterSpawnedScope(createdScope, request.DeliveryPolicy);
-            return createdScope.Session;
-        }
-        catch
-        {
-            if (createdScope?.DisposeAsync().AsTask() is { } rejectedScopeDisposal)
-            {
-                lock (_gate)
-                {
-                    _rejectedScopeDisposals.Add(rejectedScopeDisposal);
-                }
-            }
-
-            if (historyInitialized)
-            {
-                eventRepository.CleanupForkedAgentHistory(identity.SessionId);
-            }
-
-            throw;
-        }
-        finally
-        {
-            CompleteSpawn(identity, profile.Id);
-        }
-    }
+    public AgentSession Spawn(AgentLaunchRequest request) => SpawnAuthority(request, null);
 
     public void RegisterRootScope(IAgentSessionScope scope)
     {
@@ -208,13 +102,7 @@ internal sealed class AgentRegistry(
 
         lock (_gate)
         {
-            if (_entries.TryGetValue(childSessionId, out var child)
-                && string.Equals(child.Session.ParentSessionId, parentSessionId, StringComparison.Ordinal))
-            {
-                return child.Session;
-            }
-
-            throw new AgentRegistryException($"child agent not found: {childSessionId}");
+            return AuthorizeDirectChildAuthority(parentSessionId, childSessionId);
         }
     }
 
@@ -241,31 +129,7 @@ internal sealed class AgentRegistry(
 
         lock (_gate)
         {
-            if (sessionIdOrName.Contains('/', StringComparison.Ordinal))
-            {
-                return ResolveDescendantPath(sender.SessionId, sessionIdOrName);
-            }
-
-            if (_entries.TryGetValue(sessionIdOrName, out var canonical))
-            {
-                if (string.Equals(canonical.Session.SessionId, sender.ParentSessionId, StringComparison.Ordinal)
-                    || string.Equals(canonical.Session.ParentSessionId, sender.SessionId, StringComparison.Ordinal))
-                {
-                    return canonical.Session;
-                }
-
-                throw new AgentRegistryException("only parent/child may be sent");
-            }
-
-            if (_parents.TryGetValue(sender.ParentSessionId, out var parent)
-                && (string.Equals(sessionIdOrName, ParentRecipient, StringComparison.Ordinal)
-                    || string.Equals(sessionIdOrName, sender.ParentSessionId, StringComparison.Ordinal)
-                    || string.Equals(sessionIdOrName, sender.ParentSessionName, StringComparison.Ordinal)))
-            {
-                return parent;
-            }
-
-            return ResolveChild(sender.SessionId, sessionIdOrName);
+            return ResolveRecipient(sender, sessionIdOrName);
         }
     }
 
@@ -329,6 +193,78 @@ internal sealed class AgentRegistry(
             }
 
             return new ValueTask(_shutdown);
+        }
+    }
+
+    internal AgentSession SpawnFor(AgentIdentity owner, ChildRegistry children, AgentLaunchRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(children);
+        return SpawnAuthority(request, (owner, children));
+    }
+
+    internal AgentSession ResolveStatusTargetFor(AgentIdentity owner, ChildRegistry children, string sessionIdOrName)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
+
+        lock (_gate)
+        {
+            _ = RequireOwnerScope(owner, children);
+            return ResolveChild(owner.SessionId, sessionIdOrName);
+        }
+    }
+
+    internal AgentSession AuthorizeDirectChildFor(AgentIdentity owner, ChildRegistry children, string childSessionId)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
+
+        lock (_gate)
+        {
+            _ = RequireOwnerScope(owner, children);
+            return AuthorizeDirectChildAuthority(owner.SessionId, childSessionId);
+        }
+    }
+
+    internal AgentSession AuthorizeQuestionChildFor(AgentIdentity owner, ChildRegistry children, AgentSession child)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(child);
+
+        lock (_gate)
+        {
+            var parent = RequireOwnerScope(owner, children).Session;
+            if (_entries.TryGetValue(child.SessionId, out var registered)
+                && ReferenceEquals(registered.Session, child)
+                && string.Equals(child.ParentSessionId, owner.SessionId, StringComparison.Ordinal))
+            {
+                return parent;
+            }
+
+            throw new AgentRegistryException($"parent agent not found: {child.ParentSessionId}");
+        }
+    }
+
+    internal AgentSession ResolveRecipientFor(AgentIdentity owner, ChildRegistry children, string sessionIdOrName)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
+
+        lock (_gate)
+        {
+            return ResolveRecipient(RequireOwnerScope(owner, children).Session, sessionIdOrName);
+        }
+    }
+
+    internal IReadOnlyList<ActiveWorkObservation> ObserveActiveChildrenFor(AgentIdentity owner, ChildRegistry children)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+
+        lock (_gate)
+        {
+            _ = RequireOwnerScope(owner, children);
+            return ObserveActiveChildren(owner.SessionId);
         }
     }
 
@@ -416,6 +352,172 @@ internal sealed class AgentRegistry(
         }
 
         return candidate;
+    }
+
+    private AgentSession SpawnAuthority(
+        AgentLaunchRequest request,
+        (AgentIdentity Identity, ChildRegistry Children)? expectedOwner)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Parent);
+        ArgumentNullException.ThrowIfNull(request.Selection);
+        ArgumentNullException.ThrowIfNull(request.RequestedScope);
+        var profile = profiles.ResolveChild(request.RequestedProfile);
+        RuntimeStatus status;
+        AgentIdentity identity;
+        AgentSessionParentScope parentScope;
+        Security.SecurityProfile securityProfile;
+
+        lock (_gate)
+        {
+            if (!_accepting)
+            {
+                throw new AgentRegistryException("the user session is shutting down");
+            }
+
+            if (_entries.Count + _pendingSpawns >= MaxRetained)
+            {
+                throw new AgentRegistryException("subagent retention limit reached");
+            }
+
+            var depth = request.Parent.Depth + 1;
+
+            if (depth > MaxDepth)
+            {
+                throw new AgentRegistryException("subagent depth limit reached");
+            }
+
+            securityProfile = ResolveSecurityProfile(request.Parent).RestrictWith(profile.SecurityProfile);
+            if (ProfileOccurrences(request.Parent, profile.Id)
+                + _pendingProfiles.GetValueOrDefault((request.Parent.SessionId, profile.Id))
+                >= profile.RecursionLimit)
+            {
+                throw new AgentRegistryException("subagent profile recursion limit reached");
+            }
+
+            if (!_scopes.TryGetValue(request.Parent.SessionId, out var registeredParentScope)
+                || !ReferenceEquals(registeredParentScope.Session, request.Parent)
+                || (expectedOwner is { } owner
+                    && (!ReferenceEquals(request.Parent.Identity, owner.Identity)
+                        || !ReferenceEquals(registeredParentScope.ChildRegistry, owner.Children))))
+            {
+                throw new AgentRegistryException($"parent agent scope not found: {request.Parent.SessionId}");
+            }
+
+            parentScope = AgentSessionParentScope.Child(registeredParentScope);
+            status = _status
+                ?? throw new AgentRegistryException("the runtime status is not attached");
+            var sessionId = Identifier.AgentSession();
+            var names = NamesFor(request.Parent.SessionId);
+            var name = UniqueName(names, request.RequestedName, sessionId);
+            var agentScope = request.Parent.ResolveScope().DeriveChild(name, depth, request.RequestedScope);
+            identity = AgentIdentity.Child(sessionId, request.Parent.SessionId, request.Parent.Name, name, depth, agentScope, promptTemplates);
+            _parents[request.Parent.SessionId] = request.Parent;
+            names.Add(name, sessionId);
+            _pendingSpawns++;
+            var pendingProfile = (request.Parent.SessionId, profile.Id);
+            _pendingProfiles[pendingProfile] = _pendingProfiles.GetValueOrDefault(pendingProfile) + 1;
+        }
+
+        var historyInitialized = false;
+        IAgentSessionScope? createdScope = null;
+        try
+        {
+            eventRepository.InitializeForkedAgentHistory(
+                request.Parent.SessionId,
+                identity.SessionId,
+                request.AssistantSequence,
+                request.SpawnToolCallId,
+                request.Fork);
+            historyInitialized = true;
+            createdScope = agentSessions.Create(
+                identity,
+                parentScope,
+                request.Model,
+                eventBroker,
+                eventRepository,
+                new NoopMode(profile, securityProfile),
+                securityProfile,
+                status,
+                this,
+                _lifetime.Token);
+            RegisterSpawnedScope(createdScope, request.DeliveryPolicy);
+            return createdScope.Session;
+        }
+        catch
+        {
+            if (createdScope?.DisposeAsync().AsTask() is { } rejectedScopeDisposal)
+            {
+                lock (_gate)
+                {
+                    _rejectedScopeDisposals.Add(rejectedScopeDisposal);
+                }
+            }
+
+            if (historyInitialized)
+            {
+                eventRepository.CleanupForkedAgentHistory(identity.SessionId);
+            }
+
+            throw;
+        }
+        finally
+        {
+            CompleteSpawn(identity, profile.Id);
+        }
+    }
+
+    private AgentSession ResolveRecipient(AgentSession sender, string sessionIdOrName)
+    {
+        if (sessionIdOrName.Contains('/', StringComparison.Ordinal))
+        {
+            return ResolveDescendantPath(sender.SessionId, sessionIdOrName);
+        }
+
+        if (_entries.TryGetValue(sessionIdOrName, out var canonical))
+        {
+            if (string.Equals(canonical.Session.SessionId, sender.ParentSessionId, StringComparison.Ordinal)
+                || string.Equals(canonical.Session.ParentSessionId, sender.SessionId, StringComparison.Ordinal))
+            {
+                return canonical.Session;
+            }
+
+            throw new AgentRegistryException("only parent/child may be sent");
+        }
+
+        if (_parents.TryGetValue(sender.ParentSessionId, out var parent)
+            && (string.Equals(sessionIdOrName, ParentRecipient, StringComparison.Ordinal)
+                || string.Equals(sessionIdOrName, sender.ParentSessionId, StringComparison.Ordinal)
+                || string.Equals(sessionIdOrName, sender.ParentSessionName, StringComparison.Ordinal)))
+        {
+            return parent;
+        }
+
+        return ResolveChild(sender.SessionId, sessionIdOrName);
+    }
+
+    private IAgentSessionScope RequireOwnerScope(AgentIdentity owner, ChildRegistry children)
+    {
+        if (_scopes.TryGetValue(owner.SessionId, out var scope)
+            && ReferenceEquals(scope.Session.Identity, owner)
+            && ReferenceEquals(scope.ChildRegistry, children)
+            && ReferenceEquals(scope.ChildRegistry, scope.Session.ChildRegistry))
+        {
+            return scope;
+        }
+
+        throw new AgentRegistryException($"agent scope not found: {owner.SessionId}");
+    }
+
+    private AgentSession AuthorizeDirectChildAuthority(string parentSessionId, string childSessionId)
+    {
+        if (_entries.TryGetValue(childSessionId, out var child)
+            && string.Equals(child.Session.ParentSessionId, parentSessionId, StringComparison.Ordinal))
+        {
+            return child.Session;
+        }
+
+        throw new AgentRegistryException($"child agent not found: {childSessionId}");
     }
 
     private IReadOnlyList<ActiveWorkObservation> ObserveActiveChildren(string? parentSessionId) =>

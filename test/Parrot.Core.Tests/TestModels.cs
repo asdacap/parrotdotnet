@@ -135,8 +135,8 @@ internal static class TestModels
     public static ProfileRegistry ProfileRegistry() =>
         new(Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
 
-    public static ChildQuestionCoordinator CreateChildQuestions(AgentRegistry registry, string ownerSessionId) =>
-        new(ownerSessionId, registry, PromptTemplates);
+    public static ChildQuestionCoordinator CreateChildQuestions(AgentSession owner) =>
+        new(owner.ChildRegistry, PromptTemplates);
 
     public static IMode Profile()
     {
@@ -202,13 +202,15 @@ internal static class TestModels
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
-        var childQuestions = TestModels.CreateChildQuestions(registry, identity.SessionId);
+        var children = new ChildRegistry(identity, registry);
+        var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         return new AgentSessionDependencies(
             childQuestions,
-            new ActiveWorkCompletionReminder(identity.SessionId, registry, owner, TestModels.PromptTemplates),
+            new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates),
             Profile(),
             status,
             registry,
+            children,
             queues);
     }
 
