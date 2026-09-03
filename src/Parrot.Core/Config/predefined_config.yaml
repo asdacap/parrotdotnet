@@ -550,6 +550,7 @@ read_only_exec_command_prefixes:
   - rg
   - sed
   - stat
+  - strings
   - tail
   - tree
   - wc
