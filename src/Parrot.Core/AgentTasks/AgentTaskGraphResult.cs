@@ -30,6 +30,7 @@ internal sealed record AgentTaskGraphResult(AgentTaskExecutionStatus Status, IRe
         StatusText(result.Status),
         result.AttemptCount,
         result.Context,
+        result.Result,
         MapPatch(result.TaskPatch),
         result.Execution,
         result.Verdict is null ? null : VerdictText(result.Verdict.Kind),

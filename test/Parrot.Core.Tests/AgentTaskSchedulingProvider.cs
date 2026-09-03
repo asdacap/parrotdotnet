@@ -68,7 +68,7 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
             var answer = preparation
                 ? "{\"context\":\"preparation ready\"}"
                 : combinedPayload
-                    ? "{\"context\":\"payload ready\",\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
+                    ? "{\"result\":\"payload ready\",\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
                     : prompt.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal)
                         ? "{\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
                         : "executed";

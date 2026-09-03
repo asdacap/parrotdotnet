@@ -324,7 +324,7 @@ child implements and verifies the instruction and is retained for the whole leaf
 invocation. It has no inherited
 conversation. On each retry the same retained session receives a new user prompt
 while its previous exchange remains retained; therefore its non-system message
-count grows as 1, 3, 5, ... across attempts. The combined response is parsed
+count grows as 1, 3, 5, ... across attempts. The leaf response is parsed
 directly, rather than producing a separate execution transcript. Internal
 completions never steer the invoking agent. A task's `model`, when present, is
 routed through normal model resolution; otherwise the selected child inherits the
@@ -341,48 +341,48 @@ preparation context. Direct dependency summaries are also supplied to a ready ta
 
 The retained composite agent then reviews its nested result in a distinct
 validation turn, using the existing strict acceptance forms; nested task agents
-remain children owned by that composite agent. An instruction leaf's
-combined response must return JSON with nonblank `context` and exactly one
+remain children owned by that composite agent. An instruction leaf response must return JSON with nonblank `result` and exactly one
 strict verdict: `accept` with nonblank evidence, `reject_and_halt` with nonblank
 feedback, or `reject_and_retry` with nonblank feedback and a replacement
 instruction string or task array. The strict leaf response forms are:
 
 ```json
-{"context":"nonblank","verdict":"accept","evidence":"nonblank"}
-{"context":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}
-{"context":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_context":"optional nonblank replacement context"}
+{"result":"nonblank","verdict":"accept","evidence":"nonblank"}
+{"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}
+{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_result":"optional nonblank replacement result"}
 ```
 
-`context` is required and nonblank on every leaf response. The
-`replacement_context` member is optional and permitted only on the
-`reject_and_retry` form. The legacy `reject` and `retry` verdict strings are
-intentionally incompatible. An `accept` verdict is
-authoritative: it succeeds even if a composite task's nested result contains
-failures, which remain visible in the result. `reject_and_halt` fails the task
-immediately. Only `reject_and_retry` initiates another attempt; its optional
-`replacement_context` replaces the current context for later attempts and
-descendants. `replacement_context` is permitted only on the retry form; when it
-is omitted, the response's required `context` is carried forward. A retry may
-replace the payload with another instruction or with a task array. An instruction
+`result` is required and nonblank on every leaf response. The
+`replacement_result` member is optional and permitted only on the
+`reject_and_retry` form. The legacy `reject` and `retry` verdict strings and old
+leaf `context`/`replacement_context` members are intentionally incompatible. An
+`accept` verdict is authoritative: it succeeds even if a composite task's nested
+result contains failures, which remain visible in the result. `reject_and_halt`
+fails immediately. Only `reject_and_retry` initiates another attempt; optional
+`replacement_result` replaces the result carried into later attempts and direct
+dependents. When omitted, the response's result is carried forward. A retry may
+replace the payload with another instruction or task array. An instruction
 replacement continues in the same retained leaf session. A task-array
-replacement transitions to the composite lifecycle: preparation phase, nested
-sibling execution, and a later validation turn on the retained composite agent,
-with the retry context supplied to its nested child agents.
+replacement transitions to composite preparation, nested execution, and later
+validation; composite preparation context remains separate.
 
-For a leaf, `context` becomes result context and accepted `evidence` is the
-serialized top-level `evidence`; retry feedback is retained and may be exposed as
-failure feedback. Its combined response is parsed directly, so `task_patch` and
-`execution` are intentionally null or absent (there is no leaf execution
-transcript). Composite results retain their preparation/patch, nested execution,
-and validation fields as applicable. The AgentTask v1 artifact envelope and
-schema above are unchanged.
+For a leaf, response `result` becomes the serialized top-level `result`, accepted
+`evidence` remains validation evidence, and retry feedback is retained as failure
+feedback when applicable. Leaf `context` is null: preparation context belongs only
+to composite lifecycle. Leaf `task_patch` and `execution` are null or absent
+because there is no leaf execution transcript. Composite results retain their
+preparation context/patch, nested execution, validation fields, and nested child
+results. Direct dependents receive only each declared dependency's bounded
+`result` (with existing fallbacks when no result exists), preserving declaration
+order and blocking semantics. The AgentTask v1 artifact envelope and schema above
+are unchanged.
 
 `agent_tasks.maximum_attempts` is global runtime configuration enforced
 independently for every task invocation. It accepts any positive `Int32`,
 defaults to 5, and includes the first payload execution. Composite preparation runs
 once per invocation, not once per retry. If the final attempt returns
-`reject_and_retry`, its feedback and replacement context become the latest
-effective result, but no replacement payload runs and the task fails. Composite
+`reject_and_retry`, its feedback and replacement context remain on the latest
+composite result, but no replacement payload runs and the task fails. Composite
 payloads recursively rerun their sibling graph on each retry. Large limits and
 composite retries can repeat costly or side-effecting work; choose a small bound
 and declare dependencies for mutation ordering.

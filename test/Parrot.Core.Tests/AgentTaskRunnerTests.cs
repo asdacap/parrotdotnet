@@ -24,10 +24,10 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Runs_leaf_with_one_combined_payload_attempt(CancellationToken cancellationToken)
+    public async Task Runs_leaf_with_one_payload_attempt(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"contract evidence\",\"verdict\":\"accept\",\"evidence\":\"tests passed\"}",
+            "{\"result\":\"contract evidence\",\"verdict\":\"accept\",\"evidence\":\"tests passed\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -41,7 +41,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         _ = await Assert.That(result.Tasks.Single().AttemptCount).IsEqualTo(1);
         var task = result.Tasks.Single();
-        _ = await Assert.That(task.Context).IsEqualTo("contract evidence");
+        _ = await Assert.That(task.Result).IsEqualTo("contract evidence");
         _ = await Assert.That(task.Execution).IsNull();
         _ = await Assert.That(task.TaskPatch).IsNull();
         _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(1);
@@ -56,7 +56,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(prompt).Contains("Return only one strict JSON object with no prose or code fence:");
         using var serialized = System.Text.Json.JsonDocument.Parse(result.Serialize());
         var serializedTask = serialized.RootElement.GetProperty("tasks")[0];
-        _ = await Assert.That(serializedTask.GetProperty("context").GetString()).IsEqualTo("contract evidence");
+        _ = await Assert.That(serializedTask.GetProperty("result").GetString()).IsEqualTo("contract evidence");
         _ = await Assert.That(serializedTask.GetProperty("task_patch").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
         _ = await Assert.That(serializedTask.GetProperty("execution").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
         _ = await Assert.That(serializedTask.GetProperty("verdict").GetString()).IsEqualTo("accept");
@@ -87,10 +87,10 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Combined_leaf_prompt_describes_the_strict_verdict_contract(CancellationToken cancellationToken)
+    public async Task Leaf_prompt_describes_the_strict_verdict_contract(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"contract evidence\",\"verdict\":\"accept\",\"evidence\":\"tests passed\"}",
+            "{\"result\":\"contract evidence\",\"verdict\":\"accept\",\"evidence\":\"tests passed\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -105,13 +105,13 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(prompt).Contains("AgentTask role: payload executor");
         _ = await Assert.That(prompt).Contains("Inspect, implement, and verify this instruction:");
         _ = await Assert.That(prompt).Contains("Return only one strict JSON object with no prose or code fence:");
-        _ = await Assert.That(prompt).Contains("{\"context\":\"nonblank\",\"verdict\":\"accept\",\"evidence\":\"nonblank\"}");
-        _ = await Assert.That(prompt).Contains("{\"context\":\"nonblank\",\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}");
-        _ = await Assert.That(prompt).Contains("{\"context\":\"nonblank\",\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"replacement_context\":\"optional nonblank replacement context\"}");
+        _ = await Assert.That(prompt).Contains("{\"result\":\"nonblank\",\"verdict\":\"accept\",\"evidence\":\"nonblank\"}");
+        _ = await Assert.That(prompt).Contains("{\"result\":\"nonblank\",\"verdict\":\"reject_and_halt\",\"feedback\":\"nonblank\"}");
+        _ = await Assert.That(prompt).Contains("{\"result\":\"nonblank\",\"verdict\":\"reject_and_retry\",\"feedback\":\"nonblank\",\"payload\":\"replacement instruction or task array\",\"replacement_result\":\"optional nonblank replacement result\"}");
     }
 
     [Test]
-    public async Task Invalid_combined_leaf_response_fails_without_another_role(CancellationToken cancellationToken)
+    public async Task Invalid_leaf_response_fails_without_another_role(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider(["implemented output"]);
         var runtime = Runtime(provider, cancellationToken);
@@ -132,18 +132,18 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Bounds_combined_leaf_context_and_feedback_in_retry_state(CancellationToken cancellationToken)
+    public async Task Bounds_leaf_result_and_feedback_in_retry_state(CancellationToken cancellationToken)
     {
-        var oversizedContext = new string('c', 20_000);
+        var oversizedResult = new string('c', 20_000);
         var oversizedFeedback = new string('f', 20_000);
         var provider = new AgentTaskQueueProvider([
             string.Concat(
-                "{\"context\":\"",
-                oversizedContext,
+                "{\"result\":\"",
+                oversizedResult,
                 "\",\"verdict\":\"reject_and_retry\",\"feedback\":\"",
                 oversizedFeedback,
                 "\",\"payload\":\"second payload\"}"),
-            "{\"context\":\"final context\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"result\":\"final result\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -169,7 +169,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Halt_rejection_does_not_start_a_second_attempt(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"contract evidence\",\"verdict\":\"reject_and_halt\",\"feedback\":\"not done\"}",
+            "{\"result\":\"contract evidence\",\"verdict\":\"reject_and_halt\",\"feedback\":\"not done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -192,11 +192,11 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Retries_payload_five_times_without_repeating_preparation(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fourth payload\"}",
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fifth payload\"}",
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"sixth payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fourth payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fifth payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"sixth payload\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -210,7 +210,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var task = result.Tasks.Single();
         _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
         _ = await Assert.That(task.AttemptCount).IsEqualTo(5);
-        _ = await Assert.That(task.Context).IsEqualTo("stable preparation");
+        _ = await Assert.That(task.Result).IsEqualTo("stable preparation");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(5);
         _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content).Any(content => content.Contains("AgentTask role: prepare", StringComparison.Ordinal)))).IsEqualTo(0);
         _ = await Assert.That(string.Join(",", provider.Requests.Select(request => request.Messages.Count(message => message.Role != LLMRole.System))))
@@ -221,8 +221,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Configured_attempt_budget_limits_each_task_without_repeating_preparation(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -245,9 +245,9 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Successful_retry_reuses_leaf_executor_with_ordered_feedback(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
-            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
-            "{\"context\":\"stable preparation\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+            "{\"result\":\"stable preparation\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -273,11 +273,11 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Retry_context_replaces_later_prompt_and_final_result(CancellationToken cancellationToken)
+    public async Task Retry_result_replaces_later_prompt_and_final_result(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"initial context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"second payload\",\"replacement_context\":\"replacement context\"}",
-            "{\"context\":\"replacement context\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"result\":\"initial result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"second payload\",\"replacement_result\":\"replacement result\"}",
+            "{\"result\":\"replacement result\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -288,19 +288,19 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var result = await Runner(runtime, "replacement-context")
             .Run(artifact, cancellationToken);
 
-        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("replacement context");
+        _ = await Assert.That(result.Tasks.Single().Result).IsEqualTo("replacement result");
         var secondAttempt = provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(secondAttempt).Contains("replacement context");
-        _ = await Assert.That(secondAttempt).DoesNotContain("initial context");
+        _ = await Assert.That(secondAttempt).Contains("replacement result");
+        _ = await Assert.That(secondAttempt).DoesNotContain("initial result");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
     }
 
     [Test]
-    public async Task Retry_without_context_retains_prior_context(CancellationToken cancellationToken)
+    public async Task Retry_without_result_retains_prior_result(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"initial context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"second payload\"}",
-            "{\"context\":\"initial context\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"result\":\"initial result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"second payload\"}",
+            "{\"result\":\"initial result\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -311,16 +311,16 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var result = await Runner(runtime, "retained-context")
             .Run(artifact, cancellationToken);
 
-        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("initial context");
+        _ = await Assert.That(result.Tasks.Single().Result).IsEqualTo("initial result");
         var secondAttempt = provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(secondAttempt).Contains("initial context");
+        _ = await Assert.That(secondAttempt).Contains("initial result");
     }
 
     [Test]
-    public async Task Final_retry_retains_replacement_context_without_further_execution(CancellationToken cancellationToken)
+    public async Task Final_retry_retains_replacement_result_without_further_execution(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"initial context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"replacement\",\"replacement_context\":\"final context\"}",
+            "{\"result\":\"initial result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"replacement\",\"replacement_result\":\"final result\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -332,7 +332,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Tasks.Single().Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
-        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("final context");
+        _ = await Assert.That(result.Tasks.Single().Result).IsEqualTo("final result");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
     }
 
@@ -341,7 +341,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     {
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"parent context\"}",
-            "{\"context\":\"child context\",\"verdict\":\"reject_and_halt\",\"feedback\":\"child proof failed\"}",
+            "{\"result\":\"child context\",\"verdict\":\"reject_and_halt\",\"feedback\":\"child proof failed\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"parent explicitly accepts failure\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
@@ -370,7 +370,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     {
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"parent context\",\"task_patch\":{\"payload\":[{\"name\":\"new-child\",\"description\":\"New child\",\"payload\":\"new work\",\"acceptance_criteria\":\"New proof\"}]}}",
-            "{\"context\":\"new child context\",\"verdict\":\"accept\",\"evidence\":\"new child done\"}",
+            "{\"result\":\"new child context\",\"verdict\":\"accept\",\"evidence\":\"new child done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
@@ -402,9 +402,9 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Retry_payload_replaces_stale_progress_descendants(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"parent context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"retry-child\",\"description\":\"Retry child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child proof\"}],\"replacement_context\":\"replacement parent context\"}",
+            "{\"result\":\"parent result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"retry-child\",\"description\":\"Retry child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child proof\"}],\"replacement_result\":\"replacement parent result\"}",
             "{\"context\":\"composite preparation context\"}",
-            "{\"context\":\"retry child context\",\"verdict\":\"accept\",\"evidence\":\"child done\"}",
+            "{\"result\":\"retry child result\",\"verdict\":\"accept\",\"evidence\":\"child done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
@@ -417,8 +417,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
-        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("replacement parent context");
-        _ = await Assert.That(result.Tasks.Single().Tasks?.Single().Context).IsEqualTo("retry child context");
+        _ = await Assert.That(result.Tasks.Single().Context).IsEqualTo("composite preparation context");
+        _ = await Assert.That(result.Tasks.Single().Tasks?.Single().Result).IsEqualTo("retry child result");
         _ = await Assert.That(result.Tasks.Single().RetryFeedback?.Single()).IsEqualTo("split it");
         var identities = runtime.Sessions.Identities;
         _ = await Assert.That(identities).Count().IsEqualTo(3);
@@ -434,12 +434,12 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
             .Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
         var preparationPrompt = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(preparationPrompt).Contains("replacement parent context");
+        _ = await Assert.That(preparationPrompt).Contains("replacement parent result");
         var childExecution = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(childExecution).Contains("replacement parent context");
-        _ = await Assert.That(childExecution).DoesNotContain("\n[task/parent] parent context");
+        _ = await Assert.That(childExecution).DoesNotContain("replacement parent result");
+        _ = await Assert.That(childExecution).DoesNotContain("\n[task/parent] parent result");
         var parentAcceptance = provider.Requests[3].Messages.Last(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(parentAcceptance).Contains("replacement parent context");
+        _ = await Assert.That(parentAcceptance).Contains("replacement parent result");
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
             .Any(content => content.Contains("composite preparation context", StringComparison.Ordinal))).IsTrue();
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
@@ -461,7 +461,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"top preparation\"}",
             "{\"context\":\"child preparation\"}",
-            "{\"context\":\"leaf context\",\"verdict\":\"accept\",\"evidence\":\"leaf done\"}",
+            "{\"result\":\"leaf result\",\"verdict\":\"accept\",\"evidence\":\"leaf done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"child done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"top done\"}",
         ]);
@@ -494,11 +494,11 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Accepted_leaf_evidence_is_used_as_dependency_summary(CancellationToken cancellationToken)
+    public async Task Accepted_leaf_result_is_used_as_dependency_summary(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"prerequisite context\",\"verdict\":\"accept\",\"evidence\":\"dependency proof\"}",
-            "{\"context\":\"dependent context\",\"verdict\":\"accept\",\"evidence\":\"dependent proof\"}",
+            "{\"result\":\"dependency result\",\"verdict\":\"accept\",\"evidence\":\"dependency proof\"}",
+            "{\"result\":\"dependent context\",\"verdict\":\"accept\",\"evidence\":\"dependent proof\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -514,14 +514,68 @@ internal sealed class AgentTaskRunnerTests : IDisposable
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         var dependentPrompt = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(dependentPrompt).Contains("[prerequisite] dependency proof");
+        _ = await Assert.That(dependentPrompt).Contains("[prerequisite] dependency result");
+    }
+
+    [Test]
+    public async Task Composite_result_reaches_only_its_direct_dependent_with_structured_mixed_child_results(
+        CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"unrelated preparation\"}",
+            "{\"result\":\"cousin result\",\"verdict\":\"accept\",\"evidence\":\"cousin evidence\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"unrelated evidence\"}",
+            "{\"context\":\"parent preparation\"}",
+            "{\"result\":\"successful child result\",\"verdict\":\"accept\",\"evidence\":\"successful child evidence\"}",
+            "{\"result\":\"failed child result\",\"verdict\":\"reject_and_halt\",\"feedback\":\"failed child feedback\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"parent acceptance evidence\"}",
+            "{\"result\":\"dependent result\",\"verdict\":\"accept\",\"evidence\":\"dependent evidence\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[
+              {"name":"unrelated","description":"Unrelated","payload":[
+                {"name":"cousin","description":"Cousin","payload":"cousin work","acceptance_criteria":"Cousin done"}
+              ],"acceptance_criteria":"Unrelated done"},
+              {"name":"parent","dependencies":["unrelated"],"description":"Parent","payload":[
+                {"name":"successful-child","description":"Successful child","payload":"successful work","acceptance_criteria":"Successful done"},
+                {"name":"failed-child","dependencies":["successful-child"],"description":"Failed child","payload":"failed work","acceptance_criteria":"Failed done"}
+              ],"acceptance_criteria":"Parent decides"},
+              {"name":"dependent","dependencies":["parent"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Dependent done"}
+            ]}
+            """);
+
+        var graphResult = await Runner(runtime, "composite-dependency-result")
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(graphResult.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        var parentResult = graphResult.Tasks[1].Result
+            ?? throw new InvalidOperationException("Composite result was not produced.");
+        _ = await Assert.That(parentResult).Contains("\"name\":\"successful-child\"");
+        _ = await Assert.That(parentResult).Contains("\"result\":\"successful child result\"");
+        _ = await Assert.That(parentResult).Contains("\"name\":\"failed-child\"");
+        _ = await Assert.That(parentResult).Contains("\"result\":\"failed child result\"");
+        _ = await Assert.That(parentResult).Contains("\"status\":\"failed\"");
+
+        var parentAcceptancePrompt = provider.Requests[6].Messages.Last(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(parentAcceptancePrompt).Contains("Nested task results (structured JSON):");
+        _ = await Assert.That(parentAcceptancePrompt).Contains("\"result\":\"successful child result\"");
+        _ = await Assert.That(parentAcceptancePrompt).Contains("\"result\":\"failed child result\"");
+
+        var dependentPrompt = provider.Requests[7].Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(dependentPrompt).Contains($"[parent] {parentResult}");
+        _ = await Assert.That(dependentPrompt).DoesNotContain("parent acceptance evidence");
+        _ = await Assert.That(dependentPrompt).DoesNotContain("unrelated evidence");
+        _ = await Assert.That(dependentPrompt).DoesNotContain("cousin result");
+        _ = await Assert.That(dependentPrompt).DoesNotContain("cousin evidence");
     }
 
     [Test]
     public async Task Failed_dependency_blocks_the_complete_pending_subtree(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"prerequisite context\",\"verdict\":\"reject_and_halt\",\"feedback\":\"not done\"}",
+            "{\"result\":\"prerequisite context\",\"verdict\":\"reject_and_halt\",\"feedback\":\"not done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;

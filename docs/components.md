@@ -161,7 +161,7 @@ fresh instruction leaf creates one `agent-task-payload` child; that child
 implements and verifies the instruction and remains retained for the whole leaf
 invocation. It has no inherited conversation. Each retry sends a new
 user prompt to that same session while retaining the prior exchange, so retained
-non-system messages grow 1, 3, 5, ... across attempts. Its combined response is
+non-system messages grow 1, 3, 5, ... across attempts. Its leaf response is
 parsed directly rather than producing a separate execution transcript.
 Retained-only delivery prevents internal completions from steering the tool-owning
 parent. Children retain the same workspace and user-session-scoped runtime
@@ -182,44 +182,15 @@ work receives labelled ancestor declarations in root-to-parent order and
 preparation contexts in root-to-current order. It receives no sibling or cousin
 preparation context. Research is only a possible preparation activity. A ready task additionally receives bounded direct-dependency summaries.
 
-**Acceptance, scheduling, and outcome.** The retained composite agent reviews its nested result in a distinct validation
-turn. Nested task agents are children owned by that composite agent. Every
-instruction-leaf response must return exactly one strict verdict: `accept` with
-nonblank evidence, `reject_and_halt` with nonblank feedback, or
-`reject_and_retry` with nonblank feedback and a replacement payload. The
-validation turn retains the existing verdict JSON forms;
-a leaf's combined response additionally requires nonblank `context`:
-`{"context":"nonblank","verdict":"accept","evidence":"nonblank"}`,
-`{"context":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}`, and
-`{"context":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_context":"optional nonblank replacement context"}`.
-The `replacement_context` member is optional only in the final form. Legacy
-`reject` and `retry` verdict strings are intentionally incompatible. `accept` is authoritative
-and marks its task successful even when a composite's retained nested results
-include failures. `reject_and_halt` fails immediately. Only
-`reject_and_retry` initiates another attempt; optional nonblank replacement
-context replaces the current task context for later attempts and descendants.
-When an instruction leaf omits it, the response's required current context is
-carried forward. A retry payload may be either an instruction or a task array:
-an instruction continues in the same retained leaf session, while a task array
-transitions to the composite preparation turn, nested sibling execution, and a
-later validation turn on the retained composite agent, supplying retry context
-to its nested child agents.
-
-Leaf mapping is direct: response `context` becomes result context, accepted
-`evidence` is serialized as top-level `evidence`, and retry `feedback` is
-retained and may be exposed as failure feedback. Leaf `task_patch` and
-`execution` are intentionally null or absent because there is no leaf execution
-transcript. Composite preparation/patch, nested execution, and validation fields
-remain populated as applicable. The AgentTask v1 artifact envelope and schema
-are unchanged.
+**Acceptance, scheduling, and outcome.** The retained composite agent reviews its nested result in a distinct validation turn. Nested task agents are children owned by that composite agent. Every instruction-leaf response must return exactly one strict verdict with nonblank `result`: `accept` with evidence, `reject_and_halt` with feedback, or `reject_and_retry` with feedback and a replacement payload. The forms are `{"result":"nonblank","verdict":"accept","evidence":"nonblank"}`, `{"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}`, and `{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_result":"optional nonblank replacement result"}`. `replacement_result` is retry-only; old leaf `context` and `replacement_context` members are rejected. A retry replacement result is carried into later attempts and direct dependents, or the prior result is retained when omitted. Composite preparation and validation continue to use their separate `context` and evidence semantics. Leaf `result` maps to top-level `result`, while leaf context is null; composite preparation context, nested results, and validation evidence remain distinct. Direct dependents receive bounded results for their declared dependencies in declaration order, with existing fallback summaries only when a result is absent.
 
 `agent_tasks.maximum_attempts` is global runtime configuration enforced
 independently per task invocation. It accepts any positive `Int32`, defaults to
 5, and includes the first payload execution. Composite preparation runs once per
 invocation.
 When the final attempt returns `reject_and_retry`, its feedback and replacement
-context are retained as the latest effective result, but its replacement payload
-does not run and the task fails. Composite payloads rerun their nested sibling
+context remain on the latest composite result, but its replacement payload does
+not run and the task fails. Composite payloads rerun their nested sibling
 graph on each retry. Large limits and composite retries can repeat costly or
 side-effecting work; use a small bound and explicit mutation dependencies.
 Ready siblings run in parallel. An unsuccessful dependency blocks only its
