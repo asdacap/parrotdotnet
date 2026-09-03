@@ -422,10 +422,10 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Tasks.Single().RetryFeedback?.Single()).IsEqualTo("split it");
         var identities = runtime.Sessions.Identities;
         _ = await Assert.That(identities).Count().IsEqualTo(3);
-        var initialExecutor = identities.Single(identity => identity.Name == "parent");
-        var composite = identities.Single(identity => identity.Name == "parent-prepare");
+        var composite = identities.Zip(runtime.Sessions.ProfileIds)
+            .Single(agent => agent.Second == "agent-task-prepare").First;
         var replacementChild = identities.Single(identity => identity.Name == "retry-child");
-        _ = await Assert.That(initialExecutor.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
+        _ = await Assert.That(composite.Name).DoesNotContain("prepare");
         _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(replacementChild.ParentSessionId).IsEqualTo(composite.SessionId);
         _ = await Assert.That(provider.Requests[^1].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
@@ -477,8 +477,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         var identities = runtime.Sessions.Identities;
         _ = await Assert.That(identities).Count().IsEqualTo(3);
-        var topComposite = identities.Single(identity => identity.Name == "top-prepare");
-        var childComposite = identities.Single(identity => identity.Name == "child-prepare");
+        var topComposite = identities.Single(identity => identity.Name == "top");
+        var childComposite = identities.Single(identity => identity.Name == "child");
         var leaf = identities.Single(identity => identity.Name == "leaf");
         _ = await Assert.That(topComposite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(childComposite.ParentSessionId).IsEqualTo(topComposite.SessionId);

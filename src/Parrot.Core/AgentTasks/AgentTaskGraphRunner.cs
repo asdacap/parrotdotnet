@@ -1029,7 +1029,7 @@ internal sealed class AgentTaskGraphRunner(
 
             if (retainedAgent is null)
             {
-                var requestedName = role == "execute" ? taskName : $"{taskName}-{role}";
+                var requestedName = role is "execute" or "prepare" ? taskName : $"{taskName}-{role}";
                 child = owningAgent.ChildRegistry.Spawn(new AgentLaunchRequest(
                     owningAgent,
                     selection,

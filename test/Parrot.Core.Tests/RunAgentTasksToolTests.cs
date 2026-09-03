@@ -144,7 +144,8 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
         var identities = runtime.Sessions.Identities;
         _ = await Assert.That(identities).Count().IsEqualTo(3);
-        var composite = identities.Single(identity => identity.Name == "leaf-prepare");
+        var composite = identities.Zip(runtime.Sessions.ProfileIds)
+            .Single(agent => agent.Second == "agent-task-prepare").First;
         var child = identities.Single(identity => identity.Name == "child");
         _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(child.ParentSessionId).IsEqualTo(composite.SessionId);
