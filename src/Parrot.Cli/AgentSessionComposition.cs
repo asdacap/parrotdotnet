@@ -1,8 +1,16 @@
 using Parrot.Agent;
+using Parrot.Config;
 using Parrot.Context;
+using Parrot.Events;
+using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
+using Parrot.Queues;
+using Parrot.Statuses;
+using Parrot.Store;
 using Parrot.Tools;
+using Parrot.Web;
 using Pure.DI;
 
 namespace Parrot.Cli;
@@ -24,132 +32,115 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.ShellProcesses.Prepare(arguments.Identity.SessionId);
             })
-            .Bind<ExecCommandToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<AgentIdentity>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<ShellProcessOwner>(out var processes);
-                return new ExecCommandToolFactory(processes, arguments.ReadOnlyExecCommandPrefixes);
+                return arguments.Identity;
             })
-            .Bind<WriteStdinToolFactory>().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<ShellProcessOwner>(out var processes);
-                return new WriteStdinToolFactory(processes);
-            })
-            .Bind<InterruptProcessToolFactory>().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<ShellProcessOwner>(out var processes);
-                return new InterruptProcessToolFactory(processes);
-            })
-            .Bind<QuestionToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<AgentSessionParentScope>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new QuestionToolFactory(arguments.UserQuestions, arguments.ParentScope);
+                return arguments.ParentScope;
             })
-            .Bind<AnswerToolFactory>().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
-                return new AnswerToolFactory(childQuestions);
-            })
-            .Bind<ReadToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<ModelRouter>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ReadToolFactory(arguments.Workspace);
+                return arguments.Router;
             })
-            .Bind<ReadImageToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<EventBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ReadImageToolFactory(arguments.Workspace, arguments.Images);
+                return arguments.EventBroker;
             })
-            .Bind<GlobToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<EventRepository>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new GlobToolFactory(arguments.Workspace);
+                return arguments.EventRepository;
             })
-            .Bind<WriteToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<ToolWorkspace>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new WriteToolFactory(arguments.Workspace);
+                return arguments.Workspace;
             })
-            .Bind<EditToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<ImageArtifactRepository>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new EditToolFactory(arguments.Workspace);
+                return arguments.Images;
             })
-            .Bind<WebFetchToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<WebFetcher>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new WebFetchToolFactory(arguments.WebFetcher);
+                return arguments.WebFetcher;
             })
-            .Bind<AgentSpawnToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<AgentTaskConfig>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<ChildRegistry>(out var children);
-                return new AgentSpawnToolFactory(children, arguments.Router);
+                return arguments.AgentTasks;
             })
-            .Bind<RunAgentTasksToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<IReadOnlyList<string>>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new RunAgentTasksToolFactory(
-                    arguments.Workspace,
-                    arguments.Router,
-                    arguments.EventBroker,
-                    arguments.EventRepository,
-                    arguments.AgentTasks);
+                return arguments.ReadOnlyExecCommandPrefixes;
             })
-            .Bind<SetCheckpointToolFactory>().As(Lifetime.Scoped).To(_ => new SetCheckpointToolFactory())
-            .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<ShellProcessOwners>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<AgentResolver>(out var resolver);
-                return new AgentSendToolFactory(arguments.Identity, resolver);
+                return arguments.ShellProcesses;
             })
-            .Bind<AgentStatusToolFactory>().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<AgentResolver>(out var resolver);
-                ctx.Inject<ChildRegistry>(out var children);
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new AgentStatusToolFactory(resolver, children, arguments.ShellProcesses);
-            })
-            .Bind<WaitToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<QuestionBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new WaitToolFactory(arguments.Status, arguments.TimeProvider);
+                return arguments.UserQuestions;
             })
-            .Bind<StatusToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<RuntimeStatus>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new StatusToolFactory(arguments.Status);
+                return arguments.Status;
             })
-            .Bind<QueueCreateToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<TimeProvider>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new QueueCreateToolFactory(arguments.Queues);
+                return arguments.TimeProvider;
             })
-            .Bind<QueueInfoToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<AgentSessionSecurity>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new QueueInfoToolFactory(arguments.Queues);
+                return arguments.Security;
             })
-            .Bind<QueueListenToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<PermissionBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new QueueListenToolFactory(arguments.Queues);
+                return arguments.Permissions;
             })
-            .Bind<QueuePushToolFactory>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<AgentQueues>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new QueuePushToolFactory(arguments.Queues, arguments.Workspace);
+                return arguments.Queues;
             })
-            .Bind<QueueTakeToolFactory>().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new QueueTakeToolFactory(arguments.Queues);
-            })
-            .Bind<RequestWritePermissionToolFactory>().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new RequestWritePermissionToolFactory(arguments.Identity, arguments.Security, arguments.Permissions);
-            })
+            .Bind<ExecCommandToolFactory>().As(Lifetime.Scoped).To<ExecCommandToolFactory>()
+            .Bind<WriteStdinToolFactory>().As(Lifetime.Scoped).To<WriteStdinToolFactory>()
+            .Bind<InterruptProcessToolFactory>().As(Lifetime.Scoped).To<InterruptProcessToolFactory>()
+            .Bind<QuestionToolFactory>().As(Lifetime.Scoped).To<QuestionToolFactory>()
+            .Bind<AnswerToolFactory>().As(Lifetime.Scoped).To<AnswerToolFactory>()
+            .Bind<ReadToolFactory>().As(Lifetime.Scoped).To<ReadToolFactory>()
+            .Bind<ReadImageToolFactory>().As(Lifetime.Scoped).To<ReadImageToolFactory>()
+            .Bind<GlobToolFactory>().As(Lifetime.Scoped).To<GlobToolFactory>()
+            .Bind<WriteToolFactory>().As(Lifetime.Scoped).To<WriteToolFactory>()
+            .Bind<EditToolFactory>().As(Lifetime.Scoped).To<EditToolFactory>()
+            .Bind<WebFetchToolFactory>().As(Lifetime.Scoped).To<WebFetchToolFactory>()
+            .Bind<AgentSpawnToolFactory>().As(Lifetime.Scoped).To<AgentSpawnToolFactory>()
+            .Bind<RunAgentTasksToolFactory>().As(Lifetime.Scoped).To<RunAgentTasksToolFactory>()
+            .Bind<SetCheckpointToolFactory>().As(Lifetime.Scoped).To<SetCheckpointToolFactory>()
+            .Bind<AgentSendToolFactory>().As(Lifetime.Scoped).To<AgentSendToolFactory>()
+            .Bind<AgentStatusToolFactory>().As(Lifetime.Scoped).To<AgentStatusToolFactory>()
+            .Bind<WaitToolFactory>().As(Lifetime.Scoped).To<WaitToolFactory>()
+            .Bind<StatusToolFactory>().As(Lifetime.Scoped).To<StatusToolFactory>()
+            .Bind<QueueCreateToolFactory>().As(Lifetime.Scoped).To<QueueCreateToolFactory>()
+            .Bind<QueueInfoToolFactory>().As(Lifetime.Scoped).To<QueueInfoToolFactory>()
+            .Bind<QueueListenToolFactory>().As(Lifetime.Scoped).To<QueueListenToolFactory>()
+            .Bind<QueuePushToolFactory>().As(Lifetime.Scoped).To<QueuePushToolFactory>()
+            .Bind<QueueTakeToolFactory>().As(Lifetime.Scoped).To<QueueTakeToolFactory>()
+            .Bind<RequestWritePermissionToolFactory>().As(Lifetime.Scoped).To<RequestWritePermissionToolFactory>()
             .Bind<IReadOnlyList<IToolFactory>>("toolFactories").As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<ExecCommandToolFactory>(out var execCommand);
