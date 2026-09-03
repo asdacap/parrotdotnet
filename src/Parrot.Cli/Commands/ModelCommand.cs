@@ -10,7 +10,7 @@ internal sealed class ModelCommand(
 
     public string Summary => "Switch the model for this session";
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(string arguments, CancellationToken cancellationToken)
     {
         var selected = await selection.Select(session.Model, cancellationToken).ConfigureAwait(false);
         if (selected is null)

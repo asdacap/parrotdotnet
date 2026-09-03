@@ -13,4 +13,8 @@ internal interface ISlashSession
     Task SelectMode(string mode, CancellationToken cancellationToken);
 
     Task StartNew(string model, string mode, CancellationToken cancellationToken);
+
+    Task SetGoal(string goal, CancellationToken cancellationToken);
+
+    Task ClearGoal(CancellationToken cancellationToken);
 }

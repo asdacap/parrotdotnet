@@ -13,7 +13,7 @@ internal sealed class EffortCommand(
 
     public string Summary => "Switch the model effort for this session";
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(string arguments, CancellationToken cancellationToken)
     {
         var selector = await ModelAliasSelection.Resolve(client, session.Model, cancellationToken)
             .ConfigureAwait(false);

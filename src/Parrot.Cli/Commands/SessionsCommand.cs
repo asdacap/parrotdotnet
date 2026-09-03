@@ -13,7 +13,7 @@ internal sealed class SessionsCommand(
 
     public string Summary => "List sessions available on this server";
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(string arguments, CancellationToken cancellationToken)
     {
         ListSessionsResponse listed;
 

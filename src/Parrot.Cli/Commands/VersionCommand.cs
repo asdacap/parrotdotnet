@@ -6,6 +6,6 @@ internal sealed class VersionCommand(ISlashDialog dialog) : ISlashCommand
 
     public string Summary => "Print the build version";
 
-    public Task Run(CancellationToken cancellationToken) =>
+    public Task Run(string arguments, CancellationToken cancellationToken) =>
         dialog.Show([$"{BuildInfo.ProductName} {BuildInfo.Version}"], cancellationToken);
 }

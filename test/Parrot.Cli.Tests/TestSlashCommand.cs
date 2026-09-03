@@ -10,9 +10,12 @@ internal sealed class TestSlashCommand : ISlashCommand
 
     public int Runs { get; private set; }
 
-    public Task Run(CancellationToken cancellationToken)
+    public List<string> Arguments { get; } = [];
+
+    public Task Run(string arguments, CancellationToken cancellationToken)
     {
         Runs++;
+        Arguments.Add(arguments);
         return Task.CompletedTask;
     }
 }

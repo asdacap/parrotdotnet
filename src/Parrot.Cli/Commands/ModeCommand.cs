@@ -10,7 +10,7 @@ internal sealed class ModeCommand(
 
     public string Summary => "Switch the mode for this session";
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(string arguments, CancellationToken cancellationToken)
     {
         var selected = await selection.Select(cancellationToken).ConfigureAwait(false);
         if (selected is null)

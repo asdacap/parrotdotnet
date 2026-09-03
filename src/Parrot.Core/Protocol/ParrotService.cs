@@ -203,6 +203,27 @@ internal sealed class ParrotService(
         return UserSession.From(created, false);
     }
 
+    public override async Task<SetGoalResponse> SetGoal(SetGoalRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var found = Find(request.UserSessionId);
+        switch (request.StateCase)
+        {
+            case SetGoalRequest.StateOneofCase.Goal when request.Goal.Length > 0:
+                await found.SetGoal(request.Goal, context.CancellationToken).ConfigureAwait(false);
+                return new SetGoalResponse();
+            case SetGoalRequest.StateOneofCase.Clear:
+                found.ClearGoal();
+                return new SetGoalResponse();
+            case SetGoalRequest.StateOneofCase.Goal:
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "a goal is required"));
+            default:
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "a goal or clear state is required"));
+        }
+    }
+
     public override Task<UserSession> UpdateSession(UpdateSessionRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);

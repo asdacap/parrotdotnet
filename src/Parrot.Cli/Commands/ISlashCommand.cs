@@ -6,5 +6,5 @@ internal interface ISlashCommand
 
     string Summary { get; }
 
-    Task Run(CancellationToken cancellationToken);
+    Task Run(string arguments, CancellationToken cancellationToken);
 }

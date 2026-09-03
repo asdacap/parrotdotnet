@@ -20,6 +20,7 @@ service Parrot {
   rpc ListSessions (ListSessionsRequest) returns (ListSessionsResponse);
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
+  rpc SetGoal (SetGoalRequest) returns (SetGoalResponse);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
   rpc UploadAttachment (stream AttachmentUploadFrame) returns (AttachmentUploadResponse);
   rpc Interrupt (InterruptRequest) returns (InterruptResponse);
@@ -59,6 +60,18 @@ message UpdateSessionRequest {
   string model           = 2;
   string mode            = 3;
 }
+
+message SetGoalRequest {
+  string user_session_id = 1;
+  oneof state {
+    string goal = 2;
+    ClearGoal clear = 3;
+  }
+}
+
+message ClearGoal {}
+
+message SetGoalResponse {}
 
 message ListModelsRequest {}
 

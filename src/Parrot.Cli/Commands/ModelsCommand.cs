@@ -9,7 +9,7 @@ internal sealed class ModelsCommand(GeneratedParrot.ParrotClient client, ISlashD
 
     public string Summary => "List the models the provider serves";
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(string arguments, CancellationToken cancellationToken)
     {
         var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
         var lines = listed.Models.Select(model => $"{model.ProviderId}/{model.Id}").ToList();

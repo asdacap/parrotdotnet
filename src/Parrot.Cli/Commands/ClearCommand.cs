@@ -13,7 +13,7 @@ internal sealed class ClearCommand(
 
     public string Summary => "Start a fresh session, keeping the old one";
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(string arguments, CancellationToken cancellationToken)
     {
         var model = await models.Select(null, cancellationToken).ConfigureAwait(false);
         if (model is null)

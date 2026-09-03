@@ -15,7 +15,7 @@ internal sealed class ModelAliasCommand(
 
     public string Summary => "Configure a model alias";
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(string arguments, CancellationToken cancellationToken)
     {
         try
         {

@@ -40,6 +40,6 @@ internal sealed class SlashCommandCompletionTests
 
         public string Summary => "Completion command";
 
-        public Task Run(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task Run(string arguments, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

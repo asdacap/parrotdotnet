@@ -29,7 +29,7 @@ internal sealed class ModelAliasCommandTests
         var client = new GeneratedParrot.ParrotClient(invoker);
         var dialog = new TestSlashDialog().Select("high_llm", "provider", "model", "high");
 
-        await new ModelAliasCommand(client, new ModelWizard(client, dialog), dialog).Run(cancellationToken);
+        await new ModelAliasCommand(client, new ModelWizard(client, dialog), dialog).Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(invoker.ConfiguredAliases).HasSingleItem();
         _ = await Assert.That(invoker.ConfiguredAliases[0].Name).IsEqualTo("high_llm");
@@ -66,7 +66,7 @@ internal sealed class ModelAliasCommandTests
         var selectedDialog = new TestSlashDialog().Select("low_llm", "provider", "model");
 
         await new ModelAliasCommand(client, new ModelWizard(client, selectedDialog), selectedDialog)
-            .Run(cancellationToken);
+            .Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(invoker.ConfiguredAliases[0].ModelString).IsEqualTo("provider/model");
         _ = await Assert.That(selectedDialog.Pickers[0].Options[1].Id).IsEqualTo("low_llm");
@@ -107,7 +107,7 @@ internal sealed class ModelAliasCommandTests
         var client = new GeneratedParrot.ParrotClient(invoker);
         var dialog = new TestSlashDialog().Select("/provider-defaults", "a-provider");
 
-        await new ModelAliasCommand(client, new ModelWizard(client, dialog), dialog).Run(cancellationToken);
+        await new ModelAliasCommand(client, new ModelWizard(client, dialog), dialog).Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(invoker.AppliedProviderModelAliasDefaults).HasSingleItem();
         _ = await Assert.That(invoker.AppliedProviderModelAliasDefaults[0].ProviderId).IsEqualTo("a-provider");
@@ -130,7 +130,7 @@ internal sealed class ModelAliasCommandTests
         var client = new GeneratedParrot.ParrotClient(invoker);
         var dialog = new TestSlashDialog().Select("/provider-defaults");
 
-        await new ModelAliasCommand(client, new ModelWizard(client, dialog), dialog).Run(cancellationToken);
+        await new ModelAliasCommand(client, new ModelWizard(client, dialog), dialog).Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(dialog.Errors).Contains("no available providers have model alias defaults");
         _ = await Assert.That(invoker.AppliedProviderModelAliasDefaults).IsEmpty();

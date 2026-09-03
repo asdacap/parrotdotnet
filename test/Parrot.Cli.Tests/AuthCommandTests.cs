@@ -20,10 +20,10 @@ internal sealed class AuthCommandTests
             var logout = new TestSlashDialog().Select("logout", "provider");
             var command = new AuthCommand(credentials, oauth, ["provider"], login);
 
-            await command.Run(cancellationToken);
+            await command.Run(string.Empty, cancellationToken);
             _ = await Assert.That(await credentials.Get("provider", cancellationToken)).IsNotNull();
-            await new AuthCommand(credentials, oauth, ["provider"], list).Run(cancellationToken);
-            await new AuthCommand(credentials, oauth, ["provider"], logout).Run(cancellationToken);
+            await new AuthCommand(credentials, oauth, ["provider"], list).Run(string.Empty, cancellationToken);
+            await new AuthCommand(credentials, oauth, ["provider"], logout).Run(string.Empty, cancellationToken);
 
             _ = await Assert.That(string.Join('|', login.Shown)).Contains("stored a credential for provider");
             _ = await Assert.That(string.Join('|', login.Shown)).DoesNotContain("private-key");

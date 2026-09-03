@@ -6,5 +6,5 @@ internal sealed class ExitCommand(IApplicationExit application) : ISlashCommand
 
     public string Summary => "Leave the session";
 
-    public Task Run(CancellationToken cancellationToken) => application.Exit(cancellationToken);
+    public Task Run(string arguments, CancellationToken cancellationToken) => application.Exit(cancellationToken);
 }

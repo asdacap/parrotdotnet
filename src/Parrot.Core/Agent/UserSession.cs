@@ -329,6 +329,11 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal IReadOnlyList<ActiveWorkObservation> ActiveWork() => [.. ShellProcesses.Active(), .. Registry.Active()];
 
+    internal Task SetGoal(string goal, CancellationToken cancellationToken) =>
+        Main().SetGoal(goal, cancellationToken);
+
+    internal void ClearGoal() => Main().ClearGoal();
+
     // Built once after owner initialization. The lock also protects concurrent
     // access from RPC handlers throughout the session lifetime.
     private AgentSession Main()

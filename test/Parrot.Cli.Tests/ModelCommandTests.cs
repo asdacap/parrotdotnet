@@ -37,7 +37,7 @@ internal sealed class ModelCommandTests : IDisposable
         var dialog = new TestSlashDialog().Select("provider", requested);
 
         await new ModelCommand(new ModelWizard(client, dialog), session, activity, dialog)
-            .Run(cancellationToken);
+            .Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(session.Model).IsEqualTo(expected);
         _ = await Assert.That(activity.Waits).IsEqualTo(1);
@@ -59,14 +59,14 @@ internal sealed class ModelCommandTests : IDisposable
         var selectedDialog = new TestSlashDialog().Select("high");
         var activity = new TestSlashActivity();
 
-        await new EffortCommand(client, selectedSession, activity, selectedDialog).Run(cancellationToken);
+        await new EffortCommand(client, selectedSession, activity, selectedDialog).Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(selectedSession.Model).IsEqualTo("provider/current/high");
         _ = await Assert.That(selectedDialog.Shown).Contains("Model effort selected: high");
 
         var cancelledSession = new TestSlashSession("provider/current/high");
         var cancelledDialog = new TestSlashDialog().Select((string?)null);
-        await new EffortCommand(client, cancelledSession, activity, cancelledDialog).Run(cancellationToken);
+        await new EffortCommand(client, cancelledSession, activity, cancelledDialog).Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(cancelledSession.Model).IsEqualTo("provider/current/high");
     }

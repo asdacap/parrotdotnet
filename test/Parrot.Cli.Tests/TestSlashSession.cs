@@ -10,6 +10,10 @@ internal sealed class TestSlashSession(string model) : ISlashSession
 
     public string Mode { get; private set; } = "build";
 
+    public List<string> Goals { get; } = [];
+
+    public int ClearedGoals { get; private set; }
+
     public Task SelectModel(string model, CancellationToken cancellationToken)
     {
         Model = model;
@@ -27,6 +31,18 @@ internal sealed class TestSlashSession(string model) : ISlashSession
         Id = "session-1";
         Model = model;
         Mode = mode;
+        return Task.CompletedTask;
+    }
+
+    public Task SetGoal(string goal, CancellationToken cancellationToken)
+    {
+        Goals.Add(goal);
+        return Task.CompletedTask;
+    }
+
+    public Task ClearGoal(CancellationToken cancellationToken)
+    {
+        ClearedGoals++;
         return Task.CompletedTask;
     }
 }

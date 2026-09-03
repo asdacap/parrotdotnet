@@ -23,6 +23,7 @@ internal static class SlashCommands
         commands.Add(new ClearCommand(models, modes, session, activity, dialog));
         commands.Add(new EffortCommand(client, session, activity, dialog));
         commands.Add(new ExitCommand(applicationExit));
+        commands.Add(new GoalCommand(session, dialog));
         commands.Add(new HelpCommand(registry, dialog));
         commands.Add(new ModeCommand(modes, session, activity, dialog));
         commands.Add(new ModelCommand(models, session, activity, dialog));

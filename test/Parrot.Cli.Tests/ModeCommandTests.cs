@@ -16,14 +16,14 @@ internal sealed class ModeCommandTests
         var clearDialog = new TestSlashDialog().Select("provider", "model", "query");
 
         await new ModeCommand(new ModeSelection(client, modeDialog), session, activity, modeDialog)
-            .Run(cancellationToken);
+            .Run(string.Empty, cancellationToken);
         await new ClearCommand(
             new ModelWizard(client, clearDialog),
             new ModeSelection(client, clearDialog),
             session,
             activity,
-            clearDialog).Run(cancellationToken);
-        await new ModesCommand(client, modeDialog).Run(cancellationToken);
+            clearDialog).Run(string.Empty, cancellationToken);
+        await new ModesCommand(client, modeDialog).Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(session.Id).IsEqualTo("session-1");
         _ = await Assert.That(session.Model).IsEqualTo("provider/model");

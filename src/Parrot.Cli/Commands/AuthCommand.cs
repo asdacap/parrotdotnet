@@ -13,7 +13,7 @@ internal sealed class AuthCommand(
 
     public string Summary => "Manage provider credentials";
 
-    public async Task Run(CancellationToken cancellationToken)
+    public async Task Run(string arguments, CancellationToken cancellationToken)
     {
         var action = await dialog.Select(
             "Authentication",

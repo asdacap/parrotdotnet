@@ -21,7 +21,7 @@ internal sealed class SlashCommandRegistry(IReadOnlyList<ISlashCommand> commands
 
     public async Task Dispatch(string entered, CancellationToken cancellationToken)
     {
-        var name = Name(entered);
+        var (name, arguments) = Parse(entered);
         var command = Find(name);
 
         if (command is null)
@@ -30,12 +30,24 @@ internal sealed class SlashCommandRegistry(IReadOnlyList<ISlashCommand> commands
             return;
         }
 
-        await command.Run(cancellationToken).ConfigureAwait(false);
+        await command.Run(arguments, cancellationToken).ConfigureAwait(false);
     }
 
     private static string Name(string entered)
     {
         var end = entered.IndexOfAny([' ', '\t', '\r', '\n']);
         return end < 0 ? entered : entered[..end];
+    }
+
+    private static (string Name, string Arguments) Parse(string entered)
+    {
+        var nameEnd = entered.IndexOfAny([' ', '\t', '\r', '\n']);
+        if (nameEnd < 0)
+        {
+            return (entered, string.Empty);
+        }
+
+        var arguments = entered[nameEnd..].TrimStart(' ', '\t', '\r', '\n');
+        return (entered[..nameEnd], arguments);
     }
 }

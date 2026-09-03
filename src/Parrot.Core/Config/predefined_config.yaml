@@ -179,6 +179,14 @@ prompt_templates:
       An exit reminder was set: {reminder}
     allowed_arguments: [reminder]
     required_arguments: [reminder]
+  goal.root-reminder:
+    template: 'User set goal is {goal}. Clear exit reminder if end condition met.'
+    allowed_arguments: [goal]
+    required_arguments: [goal]
+  goal.root-reminder-notice:
+    template: 'A new exit reminder was set: {reminder}'
+    allowed_arguments: [reminder]
+    required_arguments: [reminder]
   set-exit-reminder-tool.cleared:
     template: Exit reminder cleared.
     allowed_arguments: []

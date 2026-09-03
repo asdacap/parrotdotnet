@@ -22,7 +22,7 @@ internal sealed class SessionsCommandTests
         var client = new GeneratedParrot.ParrotClient(invoker);
         var command = new SessionsCommand(client, new TestSlashSession("provider/current"), dialog);
 
-        await command.Run(cancellationToken);
+        await command.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(string.Join('|', dialog.Shown)).IsEqualTo(
             "  <unnamed>  session-corrupt  <unknown>  corrupt|"
@@ -40,7 +40,7 @@ internal sealed class SessionsCommandTests
         var client = new GeneratedParrot.ParrotClient(invoker);
         var command = new SessionsCommand(client, new TestSlashSession("provider/current"), dialog);
 
-        await command.Run(cancellationToken);
+        await command.Run(string.Empty, cancellationToken);
 
         _ = await Assert.That(dialog.Shown).IsEmpty();
         _ = await Assert.That(dialog.Errors).Contains("session listing is unavailable on this server");

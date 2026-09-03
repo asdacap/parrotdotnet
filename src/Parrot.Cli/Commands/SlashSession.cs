@@ -32,6 +32,16 @@ internal sealed class SlashSession(
             new UpdateSessionRequest { UserSessionId = Id, Mode = mode },
             cancellationToken: cancellationToken);
 
+    public Task SetGoal(string goal, CancellationToken cancellationToken) =>
+        client.SetGoalAsync(
+            new SetGoalRequest { UserSessionId = Id, Goal = goal },
+            cancellationToken: cancellationToken).ResponseAsync;
+
+    public Task ClearGoal(CancellationToken cancellationToken) =>
+        client.SetGoalAsync(
+            new SetGoalRequest { UserSessionId = Id, Clear = new ClearGoal() },
+            cancellationToken: cancellationToken).ResponseAsync;
+
     public async Task StartNew(string model, string mode, CancellationToken cancellationToken)
     {
         var session = await client.CreateSessionAsync(

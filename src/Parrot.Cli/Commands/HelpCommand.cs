@@ -6,7 +6,7 @@ internal sealed class HelpCommand(SlashCommandRegistry registry, ISlashDialog di
 
     public string Summary => "List the commands";
 
-    public Task Run(CancellationToken cancellationToken) =>
+    public Task Run(string arguments, CancellationToken cancellationToken) =>
         dialog.Show(
             [.. registry.Commands
                 .OrderBy(command => command.Name, StringComparer.Ordinal)
