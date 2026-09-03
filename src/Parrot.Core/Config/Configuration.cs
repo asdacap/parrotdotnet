@@ -83,7 +83,9 @@ internal sealed class Configuration(string path)
 
     public CompactionConfig Compaction { get; private set; } = new(90, 30, 60_000, 12_000);
 
-    public AgentTaskConfig AgentTasks { get; private set; } = new(5);
+    public AgentTaskConfig AgentTasks { get; private set; } = new(
+        5,
+        new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
 
     public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
