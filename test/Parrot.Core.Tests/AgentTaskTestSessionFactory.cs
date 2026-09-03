@@ -94,6 +94,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             TestModels.PromptTemplates,
             childQuestions,
             new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates),
+            new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId),
             mode,
             SecurityProfileTestFactory.Create(securityProfile),
             status,

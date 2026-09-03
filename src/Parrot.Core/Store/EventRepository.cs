@@ -441,6 +441,82 @@ internal sealed class EventRepository
         }
     }
 
+    public string? LatestExitReminder(string agentSessionId)
+    {
+        lock (_database.Gate)
+        {
+            using var read = _database.Connection.CreateCommand();
+            read.CommandText =
+                "SELECT payload FROM event WHERE agent_session = $session ORDER BY sequence DESC;";
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                var published = Event.Parser.ParseFrom((byte[])reader["payload"]);
+                if (published.PayloadCase != Event.PayloadOneofCase.ExitReminderChanged)
+                {
+                    continue;
+                }
+
+                return published.ExitReminderChanged.StateCase == ExitReminderChanged.StateOneofCase.Reminder
+                    ? published.ExitReminderChanged.Reminder
+                    : null;
+            }
+
+            return null;
+        }
+    }
+
+    public void AppendExitReminderChanged(Event published, string? reminder)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        var normalized = reminder is { Length: > 0 } ? reminder : null;
+        published.ExitReminderChanged = normalized is null
+            ? new ExitReminderChanged { Cleared = true }
+            : new ExitReminderChanged { Reminder = normalized };
+
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            _ = Record(transaction, published);
+            transaction.Commit();
+        }
+    }
+
+    public void AppendExitReminder(Event published, string assistantContent, string renderedReminder)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        ArgumentNullException.ThrowIfNull(assistantContent);
+        ArgumentNullException.ThrowIfNull(renderedReminder);
+        published.ExitReminderInjected = new ExitReminderInjected();
+
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            _ = Record(transaction, published);
+            _ = Project(
+                transaction,
+                published.AgentSessionId,
+                ConversationOrigin.Model,
+                LLMRole.Assistant,
+                [ConversationPart.TextPart(assistantContent)],
+                [],
+                string.Empty);
+            _ = Project(
+                transaction,
+                published.AgentSessionId,
+                ConversationOrigin.System,
+                LLMRole.System,
+                [ConversationPart.TextPart(renderedReminder)],
+                [],
+                string.Empty);
+            transaction.Commit();
+        }
+
+        RefreshAgentHistory(published.AgentSessionId);
+    }
+
     public IReadOnlyList<string> Messages(string agentSessionId) =>
         [.. ModelHistory(agentSessionId).Select(message => $"{Text(message.Role)}: {message.Content}")];
 

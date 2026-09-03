@@ -397,6 +397,8 @@ message Event {
     AgentTaskProgressSnapshot agent_task_progress_snapshot = 34;
     ProviderCallUsage provider_call_usage = 35;
     PendingChildQuestionReminderInjected pending_child_question_reminder_injected = 36;
+    ExitReminderChanged exit_reminder_changed = 37;
+    ExitReminderInjected exit_reminder_injected = 38;
   }
 }
 
@@ -495,6 +497,17 @@ message ActiveWorkReminderInjected {}
 // Transient notification that a no-tool response was retained and a durable
 // system reminder about unanswered direct-child questions was added to history.
 message PendingChildQuestionReminderInjected {}
+
+message ExitReminderChanged {
+  oneof state {
+    string reminder = 1;
+    bool cleared = 2;
+  }
+}
+
+// Transient notification that the retained assistant response and a durable
+// system exit reminder were added to model history.
+message ExitReminderInjected {}
 
 // Transient notification that a durable system prompt explains that this is the
 // final provider request of the turn and tools are unavailable.

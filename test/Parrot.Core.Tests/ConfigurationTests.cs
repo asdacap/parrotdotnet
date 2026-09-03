@@ -1300,7 +1300,12 @@ internal sealed class ConfigurationTests : IDisposable
 
         var definitions = Load(path).ToolDefinitions.Definitions;
 
-        _ = await Assert.That(definitions.Count).IsEqualTo(24);
+        _ = await Assert.That(definitions.Count).IsEqualTo(25);
+        _ = await Assert.That(definitions).ContainsKey("set_exit_reminder");
+        using var exitReminder = JsonDocument.Parse(definitions["set_exit_reminder"].ParametersJson);
+        _ = await Assert.That(exitReminder.RootElement.GetProperty("additionalProperties").GetBoolean()).IsFalse();
+        _ = await Assert.That(exitReminder.RootElement.GetProperty("properties").GetProperty("reminder").GetProperty("type").GetString()).IsEqualTo("string");
+        _ = await Assert.That(exitReminder.RootElement.GetProperty("properties").GetProperty("reminder").GetProperty("nullable").GetBoolean()).IsTrue();
         _ = await Assert.That(definitions["question"].Description)
             .StartsWith("Ask ordered questions");
         using var question = JsonDocument.Parse(definitions["question"].ParametersJson);

@@ -40,6 +40,7 @@ internal sealed class AgentSession(
     PromptTemplateCatalog promptTemplates,
     ChildQuestionCoordinator childQuestions,
     ActiveWorkCompletionReminder activeWorkReminder,
+    ExitReminder exitReminder,
     IMode mode,
     AgentSessionSecurity security,
     RuntimeStatus status,
@@ -1156,6 +1157,25 @@ internal sealed class AgentSession(
                 }
 
                 repairPending = false;
+                if (exitReminder.Build() is { } exitReminderMessage)
+                {
+                    var published = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                    };
+                    eventRepository.AppendExitReminder(
+                        published,
+                        completed.AssistantText,
+                        exitReminderMessage);
+                    _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                    _history.Add(LLMMessage.System(exitReminderMessage));
+                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    Activity.RecordAssistantMessage(completed.AssistantText);
+                    completionAttempt.Dispose();
+                    continue;
+                }
+
                 _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
                 var ended = new Event
                 {

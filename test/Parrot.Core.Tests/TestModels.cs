@@ -225,6 +225,7 @@ internal static class TestModels
         return new AgentSessionDependencies(
             childQuestions,
             new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates),
+            new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId),
             Profile(),
             status,
             registry,
