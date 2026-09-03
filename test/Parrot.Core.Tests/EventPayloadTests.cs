@@ -638,27 +638,19 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtrippedNonempty.ToolFinished.Result).IsEqualTo("done");
     }
 
-    // The payload is the only discriminator, so this is what pins the mapping.
+    // The payload is the only discriminator, so this pins the provider-event mapping through publication.
     [Test]
     [Arguments(LLMEventKind.TextDelta, Event.PayloadOneofCase.TextChunk)]
     [Arguments(LLMEventKind.ReasoningDelta, Event.PayloadOneofCase.ReasoningChunk)]
     [Arguments(LLMEventKind.ToolCallDelta, Event.PayloadOneofCase.ToolCallChunk)]
     [Arguments(LLMEventKind.Retry, Event.PayloadOneofCase.RetryNotice)]
-    public async Task Each_llm_event_maps_to_a_payload(
+    public async Task Each_llm_event_maps_to_a_published_payload(
         LLMEventKind source,
-        Event.PayloadOneofCase expectedPayload)
+        Event.PayloadOneofCase expectedPayload,
+        CancellationToken cancellationToken)
     {
         using var events = new EventBroker();
-
-        // A real repository over an in-memory database, not a null: the code
-        // under test should take the same path production does.
         using var database = SessionDatabase.Open(":memory:");
-        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
-        var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
-        var repository = new EventRepository(database);
-        using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
-        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
-
         var llmEvent = source switch
         {
             LLMEventKind.TextDelta => LLMEvent.TextDelta("fragment"),
@@ -667,18 +659,51 @@ internal sealed class EventPayloadTests
             LLMEventKind.ToolCallDelta => LLMEvent.ToolCallDelta("call", "glob", "{}"),
             _ => LLMEvent.Retry(2, TimeSpan.FromSeconds(1), "429"),
         };
+        var provider = new PayloadProvider(llmEvent);
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, events, repository, cancellationToken);
+        using var subscription = events.Subscribe();
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
 
-        var published = session.Translate(llmEvent);
+        _ = await session.Send(
+            [ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await session.Settled();
+        var published = new List<Event>();
+        while (subscription.Reader.TryRead(out var next))
+        {
+            published.Add(next);
+        }
 
-        _ = await Assert.That(published.PayloadCase).IsEqualTo(expectedPayload);
-        _ = await Assert.That(published.AgentSessionId).IsEqualTo("session");
-        _ = await Assert.That(published.Id).IsNotEmpty();
+        var mapped = published.Single(item => item.PayloadCase == expectedPayload);
+        _ = await Assert.That(mapped.AgentSessionId).IsEqualTo("session");
+        _ = await Assert.That(mapped.Id).IsNotEmpty();
 
         if (source == LLMEventKind.ReasoningDelta)
         {
-            _ = await Assert.That(published.ReasoningChunk.Kind).IsEqualTo(ReasoningKind.Summary);
-            _ = await Assert.That(published.ReasoningChunk.PartId).IsEqualTo("reasoning-1");
-            _ = await Assert.That(published.ReasoningChunk.Completed).IsTrue();
+            _ = await Assert.That(mapped.ReasoningChunk.Kind).IsEqualTo(ReasoningKind.Summary);
+            _ = await Assert.That(mapped.ReasoningChunk.PartId).IsEqualTo("reasoning-1");
+            _ = await Assert.That(mapped.ReasoningChunk.Completed).IsTrue();
+        }
+    }
+
+    private sealed class PayloadProvider(LLMEvent llmEvent) : ILLMProvider
+    {
+        public string Id => "payload";
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            throw new NotSupportedException("the payload test does not list models");
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            yield return llmEvent;
+            yield return LLMEvent.Completed("stop", 1, 0, 1, string.Empty, []);
         }
     }
 }

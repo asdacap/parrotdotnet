@@ -647,7 +647,6 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) => new AgentSession(
             identity,
             sessionParentScope,
-            new AgentResolver(identity, sessionParentScope, children, children.Authority),
             new ModelSelector($"{provider.Id}/model"),
             router,
             _broker,

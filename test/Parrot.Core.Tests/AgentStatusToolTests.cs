@@ -77,7 +77,10 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         child.Activity.RecordAssistantMessage("line one\nline two");
         time.Advance(TimeSpan.FromSeconds(2));
         var toolExecution = child.Activity.BeginTool("wait");
-        var tool = new AgentStatusTool(parent.Resolver, parent.ChildRegistry, processes);
+        var tool = new AgentStatusTool(
+            new AgentResolver(parent.Identity, AgentSessionParentScope.Root(), parent.ChildRegistry, registry),
+            parent.ChildRegistry,
+            processes);
 
         var report = (await tool.Execute(
             new ToolInvocation("call", "{\"session_id\":\"child\"}"),
@@ -133,7 +136,10 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             cancellationToken);
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
-        var tool = new AgentStatusTool(parent.Resolver, parent.ChildRegistry, processes);
+        var tool = new AgentStatusTool(
+            new AgentResolver(parent.Identity, AgentSessionParentScope.Root(), parent.ChildRegistry, registry),
+            parent.ChildRegistry,
+            processes);
 
         var blank = (await tool.Execute(
             new ToolInvocation("call", "{\"session_id\":\"  \"}"),
@@ -192,7 +198,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             var queues = queueCatalog.Register(identity);
             return AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
             {
-                var session = new AgentSession(identity, sessionParentScope, new AgentResolver(identity, sessionParentScope, children, children.Authority), new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, children, queues, new AgentSessionActivity(timeProvider), lifetime);
+                var session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), TestModels.Profile(), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, children, queues, new AgentSessionActivity(timeProvider), lifetime);
                 queues.Attach(session);
                 return session;
             });

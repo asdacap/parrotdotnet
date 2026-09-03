@@ -58,7 +58,10 @@ internal sealed class AgentSessionFactory(
                 router,
                 eventBroker,
                 eventRepository,
-                ToolFactories(workspace, eventBroker, eventRepository),
+                workspace,
+                _images,
+                webFetcher,
+                agentTasks,
                 toolDefinitions,
                 readOnlyExecCommandPrefixes,
                 owner.ShellProcesses,
@@ -68,6 +71,7 @@ internal sealed class AgentSessionFactory(
                 promptTemplates,
                 mode,
                 security,
+                owner.Permissions,
                 status,
                 registry,
                 queues,
@@ -81,30 +85,4 @@ internal sealed class AgentSessionFactory(
             throw;
         }
     }
-
-    private IReadOnlyList<IToolFactory> ToolFactories(
-        ToolWorkspace workspace,
-        EventBroker eventBroker,
-        EventRepository eventRepository) =>
-    [
-        new ReadToolFactory(workspace),
-        new ReadImageToolFactory(workspace, _images),
-        new GlobToolFactory(workspace),
-        new WriteToolFactory(workspace),
-        new EditToolFactory(workspace),
-        new WebFetchToolFactory(webFetcher),
-        new AgentSpawnToolFactory(router),
-        new RunAgentTasksToolFactory(workspace, router, eventBroker, eventRepository, agentTasks),
-        new SetCheckpointToolFactory(),
-        new AgentSendToolFactory(),
-        new AgentStatusToolFactory(owner.ShellProcesses),
-        new WaitToolFactory(owner.Status, owner.TimeProvider),
-        new StatusToolFactory(owner.Status),
-        new QueueCreateToolFactory(),
-        new QueueInfoToolFactory(),
-        new QueueListenToolFactory(),
-        new QueuePushToolFactory(workspace),
-        new QueueTakeToolFactory(),
-        new RequestWritePermissionToolFactory(owner.Permissions),
-    ];
 }

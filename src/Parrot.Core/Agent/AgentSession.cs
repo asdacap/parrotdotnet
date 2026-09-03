@@ -28,7 +28,6 @@ namespace Parrot.Agent;
 internal sealed class AgentSession(
     AgentIdentity identity,
     AgentSessionParentScope parentScope,
-    AgentResolver resolver,
     ModelSelector model,
     ModelRouter router,
     EventBroker eventBroker,
@@ -78,6 +77,7 @@ internal sealed class AgentSession(
         ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);
 
     private string _messageId = string.Empty;
+    private DrainState _state;
 
     private AgentSelection _selection = new(model, mode, security.Policy());
     private ToolSnapshot? _tools;
@@ -99,43 +99,26 @@ internal sealed class AgentSession(
     // two overlap.
     private bool _stopping;
 
-    public string SessionId => identity.SessionId;
+    internal string SessionId => identity.SessionId;
 
-    public string Name => identity.Name;
+    internal string Name => identity.Name;
 
-    public string ParentSessionId => identity.ParentSessionId;
+    internal string ParentSessionId => identity.ParentSessionId;
 
-    public string ParentSessionName => identity.ParentSessionName;
-
-    public AgentQueues Queues { get; } = queues;
-
-    // Selection is execution state supplied by the owning user session. One
-    // immutable snapshot is used for a whole turn because a running
-    // drain keeps its history and pending input while later updates wait for
-    // the next turn boundary.
-    public string Model => Selection().RequestedModel.Value;
+    internal string ParentSessionName => identity.ParentSessionName;
 
     // How deep this session sits below the root. The registry refuses a child
     // beyond its recursion limit.
-    public int Depth => identity.Depth;
-
-    // Read without the gate on purpose: a caller asking what a session is doing
-    // gets an answer that was true when it asked, which is all any answer to
-    // that question can be.
-    public DrainState State { get; private set; }
+    internal int Depth => identity.Depth;
 
     internal AgentIdentity Identity => identity;
-
-    internal AgentResolver Resolver { get; } = resolver;
-
-    internal AgentSessionParentScope ParentScope => parentScope;
 
     internal ChildRegistry ChildRegistry { get; } = childRegistry;
 
     internal AgentSessionActivity Activity { get; } = activity
         ?? throw new ArgumentNullException(nameof(activity));
 
-    public AgentSelection Selection()
+    internal AgentSelection Selection()
     {
         lock (_selectionGate)
         {
@@ -143,15 +126,7 @@ internal sealed class AgentSession(
         }
     }
 
-    public AgentSelection ResolveSelection()
-    {
-        var selected = ResolvePolicySelection();
-        return selected with { SecurityProfile = security.Capture(selected.SecurityProfile) };
-    }
-
-    public void ApproveWrites(IReadOnlyList<Security.SecurityWriteTarget> targets) => security.Approve(targets);
-
-    public void UpdateSelection(ModelSelector selectedModel, IMode mode)
+    internal void UpdateSelection(ModelSelector selectedModel, IMode mode)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
         ArgumentNullException.ThrowIfNull(mode);
@@ -169,23 +144,14 @@ internal sealed class AgentSession(
     // (principle 1) and joins the conversation when the drain reaches the
     // boundary its delivery asks for. Waking is not waiting -- the caller is
     // told the prompt was taken, not what the model said about it.
-    public async Task<Admission> Admit(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
-        (await AdmitPartsAndWake(
-            [ConversationPart.TextPart(text)],
-            messageId,
-            delivery,
-            new IncomingActivity(IncomingActivityKind.Input, string.Empty),
-            cancellationToken).ConfigureAwait(false)).Admission;
-
-    public void Recover() => _ = Wake(null);
+    internal void Recover() => _ = Wake(null);
 
     // Stops the turn in flight and returns once the drain has unwound, so a
     // caller that sends again cannot race the turn it just stopped.
     //
     // Input admitted and not yet promoted outlives the interrupt: the drain
     // resumes for it rather than making the user ask a second time.
-    public async Task Interrupt(CancellationToken cancellationToken)
+    internal async Task Interrupt(CancellationToken cancellationToken)
     {
         Task draining;
         CancellationTokenSource? stopping = null;
@@ -203,7 +169,7 @@ internal sealed class AgentSession(
             // unwinding rather than cancelling and disposing it twice.
             if (!_stopping)
             {
-                State = DrainState.Interrupting;
+                _state = DrainState.Interrupting;
                 Activity.ChangeState(DrainState.Interrupting);
 
                 // Cleared behind the same gate as the capture: a wake that
@@ -245,8 +211,8 @@ internal sealed class AgentSession(
     // Run to bound the drain by, so this is how an owner keeps its own Run from
     // returning while a turn is still writing to a database it is about to
     // close.
-    public async Task Settled() =>
-        _ = await ResultSettled().ConfigureAwait(false);
+    internal async Task Settled() =>
+        _ = await WaitForDrainResult().ConfigureAwait(false);
 
     internal async Task Abort(CancellationToken cancellationToken)
     {
@@ -283,17 +249,15 @@ internal sealed class AgentSession(
         };
     }
 
-    internal AgentScope ResolveScope() => identity.Scope;
-
     internal AgentPolicyLineage ResolvePolicyLineage() => identity.PolicyLineage;
 
-    internal bool IsIdle() => State == DrainState.Idle;
+    internal bool IsIdle() => _state == DrainState.Idle;
 
     internal bool IsActive()
     {
         lock (_executionGate)
         {
-            return State != DrainState.Idle || (_started && !_execution.IsCompleted);
+            return _state != DrainState.Idle || (_started && !_execution.IsCompleted);
         }
     }
 
@@ -337,7 +301,7 @@ internal sealed class AgentSession(
 
             if (!incoming.Task.IsCompleted)
             {
-                delivery = Queues.Deliver(wait.Token);
+                delivery = queues.Deliver(wait.Token);
                 var first = await Task.WhenAny(incoming.Task, delay, delivery).ConfigureAwait(false);
 
                 if (first == delivery)
@@ -381,10 +345,6 @@ internal sealed class AgentSession(
             }
         }
     }
-
-    internal async Task<(Admission Admission, bool FollowUp)> Send(
-        string text, string messageId, Delivery delivery, CancellationToken cancellationToken) =>
-        await Send([ConversationPart.TextPart(text)], messageId, delivery, cancellationToken).ConfigureAwait(false);
 
     internal async Task<(Admission Admission, bool FollowUp)> Send(
         IReadOnlyList<ConversationPart> parts,
@@ -479,7 +439,8 @@ internal sealed class AgentSession(
 
         if (started is null)
         {
-            _ = await Send(message, messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
+            _ = await Send(
+                [ConversationPart.TextPart(message)], messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
         }
 
         return new AgentSendResult(SessionId, Name, messageId, followUp);
@@ -600,62 +561,6 @@ internal sealed class AgentSession(
         }
     }
 
-    internal async Task<AgentExecution> ResultSettled()
-    {
-        Task<AgentExecution> draining;
-
-        lock (_drainGate)
-        {
-            draining = _drain;
-        }
-
-        return await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-    }
-
-    internal Event Translate(LLMEvent llmEvent)
-    {
-        var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-
-        switch (llmEvent.Kind)
-        {
-            case LLMEventKind.TextDelta:
-                published.TextChunk = new TextChunk { Fragment = llmEvent.Text };
-                break;
-
-            case LLMEventKind.ReasoningDelta:
-                published.ReasoningChunk = new ReasoningChunk
-                {
-                    Fragment = llmEvent.Text,
-                    Kind = llmEvent.ReasoningKind == LLMReasoningKind.Summary
-                        ? ReasoningKind.Summary
-                        : ReasoningKind.Raw,
-                    PartId = llmEvent.ReasoningPartId,
-                    Completed = llmEvent.ReasoningCompleted,
-                };
-                break;
-
-            case LLMEventKind.ToolCallDelta:
-                published.ToolCallChunk = new ToolCallChunk
-                {
-                    ToolCallId = llmEvent.ToolCallId,
-                    ToolName = llmEvent.ToolName,
-                    ArgumentsFragment = llmEvent.Text,
-                };
-                break;
-
-            default:
-                published.RetryNotice = new RetryNotice
-                {
-                    Attempt = llmEvent.Attempt,
-                    RetryAfterMs = (int)llmEvent.RetryAfter.TotalMilliseconds,
-                    Reason = llmEvent.Text,
-                };
-                break;
-        }
-
-        return published;
-    }
-
     private static long Elapsed(long started) =>
         (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
@@ -730,6 +635,68 @@ internal sealed class AgentSession(
             && tool.IsParallelSafe(new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence));
     }
 
+    private AgentSelection CaptureSelection()
+    {
+        var selected = ResolvePolicySelection();
+        return selected with { SecurityProfile = security.Capture(selected.SecurityProfile) };
+    }
+
+    private async Task<AgentExecution> WaitForDrainResult()
+    {
+        Task<AgentExecution> draining;
+
+        lock (_drainGate)
+        {
+            draining = _drain;
+        }
+
+        return await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private Event TranslateProviderEvent(LLMEvent llmEvent)
+    {
+        var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
+
+        switch (llmEvent.Kind)
+        {
+            case LLMEventKind.TextDelta:
+                published.TextChunk = new TextChunk { Fragment = llmEvent.Text };
+                break;
+
+            case LLMEventKind.ReasoningDelta:
+                published.ReasoningChunk = new ReasoningChunk
+                {
+                    Fragment = llmEvent.Text,
+                    Kind = llmEvent.ReasoningKind == LLMReasoningKind.Summary
+                        ? ReasoningKind.Summary
+                        : ReasoningKind.Raw,
+                    PartId = llmEvent.ReasoningPartId,
+                    Completed = llmEvent.ReasoningCompleted,
+                };
+                break;
+
+            case LLMEventKind.ToolCallDelta:
+                published.ToolCallChunk = new ToolCallChunk
+                {
+                    ToolCallId = llmEvent.ToolCallId,
+                    ToolName = llmEvent.ToolName,
+                    ArgumentsFragment = llmEvent.Text,
+                };
+                break;
+
+            default:
+                published.RetryNotice = new RetryNotice
+                {
+                    Attempt = llmEvent.Attempt,
+                    RetryAfterMs = (int)llmEvent.RetryAfter.TotalMilliseconds,
+                    Reason = llmEvent.Text,
+                };
+                break;
+        }
+
+        return published;
+    }
+
     private WaitAgentResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
         completed.Status switch
         {
@@ -787,8 +754,9 @@ internal sealed class AgentSession(
             await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
             if (selectedDrain is null)
             {
-                _ = await Send(prompt, messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
-                completed = BoundResult(await ResultSettled().ConfigureAwait(false));
+                _ = await Send(
+                    [ConversationPart.TextPart(prompt)], messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
+                completed = BoundResult(await WaitForDrainResult().ConfigureAwait(false));
             }
             else
             {
@@ -810,7 +778,7 @@ internal sealed class AgentSession(
             }
 
             terminalCompletionAttempt.Dispose();
-            completed = BoundResult(await ResultSettled().ConfigureAwait(false));
+            completed = BoundResult(await WaitForDrainResult().ConfigureAwait(false));
         }
 
         using (terminalCompletionAttempt)
@@ -925,7 +893,7 @@ internal sealed class AgentSession(
             // it: a unary call's token is cancelled when the call returns, and
             // the turn outlives the call that admitted its prompt.
             _drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
-            State = DrainState.Running;
+            _state = DrainState.Running;
             Activity.ChangeState(DrainState.Running);
             _drain = Drain(_drainCancellation.Token);
             return (true, _drain);
@@ -970,7 +938,7 @@ internal sealed class AgentSession(
                 }
 
                 _drainCancellation = null;
-                State = DrainState.Idle;
+                _state = DrainState.Idle;
                 Activity.ChangeState(DrainState.Idle);
             }
 
@@ -979,7 +947,7 @@ internal sealed class AgentSession(
             {
                 try
                 {
-                    _ = await Queues.Deliver(cancellationToken).ConfigureAwait(false);
+                    _ = await queues.Deliver(cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1020,7 +988,7 @@ internal sealed class AgentSession(
 
                 if (!turnOpen)
                 {
-                    var captured = ResolveSelection();
+                    var captured = CaptureSelection();
                     captured.Profile.Prepare();
                     var resolved = router.Resolve(captured.RequestedModel.Value);
                     activeSelection = new AgentTurnSelection(
@@ -1327,7 +1295,7 @@ internal sealed class AgentSession(
 
     private async Task ReconcileToolBatchesUsingCurrentConfiguration(CancellationToken cancellationToken)
     {
-        var captured = ResolveSelection();
+        var captured = CaptureSelection();
         var resolved = router.Resolve(captured.RequestedModel.Value);
         var selection = new AgentTurnSelection(
             resolved.RequestedSelector,
@@ -1677,7 +1645,7 @@ internal sealed class AgentSession(
 
     private AgentTurnSelection RefreshSelection(AgentTurnSelection active)
     {
-        var selected = ResolveSelection();
+        var selected = CaptureSelection();
         return active with
         {
             Profile = selected.Profile,
@@ -1741,7 +1709,7 @@ internal sealed class AgentSession(
                 }
 
                 Activity.ObserveProviderEvent(llmEvent);
-                await EmitEvent(Translate(llmEvent), null, null, cancellationToken).ConfigureAwait(false);
+                await EmitEvent(TranslateProviderEvent(llmEvent), null, null, cancellationToken).ConfigureAwait(false);
             }
 
             return completed;
@@ -1775,7 +1743,7 @@ internal sealed class AgentSession(
 
         try
         {
-            var effective = ResolveSelection();
+            var effective = CaptureSelection();
             var invocationSelection = selection with { SecurityProfile = effective.SecurityProfile };
             var invocation = new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence)
             {

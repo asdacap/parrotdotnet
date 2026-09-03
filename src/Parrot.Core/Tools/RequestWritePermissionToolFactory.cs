@@ -3,9 +3,12 @@ using Parrot.Permissions;
 
 namespace Parrot.Tools;
 
-internal sealed class RequestWritePermissionToolFactory(PermissionBroker broker) : IToolFactory
+internal sealed class RequestWritePermissionToolFactory(
+    AgentIdentity identity,
+    AgentSessionSecurity security,
+    PermissionBroker broker) : IToolFactory
 {
-    public bool Supports(AgentSession session) => session.Depth == 0;
+    public bool Supports(AgentSession session) => identity.Depth == 0;
 
-    public ITool Create(AgentSession session) => new RequestWritePermissionTool(broker, session);
+    public ITool Create(AgentSession session) => new RequestWritePermissionTool(identity, security, broker);
 }

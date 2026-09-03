@@ -7,8 +7,9 @@ using Parrot.Security;
 namespace Parrot.Tools;
 
 internal sealed class RequestWritePermissionTool(
-    PermissionBroker broker,
-    AgentSession agentSession) : ITool
+    AgentIdentity identity,
+    AgentSessionSecurity security,
+    PermissionBroker broker) : ITool
 {
     public string Name => "request_write_permission";
 
@@ -46,7 +47,7 @@ internal sealed class RequestWritePermissionTool(
                 throw new PermissionException("request_write_permission is not permitted by the current security profile");
             }
 
-            var reply = await broker.Request(agentSession, reason, targets, cancellationToken).ConfigureAwait(false);
+            var reply = await broker.Request(identity, security, reason, targets, cancellationToken).ConfigureAwait(false);
             if (reply.Kind == PermissionReplyKind.UserAway)
             {
                 return ToolResultFormatter.Text(invocation, "The user is away.");

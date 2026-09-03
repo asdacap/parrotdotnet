@@ -2,12 +2,14 @@ using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
+using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
+using Parrot.Web;
 
 namespace Parrot.Agent;
 
@@ -20,7 +22,10 @@ internal interface IAgentSessionScopeFactory
         ModelRouter router,
         EventBroker eventBroker,
         EventRepository eventRepository,
-        IReadOnlyList<IToolFactory> toolFactories,
+        ToolWorkspace workspace,
+        ImageArtifactRepository images,
+        WebFetcher webFetcher,
+        AgentTaskConfig agentTasks,
         ToolDefinitionCatalog toolDefinitions,
         IReadOnlyList<string> readOnlyExecCommandPrefixes,
         ShellProcessOwners shellProcesses,
@@ -30,6 +35,7 @@ internal interface IAgentSessionScopeFactory
         PromptTemplateCatalog promptTemplates,
         IMode mode,
         AgentSessionSecurity security,
+        PermissionBroker permissions,
         RuntimeStatus status,
         AgentRegistry registry,
         AgentQueues queues,

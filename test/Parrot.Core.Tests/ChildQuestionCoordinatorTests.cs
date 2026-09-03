@@ -46,7 +46,7 @@ internal sealed partial class SubagentTests
             && published.PayloadCase == ProtocolEvent.PayloadOneofCase.InputAdmitted
             && published.InputAdmitted.Delivery == Delivery.Steer);
         provider.Release();
-        _ = await parent.ResultSettled();
+        await parent.Settled();
 
         options[0] = new QuestionOption("red", "Red");
         questions[0] = new QuestionDefinition("changed", string.Empty, "Changed", [], false, true);
@@ -142,7 +142,7 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(coordinator.Pending(parent)).IsEmpty();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        _ = await parent.ResultSettled();
+        await parent.Settled();
     }
 
     [Test]
@@ -273,7 +273,7 @@ internal sealed partial class SubagentTests
         coordinator.Reply(parent, child.SessionId, Answer("nested", "yes"));
         provider.Release();
         _ = await Assert.That((await asking).Answers.Single().OptionIds).HasSingleItem();
-        _ = await parent.ResultSettled();
+        await parent.Settled();
         _ = await Assert.That(provider.Requests).HasSingleItem();
     }
 
@@ -310,7 +310,7 @@ internal sealed partial class SubagentTests
         coordinator.Reply(parent, second.SessionId, Answer("second", "yes"));
         _ = await Task.WhenAll(firstAsking, secondAsking);
         provider.Release();
-        _ = await parent.ResultSettled();
+        await parent.Settled();
     }
 
     [Test]
@@ -356,7 +356,7 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(childExecution).Throws<OperationCanceledException>();
         _ = await Assert.That(childQuestions.Pending(root)).IsEmpty();
         provider.Release();
-        _ = await root.ResultSettled();
+        await root.Settled();
     }
 
     [Test]

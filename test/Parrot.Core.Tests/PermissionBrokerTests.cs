@@ -31,11 +31,13 @@ internal sealed class PermissionBrokerTests : IDisposable
             interactive: true,
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
-        var requesting = Session("requesting", database, events);
-        var other = Session("other", database, events);
+        var requestingSecurity = Security(_root);
+        var requesting = Session("requesting", database, events, requestingSecurity);
+        var otherSecurity = Security(_root);
+        var other = Session("other", database, events, otherSecurity);
         var first = Target("first");
         var second = Target("second");
-        var request = broker.Request(requesting, "update generated files", [first, second], cancellationToken);
+        var request = broker.Request(requesting.Identity, requestingSecurity, "update generated files", [first, second], cancellationToken);
         var pending = await WaitForPending(broker, cancellationToken);
 
         _ = await Assert.That(pending.AgentSessionId).IsEqualTo("requesting");
@@ -49,10 +51,10 @@ internal sealed class PermissionBrokerTests : IDisposable
         broker.Reply(pending.Id, "grant", string.Empty);
 
         _ = await Assert.That((await request).Decision).IsEqualTo(PermissionDecision.Grant);
-        _ = await Assert.That(requesting.ResolveSelection().SecurityProfile.AllowsWrite(first.Path)).IsTrue();
-        _ = await Assert.That(requesting.ResolveSelection().SecurityProfile.AllowsWrite(second.Path)).IsTrue();
-        _ = await Assert.That(other.ResolveSelection().SecurityProfile.AllowsWrite(first.Path)).IsFalse();
-        _ = await Assert.That(other.ResolveSelection().SecurityProfile.AllowsWrite(second.Path)).IsFalse();
+        _ = await Assert.That(requestingSecurity.Capture(requesting.Selection().SecurityProfile).AllowsWrite(first.Path)).IsTrue();
+        _ = await Assert.That(requestingSecurity.Capture(requesting.Selection().SecurityProfile).AllowsWrite(second.Path)).IsTrue();
+        _ = await Assert.That(otherSecurity.Capture(other.Selection().SecurityProfile).AllowsWrite(first.Path)).IsFalse();
+        _ = await Assert.That(otherSecurity.Capture(other.Selection().SecurityProfile).AllowsWrite(second.Path)).IsFalse();
         _ = await Assert.That(broker.Pending()).IsEmpty();
     }
 
@@ -69,7 +71,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
         var request = broker.Request(
-            Session("requesting", database, events),
+            Identity("requesting"),
+            Security(_root),
             "modify dependency",
             [Target("dependency")],
             cancellationToken);
@@ -102,7 +105,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeProvider.System);
 
         var reply = await broker.Request(
-            Session("requesting", database, events),
+            Identity("requesting"),
+            Security(_root),
             "modify dependency",
             [Target("dependency")],
             cancellationToken);
@@ -125,7 +129,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeSpan.FromMinutes(20),
             time);
         var request = broker.Request(
-            Session("requesting", database, events),
+            Identity("requesting"),
+            Security(_root),
             "modify dependency",
             [Target("dependency")],
             cancellationToken);
@@ -153,7 +158,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             Timeout.InfiniteTimeSpan,
             time);
         var request = broker.Request(
-            Session("requesting", database, events),
+            Identity("requesting"),
+            Security(_root),
             "modify dependency",
             [Target("dependency")],
             cancellationToken);
@@ -179,7 +185,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeSpan.FromMinutes(20),
             time);
         var request = broker.Request(
-            Session("requesting", database, events),
+            Identity("requesting"),
+            Security(_root),
             "modify dependency",
             [Target("dependency")],
             cancellationToken);
@@ -205,7 +212,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeProvider.System);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var request = broker.Request(
-            Session("requesting", database, events),
+            Identity("requesting"),
+            Security(_root),
             "modify dependency",
             [Target("dependency")],
             stopping.Token);
@@ -230,7 +238,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeProvider.System);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var request = broker.Request(
-            Session("requesting", database, events),
+            Identity("requesting"),
+            Security(_root),
             "modify dependency",
             [Target("dependency")],
             stopping.Token);
@@ -255,10 +264,12 @@ internal sealed class PermissionBrokerTests : IDisposable
             interactive: true,
             Timeout.InfiniteTimeSpan,
             TimeProvider.System);
-        var session = Session("requesting", database, events);
+        var security = Security(_root);
+        var session = Session("requesting", database, events, security);
         var target = Target("dependency");
         var request = broker.Request(
-            session,
+            session.Identity,
+            security,
             "modify dependency",
             [target],
             cancellationToken);
@@ -270,19 +281,33 @@ internal sealed class PermissionBrokerTests : IDisposable
         _ = await Assert.That(request).Throws<PermissionException>();
         _ = await Assert.That(broker.Pending()).IsEmpty();
         _ = await Assert.That(async () => await broker.Request(
-            session,
+            session.Identity,
+            security,
             "modify dependency",
             [target],
             cancellationToken)).Throws<ObjectDisposedException>();
     }
 
-    private static AgentSession Session(string id, SessionDatabase database, EventBroker events)
+    private static AgentIdentity Identity(string id) =>
+        AgentIdentity.Main(id, string.Empty, TestModels.PromptTemplates);
+
+    private static AgentSessionSecurity Security(string root)
+    {
+        _ = root;
+        return SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], []));
+    }
+
+    private static AgentSession Session(
+        string id,
+        SessionDatabase database,
+        EventBroker events,
+        AgentSessionSecurity security)
     {
         var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
         var repository = new EventRepository(database);
-        var identity = AgentIdentity.Main(id, string.Empty, TestModels.PromptTemplates);
+        var identity = Identity(id);
         using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new AgentResolver(identity, AgentSessionParentScope.Root(), dependencies.ChildRegistry, dependencies.Registry), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.Profile, security, dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
     }
 
     private static async Task<PermissionPending> WaitForPending(
