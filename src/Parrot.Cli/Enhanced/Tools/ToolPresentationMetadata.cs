@@ -7,8 +7,9 @@ internal readonly record struct ToolPresentationMetadata(
     bool TerminalOnly,
     bool Modeline,
     IReadOnlyList<string> RedactedInputFields,
-    bool SuppressTerminalDetails)
+    bool SuppressTerminalDetails,
+    bool MultilineLabel)
 {
     public static ToolPresentationMetadata Default { get; } =
-        new(ToolPresentationStyle.Default, string.Empty, false, false, false, [], false);
+        new(ToolPresentationStyle.Default, string.Empty, false, false, false, [], false, false);
 }

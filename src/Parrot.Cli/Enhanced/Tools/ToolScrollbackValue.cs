@@ -27,8 +27,11 @@ internal sealed class ToolScrollbackValue(
     {
     }
 
-    public ToolReport Report { get; } =
-        ToolReport.DescribeTerminal(ToolDisplayText.Label(label), block, status, metadata);
+    public ToolReport Report { get; } = ToolReport.DescribeTerminal(
+        metadata.MultilineLabel ? TerminalText.Sanitize(label) : ToolDisplayText.Label(label),
+        block,
+        status,
+        metadata);
 
     public bool IsCompleted => true;
 
@@ -42,7 +45,7 @@ internal sealed class ToolScrollbackValue(
     {
         var (marker, style) = DescribeStatus(context);
         var activityLabel = HierarchicalActivityValue.RemoveOwner(Report.Label, context.ActivityOwner);
-        var header = TerminalText.Layout($"{marker} {activityLabel}", context.Columns).Take(10).ToArray();
+        var header = LayoutHeader($"{marker} {activityLabel}", context.Columns, Report.Metadata.MultilineLabel);
         var lines = header.Select(style.Apply).ToList();
         var maximumLines = Report.Block.Kind switch
         {
@@ -51,8 +54,21 @@ internal sealed class ToolScrollbackValue(
             ToolBlockKind.Queue => 30,
             _ => 10,
         };
-        lines.AddRange(RenderBlock(context, Math.Max(0, maximumLines - header.Length), style));
+        lines.AddRange(RenderBlock(context, Math.Max(0, maximumLines - header.Count), style));
         return lines;
+    }
+
+    private static List<string> LayoutHeader(string label, int columns, bool multiline)
+    {
+        var lines = TerminalText.Layout(label, columns);
+        if (!multiline || lines.Count <= 5)
+        {
+            return [.. lines.Take(10)];
+        }
+
+        List<string> visible = [.. lines.Take(5)];
+        visible.Add($".. {lines.Count - 5} lines truncated.");
+        return visible;
     }
 
     private static ToolBlock DescribeBlock(IEnumerable<string> details, ToolTerminalStatus status)

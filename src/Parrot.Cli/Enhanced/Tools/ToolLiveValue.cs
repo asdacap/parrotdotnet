@@ -38,7 +38,12 @@ internal sealed class ToolLiveValue : ILiveBufferItem, IToolPresentationValue
 
     private ToolLiveValue(ToolReport report, int frame, RunningDuration? runningDuration)
     {
-        Report = report with { Label = ToolDisplayText.Label(report.Label) };
+        Report = report with
+        {
+            Label = report.Metadata.MultilineLabel
+                ? TerminalText.Sanitize(report.Label)
+                : ToolDisplayText.Label(report.Label),
+        };
         _frame = frame;
         _runningDuration = runningDuration;
     }

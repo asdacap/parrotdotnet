@@ -11,7 +11,7 @@ internal sealed class ExecCommandToolPresenter(
 
     public string ToolName => "exec_command";
 
-    public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default;
+    public ToolPresentationMetadata Metadata => ToolPresentationMetadata.Default with { MultilineLabel = true };
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {

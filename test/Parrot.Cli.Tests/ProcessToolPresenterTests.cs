@@ -104,6 +104,28 @@ internal sealed class ProcessToolPresenterTests
     }
 
     [Test]
+    public async Task Multiline_exec_command_shows_five_lines_and_reports_omitted_lines()
+    {
+        var presenter = new ExecCommandToolPresenter(TimeProvider.System, []);
+        var command = "python3 - <<'PY'\nfirst\nsecond\nthird\nfourth\nfifth\nPY";
+        var call = new ToolCallPresentation(
+            "main",
+            "exec_command",
+            "{\"command\":\"" + System.Text.Json.JsonEncodedText.Encode(command) + "\"}");
+        var terminal = new ToolTerminalPresentation(
+            ToolTerminalStatus.Succeeded,
+            true,
+            "Process exited with code 0 after 0.02s",
+            string.Empty);
+
+        var rendered = (presenter.PresentTerminal(call, terminal) ?? throw new InvalidOperationException())
+            .Render(ScrollbackContext);
+
+        _ = await Assert.That(string.Join('\n', rendered.Take(6))).IsEqualTo(
+            "✓ main: $ python3 - <<'PY'\nfirst\nsecond\nthird\nfourth\n.. 2 lines truncated.");
+    }
+
+    [Test]
     public async Task Active_exec_process_shows_elapsed_runtime_across_animation_frames()
     {
         var timeProvider = new ControlledTimeProvider();
@@ -171,8 +193,9 @@ internal sealed class ProcessToolPresenterTests
             .IsEqualTo(expectedReadOnly ? palette.LiveMuted : palette.Marker);
         _ = await Assert.That(live.Render(new LiveBufferRenderContext(32_768, palette)).Lines[0].Text.Contains("running", StringComparison.Ordinal))
             .IsEqualTo(!expectedReadOnly);
+        var expectedLines = expectedReadOnly ? command.Count(character => character == '\n') + 1 : 2;
         _ = await Assert.That(terminal.Render(new ScrollbackRenderContext(32_768, palette)).Count)
-            .IsEqualTo(expectedReadOnly ? 1 : 2);
+            .IsEqualTo(expectedLines);
     }
 
     [Test]

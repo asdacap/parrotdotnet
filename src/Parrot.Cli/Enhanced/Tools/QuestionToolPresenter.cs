@@ -6,7 +6,7 @@ internal sealed class QuestionToolPresenter : IToolPresenter
 {
     public string ToolName => "question";
 
-    public ToolPresentationMetadata Metadata => new(ToolPresentationStyle.Default, string.Empty, false, false, true, [], false);
+    public ToolPresentationMetadata Metadata => new(ToolPresentationStyle.Default, string.Empty, false, false, true, [], false, false);
 
     public ILiveBufferItem PresentLive(ToolCallPresentation call, int frame)
     {
