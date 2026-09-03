@@ -22,26 +22,26 @@ internal static class AgentTaskParser
         return new AgentTaskArtifact(AgentTaskArtifact.Version1, tasks);
     }
 
-    internal static ResearchHookResult ParseResearchHook(string json)
+    internal static AgentTaskPrepareResult ParsePrepare(string json)
     {
-        _ = Deserialize<ResearchHookWire>(json, AgentTaskWireJsonContext.Default.ResearchHookWire);
+        _ = Deserialize<AgentTaskPrepareWire>(json, AgentTaskWireJsonContext.Default.AgentTaskPrepareWire);
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
-        RequireObject(root, "research hook");
-        RejectUnknown(root, "research hook", "context", "task_patch");
-        var context = RequiredString(root, "context", "research hook");
+        RequireObject(root, "prepare response");
+        RejectUnknown(root, "prepare response", "context", "task_patch");
+        var context = RequiredString(root, "context", "prepare response");
         AgentTaskPatch? patch = null;
         if (root.TryGetProperty("task_patch", out var patchElement))
         {
             if (patchElement.ValueKind == JsonValueKind.Null)
             {
-                throw Invalid("research hook task_patch must not be null.");
+                throw Invalid("prepare response task_patch must not be null.");
             }
 
-            patch = ParsePatch(patchElement, "research hook task_patch");
+            patch = ParsePatch(patchElement, "prepare response task_patch");
         }
 
-        return new ResearchHookResult(context, patch);
+        return new AgentTaskPrepareResult(context, patch);
     }
 
     internal static AcceptanceVerdict ParseVerdict(string json)

@@ -30,7 +30,7 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
         var active = Interlocked.Increment(ref _active);
         SetMaximum(active);
         var prompt = string.Join('\n', request.Messages.Select(message => message.Content));
-        var research = prompt.Contains("AgentTask role: research pre-hook", StringComparison.Ordinal);
+        var preparation = prompt.Contains("AgentTask role: prepare", StringComparison.Ordinal);
         var combinedPayload = prompt.Contains("AgentTask role: payload executor", StringComparison.Ordinal)
             && prompt.Contains("Inspect, implement, and verify this instruction:", StringComparison.Ordinal);
         var initialPayload = combinedPayload
@@ -65,8 +65,8 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
                 _ = Interlocked.Exchange(ref _slowExecuting, 0);
             }
 
-            var answer = research
-                ? "{\"context\":\"research ready\"}"
+            var answer = preparation
+                ? "{\"context\":\"preparation ready\"}"
                 : combinedPayload
                     ? "{\"context\":\"payload ready\",\"verdict\":\"accept\",\"evidence\":\"accepted\"}"
                     : prompt.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal)

@@ -128,7 +128,7 @@ private paths: a readable Markdown plan and strict AgentTask v1 JSON. Completion
 requires both files to be nonblank and the JSON to validate. The `PlanCompleted`
 dialog presents the Markdown followed by the validated approved pending task
 hierarchy for approval. This is the approved declaration before execution, not a
-later `AgentTaskProgressSnapshot` execution tree: research patches and retry
+later `AgentTaskProgressSnapshot` execution tree: preparation patches and retry
 payloads can replace a run's effective subtree without changing that approved
 hierarchy. On approval, it enters build mode with both paths; the build prompt
 directs `run_agent_tasks` to the approved JSON path. The tool reopens a readable
@@ -155,7 +155,7 @@ read or read-permission check. Both forms use the same strict parser; supplying
 both or neither is invalid. Plan-approved execution continues to use `path`.
 
 **Execution context.** `run_agent_tasks` synchronously creates fresh
-retained-only children. Composite tasks use one retained composite agent for distinct research and
+retained-only children. Composite tasks use one retained composite agent for distinct preparation and
 validation turns; that agent recursively executes and owns nested child agents. A
 fresh instruction leaf creates one `agent-task-payload` child; that child
 implements and verifies the instruction and remains retained for the whole leaf
@@ -165,18 +165,22 @@ non-system messages grow 1, 3, 5, ... across attempts. Its combined response is
 parsed directly rather than producing a separate execution transcript.
 Retained-only delivery prevents internal completions from steering the tool-owning
 parent. Children retain the same workspace and user-session-scoped runtime
-resources. These predefined profiles are spawn-visible like other child profiles.
+resources. These predefined profiles are spawn-visible like other child profiles. The
+published preparation identifiers are `agent-task-prepare` and
+`agent-task.prepare`. Renaming the old `agent-task-pre-hook` and
+`agent-task.research` keys is intentionally breaking: existing custom
+configuration must rename them because no compatibility aliases are provided.
 A task-specific model is resolved normally; otherwise the selected child uses the
 invoking turn's requested model.
 
-**Research and inheritance.** Composite work begins with a mandatory research
-hook that returns strict JSON containing nonblank context and, optionally, a
+**Preparation and inheritance.** Composite work begins with a mandatory preparation
+phase that returns strict JSON containing nonblank context and, optionally, a
 sparse patch to `description`, `payload`, `acceptance_criteria`, or `model`. The
 patch changes only the effective in-memory task for that run, preserves omitted
 fields, is revalidated, and never persists into the approved artifact. Nested
 work receives labelled ancestor declarations in root-to-parent order and
-research contexts in root-to-current order. It receives no sibling or cousin
-research. A ready task additionally receives bounded direct-dependency summaries.
+preparation contexts in root-to-current order. It receives no sibling or cousin
+preparation context. Research is only a possible preparation activity. A ready task additionally receives bounded direct-dependency summaries.
 
 **Acceptance, scheduling, and outcome.** The retained composite agent reviews its nested result in a distinct validation
 turn. Nested task agents are children owned by that composite agent. Every
@@ -197,7 +201,7 @@ context replaces the current task context for later attempts and descendants.
 When an instruction leaf omits it, the response's required current context is
 carried forward. A retry payload may be either an instruction or a task array:
 an instruction continues in the same retained leaf session, while a task array
-transitions to the composite research turn, nested sibling execution, and a
+transitions to the composite preparation turn, nested sibling execution, and a
 later validation turn on the retained composite agent, supplying retry context
 to its nested child agents.
 
@@ -205,13 +209,13 @@ Leaf mapping is direct: response `context` becomes result context, accepted
 `evidence` is serialized as top-level `evidence`, and retry `feedback` is
 retained and may be exposed as failure feedback. Leaf `task_patch` and
 `execution` are intentionally null or absent because there is no leaf execution
-transcript. Composite research/patch, nested execution, and validation fields
+transcript. Composite preparation/patch, nested execution, and validation fields
 remain populated as applicable. The AgentTask v1 artifact envelope and schema
 are unchanged.
 
 `agent_tasks.maximum_attempts` is global runtime configuration enforced
 independently per task invocation. It accepts any positive `Int32`, defaults to
-5, and includes the first payload execution. Composite research runs once per
+5, and includes the first payload execution. Composite preparation runs once per
 invocation.
 When the final attempt returns `reject_and_retry`, its feedback and replacement
 context are retained as the latest effective result, but its replacement payload
@@ -221,7 +225,7 @@ side-effecting work; use a small bound and explicit mutation dependencies.
 Ready siblings run in parallel. An unsuccessful dependency blocks only its
 descendants while independent branches continue. Results preserve the hierarchy
 and include graph/task status, attempts,
-research context, effective patch, execution, verdict/evidence, failures or
+preparation context, effective patch, execution, verdict/evidence, failures or
 blocking dependencies, and nested results. Cancellation aborts and joins every
 runner-owned child before it propagates. There is deliberately no rollback or
 resume: concurrent ready tasks share a workspace, and dependencies are the
@@ -234,7 +238,7 @@ monotonically revised tree, preserving effective declaration order. The first
 snapshot is emitted before work starts with all nodes pending; later snapshots
 are emitted for running, terminal, and blocked transitions and for effective
 subtree replacement. Status icons are `○` pending, `◐` running, `✓` succeeded,
-`✗` failed, `⊘` blocked, and `■` canceled. A research patch or retry payload
+`✗` failed, `⊘` blocked, and `■` canceled. A preparation patch or retry payload
 replaces the displayed descendants with the current effective subtree. On
 cancellation, the final snapshot is emitted only after runner-owned children
 have been joined, and cancellation then propagates.

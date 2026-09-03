@@ -76,8 +76,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     [Test]
     public async Task Role_profiles_are_explicit_and_unknown_roles_are_rejected()
     {
-        _ = await Assert.That(AgentTaskGraphRunner.ResolveRoleProfile("research"))
-            .IsEqualTo("agent-task-pre-hook");
+        _ = await Assert.That(AgentTaskGraphRunner.ResolveRoleProfile("prepare"))
+            .IsEqualTo("agent-task-prepare");
         _ = await Assert.That(AgentTaskGraphRunner.ResolveRoleProfile("execute"))
             .IsEqualTo("agent-task-payload");
         _ = await Assert.That(AgentTaskGraphRunner.ResolveRoleProfile("accept"))
@@ -189,14 +189,14 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Retries_payload_five_times_without_repeating_research(CancellationToken cancellationToken)
+    public async Task Retries_payload_five_times_without_repeating_preparation(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fourth payload\"}",
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fifth payload\"}",
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"sixth payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fourth payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"fifth payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"still bad\",\"payload\":\"sixth payload\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -210,19 +210,19 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var task = result.Tasks.Single();
         _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
         _ = await Assert.That(task.AttemptCount).IsEqualTo(5);
-        _ = await Assert.That(task.Context).IsEqualTo("stable research");
+        _ = await Assert.That(task.Context).IsEqualTo("stable preparation");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(5);
-        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content).Any(content => content.Contains("research pre-hook", StringComparison.Ordinal)))).IsEqualTo(0);
+        _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content).Any(content => content.Contains("AgentTask role: prepare", StringComparison.Ordinal)))).IsEqualTo(0);
         _ = await Assert.That(string.Join(",", provider.Requests.Select(request => request.Messages.Count(message => message.Role != LLMRole.System))))
             .IsEqualTo("1,3,5,7,9");
     }
 
     [Test]
-    public async Task Configured_attempt_budget_limits_each_task_without_repeating_research(CancellationToken cancellationToken)
+    public async Task Configured_attempt_budget_limits_each_task_without_repeating_preparation(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -238,16 +238,16 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(task.AttemptCount).IsEqualTo(2);
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
         _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
-            .Any(content => content.Contains("research pre-hook", StringComparison.Ordinal)))).IsEqualTo(0);
+            .Any(content => content.Contains("AgentTask role: prepare", StringComparison.Ordinal)))).IsEqualTo(0);
     }
 
     [Test]
     public async Task Successful_retry_reuses_leaf_executor_with_ordered_feedback(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
-            "{\"context\":\"stable research\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
-            "{\"context\":\"stable research\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix first\",\"payload\":\"second payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"reject_and_retry\",\"feedback\":\"fix second\",\"payload\":\"third payload\"}",
+            "{\"context\":\"stable preparation\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -366,7 +366,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Research_patch_replaces_the_effective_progress_subtree(CancellationToken cancellationToken)
+    public async Task Preparation_patch_replaces_the_effective_progress_subtree(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"parent context\",\"task_patch\":{\"payload\":[{\"name\":\"new-child\",\"description\":\"New child\",\"payload\":\"new work\",\"acceptance_criteria\":\"New proof\"}]}}",
@@ -379,11 +379,11 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"old-child","description":"Old child","payload":"old work","acceptance_criteria":"Old proof"}],"acceptance_criteria":"Parent proof"}]}
             """);
 
-        var result = await Runner(runtime, "research-replacement")
+        var result = await Runner(runtime, "preparation-replacement")
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
-        var snapshots = ProgressEvents("research-replacement");
+        var snapshots = ProgressEvents("preparation-replacement");
         var replacement = snapshots.Single(snapshot =>
             snapshot.RootNodes[0].Children.Count == 1
             && snapshot.RootNodes[0].Children[0].Name == "new-child"
@@ -403,7 +403,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     {
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"parent context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"retry-child\",\"description\":\"Retry child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child proof\"}],\"replacement_context\":\"replacement parent context\"}",
-            "{\"context\":\"composite research context\"}",
+            "{\"context\":\"composite preparation context\"}",
             "{\"context\":\"retry child context\",\"verdict\":\"accept\",\"evidence\":\"child done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
         ]);
@@ -423,25 +423,25 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var identities = runtime.Sessions.Identities;
         _ = await Assert.That(identities).Count().IsEqualTo(3);
         var initialExecutor = identities.Single(identity => identity.Name == "parent");
-        var composite = identities.Single(identity => identity.Name == "parent-research");
+        var composite = identities.Single(identity => identity.Name == "parent-prepare");
         var replacementChild = identities.Single(identity => identity.Name == "retry-child");
         _ = await Assert.That(initialExecutor.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(replacementChild.ParentSessionId).IsEqualTo(composite.SessionId);
         _ = await Assert.That(provider.Requests[^1].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
         _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
-            .Count(profile => profile == "agent-task-pre-hook")).IsEqualTo(1);
+            .Count(profile => profile == "agent-task-prepare")).IsEqualTo(1);
         _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
             .Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
-        var researchPrompt = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(researchPrompt).Contains("replacement parent context");
+        var preparationPrompt = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.User).Content;
+        _ = await Assert.That(preparationPrompt).Contains("replacement parent context");
         var childExecution = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(childExecution).Contains("replacement parent context");
         _ = await Assert.That(childExecution).DoesNotContain("\n[task/parent] parent context");
         var parentAcceptance = provider.Requests[3].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(parentAcceptance).Contains("replacement parent context");
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
-            .Any(content => content.Contains("composite research context", StringComparison.Ordinal))).IsTrue();
+            .Any(content => content.Contains("composite preparation context", StringComparison.Ordinal))).IsTrue();
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
             .Any(content => content.Contains("parent done", StringComparison.Ordinal))).IsFalse();
         var snapshots = ProgressEvents("retry-replacement");
@@ -459,8 +459,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Recursive_composites_retain_role_history_and_parentage(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"top research\"}",
-            "{\"context\":\"child research\"}",
+            "{\"context\":\"top preparation\"}",
+            "{\"context\":\"child preparation\"}",
             "{\"context\":\"leaf context\",\"verdict\":\"accept\",\"evidence\":\"leaf done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"child done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"top done\"}",
@@ -477,18 +477,18 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         var identities = runtime.Sessions.Identities;
         _ = await Assert.That(identities).Count().IsEqualTo(3);
-        var topComposite = identities.Single(identity => identity.Name == "top-research");
-        var childComposite = identities.Single(identity => identity.Name == "child-research");
+        var topComposite = identities.Single(identity => identity.Name == "top-prepare");
+        var childComposite = identities.Single(identity => identity.Name == "child-prepare");
         var leaf = identities.Single(identity => identity.Name == "leaf");
         _ = await Assert.That(topComposite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(childComposite.ParentSessionId).IsEqualTo(topComposite.SessionId);
         _ = await Assert.That(leaf.ParentSessionId).IsEqualTo(childComposite.SessionId);
         _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
-            .Any(content => content.Contains("child research", StringComparison.Ordinal))).IsTrue();
+            .Any(content => content.Contains("child preparation", StringComparison.Ordinal))).IsTrue();
         _ = await Assert.That(provider.Requests[4].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
         _ = await Assert.That(provider.Requests[4].Messages.Select(message => message.Content)
-            .Any(content => content.Contains("top research", StringComparison.Ordinal))).IsTrue();
+            .Any(content => content.Contains("top preparation", StringComparison.Ordinal))).IsTrue();
         _ = await Assert.That(provider.Requests[4].Messages.Select(message => message.Content)
             .Any(content => content.Contains("top done", StringComparison.Ordinal))).IsFalse();
     }

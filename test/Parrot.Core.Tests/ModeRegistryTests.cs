@@ -48,7 +48,7 @@ internal sealed class ModeRegistryTests : IDisposable
 
         _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | plan | query");
         _ = await Assert.That(string.Join(" | ", profiles.Children.Select(profile => profile.Id)))
-            .IsEqualTo("agent-task-payload | agent-task-pre-hook | agent-task-validation | explorer | review | thinker | worker");
+            .IsEqualTo("agent-task-payload | agent-task-prepare | agent-task-validation | explorer | review | thinker | worker");
         _ = await Assert.That(profiles.ResolveChild("explore").Id).IsEqualTo("explorer");
         var worker = profiles.ResolveChild("worker");
         _ = await Assert.That(worker.Id).IsEqualTo("worker");
@@ -80,7 +80,7 @@ internal sealed class ModeRegistryTests : IDisposable
 
         _ = await Assert.That(string.Join(" | ", modes.List())).IsEqualTo("build | plan | query | worker");
         _ = await Assert.That(string.Join(" | ", registry.Children.Select(profile => profile.Id)))
-            .IsEqualTo("agent-task-payload | agent-task-pre-hook | agent-task-validation | build | explorer | thinker | worker");
+            .IsEqualTo("agent-task-payload | agent-task-prepare | agent-task-validation | build | explorer | thinker | worker");
         _ = await Assert.That(modes.Resolve("worker").Id).IsEqualTo("worker");
         _ = await Assert.That(registry.ResolveChild(ModeRegistry.Build).Id).IsEqualTo(ModeRegistry.Build);
         _ = await Assert.That(() => modes.Resolve("review")).Throws<ModeRegistryException>();

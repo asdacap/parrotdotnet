@@ -111,7 +111,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = await Assert.That(provider.Requests.Any(request => request.Messages.Select(message => message.Content)
             .Any(content => content.Contains("agent-task-validation", StringComparison.Ordinal)))).IsFalse();
         _ = await Assert.That(provider.Requests.Count(request => request.Messages.Select(message => message.Content)
-            .Any(content => content.Contains("research pre-hook", StringComparison.Ordinal)))).IsEqualTo(0);
+            .Any(content => content.Contains("AgentTask role: prepare", StringComparison.Ordinal)))).IsEqualTo(0);
     }
 
     [Test]
@@ -140,11 +140,11 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = await Assert.That(task.GetProperty("evidence").GetString()).IsEqualTo("parent done");
         _ = await Assert.That(task.GetProperty("tasks")[0].GetProperty("evidence").GetString()).IsEqualTo("child done");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
-        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-pre-hook")).IsEqualTo(1);
+        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-prepare")).IsEqualTo(1);
         _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
         var identities = runtime.Sessions.Identities;
         _ = await Assert.That(identities).Count().IsEqualTo(3);
-        var composite = identities.Single(identity => identity.Name == "leaf-research");
+        var composite = identities.Single(identity => identity.Name == "leaf-prepare");
         var child = identities.Single(identity => identity.Name == "child");
         _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(child.ParentSessionId).IsEqualTo(composite.SessionId);

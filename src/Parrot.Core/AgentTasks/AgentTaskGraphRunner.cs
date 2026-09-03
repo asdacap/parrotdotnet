@@ -23,7 +23,7 @@ internal sealed class AgentTaskGraphRunner(
 
     internal static string ResolveRoleProfile(string role) => role switch
     {
-        "research" => "agent-task-pre-hook",
+        "prepare" => "agent-task-prepare",
         "execute" => "agent-task-payload",
         "accept" => "agent-task-validation",
         _ => throw new ArgumentException($"Unknown AgentTask role: {role}", nameof(role)),
@@ -119,16 +119,16 @@ internal sealed class AgentTaskGraphRunner(
         dependencies,
         null);
 
-    private string BuildResearchPrompt(
+    private string BuildPreparePrompt(
         EffectiveAgentTask task,
         IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path)
     {
         var header = Header(task, ancestors, contexts, dependencies);
         return ComposePrompt(new StringBuilder(header), Render(
-            "agent-task.research",
+            "agent-task.prepare",
             ("header", string.Empty),
             ("path", path),
             ("declaration", Bound(AgentTaskPromptFormatter.Format(task), MaxSummaryCharacters))));
@@ -137,7 +137,7 @@ internal sealed class AgentTaskGraphRunner(
     private string BuildExecutionPrompt(
         EffectiveAgentTask task,
         IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         IReadOnlyList<string> feedback)
     {
@@ -153,7 +153,7 @@ internal sealed class AgentTaskGraphRunner(
     private string BuildLeafPrompt(
         EffectiveAgentTask task,
         IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         IReadOnlyList<string> feedback)
     {
@@ -169,7 +169,7 @@ internal sealed class AgentTaskGraphRunner(
     private string BuildAcceptancePrompt(
         EffectiveAgentTask task,
         IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         IReadOnlyList<string> feedback,
         string execution,
@@ -198,7 +198,7 @@ internal sealed class AgentTaskGraphRunner(
     private string Header(
         EffectiveAgentTask task,
         IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies)
     {
         var ancestorText = new StringBuilder();
@@ -288,7 +288,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTask> tasks,
         IReadOnlyList<AgentTaskProgress.NodeHandle> handles,
         IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> contexts,
+        IReadOnlyList<AgentTaskPrepareContext> contexts,
         string parentPath,
         AgentSession owningAgent,
         CancellationToken cancellationToken)
@@ -421,7 +421,7 @@ internal sealed class AgentTaskGraphRunner(
         AgentTask approved,
         AgentTaskProgress.NodeHandle handle,
         IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> inheritedContexts,
+        IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
         AgentSession owningAgent,
@@ -443,28 +443,28 @@ internal sealed class AgentTaskGraphRunner(
         }
 
         var childHandles = progress.GetChildren(handle);
-        var researchRun = await RunRole(
+        var prepareRun = await RunRole(
             effective.Model,
-            "research",
+            "prepare",
             approved.Name,
             owningAgent,
             null,
-            BuildResearchPrompt(effective, ancestors, inheritedContexts, dependencies, path),
+            BuildPreparePrompt(effective, ancestors, inheritedContexts, dependencies, path),
             cancellationToken).ConfigureAwait(false);
-        var research = researchRun.Execution;
-        if (research.Status != AgentExecutionStatus.Succeeded)
+        var prepare = prepareRun.Execution;
+        if (prepare.Status != AgentExecutionStatus.Succeeded)
         {
-            return Failed(approved.Name, RoleFailure("research", research));
+            return Failed(approved.Name, RoleFailure("prepare", prepare));
         }
 
-        ResearchHookResult hook;
+        AgentTaskPrepareResult preparation;
         try
         {
-            hook = AgentTaskParser.ParseResearchHook(research.Output);
-            hook = hook with { Context = Bound(hook.Context, MaxContextCharacters) };
-            if (hook.TaskPatch is not null)
+            preparation = AgentTaskParser.ParsePrepare(prepare.Output);
+            preparation = preparation with { Context = Bound(preparation.Context, MaxContextCharacters) };
+            if (preparation.TaskPatch is not null)
             {
-                var patched = effective.Apply(hook.TaskPatch);
+                var patched = effective.Apply(preparation.TaskPatch);
                 AgentTaskParser.ValidateEffective(patched);
                 if (patched.Model is not null)
                 {
@@ -472,7 +472,7 @@ internal sealed class AgentTaskGraphRunner(
                 }
 
                 effective = patched;
-                if (hook.TaskPatch.Payload is not null)
+                if (preparation.TaskPatch.Payload is not null)
                 {
                     childHandles = progress.ReplaceChildren(
                         handle,
@@ -483,11 +483,11 @@ internal sealed class AgentTaskGraphRunner(
         }
         catch (Exception failure) when (failure is ArgumentException or LLMProviderException)
         {
-            return Failed(approved.Name, $"research response invalid: {failure.Message}");
+            return Failed(approved.Name, $"prepare response invalid: {failure.Message}");
         }
 
         var currentContexts = inheritedContexts
-            .Append(new AgentTaskResearchContext(path, hook.Context))
+            .Append(new AgentTaskPrepareContext(path, preparation.Context))
             .ToArray();
         var currentAncestors = ancestors
             .Append(new AgentTaskAncestor(path, effective.Description))
@@ -502,8 +502,8 @@ internal sealed class AgentTaskGraphRunner(
             currentContexts,
             dependencies,
             path,
-            hook.TaskPatch,
-            researchRun.Agent,
+            preparation.TaskPatch,
+            prepareRun.Agent,
             [],
             1,
             cancellationToken).ConfigureAwait(false);
@@ -514,7 +514,7 @@ internal sealed class AgentTaskGraphRunner(
         EffectiveAgentTask effective,
         AgentTaskProgress.NodeHandle handle,
         IReadOnlyList<AgentTaskAncestor> ancestors,
-        IReadOnlyList<AgentTaskResearchContext> inheritedContexts,
+        IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
         AgentSession owningAgent,
@@ -531,7 +531,7 @@ internal sealed class AgentTaskGraphRunner(
             var promptContexts = currentContext is null
                 ? inheritedContexts
                 : Array.AsReadOnly(
-                    inheritedContexts.Append(new AgentTaskResearchContext(path, currentContext)).ToArray());
+                    inheritedContexts.Append(new AgentTaskPrepareContext(path, currentContext)).ToArray());
             var payloadRun = await RunRole(
                 effective.Model,
                 "execute",
@@ -662,18 +662,18 @@ internal sealed class AgentTaskGraphRunner(
             }
 
             var retryContexts = inheritedContexts
-                .Append(new AgentTaskResearchContext(path, currentContext))
+                .Append(new AgentTaskPrepareContext(path, currentContext))
                 .ToArray();
-            var researchRun = await RunRole(
+            var prepareRun = await RunRole(
                 effective.Model,
-                "research",
+                "prepare",
                 approved.Name,
                 owningAgent,
                 null,
-                BuildResearchPrompt(effective, ancestors, retryContexts, dependencies, path),
+                BuildPreparePrompt(effective, ancestors, retryContexts, dependencies, path),
                 cancellationToken).ConfigureAwait(false);
-            var research = researchRun.Execution;
-            if (research.Status != AgentExecutionStatus.Succeeded)
+            var prepare = prepareRun.Execution;
+            if (prepare.Status != AgentExecutionStatus.Succeeded)
             {
                 return CompletedFailure(
                     approved.Name,
@@ -684,17 +684,17 @@ internal sealed class AgentTaskGraphRunner(
                     verdict,
                     RetainFeedback(feedback),
                     null,
-                    RoleFailure("research", research));
+                    RoleFailure("prepare", prepare));
             }
 
-            ResearchHookResult hook;
+            AgentTaskPrepareResult preparation;
             try
             {
-                hook = AgentTaskParser.ParseResearchHook(research.Output);
-                hook = hook with { Context = Bound(hook.Context, MaxContextCharacters) };
-                if (hook.TaskPatch is not null)
+                preparation = AgentTaskParser.ParsePrepare(prepare.Output);
+                preparation = preparation with { Context = Bound(preparation.Context, MaxContextCharacters) };
+                if (preparation.TaskPatch is not null)
                 {
-                    var patched = effective.Apply(hook.TaskPatch);
+                    var patched = effective.Apply(preparation.TaskPatch);
                     AgentTaskParser.ValidateEffective(patched);
                     if (patched.Model is not null)
                     {
@@ -702,7 +702,7 @@ internal sealed class AgentTaskGraphRunner(
                     }
 
                     effective = patched;
-                    if (hook.TaskPatch.Payload is not null)
+                    if (preparation.TaskPatch.Payload is not null)
                     {
                         childHandles = progress.ReplaceChildren(
                             handle,
@@ -722,12 +722,12 @@ internal sealed class AgentTaskGraphRunner(
                     verdict,
                     RetainFeedback(feedback),
                     null,
-                    $"research response invalid: {failure.Message}");
+                    $"prepare response invalid: {failure.Message}");
             }
 
             var currentContexts = inheritedContexts
-                .Append(new AgentTaskResearchContext(path, hook.Context))
-                .Append(new AgentTaskResearchContext(path, currentContext))
+                .Append(new AgentTaskPrepareContext(path, preparation.Context))
+                .Append(new AgentTaskPrepareContext(path, currentContext))
                 .ToArray();
             var currentAncestors = ancestors
                 .Append(new AgentTaskAncestor(path, effective.Description))
@@ -742,8 +742,8 @@ internal sealed class AgentTaskGraphRunner(
                 currentContexts,
                 dependencies,
                 path,
-                hook.TaskPatch,
-                researchRun.Agent,
+                preparation.TaskPatch,
+                prepareRun.Agent,
                 feedback,
                 attempt + 1,
                 cancellationToken).ConfigureAwait(false);
@@ -759,7 +759,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskProgress.NodeHandle> childHandles,
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskAncestor> currentAncestors,
-        AgentTaskResearchContext[] currentContexts,
+        AgentTaskPrepareContext[] currentContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
         AgentTaskPatch? taskPatch,
@@ -913,7 +913,7 @@ internal sealed class AgentTaskGraphRunner(
             if (attempt == maximumAttempts)
             {
                 feedback.Add(Bound(retryFeedback, MaxSummaryCharacters));
-                currentContexts[^1] = new AgentTaskResearchContext(path, replacementContext);
+                currentContexts[^1] = new AgentTaskPrepareContext(path, replacementContext);
                 return CompletedFailure(
                     approved.Name,
                     attempt,
@@ -946,7 +946,7 @@ internal sealed class AgentTaskGraphRunner(
                     $"retry payload invalid: {failure.Message}");
             }
 
-            currentContexts[^1] = new AgentTaskResearchContext(path, replacementContext);
+            currentContexts[^1] = new AgentTaskPrepareContext(path, replacementContext);
             effective = replacement;
             childHandles = progress.ReplaceChildren(
                 handle,

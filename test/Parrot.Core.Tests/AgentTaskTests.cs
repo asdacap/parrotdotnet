@@ -46,18 +46,18 @@ internal sealed class AgentTaskTests
     }
 
     [Test]
-    public async Task Hook_accepts_context_only_and_sparse_patch_preserves_omitted_values()
+    public async Task Prepare_accepts_context_only_and_sparse_patch_preserves_omitted_values()
     {
-        var hook = AgentTaskParser.ParseResearchHook("{" + "\"context\":\"research\",\"task_patch\":{\"model\":\"high_llm\"}}");
+        var preparation = AgentTaskParser.ParsePrepare("{" + "\"context\":\"preparation\",\"task_patch\":{\"model\":\"high_llm\"}}");
         var task = AgentTaskParser.ParseArtifact("""{"schema_version":1,"tasks":[{"name":"x","description":"d","payload":"p","acceptance_criteria":"a"}]}""").Tasks[0];
-        var effective = EffectiveAgentTask.FromArtifact(task).Apply(hook.TaskPatch ?? throw new InvalidOperationException());
+        var effective = EffectiveAgentTask.FromArtifact(task).Apply(preparation.TaskPatch ?? throw new InvalidOperationException());
 
-        _ = await Assert.That(hook.Context).IsEqualTo("research");
+        _ = await Assert.That(preparation.Context).IsEqualTo("preparation");
         _ = await Assert.That(effective.Description).IsEqualTo("d");
         _ = await Assert.That(effective.Payload.Instruction).IsEqualTo("p");
         _ = await Assert.That(effective.Model).IsEqualTo("high_llm");
-        _ = await Assert.That(() => AgentTaskParser.ParseResearchHook("{\"context\":\"x\",\"task_patch\":{\"model\":null}}")).Throws<ArgumentException>();
-        _ = await Assert.That(() => AgentTaskParser.ParseResearchHook("{\"context\":\"x\",\"task_patch\":{}}")).Throws<ArgumentException>();
+        _ = await Assert.That(() => AgentTaskParser.ParsePrepare("{\"context\":\"x\",\"task_patch\":{\"model\":null}}")).Throws<ArgumentException>();
+        _ = await Assert.That(() => AgentTaskParser.ParsePrepare("{\"context\":\"x\",\"task_patch\":{}}")).Throws<ArgumentException>();
     }
 
     [Test]
@@ -95,7 +95,7 @@ internal sealed class AgentTaskTests
     {
         var accept = AgentTaskParser.ParseVerdict("{\"verdict\":\"accept\",\"evidence\":\"done\"}");
         var reject = AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_halt\",\"feedback\":\"no\"}");
-        var retry = AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"context\":\"replacement research\"}");
+        var retry = AgentTaskParser.ParseVerdict("{\"verdict\":\"reject_and_retry\",\"feedback\":\"fix\",\"payload\":\"again\",\"context\":\"replacement preparation\"}");
         var serialized = new AgentTaskGraphResult(AgentTaskExecutionStatus.Failed, [
             new AgentTaskResult("a", AgentTaskExecutionStatus.Succeeded, 1, "context", null, "work", accept, ["fixed"], null, null, null),
             new AgentTaskResult("b", AgentTaskExecutionStatus.Failed, 2, null, null, null, reject, null, null, null, null),
@@ -104,7 +104,7 @@ internal sealed class AgentTaskTests
         using var document = JsonDocument.Parse(serialized);
 
         _ = await Assert.That((retry.Payload ?? throw new InvalidOperationException()).Instruction).IsEqualTo("again");
-        _ = await Assert.That(retry.Context).IsEqualTo("replacement research");
+        _ = await Assert.That(retry.Context).IsEqualTo("replacement preparation");
         _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("failed");
         _ = await Assert.That(document.RootElement.GetProperty("tasks")[0].GetProperty("name").GetString()).IsEqualTo("a");
         _ = await Assert.That(document.RootElement.GetProperty("tasks")[1].GetProperty("verdict").GetString()).IsEqualTo("reject_and_halt");
