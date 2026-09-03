@@ -553,6 +553,213 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Forced_agent_session_compaction_bypasses_threshold_and_restores_effective_history(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+
+        AgentSession Build() => new(
+            identity,
+            AgentSessionParentScope.Root(),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
+            broker,
+            repository,
+            [],
+            TestModels.EmptyToolDefinitions,
+            TestModels.MaterializePrompt(identity, _workspace, _workspace),
+            new ToolOutputBlobStore(_workspace),
+            new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
+            TestModels.PromptTemplates,
+            dependencies.ChildQuestions,
+            dependencies.ActiveWorkReminder,
+            dependencies.ExitReminder,
+            dependencies.Profile,
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
+            dependencies.Status,
+            dependencies.ChildRegistry,
+            dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
+            cancellationToken);
+
+        var session = Build();
+        foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
+        {
+            _ = await session.Send(
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            await session.Settled();
+        }
+
+        var eventsBeforeCompaction = repository.Replay().Count;
+        var requestsBeforeCompaction = provider.Requests.Count;
+        await session.Compact(cancellationToken);
+
+        var snapshot = repository.Compaction("agent")
+            ?? throw new InvalidOperationException("Expected a durable compaction snapshot.");
+        var compactedEvents = repository.Replay().Skip(eventsBeforeCompaction).ToArray();
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(requestsBeforeCompaction + 1);
+        _ = await Assert.That(string.Join(',', compactedEvents.Select(published => published.PayloadCase)))
+            .IsEqualTo("CompactionStarted,StatusInjected,CompactionFinished");
+        _ = await Assert.That(compactedEvents)
+            .DoesNotContain(published => published.PayloadCase is Event.PayloadOneofCase.TurnStarted
+                or Event.PayloadOneofCase.TurnEnded
+                or Event.PayloadOneofCase.TurnFailed
+                or Event.PayloadOneofCase.InputAdmitted
+                or Event.PayloadOneofCase.InputPromoted);
+
+        var restarted = Build();
+        var requestsBeforeRestart = provider.Requests.Count;
+        _ = await restarted.Send(
+            [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await restarted.Settled();
+
+        var restoredRequest = provider.Requests.Skip(requestsBeforeRestart).Single();
+        _ = await Assert.That(restoredRequest.Messages[0].Content).IsEqualTo(snapshot.Summary);
+        _ = await Assert.That(restoredRequest.Messages)
+            .DoesNotContain(message => message.Content == "old prompt");
+        _ = await Assert.That(restoredRequest.Messages)
+            .Contains(message => message.Role == LLMRole.User && message.Content == "after restart");
+    }
+
+    [Test]
+    public async Task Forced_agent_session_compaction_waits_for_the_active_provider_call(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "first reply", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "second reply", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "third reply", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "summary", []));
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+
+        foreach (var prompt in new[] { "first", "second" })
+        {
+            _ = await session.Send(
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            await provider.Arrived(cancellationToken);
+            provider.Release();
+            await session.Settled();
+        }
+
+        _ = await session.Send(
+            [ConversationPart.TextPart("third")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var compaction = session.Compact(cancellationToken);
+
+        _ = await Assert.That(compaction.IsCompleted).IsFalse();
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
+
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
+        provider.Release();
+        await compaction;
+
+        _ = await Assert.That(repository.Compaction("agent")).IsNotNull();
+    }
+
+    [Test]
+    public async Task Queued_forced_compaction_cancels_before_active_provider_settles(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "reply", []));
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+
+        _ = await session.Send(
+            [ConversationPart.TextPart("blocked")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var eventsBeforeCompaction = repository.Replay().Count;
+        using var compactionCancellation = new CancellationTokenSource();
+        var compaction = session.Compact(compactionCancellation.Token);
+
+        await compactionCancellation.CancelAsync();
+        _ = await Assert.That(async () => await compaction.WaitAsync(TimeSpan.FromSeconds(1)))
+            .Throws<OperationCanceledException>();
+        _ = await Assert.That(session.Settled().IsCompleted).IsFalse();
+
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(repository.Replay().Skip(eventsBeforeCompaction).Select(published => published.PayloadCase))
+            .DoesNotContain(Event.PayloadOneofCase.CompactionStarted)
+            .And.DoesNotContain(Event.PayloadOneofCase.CompactionFinished)
+            .And.DoesNotContain(Event.PayloadOneofCase.CompactionFailed);
+    }
+
+    [Test]
+    public async Task Forced_agent_session_compaction_noops_without_eligible_history(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new ScriptedProvider("summary");
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+
+        await session.Compact(cancellationToken);
+
+        _ = await Assert.That(provider.Requests).IsEmpty();
+        _ = await Assert.That(repository.Compaction("agent")).IsNull();
+        _ = await Assert.That(string.Join(',', repository.Replay().Select(published => published.PayloadCase)))
+            .IsEqualTo("CompactionStarted,CompactionFinished");
+    }
+
+    [Test]
+    public async Task Forced_agent_session_compaction_reports_failure_once_without_turn_failure(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new FailingCompactionProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 100_000 });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+
+        foreach (var prompt in new[] { "first", "second", "third" })
+        {
+            _ = await session.Send(
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            await session.Settled();
+        }
+
+        var eventsBeforeCompaction = repository.Replay().Count;
+        _ = await Assert.That(async () => await session.Compact(cancellationToken))
+            .Throws<InvalidOperationException>();
+
+        var compactedEvents = repository.Replay().Skip(eventsBeforeCompaction).ToArray();
+        _ = await Assert.That(string.Join(',', compactedEvents.Select(published => published.PayloadCase)))
+            .IsEqualTo("CompactionStarted,CompactionFailed");
+        _ = await Assert.That(compactedEvents.Single(published =>
+                published.PayloadCase == Event.PayloadOneofCase.CompactionFailed).CompactionFailed.Message)
+            .IsEqualTo("The compaction provider did not complete with a summary.");
+    }
+
+    [Test]
     public async Task Agent_session_reports_compaction_failure_before_the_turn_failure(
         CancellationToken cancellationToken)
     {

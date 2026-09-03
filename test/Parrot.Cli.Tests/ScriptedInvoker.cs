@@ -28,6 +28,7 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<RejectQuestionRequest> _questionRejections = [];
     private readonly List<ReplyPermissionRequest> _permissionReplies = [];
     private readonly List<AttachmentUploadFrame> _uploadedAttachments = [];
+    private readonly List<CompactRequest> _compactions = [];
     private readonly Lock _gate = new();
     private int _pendingQuestionLists;
     private int _pendingPermissionLists;
@@ -123,6 +124,17 @@ internal sealed class ScriptedInvoker : CallInvoker
     }
 
     public int Interrupts { get; private set; }
+
+    public IReadOnlyList<CompactRequest> Compactions
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _compactions.Select(request => request.Clone())];
+            }
+        }
+    }
 
     public IReadOnlyList<AttachmentUploadFrame> UploadedAttachments
     {
@@ -453,6 +465,14 @@ internal sealed class ScriptedInvoker : CallInvoker
                 var listedSessions = new ListSessionsResponse();
                 listedSessions.Sessions.Add(Sessions);
                 answered = listedSessions;
+                break;
+            case CompactRequest compact:
+                lock (_gate)
+                {
+                    _compactions.Add(compact.Clone());
+                }
+
+                answered = new CompactResponse();
                 break;
             case SendMessageRequest send:
                 lock (_gate)

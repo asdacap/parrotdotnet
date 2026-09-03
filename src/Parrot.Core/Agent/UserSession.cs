@@ -334,6 +334,9 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal void ClearGoal() => Main().ClearGoal();
 
+    internal Task Compact(CancellationToken cancellationToken) =>
+        Main().Compact(cancellationToken);
+
     // Built once after owner initialization. The lock also protects concurrent
     // access from RPC handlers throughout the session lifetime.
     private AgentSession Main()

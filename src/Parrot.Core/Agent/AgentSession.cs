@@ -67,6 +67,7 @@ internal sealed class AgentSession(
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
     private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
+    private readonly Queue<ForcedCompactionRequest> _forcedCompactions = [];
 
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
@@ -214,6 +215,35 @@ internal sealed class AgentSession(
     // close.
     internal async Task Settled() =>
         _ = await WaitForDrainResult().ConfigureAwait(false);
+
+    internal Task Compact(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var request = new ForcedCompactionRequest(cancellationToken);
+
+        lock (_drainGate)
+        {
+            if (_aborted || lifetime.IsCancellationRequested)
+            {
+                throw new AgentRegistryException("the user session is shutting down");
+            }
+
+            _forcedCompactions.Enqueue(request);
+            if (_drainCancellation is not null)
+            {
+                _wake = true;
+            }
+            else
+            {
+                _drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+                _state = DrainState.Running;
+                Activity.ChangeState(DrainState.Running);
+                _drain = Drain(_drainCancellation.Token);
+            }
+        }
+
+        return AwaitForcedCompaction(request);
+    }
 
     internal async Task Abort(CancellationToken cancellationToken)
     {
@@ -654,6 +684,9 @@ internal sealed class AgentSession(
             && tool.IsParallelSafe(new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence));
     }
 
+    private static async Task AwaitForcedCompaction(ForcedCompactionRequest request) =>
+        await request.Completion.Task.WaitAsync(request.CancellationToken).ConfigureAwait(false);
+
     private AgentSelection CaptureSelection()
     {
         var selected = ResolvePolicySelection();
@@ -930,6 +963,7 @@ internal sealed class AgentSession(
 
         while (true)
         {
+            await RunForcedCompactions(cancellationToken).ConfigureAwait(false);
             var pass = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
             if (pass.Status != AgentExecutionStatus.Succeeded || pass.Output.Length > 0)
             {
@@ -943,7 +977,7 @@ internal sealed class AgentSession(
                 // recovered or otherwise pre-existing input cannot be stranded.
                 if (pass.Status == AgentExecutionStatus.Succeeded
                     && !cancellationToken.IsCancellationRequested
-                    && (_wake || eventRepository.HasPendingInputs(SessionId)))
+                    && (_forcedCompactions.Count > 0 || _wake || eventRepository.HasPendingInputs(SessionId)))
                 {
                     _wake = false;
                     continue;
@@ -957,6 +991,11 @@ internal sealed class AgentSession(
                 }
 
                 _drainCancellation = null;
+                while (_forcedCompactions.TryDequeue(out var forcedCompaction))
+                {
+                    _ = forcedCompaction.Completion.TrySetCanceled(cancellationToken);
+                }
+
                 _state = DrainState.Idle;
                 Activity.ChangeState(DrainState.Idle);
             }
@@ -995,6 +1034,11 @@ internal sealed class AgentSession(
         {
             while (true)
             {
+                if (!turnOpen && HasForcedCompactions())
+                {
+                    return AgentExecution.Succeeded(answer);
+                }
+
                 await ReconcileToolBatchesUsingCurrentConfiguration(cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -1491,6 +1535,68 @@ internal sealed class AgentSession(
         terminals.Add(settlement.Terminal.ToolCallId, settlement.Terminal);
     }
 
+    private bool HasForcedCompactions()
+    {
+        lock (_drainGate)
+        {
+            return _forcedCompactions.Count > 0;
+        }
+    }
+
+    private async Task RunForcedCompactions(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            ForcedCompactionRequest? request;
+            lock (_drainGate)
+            {
+                _ = _forcedCompactions.TryDequeue(out request);
+            }
+
+            if (request is null)
+            {
+                return;
+            }
+
+            try
+            {
+                using var operation = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    request.CancellationToken);
+                operation.Token.ThrowIfCancellationRequested();
+                await ReconcileToolBatchesUsingCurrentConfiguration(operation.Token).ConfigureAwait(false);
+                var captured = CaptureSelection();
+                captured.Profile.Prepare();
+                var resolved = router.Resolve(captured.RequestedModel.Value);
+                var selection = new AgentTurnSelection(
+                    resolved.RequestedSelector,
+                    resolved,
+                    captured.Profile,
+                    captured.SecurityProfile);
+                var tools = MaterializeTools()
+                    .Without(selection.Profile.DisabledTools)
+                    .Only(selection.Profile.AllowedTools);
+                if (!_epochInitialized)
+                {
+                    _systemPrompt.RenewEpoch();
+                    _epochInitialized = true;
+                }
+
+                var instructions = _systemPrompt.Build(selection);
+                _ = await CompactEpoch(selection, tools.Definitions, instructions, operation.Token).ConfigureAwait(false);
+                _ = request.Completion.TrySetResult();
+            }
+            catch (OperationCanceledException failure)
+            {
+                _ = request.Completion.TrySetCanceled(failure.CancellationToken);
+            }
+            catch (Exception failure)
+            {
+                _ = request.Completion.TrySetException(failure);
+            }
+        }
+    }
+
     // Sampled at the start of an epoch, not every turn, and compaction starts a
     // fresh one -- so a turn never begins already over the window.
     private async Task<string> PrepareEpoch(
@@ -1505,12 +1611,21 @@ internal sealed class AgentSession(
         }
 
         var instructions = _systemPrompt.Build(selection);
-        var selectedModel = selection.ResolvedModel.CanonicalModel;
-        if (!compactor.ShouldCompact(selectedModel, instructions, tools, _history))
+        if (!compactor.ShouldCompact(selection.ResolvedModel.CanonicalModel, instructions, tools, _history))
         {
             return instructions;
         }
 
+        return await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string> CompactEpoch(
+        AgentTurnSelection selection,
+        IReadOnlyList<LLMToolDefinition> tools,
+        string instructions,
+        CancellationToken cancellationToken)
+    {
+        var selectedModel = selection.ResolvedModel.CanonicalModel;
         var started = new Event
         {
             Id = Identifier.EventId(),
@@ -1919,5 +2034,13 @@ internal sealed class AgentSession(
         {
             await eventBroker.Publish(usage.ConvertToEvent(), cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private sealed class ForcedCompactionRequest(CancellationToken cancellationToken)
+    {
+        internal CancellationToken CancellationToken { get; } = cancellationToken;
+
+        internal TaskCompletionSource Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

@@ -10,7 +10,8 @@ internal sealed class SlashCommandCompletionTests
     {
         var first = new CompletionCommand("/mode");
         var second = new CompletionCommand("/model");
-        var completion = new SlashCommandCompletion(new SlashCommandRegistry([second, first], new TestSlashDialog()));
+        var compact = new CompletionCommand("/compact");
+        var completion = new SlashCommandCompletion(new SlashCommandRegistry([second, first, compact], new TestSlashDialog()));
 
         completion.Refresh("/mo");
         completion.SelectNext();
@@ -21,10 +22,14 @@ internal sealed class SlashCommandCompletionTests
         _ = await Assert.That(completion.Selected).IsEqualTo(1);
         _ = await Assert.That(completion.Accept("/mod trailing text")).IsEqualTo("/model trailing text");
 
+        completion.Refresh("/com");
+        _ = await Assert.That(string.Join('|', completion.Commands.Select(command => command.Name)))
+            .IsEqualTo("/compact");
+
         completion.SelectNext();
         _ = await Assert.That(completion.Selected).IsEqualTo(0);
         completion.SelectPrevious();
-        _ = await Assert.That(completion.Selected).IsEqualTo(1);
+        _ = await Assert.That(completion.Selected).IsEqualTo(0);
 
         completion.Refresh("/model arguments");
         _ = await Assert.That(completion.Commands).IsEmpty();

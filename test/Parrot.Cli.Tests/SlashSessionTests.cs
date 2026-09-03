@@ -9,6 +9,23 @@ namespace Parrot.Cli.Tests;
 internal sealed class SlashSessionTests
 {
     [Test]
+    public async Task Compact_forwards_the_current_session_id()
+    {
+        var invoker = new ScriptedInvoker();
+        var session = new SlashSession(
+            new GeneratedParrot.ParrotClient(invoker),
+            new UserSession { Id = "session-7", Model = "provider/model", Mode = "build" },
+            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+            false,
+            new RecordingSlashSessionBinding());
+
+        await session.Compact(CancellationToken.None);
+
+        _ = await Assert.That(invoker.Compactions).Count().IsEqualTo(1);
+        _ = await Assert.That(invoker.Compactions[0].UserSessionId).IsEqualTo("session-7");
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Start_new_forwards_interaction_ownership_and_cancellation_to_binding(

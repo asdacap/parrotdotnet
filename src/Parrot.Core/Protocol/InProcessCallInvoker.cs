@@ -101,6 +101,7 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
             UpdateSessionRequest update => await service.UpdateSession(update, context).ConfigureAwait(false),
             SendMessageRequest send => await service.SendMessage(send, context).ConfigureAwait(false),
             InterruptRequest interrupt => await service.Interrupt(interrupt, context).ConfigureAwait(false),
+            CompactRequest compact => await service.Compact(compact, context).ConfigureAwait(false),
             ListPendingQuestionsRequest list =>
                 await service.ListPendingQuestions(list, context).ConfigureAwait(false),
             ReplyQuestionRequest reply => await service.ReplyQuestion(reply, context).ConfigureAwait(false),

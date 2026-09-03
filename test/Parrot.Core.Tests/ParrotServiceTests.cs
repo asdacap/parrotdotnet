@@ -103,6 +103,42 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task In_process_compact_routes_to_the_selected_live_user_session_and_awaits_it(
+        CancellationToken cancellationToken)
+    {
+        var sessions = new DirectAgentSessions();
+        await using var service = Service(Store(sessions));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var selected = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+        var other = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+
+        foreach (var text in new[] { "first", "second", "third" })
+        {
+            _ = await client.SendMessageAsync(
+                Send(selected.Id, text, $"message-{text}"), cancellationToken: cancellationToken);
+        }
+
+        var compacted = await client.CompactAsync(
+            new CompactRequest { UserSessionId = selected.Id }, cancellationToken: cancellationToken);
+
+        _ = await Assert.That(compacted).IsNotNull();
+        _ = await Assert.That(sessions.Owners).Count().IsEqualTo(2);
+        _ = await Assert.That(other.Id).IsNotEqualTo(selected.Id);
+
+        var unknown = await Assert.That(async () => await client.CompactAsync(
+            new CompactRequest { UserSessionId = "no-such-session" }, cancellationToken: cancellationToken)).Throws<RpcException>();
+        _ = await Assert.That(unknown?.StatusCode).IsEqualTo(StatusCode.NotFound);
+
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        _ = await Assert.That(async () => await client.CompactAsync(
+            new CompactRequest { UserSessionId = selected.Id }, cancellationToken: cancelled.Token))
+            .Throws<OperationCanceledException>();
+    }
+
+    [Test]
     public async Task Images_are_uploaded_with_canonical_metadata_and_admitted_as_structured_parts(
         CancellationToken cancellationToken)
     {
@@ -763,7 +799,7 @@ internal sealed class ParrotServiceTests : IDisposable
     {
         var models = new LLMModel[]
         {
-            new("model", "scripted"),
+            new("model", "scripted") { ContextWindow = 100_000 },
             new("vendor/model", "scripted")
             {
                 Capabilities = new ModelCapabilities(

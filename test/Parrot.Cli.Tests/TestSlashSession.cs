@@ -14,6 +14,10 @@ internal sealed class TestSlashSession(string model) : ISlashSession
 
     public int ClearedGoals { get; private set; }
 
+    public int Compactions { get; private set; }
+
+    public CancellationToken CompactionCancellationToken { get; private set; }
+
     public Task SelectModel(string model, CancellationToken cancellationToken)
     {
         Model = model;
@@ -43,6 +47,13 @@ internal sealed class TestSlashSession(string model) : ISlashSession
     public Task ClearGoal(CancellationToken cancellationToken)
     {
         ClearedGoals++;
+        return Task.CompletedTask;
+    }
+
+    public Task Compact(CancellationToken cancellationToken)
+    {
+        Compactions++;
+        CompactionCancellationToken = cancellationToken;
         return Task.CompletedTask;
     }
 }

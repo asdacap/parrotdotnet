@@ -22,7 +22,7 @@ internal sealed class SlashCommandTests
             ["provider"]);
 
         _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
-            .IsEqualTo("/auth|/clear|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/models|/modes|/sessions|/version");
+            .IsEqualTo("/auth|/clear|/compact|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/models|/modes|/sessions|/version");
         _ = await Assert.That(registry.Commands.All(command => command.Summary.Length > 0)).IsTrue();
     }
 

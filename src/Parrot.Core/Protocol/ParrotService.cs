@@ -400,6 +400,16 @@ internal sealed class ParrotService(
         return new InterruptResponse();
     }
 
+    public override async Task<CompactResponse> Compact(CompactRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        await Find(request.UserSessionId).Compact(context.CancellationToken).ConfigureAwait(false);
+
+        return new CompactResponse();
+    }
+
     public override Task<ListPendingQuestionsResponse> ListPendingQuestions(
         ListPendingQuestionsRequest request,
         ServerCallContext context)

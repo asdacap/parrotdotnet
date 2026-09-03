@@ -1307,8 +1307,9 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
 - **Owns** nothing. No model of the conversation beyond what it has printed.
 - **Inbound** a `switch` over `Event.PayloadCase` and a `WriteLine`, driven
   either one-shot or by `InteractiveSession`'s REPL. Slash commands are
-  client-side and never reach the event stream, so they do not give it a
-  conversation model.
+  client-side control actions that may invoke generated gRPC control RPCs; their
+  slash text never reaches the event stream, so it does not give it a conversation
+  model.
 - **Outbound** the generated gRPC client, and nothing else.
 - **Boundary** no.
 - **Note** it is the test of the event contract. If it needs a helper, fix the

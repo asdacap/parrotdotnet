@@ -42,6 +42,11 @@ internal sealed class SlashSession(
             new SetGoalRequest { UserSessionId = Id, Clear = new ClearGoal() },
             cancellationToken: cancellationToken).ResponseAsync;
 
+    public Task Compact(CancellationToken cancellationToken) =>
+        client.CompactAsync(
+            new CompactRequest { UserSessionId = Id },
+            cancellationToken: cancellationToken).ResponseAsync;
+
     public async Task StartNew(string model, string mode, CancellationToken cancellationToken)
     {
         var session = await client.CreateSessionAsync(

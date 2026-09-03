@@ -21,6 +21,7 @@ internal static class SlashCommands
         var modes = new ModeSelection(client, dialog);
         commands.Add(new AuthCommand(credentials, oauth, providerIds, dialog));
         commands.Add(new ClearCommand(models, modes, session, activity, dialog));
+        commands.Add(new CompactCommand(session, activity, dialog));
         commands.Add(new EffortCommand(client, session, activity, dialog));
         commands.Add(new ExitCommand(applicationExit));
         commands.Add(new GoalCommand(session, dialog));

@@ -17,4 +17,6 @@ internal interface ISlashSession
     Task SetGoal(string goal, CancellationToken cancellationToken);
 
     Task ClearGoal(CancellationToken cancellationToken);
+
+    Task Compact(CancellationToken cancellationToken);
 }

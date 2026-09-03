@@ -24,6 +24,7 @@ service Parrot {
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
   rpc UploadAttachment (stream AttachmentUploadFrame) returns (AttachmentUploadResponse);
   rpc Interrupt (InterruptRequest) returns (InterruptResponse);
+  rpc Compact (CompactRequest) returns (CompactResponse);
   rpc ListPendingQuestions (ListPendingQuestionsRequest) returns (ListPendingQuestionsResponse);
   rpc ReplyQuestion (ReplyQuestionRequest) returns (ReplyQuestionResponse);
   rpc RejectQuestion (RejectQuestionRequest) returns (RejectQuestionResponse);
@@ -252,6 +253,12 @@ message InterruptRequest {
 }
 
 message InterruptResponse {}
+
+message CompactRequest {
+  string user_session_id = 1;
+}
+
+message CompactResponse {}
 
 message ListPendingQuestionsRequest {
   string user_session_id = 1;

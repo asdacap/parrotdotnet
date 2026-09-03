@@ -882,7 +882,10 @@ non-interactive commands and ordinary stdin/stdout pipes instead.
 Slash commands are interactive wizards. Enter `/model` to select a provider and
 then a model, `/model-alias` to configure a predefined or custom alias, `/mode`
 to select a mode, `/clear` to configure a fresh session, or `/auth` to manage
-credentials. Most commands ignore text after the command name because the wizard
+credentials. `/compact` explicitly compacts the current root session even when it
+is below the automatic threshold. It waits for active work to become idle, sends
+no model prompt, and may complete as a no-op when there is insufficient eligible
+history. Most commands ignore text after the command name because the wizard
 asks for the complete selection. `/goal <text>` is the exception: it stores a
 persistent reminder on the root session using the exact wrapped text
 `User set goal is {goal}. Clear exit reminder if end condition met.` (with `{goal}`
