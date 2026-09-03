@@ -5,6 +5,7 @@ internal sealed record AgentTaskResult(
     AgentTaskExecutionStatus Status,
     int AttemptCount,
     string? Context,
+    string? Result,
     AgentTaskPatch? TaskPatch,
     string? Execution,
     AcceptanceVerdict? Verdict,

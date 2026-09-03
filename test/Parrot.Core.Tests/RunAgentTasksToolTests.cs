@@ -77,8 +77,8 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         const string arguments =
             "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"ready\",\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
-            "{\"context\":\"ready\",\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
+            "{\"result\":\"ready\",\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
+            "{\"result\":\"ready\",\"verdict\":\"reject_and_retry\",\"feedback\":\"try again\",\"payload\":\"again\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -89,7 +89,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         using var document = System.Text.Json.JsonDocument.Parse(result.Text);
         var task = document.RootElement.GetProperty("tasks")[0];
         _ = await Assert.That(task.GetProperty("attempt_count").GetInt32()).IsEqualTo(2);
-        _ = await Assert.That(task.GetProperty("context").GetString()).IsEqualTo("ready");
+        _ = await Assert.That(task.GetProperty("result").GetString()).IsEqualTo("ready");
         _ = await Assert.That(task.GetProperty("verdict").GetString()).IsEqualTo("reject_and_retry");
         _ = await Assert.That(string.Join(",", task.GetProperty("retry_feedback").EnumerateArray().Select(item => item.GetString())))
             .IsEqualTo("try again,try again");
@@ -120,9 +120,9 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         const string arguments =
             "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"leaf context\",\"verdict\":\"reject_and_retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"child\",\"description\":\"Child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child done\"}],\"replacement_context\":\"replacement context\"}",
+            "{\"result\":\"leaf result\",\"verdict\":\"reject_and_retry\",\"feedback\":\"split it\",\"payload\":[{\"name\":\"child\",\"description\":\"Child\",\"payload\":\"child work\",\"acceptance_criteria\":\"Child done\"}],\"replacement_result\":\"replacement result\"}",
             "{\"context\":\"composite context\"}",
-            "{\"context\":\"child context\",\"verdict\":\"accept\",\"evidence\":\"child done\"}",
+            "{\"result\":\"child context\",\"verdict\":\"accept\",\"evidence\":\"child done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
@@ -135,7 +135,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var task = document.RootElement.GetProperty("tasks")[0];
         _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
         _ = await Assert.That(task.GetProperty("attempt_count").GetInt32()).IsEqualTo(2);
-        _ = await Assert.That(task.GetProperty("context").GetString()).IsEqualTo("replacement context");
+        _ = await Assert.That(task.GetProperty("context").GetString()).IsEqualTo("composite context");
         _ = await Assert.That(task.GetProperty("retry_feedback").EnumerateArray().Single().GetString()).IsEqualTo("split it");
         _ = await Assert.That(task.GetProperty("evidence").GetString()).IsEqualTo("parent done");
         _ = await Assert.That(task.GetProperty("tasks")[0].GetProperty("evidence").GetString()).IsEqualTo("child done");
@@ -152,7 +152,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
             .Any(content => content.Contains("composite context", StringComparison.Ordinal))).IsTrue();
         var childPrompt = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
-        _ = await Assert.That(childPrompt).Contains("replacement context");
+        _ = await Assert.That(childPrompt).Contains("replacement result");
     }
 
     [Test]
@@ -161,7 +161,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         const string arguments =
             "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"ready\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"result\":\"ready\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
@@ -176,7 +176,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         using var document = System.Text.Json.JsonDocument.Parse(result.Text);
         _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
         var task = document.RootElement.GetProperty("tasks")[0];
-        _ = await Assert.That(task.GetProperty("context").GetString()).IsEqualTo("ready");
+        _ = await Assert.That(task.GetProperty("result").GetString()).IsEqualTo("ready");
         _ = await Assert.That(task.GetProperty("verdict").GetString()).IsEqualTo("accept");
         _ = await Assert.That(task.GetProperty("evidence").GetString()).IsEqualTo("done");
         _ = await Assert.That(task.GetProperty("task_patch").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
@@ -245,7 +245,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             artifactJson,
             cancellationToken);
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"ready\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"result\":\"ready\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
         ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;

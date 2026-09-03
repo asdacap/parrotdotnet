@@ -77,6 +77,7 @@ internal sealed class AgentTaskGraphRunner(
         null,
         null,
         null,
+        null,
         failure,
         null,
         null);
@@ -89,6 +90,7 @@ internal sealed class AgentTaskGraphRunner(
         int attempt,
         AgentTaskPatch? taskPatch,
         string? context,
+        string? result,
         string? execution,
         AcceptanceVerdict? verdict,
         IReadOnlyList<string>? retryFeedback,
@@ -98,6 +100,7 @@ internal sealed class AgentTaskGraphRunner(
             AgentTaskExecutionStatus.Failed,
             attempt,
             context,
+            result,
             taskPatch,
             execution,
             verdict,
@@ -110,6 +113,7 @@ internal sealed class AgentTaskGraphRunner(
         name,
         AgentTaskExecutionStatus.Blocked,
         0,
+        null,
         null,
         null,
         null,
@@ -128,6 +132,23 @@ internal sealed class AgentTaskGraphRunner(
     {
         var header = Header(task, ancestors, contexts, dependencies);
         return ComposePrompt(new StringBuilder(header), Render(
+            "agent-task.prepare",
+            ("header", string.Empty),
+            ("path", path),
+            ("declaration", Bound(AgentTaskPromptFormatter.Format(task), MaxSummaryCharacters))));
+    }
+
+    private string BuildPreparePromptWithResult(
+        EffectiveAgentTask task,
+        IReadOnlyList<AgentTaskAncestor> ancestors,
+        IReadOnlyList<AgentTaskPrepareContext> contexts,
+        IReadOnlyList<AgentTaskResult> dependencies,
+        string path,
+        string result)
+    {
+        var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        AppendResult(prompt, result);
+        return ComposePrompt(prompt, Render(
             "agent-task.prepare",
             ("header", string.Empty),
             ("path", path),
@@ -155,9 +176,11 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         IReadOnlyList<AgentTaskResult> dependencies,
-        IReadOnlyList<string> feedback)
+        IReadOnlyList<string> feedback,
+        string? result)
     {
         var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        AppendResult(prompt, result);
         AppendFeedback(prompt, feedback);
         return ComposePrompt(prompt, Render(
             "agent-task.leaf",
@@ -173,9 +196,11 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskResult> dependencies,
         IReadOnlyList<string> feedback,
         string execution,
-        IReadOnlyList<AgentTaskResult>? nested)
+        IReadOnlyList<AgentTaskResult>? nested,
+        string? carriedResult)
     {
         var prompt = new StringBuilder(Header(task, ancestors, contexts, dependencies));
+        AppendResult(prompt, carriedResult);
         AppendFeedback(prompt, feedback);
         var nestedText = nested is null
             ? string.Empty
@@ -231,7 +256,8 @@ internal sealed class AgentTaskGraphRunner(
             {
                 _ = dependencyText.Append("\n[").Append(dependency.Name).Append("] ")
                     .Append(Bound(
-                        dependency.Execution
+                        dependency.Result
+                        ?? dependency.Execution
                         ?? dependency.Verdict?.Evidence
                         ?? dependency.Failure
                         ?? dependency.Status.ToString(),
@@ -247,6 +273,14 @@ internal sealed class AgentTaskGraphRunner(
             ("ancestors", ancestorText.ToString()),
             ("contexts", contextText.ToString()),
             ("dependencies", dependencyText.ToString()));
+    }
+
+    private void AppendResult(StringBuilder prompt, string? result)
+    {
+        if (result is not null)
+        {
+            _ = prompt.Append(Render("agent-task.result", ("result", Bound(result, MaxContextCharacters))));
+        }
     }
 
     private void AppendFeedback(StringBuilder prompt, IReadOnlyList<string> feedback)
@@ -506,6 +540,7 @@ internal sealed class AgentTaskGraphRunner(
             prepareRun.Agent,
             [],
             1,
+            null,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -522,23 +557,20 @@ internal sealed class AgentTaskGraphRunner(
     {
         var feedback = new List<string>();
         AgentSession? payloadAgent = null;
-        string? currentContext = null;
+        string? currentResult = null;
         var maximumAttempts = configuration.MaximumAttempts;
 
         for (var attempt = 1; attempt <= maximumAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var promptContexts = currentContext is null
-                ? inheritedContexts
-                : Array.AsReadOnly(
-                    inheritedContexts.Append(new AgentTaskPrepareContext(path, currentContext)).ToArray());
+            var promptContexts = inheritedContexts;
             var payloadRun = await RunRole(
                 effective.Model,
                 "execute",
                 approved.Name,
                 owningAgent,
                 payloadAgent,
-                BuildLeafPrompt(effective, ancestors, promptContexts, dependencies, feedback),
+                BuildLeafPrompt(effective, ancestors, promptContexts, dependencies, feedback, currentResult),
                 cancellationToken).ConfigureAwait(false);
             payloadAgent = payloadRun.Agent;
             var executed = payloadRun.Execution;
@@ -548,7 +580,8 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     null,
-                    currentContext,
+                    null,
+                    currentResult,
                     null,
                     null,
                     RetainFeedback(feedback),
@@ -560,7 +593,7 @@ internal sealed class AgentTaskGraphRunner(
             try
             {
                 response = AgentTaskParser.ParseLeafResponse(executed.Output);
-                response = response with { Context = Bound(response.Context, MaxContextCharacters) };
+                response = response with { Result = Bound(response.Result, MaxContextCharacters) };
             }
             catch (ArgumentException failure)
             {
@@ -568,7 +601,8 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     null,
-                    currentContext,
+                    null,
+                    currentResult,
                     null,
                     null,
                     RetainFeedback(feedback),
@@ -582,14 +616,15 @@ internal sealed class AgentTaskGraphRunner(
                     ? null
                     : Bound(response.Verdict.Feedback, MaxSummaryCharacters),
             };
-            currentContext = response.Context;
+            currentResult = response.Result;
             if (verdict.Kind == AcceptanceVerdictKind.Accept)
             {
                 return new AgentTaskResult(
                     approved.Name,
                     AgentTaskExecutionStatus.Succeeded,
                     attempt,
-                    currentContext,
+                    null,
+                    currentResult,
                     null,
                     null,
                     verdict,
@@ -607,7 +642,8 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     null,
-                    currentContext,
+                    null,
+                    currentResult,
                     null,
                     verdict,
                     RetainFeedback(feedback),
@@ -619,7 +655,7 @@ internal sealed class AgentTaskGraphRunner(
                 ?? throw new InvalidOperationException("A reject_and_retry verdict requires feedback.");
             var replacementPayload = verdict.Payload
                 ?? throw new InvalidOperationException("A reject_and_retry verdict requires a replacement payload.");
-            currentContext = Bound(verdict.Context ?? response.Context, MaxContextCharacters);
+            currentResult = Bound(verdict.Context ?? response.Result, MaxContextCharacters);
             feedback.Add(retryFeedback);
             if (attempt == maximumAttempts)
             {
@@ -627,7 +663,8 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     null,
-                    currentContext,
+                    null,
+                    currentResult,
                     null,
                     verdict,
                     RetainFeedback(feedback),
@@ -646,7 +683,8 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     null,
-                    currentContext,
+                    null,
+                    currentResult,
                     null,
                     verdict,
                     RetainFeedback(feedback),
@@ -661,16 +699,14 @@ internal sealed class AgentTaskGraphRunner(
                 continue;
             }
 
-            var retryContexts = inheritedContexts
-                .Append(new AgentTaskPrepareContext(path, currentContext))
-                .ToArray();
+            var retryContexts = inheritedContexts;
             var prepareRun = await RunRole(
                 effective.Model,
                 "prepare",
                 approved.Name,
                 owningAgent,
                 null,
-                BuildPreparePrompt(effective, ancestors, retryContexts, dependencies, path),
+                BuildPreparePromptWithResult(effective, ancestors, retryContexts, dependencies, path, currentResult ?? throw new InvalidOperationException("A leaf retry requires a result.")),
                 cancellationToken).ConfigureAwait(false);
             var prepare = prepareRun.Execution;
             if (prepare.Status != AgentExecutionStatus.Succeeded)
@@ -679,7 +715,8 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     null,
-                    currentContext,
+                    null,
+                    currentResult,
                     null,
                     verdict,
                     RetainFeedback(feedback),
@@ -717,7 +754,8 @@ internal sealed class AgentTaskGraphRunner(
                     approved.Name,
                     attempt,
                     null,
-                    currentContext,
+                    null,
+                    currentResult,
                     null,
                     verdict,
                     RetainFeedback(feedback),
@@ -727,7 +765,6 @@ internal sealed class AgentTaskGraphRunner(
 
             var currentContexts = inheritedContexts
                 .Append(new AgentTaskPrepareContext(path, preparation.Context))
-                .Append(new AgentTaskPrepareContext(path, currentContext))
                 .ToArray();
             var currentAncestors = ancestors
                 .Append(new AgentTaskAncestor(path, effective.Description))
@@ -746,6 +783,7 @@ internal sealed class AgentTaskGraphRunner(
                 prepareRun.Agent,
                 feedback,
                 attempt + 1,
+                currentResult,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -766,6 +804,7 @@ internal sealed class AgentTaskGraphRunner(
         AgentSession compositeAgent,
         List<string> feedback,
         int firstAttempt,
+        string? carriedResult,
         CancellationToken cancellationToken)
     {
         AgentSession? executionAgent = null;
@@ -799,6 +838,7 @@ internal sealed class AgentTaskGraphRunner(
                         attempt,
                         taskPatch,
                         currentContexts[^1].Context,
+                        null,
                         execution,
                         verdict,
                         RetainFeedback(feedback),
@@ -829,14 +869,16 @@ internal sealed class AgentTaskGraphRunner(
                     ("total", nested.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             }
 
+            var acceptanceResult = carriedResult;
             var acceptanceRun = await RunRole(
                 effective.Model,
                 "accept",
                 approved.Name,
                 compositeAgent,
                 compositeAgent,
-                BuildAcceptancePrompt(effective, ancestors, currentContexts, dependencies, feedback, execution, nested),
+                BuildAcceptancePrompt(effective, ancestors, currentContexts, dependencies, feedback, execution, nested, acceptanceResult),
                 cancellationToken).ConfigureAwait(false);
+            carriedResult = null;
             var reviewed = acceptanceRun.Execution;
             if (reviewed.Status != AgentExecutionStatus.Succeeded)
             {
@@ -845,6 +887,7 @@ internal sealed class AgentTaskGraphRunner(
                     attempt,
                     taskPatch,
                     currentContexts[^1].Context,
+                    nested is null ? execution : Bound(AgentTaskGraphResult.SerializeNested(nested), MaxSummaryCharacters),
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -863,6 +906,7 @@ internal sealed class AgentTaskGraphRunner(
                     attempt,
                     taskPatch,
                     currentContexts[^1].Context,
+                    nested is null ? execution : Bound(AgentTaskGraphResult.SerializeNested(nested), MaxSummaryCharacters),
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -877,6 +921,7 @@ internal sealed class AgentTaskGraphRunner(
                     AgentTaskExecutionStatus.Succeeded,
                     attempt,
                     currentContexts[^1].Context,
+                    nested is null ? execution : Bound(AgentTaskGraphResult.SerializeNested(nested), MaxSummaryCharacters),
                     taskPatch,
                     execution,
                     verdict,
@@ -895,6 +940,7 @@ internal sealed class AgentTaskGraphRunner(
                     attempt,
                     taskPatch,
                     currentContexts[^1].Context,
+                    nested is null ? execution : Bound(AgentTaskGraphResult.SerializeNested(nested), MaxSummaryCharacters),
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -919,6 +965,7 @@ internal sealed class AgentTaskGraphRunner(
                     attempt,
                     taskPatch,
                     currentContexts[^1].Context,
+                    nested is null ? execution : Bound(AgentTaskGraphResult.SerializeNested(nested), MaxSummaryCharacters),
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -939,6 +986,7 @@ internal sealed class AgentTaskGraphRunner(
                     attempt,
                     taskPatch,
                     currentContexts[^1].Context,
+                    nested is null ? execution : Bound(AgentTaskGraphResult.SerializeNested(nested), MaxSummaryCharacters),
                     execution,
                     verdict,
                     RetainFeedback(feedback),
@@ -947,6 +995,7 @@ internal sealed class AgentTaskGraphRunner(
             }
 
             currentContexts[^1] = new AgentTaskPrepareContext(path, replacementContext);
+            carriedResult = null;
             effective = replacement;
             childHandles = progress.ReplaceChildren(
                 handle,

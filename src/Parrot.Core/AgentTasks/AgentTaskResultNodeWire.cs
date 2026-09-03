@@ -7,6 +7,7 @@ internal sealed record AgentTaskResultNodeWire(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("attempt_count")] int AttemptCount,
     [property: JsonPropertyName("context")] string? Context,
+    [property: JsonPropertyName("result")] string? Result,
     [property: JsonPropertyName("task_patch")] AgentTaskPatchResultWire? TaskPatch,
     [property: JsonPropertyName("execution")] string? Execution,
     [property: JsonPropertyName("verdict")] string? Verdict,

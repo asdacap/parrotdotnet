@@ -37,7 +37,7 @@ system_prompts:
 
     Agent tasks are meant to be somewhat a horizontal or a feature concern. Composite tasks use distinct preparation and validation turns on one retained composite agent, which owns nested child agents; a fresh instruction leaf uses one retained payload agent that implements and verifies the instruction in one call. Research may be used during preparation but is not required; do not create separate preparation or acceptance tasks. Each task should have a limited altitude: a program-level task should break work into feature-level tasks, and a high-level task should break work down one abstraction level, recursively. The terminal leaf should be small enough for a small llm worker to follow reliably, this mean specific requirement over open ended requirement, somewhat like the expectation of a senior vs junior engineer.
 
-    Composite preparation runs once at the task altitude, builds useful context, and can apply a narrow run-local correction to the effective payload or inner graph if necessary. Every leaf response returns required nonblank context and exactly one of three strict verdicts: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction string or task array. Only reject_and_retry starts a retry; its replacement context may update later attempts and descendants, otherwise the leaf response's required current context remains effective. There are user configurable maximum attempt, so reject_and_retry may halt. A final reject_and_retry retains its feedback and replacement context as the latest effective result. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
+    Composite preparation runs once at the task altitude, builds useful context, and can apply a narrow run-local correction to the effective payload or inner graph if necessary. Every leaf response returns a required nonblank result and exactly one of three strict verdicts: accept with nonblank evidence, reject_and_halt with nonblank feedback, or reject_and_retry with nonblank feedback and a replacement instruction string or task array. Only reject_and_retry starts a retry; its retry-only replacement_result may replace the result carried into later attempts and direct dependents. There are user configurable maximum attempt, so reject_and_retry may halt. A final reject_and_retry retains its feedback and replacement_result (or prior result) as the latest effective result. On total graph failure, prefer to update the graph then rerun rather than completing the tasks manually.
 
   runtime:system-context:03-subagent-pattern: >-
     # Common subagent spawn strategy
@@ -268,6 +268,12 @@ prompt_templates:
       Acceptance criteria: {acceptance_criteria}{ancestors}{contexts}{dependencies}
     allowed_arguments: [task_name, description, acceptance_criteria, ancestors, contexts, dependencies]
     required_arguments: [task_name, description, acceptance_criteria, ancestors, contexts, dependencies]
+  agent-task.result:
+    template: |-
+      Prior leaf result:
+      {result}
+    allowed_arguments: [result]
+    required_arguments: [result]
   agent-task.feedback:
     template: |-
       Retry feedback:{items}
@@ -313,8 +319,8 @@ prompt_templates:
       AgentTask role: payload executor{header}{feedback}
       Inspect, implement, and verify this instruction:
       {instruction}
-      Return only one strict JSON object with no prose or code fence: {{"context":"nonblank","verdict":"accept","evidence":"nonblank"}}, {{"context":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"context":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_context":"optional nonblank replacement context"}}.
-      Omit replacement_context to carry the returned current context into the next attempt.
+      Return only one strict JSON object with no prose or code fence: {{"result":"nonblank","verdict":"accept","evidence":"nonblank"}}, {{"result":"nonblank","verdict":"reject_and_halt","feedback":"nonblank"}}, or {{"result":"nonblank","verdict":"reject_and_retry","feedback":"nonblank","payload":"replacement instruction or task array","replacement_result":"optional nonblank replacement result"}}.
+      Omit replacement_result to carry the returned result into the next attempt.
     allowed_arguments: [header, feedback, instruction]
     required_arguments: [header, feedback, instruction]
   agent-task.acceptance:
@@ -722,7 +728,7 @@ profiles:
     prompt: |-
       You are an AgentTask payload executor. Implement the assigned task within its approved scope and verify the observable result against the strict contract.
 
-      Preserve existing behavior outside the task, report concrete verification evidence, and stop when the task contract is satisfied. For instruction leaves, return only the required combined JSON with nonblank context and exactly one strict verdict.
+      Preserve existing behavior outside the task, report concrete verification evidence, and stop when the task contract is satisfied. For instruction leaves, return only the required strict JSON with nonblank result and exactly one strict verdict. Composite preparation context and validation evidence remain separate.
     max_turns: 128
     recursion_limit: 4
     read_only: false
@@ -1207,7 +1213,7 @@ tools:
       type: object
       additionalProperties: false
   run_agent_tasks:
-    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only children; instruction leaves use agent-task-payload for combined implementation and verification, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then return hierarchical JSON evidence.
+    description: Execute an approved AgentTask v1 graph synchronously through fresh retained-only children; instruction leaves use agent-task-payload for implementation and verification with strict result JSON, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then return hierarchical JSON evidence.
     parameters:
       type: object
       properties:
