@@ -50,14 +50,6 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new TodoCollection(
-                    arguments.Identity.SessionId,
-                    arguments.EventRepository,
-                    arguments.EventBroker);
-            })
-            .Bind().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new ToolOutputBlobStore(arguments.Scratch.BlobDirectory);
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
@@ -85,7 +77,6 @@ internal partial class AgentSessionComposition
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<TodoCollection>(out var todos);
                 ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
                 ctx.Inject<ShellProcessOwner>(out var processes);
                 ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
@@ -106,7 +97,6 @@ internal partial class AgentSessionComposition
                     toolFactories,
                     arguments.ToolDefinitions,
                     systemPrompt,
-                    todos,
                     toolOutputBlobs,
                     arguments.Compactor,
                     arguments.PromptTemplates,

@@ -116,15 +116,15 @@ internal sealed class ToolPresenterRegistryTests
     }
 
     [Test]
-    public async Task Historical_todo_calls_use_the_generic_presenter_for_malformed_input_and_spill_output()
+    public async Task Unknown_calls_use_the_generic_presenter_for_malformed_input_and_spill_output()
     {
         var generic = new GenericToolPresenter();
         var registry = new ToolPresenterRegistry([], generic);
         const string notice = "Tool output exceeded 64 KiB and was saved to /tmp/output.";
-        var live = registry.PresentLive(new ToolCallPresentation("main", "todoread", "not json"), 0)
+        var live = registry.PresentLive(new ToolCallPresentation("main", "retired_tool", "not json"), 0)
             .Render(LiveContext).Lines.Select(line => line.Text);
         var presented = registry.PresentTerminal(
-            new ToolCallPresentation("main", "todowrite", "not json"),
+            new ToolCallPresentation("main", "retired_tool", "not json"),
             new ToolTerminalPresentation(ToolTerminalStatus.Succeeded, true, notice, string.Empty))
             ?? throw new InvalidOperationException("The generic presenter must render terminal output.");
         var rendered = presented.Render(ScrollbackContext);
@@ -132,9 +132,9 @@ internal sealed class ToolPresenterRegistryTests
         var liveText = string.Join('\n', live);
         var renderedText = string.Join('\n', rendered);
 
-        _ = await Assert.That(liveText).Contains("main: todoread");
+        _ = await Assert.That(liveText).Contains("main: retired_tool");
         _ = await Assert.That(liveText).Contains("not json");
-        _ = await Assert.That(renderedText).Contains("main: tool call todowrite");
+        _ = await Assert.That(renderedText).Contains("main: tool call retired_tool");
         _ = await Assert.That(renderedText).Contains("not json");
         _ = await Assert.That(renderedText).Contains(notice);
     }

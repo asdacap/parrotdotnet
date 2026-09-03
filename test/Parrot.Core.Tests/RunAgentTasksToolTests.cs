@@ -361,7 +361,6 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             [],
             TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, _root, _root),
-            new TodoCollection(identity.SessionId, repository, _broker),
             new ToolOutputBlobStore(_root),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,

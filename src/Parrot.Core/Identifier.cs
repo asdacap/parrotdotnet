@@ -69,8 +69,6 @@ internal static class Identifier
 
     public static string InputId() => $"inp-{Opaque()}";
 
-    public static string TodoId() => $"todo-{Opaque()}";
-
     public static string QuestionRequestId() => $"question-{Opaque()}";
 
     public static string PermissionRequestId() => $"permission-{Opaque()}";

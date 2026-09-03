@@ -216,18 +216,6 @@ internal sealed class SessionDatabase : IDisposable
                 CREATE INDEX IF NOT EXISTS history_checkpoint_by_title
                     ON history_checkpoint (agent_session, title, sequence DESC);
 
-                CREATE TABLE IF NOT EXISTS todo (
-                    agent_session TEXT NOT NULL,
-                    id            TEXT NOT NULL,
-                    position      INTEGER NOT NULL CHECK (position >= 0),
-                    content       TEXT NOT NULL,
-                    status        TEXT NOT NULL,
-                    priority      TEXT NOT NULL,
-                    PRIMARY KEY (agent_session, id),
-                    UNIQUE (agent_session, position)
-                );
-
-                CREATE INDEX IF NOT EXISTS todo_by_session ON todo (agent_session, position);
                 CREATE TABLE IF NOT EXISTS mode_change (
                     sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
                     agent_session TEXT NOT NULL,

@@ -796,9 +796,9 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
 
 - **Absorbs** `session` (conversation half), `agent` (runner and coordinator).
 - **Owns** identity, selection, drain state, interactive owner binding,
-  admitted input, messages, context epoch, todos, goals, tasks, and its queue
-  scope. Todos, goals, and queue listening registrations are **owned
-  sub-objects**, not user-session-global services.
+  admitted input, messages, context epoch, goals, tasks, and its queue scope.
+  Goals and queue listening registrations are **owned sub-objects**, not
+  user-session-global services.
 - **Inbound** admit a prompt, run the drain, interrupt. Upholds principles 2
   (one drain), 3 (a turn is a cancellable boundary), 4 (immutable epoch), and 6
   (all tools settle before the next turn).
@@ -820,13 +820,6 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   each security-sensitive tool invocation, so an ancestor profile update is
   visible to a later tool call in the same turn while one invocation still uses
   one coherent immutable profile.
-
-### `AgentSession` — todos (ported 2026-07-24)
-
-`TodoCollection` is the session-owned durable todo sub-object. It retains its
-storage and `TodoUpdated` protocol infrastructure for persisted state and
-replay compatibility. Todo rows and events are scoped by agent session. There
-is no replacement public interface for this retained infrastructure.
 
 ### `AgentSession` — admitted input and the drain (ported 2026-07-24)
 

@@ -366,6 +366,9 @@ message Event {
   // The agent session that produced it, which may be a background subagent.
   string agent_session_id = 2;
 
+  reserved 19;
+  reserved "todo_updated";
+
   oneof payload {
     TurnStarted     turn_started     = 3;
     TextChunk       text_chunk       = 4;
@@ -383,7 +386,6 @@ message Event {
     AgentStarted    agent_started    = 16;
     AgentFinished   agent_finished   = 17;
     AgentFailed     agent_failed     = 18;
-    TodoUpdated             todo_updated             = 19;
     StatusInjected         status_injected          = 20;
     AgentStatisticsUpdatedEvent agent_statistics_updated = 21;
     PlanCompleted          plan_completed          = 22;
@@ -486,18 +488,6 @@ message AgentFailed {
   string parent_agent_session_id = 1;
   string name                    = 2;
   string message                 = 3;
-}
-
-message TodoUpdated {
-  repeated TodoState todos = 1;
-}
-
-message TodoState {
-  string id       = 1;
-  string content  = 2;
-  string status   = 3;
-  string priority = 4;
-  int32 position  = 5;
 }
 
 // Transient notification that the durable runtime status system message was

@@ -36,7 +36,6 @@ internal sealed class AgentSession(
     IReadOnlyList<IToolFactory> toolFactories,
     ToolDefinitionCatalog toolDefinitions,
     ISystemPrompt systemPrompt,
-    TodoCollection todos,
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
     PromptTemplateCatalog promptTemplates,
@@ -107,8 +106,6 @@ internal sealed class AgentSession(
     public string ParentSessionId => identity.ParentSessionId;
 
     public string ParentSessionName => identity.ParentSessionName;
-
-    public TodoCollection Todos { get; } = todos;
 
     public AgentQueues Queues { get; } = queues;
 

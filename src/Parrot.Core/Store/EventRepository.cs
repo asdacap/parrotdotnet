@@ -386,78 +386,6 @@ internal sealed class EventRepository
         }
     }
 
-    public IReadOnlyList<TodoItem> ReadTodos(string agentSessionId, CancellationToken cancellationToken)
-    {
-        var items = new List<TodoItem>();
-
-        lock (_database.Gate)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            using var read = _database.Connection.CreateCommand();
-            read.CommandText =
-                "SELECT id, content, status, priority, position FROM todo "
-                + "WHERE agent_session = $session ORDER BY position;";
-            _ = read.Parameters.AddWithValue("$session", agentSessionId);
-
-            using var reader = read.ExecuteReader();
-
-            while (reader.Read())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                items.Add(new TodoItem(
-                    (string)reader["id"],
-                    (string)reader["content"],
-                    ParseTodoStatus((string)reader["status"]),
-                    ParseTodoPriority((string)reader["priority"]),
-                    Convert.ToInt32(reader["position"], System.Globalization.CultureInfo.InvariantCulture)));
-            }
-        }
-
-        return items;
-    }
-
-    public void ReplaceTodos(
-        string agentSessionId,
-        IReadOnlyList<TodoItem> items,
-        Event published,
-        CancellationToken cancellationToken)
-    {
-        lock (_database.Gate)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            using var transaction = _database.Begin();
-            using (var delete = _database.Connection.CreateCommand())
-            {
-                delete.Transaction = transaction;
-                delete.CommandText = "DELETE FROM todo WHERE agent_session = $session;";
-                _ = delete.Parameters.AddWithValue("$session", agentSessionId);
-                _ = delete.ExecuteNonQuery();
-            }
-
-            foreach (var item in items)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                using var insert = _database.Connection.CreateCommand();
-                insert.Transaction = transaction;
-                insert.CommandText =
-                    """
-                    INSERT INTO todo (agent_session, id, position, content, status, priority)
-                    VALUES ($session, $id, $position, $content, $status, $priority);
-                    """;
-                _ = insert.Parameters.AddWithValue("$session", agentSessionId);
-                _ = insert.Parameters.AddWithValue("$id", item.Id);
-                _ = insert.Parameters.AddWithValue("$position", item.Position);
-                _ = insert.Parameters.AddWithValue("$content", item.Content);
-                _ = insert.Parameters.AddWithValue("$status", TodoStatusText(item.Status));
-                _ = insert.Parameters.AddWithValue("$priority", TodoPriorityText(item.Priority));
-                _ = insert.ExecuteNonQuery();
-            }
-
-            _ = Record(transaction, published);
-            transaction.Commit();
-        }
-    }
-
     public IReadOnlyList<Event> Replay()
     {
         var events = new List<Event>();
@@ -1878,40 +1806,6 @@ internal sealed class EventRepository
 
     private static string Timestamp() =>
         DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
-
-    private static string TodoStatusText(TodoStatus status) => status switch
-    {
-        TodoStatus.Pending => "pending",
-        TodoStatus.InProgress => "in_progress",
-        TodoStatus.Completed => "completed",
-        TodoStatus.Cancelled => "cancelled",
-        _ => throw new ArgumentOutOfRangeException(nameof(status)),
-    };
-
-    private static TodoStatus ParseTodoStatus(string status) => status switch
-    {
-        "pending" => TodoStatus.Pending,
-        "in_progress" => TodoStatus.InProgress,
-        "completed" => TodoStatus.Completed,
-        "cancelled" => TodoStatus.Cancelled,
-        _ => throw new InvalidOperationException($"the todo table holds an unknown status {status}"),
-    };
-
-    private static string TodoPriorityText(TodoPriority priority) => priority switch
-    {
-        TodoPriority.High => "high",
-        TodoPriority.Medium => "medium",
-        TodoPriority.Low => "low",
-        _ => throw new ArgumentOutOfRangeException(nameof(priority)),
-    };
-
-    private static TodoPriority ParseTodoPriority(string priority) => priority switch
-    {
-        "high" => TodoPriority.High,
-        "medium" => TodoPriority.Medium,
-        "low" => TodoPriority.Low,
-        _ => throw new InvalidOperationException($"the todo table holds an unknown priority {priority}"),
-    };
 
     private static ConversationOrigin Origin(string role) => role switch
     {
