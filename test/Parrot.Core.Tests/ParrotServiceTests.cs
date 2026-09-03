@@ -84,6 +84,25 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task In_process_goal_calls_set_and_clear_the_goal(CancellationToken cancellationToken)
+    {
+        await using var service = Service(Store(new DirectAgentSessions()));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+
+        var set = await client.SetGoalAsync(
+            new SetGoalRequest { UserSessionId = session.Id, Goal = "ship v1" },
+            cancellationToken: cancellationToken);
+        var cleared = await client.SetGoalAsync(
+            new SetGoalRequest { UserSessionId = session.Id, Clear = new ClearGoal() },
+            cancellationToken: cancellationToken);
+
+        _ = await Assert.That(set).IsNotNull();
+        _ = await Assert.That(cleared).IsNotNull();
+    }
+
+    [Test]
     public async Task Images_are_uploaded_with_canonical_metadata_and_admitted_as_structured_parts(
         CancellationToken cancellationToken)
     {
