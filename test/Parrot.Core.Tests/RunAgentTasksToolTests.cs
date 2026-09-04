@@ -402,9 +402,12 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
             childQuestions,
-            dependencies.ActiveWorkReminder,
             dependencies.ExitReminder,
             dependencies.Profile,
+            TestModels.CompletionCallbacks(
+                childQuestions,
+                dependencies.ActiveWorkReminder,
+                dependencies.ExitReminder),
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,
             children,

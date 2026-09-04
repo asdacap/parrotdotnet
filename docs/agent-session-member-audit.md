@@ -6,7 +6,7 @@ Final source audited: `src/Parrot.Core/Agent/AgentSession.cs` after the scoped-d
 
 | Declaration | Classification | Production responsibility and concrete consumers |
 |---|---|---|
-| `internal sealed class AgentSession(...)` | Intrinsic owner | Owns durable admission, drain serialization, provider turns, tool execution, interruption, and terminal delivery for one agent. Constructed by `AgentSessionComposition`; direct construction is also used by test fixtures. Its private constructor values include `AgentQueues` for queue delivery and `AgentSessionParentScope` for terminal completion routing; neither dependency is exposed. |
+| `internal sealed class AgentSession(...)` | Intrinsic owner | Owns durable admission, drain serialization, provider turns, tool execution, interruption, and terminal delivery for one agent. Constructed by `AgentSessionComposition`; direct construction is also used by test fixtures. Its private constructor values include the explicitly ordered per-scope `IReadOnlyList<IAgentTurnCompletionCallback>`, `AgentQueues` for queue delivery, and `AgentSessionParentScope` for terminal completion routing; none is exposed. |
 | `internal string SessionId` | Intrinsic identity | Stable runtime address used by `AgentRegistry`, `ChildRegistry`, `AgentResolver`, `RuntimeStatus`, `RuntimeTreeStatusProvider`, `ShellProcessOwner`, and agent tools. |
 | `internal string Name` | Intrinsic identity | Human-readable identity used by registry/status snapshots, child completion, process ownership, and spawn/send results. |
 | `internal string ParentSessionId` | Intrinsic relationship metadata | Enforces and reports parent-child relationships in `AgentRegistry`, `ChildRegistry`, `AgentResolver`, `RuntimeStatus`, and process/status snapshots. |

@@ -152,6 +152,24 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new ExitReminder(arguments.EventRepository, arguments.PromptTemplates, arguments.Identity.SessionId);
             })
+            .Bind<PendingChildQuestionTurnCompletionCallback>().As(Lifetime.Scoped).To<PendingChildQuestionTurnCompletionCallback>()
+            .Bind<ActiveWorkTurnCompletionCallback>().As(Lifetime.Scoped).To<ActiveWorkTurnCompletionCallback>()
+            .Bind<ModeTurnCompletionCallback>().As(Lifetime.Scoped).To<ModeTurnCompletionCallback>()
+            .Bind<ExitReminderTurnCompletionCallback>().As(Lifetime.Scoped).To<ExitReminderTurnCompletionCallback>()
+            .Bind<IReadOnlyList<IAgentTurnCompletionCallback>>("turnCompletionCallbacks").As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<PendingChildQuestionTurnCompletionCallback>(out var pendingChildQuestions);
+                ctx.Inject<ActiveWorkTurnCompletionCallback>(out var activeWork);
+                ctx.Inject<ModeTurnCompletionCallback>(out var modeCompletion);
+                ctx.Inject<ExitReminderTurnCompletionCallback>(out var exitReminder);
+                return new IAgentTurnCompletionCallback[]
+                {
+                    pendingChildQuestions,
+                    activeWork,
+                    modeCompletion,
+                    exitReminder,
+                };
+            })
             .Bind<IReadOnlyList<IToolFactory>>("toolFactories").As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<ExecCommandToolFactory>(out var execCommand);
@@ -250,12 +268,14 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
                 ctx.Inject<ShellProcessOwner>(out var processes);
-                ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
                 ctx.Inject<ExitReminder>(out var exitReminder);
                 ctx.Inject<AgentSessionActivity>(out var activity);
                 ctx.Inject<ChildRegistry>(out var children);
                 ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
                 ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
+                ctx.Inject<IReadOnlyList<IAgentTurnCompletionCallback>>(
+                    "turnCompletionCallbacks",
+                    out var turnCompletionCallbacks);
                 ctx.Inject<ISystemPrompt>(out var systemPrompt);
                 var session = new AgentSession(
                     arguments.Identity,
@@ -271,9 +291,9 @@ internal partial class AgentSessionComposition
                     arguments.Compactor,
                     arguments.PromptTemplates,
                     childQuestions,
-                    activeWorkReminder,
                     exitReminder,
                     arguments.Mode,
+                    turnCompletionCallbacks,
                     arguments.Security,
                     arguments.Status,
                     children,

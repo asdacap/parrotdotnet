@@ -793,6 +793,11 @@ device-code fallback), and `IBrowserOpener`, absorbing `auth`, `security`.
   idle drains, interruptions, and tool rounds do not duplicate it. Before a
   foreground turn completes while direct child agents or shell processes remain
   active, a distinct reminder is likewise appended as durable `system` history.
+  Turn completion policies are scoped callbacks assembled in explicit order:
+  pending child questions, profile-gated active work, mode completion/repair, and
+  exit reminders. `AgentSession` applies their declarative projections and owns
+  terminal history plus `PlanCompleted` immediately before `TurnEnded`; queue
+  delivery remains a separate post-idle path.
 - **Security selection.** Model, profile metadata, and tool filtering remain
   captured at the turn boundary. Effective security is compiled separately for
   each security-sensitive tool invocation, so an ancestor profile update is
