@@ -59,6 +59,7 @@ internal sealed class DrainTests : IDisposable
         await provider.Arrived(cancellationToken);
         provider.Release();
 
+        await session.Settled();
         await session.DisposeAsync();
 
         // Two calls, not four: one drain answered both.
@@ -164,6 +165,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
+        await session.Settled();
         await session.DisposeAsync();
 
         var callbackNames = string.Join(',', calls.Select(call => call[..call.IndexOf(':')]));
@@ -201,6 +203,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await provider.Arrived(cancellationToken);
         provider.Release();
+        await session.Settled();
         await session.DisposeAsync();
 
         _ = await Assert.That(provider.Requests.Count).IsEqualTo(3);
@@ -550,6 +553,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(string.Join(" | ", provider.Requests[1].Tools.Select(tool => tool.Name)))
             .IsEqualTo("held");
         provider.Release();
+        await session.Settled();
         await session.DisposeAsync();
 
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
@@ -667,6 +671,7 @@ internal sealed class DrainTests : IDisposable
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(provider.Requests.Single().Tools).IsEmpty();
         provider.Release();
+        await session.Settled();
         await session.DisposeAsync();
 
         _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
@@ -706,6 +711,7 @@ internal sealed class DrainTests : IDisposable
         await using var session = Session(provider, repository, [], cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "msg-1", Delivery.Steer, cancellationToken);
+        await session.Settled();
         await session.DisposeAsync();
 
         var failure = repository.Replay().Last(published =>
@@ -757,6 +763,7 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(executing.Recent).Count().IsEqualTo(1);
         _ = await Assert.That(executing.Recent[0].Content).IsEqualTo("tool preface");
         provider.Release();
+        await session.Settled();
         await session.DisposeAsync();
         var settled = session.Activity.Capture();
         _ = await Assert.That(settled.CurrentTool).IsNull();

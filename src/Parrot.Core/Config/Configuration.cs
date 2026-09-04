@@ -32,6 +32,8 @@ internal sealed class Configuration(string path)
     private const string AgentTasksKey = "agent_tasks";
     private const string ToolsKey = "tools";
     private static readonly TagName ReplaceTag = new("!replace");
+    private static readonly Lazy<string> Predefined = new(() => File.ReadAllText(
+        Path.Combine(AppContext.BaseDirectory, "Config", "predefined_config.yaml")));
 
     private readonly Lock _writeLock = new();
 
@@ -182,7 +184,7 @@ internal sealed class Configuration(string path)
         CopyPredefined(predefinedPath);
         var userRoot = LoadRoot(path);
         ValidateReplaceTags(userRoot, []);
-        var root = Merge(LoadRoot(predefinedPath), userRoot);
+        var root = Merge(LoadRootContent(Predefined.Value), userRoot);
         var environmentTemplates = new EnvironmentTemplateResolver(environment);
         var directories = new List<(string Path, string Field)>();
         var profiles = ReadProfiles(root, environmentTemplates, directories);
@@ -216,11 +218,9 @@ internal sealed class Configuration(string path)
 
     private static void CopyPredefined(string destination)
     {
-        var source = Path.Combine(AppContext.BaseDirectory, "Config", "predefined_config.yaml");
         var directory = Path.GetDirectoryName(destination);
 
         ArgumentException.ThrowIfNullOrEmpty(destination);
-        ArgumentException.ThrowIfNullOrEmpty(source);
 
         try
         {
@@ -230,7 +230,7 @@ internal sealed class Configuration(string path)
             }
 
             var temporary = Path.Combine(directory ?? string.Empty, Path.GetRandomFileName());
-            File.Copy(source, temporary);
+            File.WriteAllText(temporary, Predefined.Value);
             File.Move(temporary, destination, overwrite: true);
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
@@ -1693,20 +1693,14 @@ internal sealed class Configuration(string path)
     private static bool Child(YamlMappingNode parent, string key, out YamlNode? value) =>
         parent.Children.TryGetValue(new YamlScalarNode(key), out value);
 
-    private static YamlMappingNode LoadRoot(string path)
+    private static YamlMappingNode LoadRoot(string path) =>
+        File.Exists(path) ? LoadRootContent(File.ReadAllText(path)) : [];
+
+    private static YamlMappingNode LoadRootContent(string content)
     {
-        if (!File.Exists(path))
-        {
-            return [];
-        }
-
         var stream = new YamlStream();
-
-        using (var reader = new StreamReader(path))
-        {
-            stream.Load(reader);
-        }
-
+        using var reader = new StringReader(content);
+        stream.Load(reader);
         return stream.Documents is [{ RootNode: YamlMappingNode root }, ..] ? root : [];
     }
 

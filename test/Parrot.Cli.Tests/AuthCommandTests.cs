@@ -9,7 +9,9 @@ internal sealed class AuthCommandTests
     public async Task Api_key_login_list_and_logout_follow_the_wizard_without_leaking_the_secret(
         CancellationToken cancellationToken)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"parrot-credentials-{Guid.NewGuid():N}.json");
+        var directory = Path.Combine(Path.GetTempPath(), $"parrot-credentials-{Guid.NewGuid():N}");
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "credentials.json");
         try
         {
             using var credentials = new FileCredentialStore(path);
@@ -32,7 +34,10 @@ internal sealed class AuthCommandTests
         }
         finally
         {
-            File.Delete(path);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
         }
     }
 }

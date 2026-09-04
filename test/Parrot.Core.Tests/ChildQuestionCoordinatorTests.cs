@@ -196,6 +196,9 @@ internal sealed partial class SubagentTests
 
         secondCoordinator.Reply(TestModels.ScopeOf(secondParent).ParentScope, secondChild.SessionId, Answer("yes"));
         _ = await isolated;
+
+        await TestModels.ScopeOf(firstParent).DisposeAsync();
+        await TestModels.ScopeOf(secondParent).DisposeAsync();
     }
 
     [Test]

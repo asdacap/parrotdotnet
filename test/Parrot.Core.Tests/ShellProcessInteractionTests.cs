@@ -357,7 +357,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             throw new PlatformNotSupportedException();
         }
 
-        var path = Path.Combine(_workspace, "sandbox");
+        var path = Path.Combine(_workspace, $"sandbox-{Guid.NewGuid():n}");
         var script = "#!/bin/sh\nhelper=\nwhile [ \"$1\" != \"--\" ]; do\n"
             + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
             + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; "
@@ -370,6 +370,11 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         File.SetUnixFileMode(
             path,
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        using (var scriptFile = File.Open(path, FileMode.Open, FileAccess.Write, FileShare.Read))
+        {
+            scriptFile.Flush(flushToDisk: true);
+        }
+
         return path;
     }
 }

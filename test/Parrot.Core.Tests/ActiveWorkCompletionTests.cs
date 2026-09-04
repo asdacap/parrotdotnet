@@ -95,6 +95,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         parentProvider.Release();
         await parentProvider.Arrived(cancellationToken);
         parentProvider.Release();
+        _ = await parent.Wait(0, cancellationToken);
         await parent.DisposeAsync();
 
         var allEvents = beforeSettlement.Concat(Events(subscription)).ToArray();
@@ -232,6 +233,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         ownedChildQuestions.Reply(TestModels.ScopeOf(parent).ParentScope, secondChild.SessionId, QuestionAnswer("second"));
         _ = await Task.WhenAll(firstQuestion, secondQuestion);
         parentProvider.Release();
+        _ = await parent.Wait(0, cancellationToken);
         await parent.DisposeAsync();
 
         _ = await Assert.That(mode.Completions).IsEqualTo(1);
@@ -274,6 +276,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         _ = await parent.Send("finish", cancellationToken);
         await parentProvider.Arrived(cancellationToken);
         parentProvider.Release();
+        _ = await parent.Wait(0, cancellationToken);
         await parent.DisposeAsync();
 
         _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(1);
@@ -472,6 +475,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             parentProvider.Release();
         }
 
+        _ = await parent.Wait(0, cancellationToken);
         await parent.DisposeAsync();
 
         var events = Events(subscription);
@@ -691,7 +695,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     [SupportedOSPlatform("linux")]
     private string CreateSandboxPassThrough()
     {
-        var path = Path.Combine(_workspace, "sandbox");
+        var path = Path.Combine(_workspace, $"sandbox-{Guid.NewGuid():n}");
         var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
             + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
             + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"

@@ -824,7 +824,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             throw new PlatformNotSupportedException();
         }
 
-        var path = Path.Combine(workspace, "capturing-sandbox");
+        var path = Path.Combine(workspace, $"capturing-sandbox-{Guid.NewGuid():n}");
         var script = $"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{argumentsPath}'\n"
             + "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n";
         File.WriteAllText(path, script);
@@ -841,7 +841,7 @@ internal sealed class ProcessRunnerTests : IDisposable
             throw new PlatformNotSupportedException();
         }
 
-        var path = Path.Combine(workspace, "sandbox");
+        var path = Path.Combine(workspace, $"sandbox-{Guid.NewGuid():n}");
         var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
             + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; fi\n"
             + "  shift\ndone\nshift\nexec \"$@\"\n";

@@ -793,7 +793,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
 
-        AgentSession Build(bool compact) => new(
+        AgentSession Build() => new(
             identity,
             AgentSessionParentScope.Root(),
             new ModelSelector(model.Selector),
@@ -805,7 +805,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             TestModels.MaterializePrompt(identity, _workspace, _workspace),
             new ToolOutputBlobStore(_workspace),
             _compactionGroupBlobs,
-            new Compactor(compact ? 1 : 99, compact ? 1 : 30, 60_000, 1024, TestModels.PromptTemplates),
+            new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
             new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,
@@ -823,7 +823,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new AgentSessionActivity(TimeProvider.System),
             cancellationToken);
 
-        await using var session = Build(compact: true);
+        await using var session = Build();
         foreach (var prompt in new[] { "old prompt", "middle prompt", "latest prompt" })
         {
             _ = await session.Send([ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
@@ -846,9 +846,11 @@ internal sealed class CompactorAndContextTests : IDisposable
             .DoesNotContain(item => item.Parts.Any(part => part.Text == "old prompt"));
         var compactionContext = repository.CompactionHistory("agent")
             ?? throw new InvalidOperationException("Expected durable compaction context.");
+        await session.DisposeAsync();
         var requestsBeforeRestart = provider.Requests.Count;
-        await using var restarted = Build(compact: false);
+        await using var restarted = Build();
         _ = await restarted.Send([ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await restarted.Settled();
         await restarted.DisposeAsync();
 
         var restoredRequest = provider.Requests.Skip(requestsBeforeRestart).Single();
@@ -932,6 +934,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var requestsBeforeRestart = provider.Requests.Count;
         _ = await restarted.Send(
             [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await restarted.Settled();
         await restarted.DisposeAsync();
 
         var restoredRequest = provider.Requests.Skip(requestsBeforeRestart).Single();

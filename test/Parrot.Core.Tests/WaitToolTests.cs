@@ -65,6 +65,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             new ShellProcessStatusSnapshot("agent", "process", "process", ActiveWorkState.Running));
         var subagents = new AgentStatusSource(
             new ActiveAgentSnapshot("child", "agent", "worker"));
+        var selection = Selection(provider);
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, processes, subagents, TestModels.PromptTemplates, TimeProvider.System),
             session,
@@ -86,11 +87,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
             _ = await Assert.That((await tool.Execute(new ToolInvocation("test-call", arguments), Selection(provider), cancellationToken)).Text).StartsWith("error:");
         }
 
-        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken);
+        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), selection, cancellationToken);
         await time.WaitForTimer(cancellationToken);
         time.Advance(TimeSpan.FromSeconds(10));
+        var estimatedTokens = session.EstimateContext(selection).EstimatedTokens;
         _ = await Assert.That((await waiting).Text).IsEqualTo(
-            """
+            $"""
             Wait timed out after 10000 ms.
 
             Runtime:
@@ -99,7 +101,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
               - process: agent/process (shell, running, name: process)
               - agent: worker (child)
 
-            Context: unavailable (250 estimated tokens / 0 limit); reminders every 5%; automatic compaction at 90%.
+            Context: unavailable ({estimatedTokens} estimated tokens / 0 limit); reminders every 5%; automatic compaction at 90%.
             """);
     }
 

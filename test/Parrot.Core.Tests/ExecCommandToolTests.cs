@@ -201,7 +201,7 @@ internal sealed class ExecCommandToolTests : IDisposable
             throw new PlatformNotSupportedException();
         }
 
-        var path = Path.Combine(workspace, "sandbox");
+        var path = Path.Combine(workspace, $"sandbox-{Guid.NewGuid():n}");
         var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
             + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
             + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"

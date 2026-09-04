@@ -232,7 +232,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
             throw new PlatformNotSupportedException();
         }
 
-        var path = Path.Combine(_workspace, "sandbox");
+        var path = Path.Combine(_workspace, $"sandbox-{Guid.NewGuid():n}");
         var script = "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do\n"
             + "  if [ \"$1\" = \"--chdir\" ]; then shift; cd \"$1\" || exit; "
             + "elif [ \"$1\" = \"--setenv\" ]; then export \"$2=$3\"; shift 2; fi\n"
