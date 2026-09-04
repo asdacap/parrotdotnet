@@ -4,7 +4,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class SetCheckpointTool(IAgentSession session) : ITool
+internal sealed class SetCheckpointTool(CheckpointService checkpoints) : ITool
 {
     public string Name => "set_checkpoint";
 
@@ -18,7 +18,7 @@ internal sealed class SetCheckpointTool(IAgentSession session) : ITool
             var input = JsonSerializer.Deserialize(invocation.ArgumentsJson, AgentProcessToolJsonContext.Default.SetCheckpointToolInput)
                 ?? throw new FormatException("Tool arguments must be an object.");
             var title = input.Title ?? throw new FormatException("Tool arguments require a string 'title'.");
-            session.SetCheckpoint(title, invocation.AssistantSequence, invocation.CallId);
+            checkpoints.SetCheckpoint(title, invocation.AssistantSequence, invocation.CallId);
             return Task.FromResult<ToolExecutionResult>(title);
         }
         catch (Exception failure) when (failure is JsonException or FormatException or ArgumentException or Store.InputConflictException)
