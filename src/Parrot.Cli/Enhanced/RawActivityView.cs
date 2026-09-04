@@ -854,7 +854,7 @@ internal sealed class RawActivityView(
         if (completion.Response.Length > 0)
         {
             await commit(
-                Wrap(state, new MarkdownScrollbackValue(completion.Response), null),
+                Wrap(state, new FinalMessageScrollbackValue(completion.Response), null),
                 Snapshot(),
                 cancellationToken).ConfigureAwait(false);
         }

@@ -291,6 +291,64 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
+    public async Task Child_json_completion_renders_yaml_once_at_its_hierarchy_level(
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var scrollbackContext = new ScrollbackRenderContext(80, new TerminalPalette(false));
+
+        Task Commit(
+            IScrollbackItem item,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = items;
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(
+            static (_, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            },
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "child" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                TextChunk = new TextChunk { Fragment = "{\"answer\":{\"value\":1}}" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
+            cancellationToken);
+
+        _ = await Assert.That(committed).Count().IsEqualTo(2);
+        _ = await Assert.That(committed[0]).Contains("  ● [child] answer:");
+        _ = await Assert.That(committed[0]).Contains("value: 1");
+        _ = await Assert.That(committed[0]).DoesNotContain("{\\\"answer\\\"");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished");
+    }
+
+    [Test]
     public async Task Child_response_keeps_ten_lines_and_aligns_continuations_with_its_label(
         CancellationToken cancellationToken)
     {

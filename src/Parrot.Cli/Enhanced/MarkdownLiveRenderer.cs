@@ -57,9 +57,10 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
     public MarkdownLiveUpdate Commit()
     {
         var prefix = _started ? new string(' ', TerminalText.Width(_prefix)) : _prefix;
-        var scrollback = _pending.Length == 0
+        var pending = _pending.ToString();
+        var scrollback = pending.Length == 0
             ? []
-            : MarkdownRenderer.Render(prefix, _pending.ToString(), Columns(), color);
+            : EnhancedFinalMessageRenderer.Render(pending, prefix, Columns(), color, !_started);
         var completed = _sequence.Complete(scrollback);
         Reset();
         return new MarkdownLiveUpdate(completed, string.Empty, []);

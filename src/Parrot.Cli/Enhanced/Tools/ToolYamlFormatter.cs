@@ -7,8 +7,12 @@ namespace Parrot.Cli.Enhanced.Tools;
 
 internal static class ToolYamlFormatter
 {
-    public static string Format(string value)
+    public static string Format(string value) => TryFormat(value, out var formatted) ? formatted : value;
+
+    public static bool TryFormat(string value, out string formatted)
     {
+        formatted = value;
+
         try
         {
             using var document = JsonDocument.Parse(value);
@@ -28,11 +32,12 @@ internal static class ToolYamlFormatter
                 text = text[..^3].TrimEnd();
             }
 
-            return text;
+            formatted = text;
+            return true;
         }
         catch (Exception exception) when (exception is JsonException or ArgumentException)
         {
-            return value;
+            return false;
         }
     }
 
