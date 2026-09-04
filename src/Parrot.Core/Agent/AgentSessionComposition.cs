@@ -38,10 +38,15 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Identity;
             })
-            .Bind<IChildRegistry>().As(Lifetime.Scoped).To(ctx =>
+            .Bind<ChildRegistry>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new ChildRegistry(arguments.Identity);
+            })
+            .Bind<IChildRegistry>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<ChildRegistry>(out var children);
+                return children;
             })
             .Bind<AgentSpawner>().As(Lifetime.Scoped).To(ctx =>
             {
@@ -318,7 +323,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Root<IAgentSession>("Session")
             .Root<GoalService>("Goals")
             .Root<AgentSpawner>("AgentSpawner")
-            .Root<IChildRegistry>("ChildRegistry")
+            .Root<ChildRegistry>("ChildRegistry")
             .Root<AgentSessionParentScope>("ParentScope")
             .Root<ChildQuestionCoordinator>("ChildQuestions")
             .Root<ShellProcessOwner>("Processes");

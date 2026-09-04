@@ -118,7 +118,7 @@ internal sealed class AgentRegistry(
         return Array.AsReadOnly(snapshots);
     }
 
-    public ValueTask DisposeAsync()
+    public ValueTask BeginShutdown()
     {
         lock (_gate)
         {
@@ -131,6 +131,8 @@ internal sealed class AgentRegistry(
             return new ValueTask(_shutdown);
         }
     }
+
+    public ValueTask DisposeAsync() => BeginShutdown();
 
     public AgentProfile ResolveChildProfile(string profileId) => profiles.ResolveChild(profileId);
 
@@ -254,7 +256,7 @@ internal sealed class AgentRegistry(
         {
             try
             {
-                await root.AgentSpawner.DisposeAsync().ConfigureAwait(false);
+                await root.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception exception)
             {

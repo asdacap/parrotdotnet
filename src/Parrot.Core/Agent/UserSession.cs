@@ -125,7 +125,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal ShellProcessOwners ShellProcesses { get; }
 
-    internal IAgentRegistry Registry { get; }
+    internal AgentRegistry Registry { get; }
 
     internal RuntimeStatus Status { get; }
 
@@ -312,7 +312,7 @@ internal sealed class UserSession : IAsyncDisposable
     {
         Questions.Dispose();
         Permissions.Dispose();
-        await Registry.DisposeAsync().ConfigureAwait(false);
+        var registryShutdown = Registry.BeginShutdown();
         await _lifetime.CancelAsync().ConfigureAwait(false);
         await ShellProcesses.Settle().ConfigureAwait(false);
 
@@ -327,6 +327,8 @@ internal sealed class UserSession : IAsyncDisposable
             Registry.UnregisterRootScope(agent);
             await agent.DisposeAsync().ConfigureAwait(false);
         }
+
+        await registryShutdown.ConfigureAwait(false);
 
         // Ends every subscription on this session's stream. A listener blocked
         // on MoveNext returns false rather than waiting forever.

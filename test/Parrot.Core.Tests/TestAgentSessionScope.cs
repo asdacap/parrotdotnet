@@ -9,6 +9,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 {
     private readonly Lock _gate = new();
     private readonly PromptTemplateCatalog _promptTemplates;
+    private readonly ChildRegistry _children;
     private IAgentSession? _session;
     private Task? _shutdown;
 
@@ -19,7 +20,8 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         PromptTemplateCatalog promptTemplates)
     {
         _promptTemplates = promptTemplates;
-        ChildRegistry = new ChildRegistry(owner);
+        _children = new ChildRegistry(owner);
+        ChildRegistry = _children;
         AgentSpawner = new AgentSpawner(owner, registry, this, ChildRegistry);
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
         ChildQuestions = new ChildQuestionCoordinator(ParentScope, promptTemplates);
@@ -105,7 +107,34 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
     private void DisposeRejectedConstruction()
     {
         ChildQuestions.Dispose();
-        _shutdown = AgentSpawner.DisposeAsync().AsTask();
+        _shutdown = DisposeComponents();
+    }
+
+    private async Task DisposeComponents()
+    {
+        Exception? failure = null;
+        try
+        {
+            await _children.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+
+        try
+        {
+            await AgentSpawner.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
     }
 
     private async Task ShutDown()
@@ -113,7 +142,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         Exception? failure = null;
         try
         {
-            await AgentSpawner.DisposeAsync().ConfigureAwait(false);
+            await DisposeComponents().ConfigureAwait(false);
         }
         catch (Exception exception)
         {

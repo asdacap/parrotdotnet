@@ -156,7 +156,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
             if (_shutdown is null)
             {
                 _accepting = false;
-                _shutdown = ShutDown(_children.TakeAll());
+                _shutdown = ShutDown();
             }
 
             return new ValueTask(_shutdown);
@@ -209,20 +209,6 @@ internal sealed class AgentSpawner : IAsyncDisposable
         return _authority.ContainsScope(_ownerScope)
             ? _ownerScope
             : throw new AgentRegistryException($"parent agent scope not found: {_owner.SessionId}");
-    }
-
-    private void Release(string sessionId)
-    {
-        RetainedAgentReservation? reservation;
-        lock (_gate)
-        {
-            if (!_retainedAgents.Remove(sessionId, out reservation))
-            {
-                throw new InvalidOperationException($"Retained agent reservation not found: {sessionId}");
-            }
-        }
-
-        reservation.Release();
     }
 
     private string SelectUniqueName(string requestedName, string sessionId)
@@ -298,7 +284,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
         _ = settled?.TrySetResult();
     }
 
-    private async Task ShutDown(IReadOnlyList<IAgentSessionScope> children)
+    private async Task ShutDown()
     {
         await Task.Yield();
         Task pendingConstructions;
@@ -334,29 +320,16 @@ internal sealed class AgentSpawner : IAsyncDisposable
             failure = exception;
         }
 
-        for (var index = children.Count - 1; index >= 0; index--)
+        RetainedAgentReservation[] retainedAgents;
+        lock (_gate)
         {
-            var child = children[index];
-            var sessionId = child.Session.SessionId;
-            try
-            {
-                await child.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                failure ??= exception;
-            }
-            finally
-            {
-                try
-                {
-                    Release(sessionId);
-                }
-                catch (Exception exception)
-                {
-                    failure ??= exception;
-                }
-            }
+            retainedAgents = [.. _retainedAgents.Values];
+            _retainedAgents.Clear();
+        }
+
+        foreach (var retainedAgent in retainedAgents)
+        {
+            retainedAgent.Release();
         }
 
         _lifetime.Dispose();

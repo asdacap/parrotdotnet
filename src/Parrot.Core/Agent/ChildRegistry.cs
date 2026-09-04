@@ -1,11 +1,12 @@
 namespace Parrot.Agent;
 
-internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry
+internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyncDisposable
 {
     private readonly Dictionary<string, IAgentSessionScope> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
     private bool _accepting = true;
+    private Task? _shutdown;
 
     public string OwnerSessionId => owner.SessionId;
 
@@ -29,6 +30,55 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry
                 ? child
                 : null;
         }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        IAgentSessionScope[]? children = null;
+        TaskCompletionSource? completion = null;
+        Task shutdown;
+        lock (_gate)
+        {
+            if (_shutdown is null)
+            {
+                _accepting = false;
+                children = [.. _entries.Values];
+                _entries.Clear();
+                _names.Clear();
+                completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _shutdown = completion.Task;
+            }
+
+            shutdown = _shutdown;
+        }
+
+        if (children is null || completion is null)
+        {
+            await shutdown.ConfigureAwait(false);
+            return;
+        }
+
+        Exception? failure = null;
+        for (var index = children.Length - 1; index >= 0; index--)
+        {
+            try
+            {
+                await children[index].DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+        }
+
+        if (failure is null)
+        {
+            _ = completion.TrySetResult();
+            return;
+        }
+
+        _ = completion.TrySetException(failure);
+        await shutdown.ConfigureAwait(false);
     }
 
     public void ValidateOwner(AgentIdentity identity)
@@ -149,18 +199,6 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry
                 _ = _entries.Remove(scope.Session.SessionId);
                 throw;
             }
-        }
-    }
-
-    public IReadOnlyList<IAgentSessionScope> TakeAll()
-    {
-        lock (_gate)
-        {
-            _accepting = false;
-            var children = _entries.Values.ToArray();
-            _entries.Clear();
-            _names.Clear();
-            return children;
         }
     }
 

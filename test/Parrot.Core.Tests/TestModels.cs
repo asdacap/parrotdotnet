@@ -238,13 +238,10 @@ internal static class TestModels
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
-        var children = new ChildRegistry(identity);
-        var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         return new AgentSessionDependencies(
-            childQuestions,
-            new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates),
-            new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId),
-            Profile(),
+            identity,
+            owner,
+            eventRepository,
             status,
             registry,
             queues);

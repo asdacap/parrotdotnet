@@ -23,11 +23,17 @@ internal sealed class WaitToolTests : IAsyncDisposable
     private readonly List<Parrot.Process.ShellProcessOwners> _processOwners = [];
     private readonly List<AgentRegistry> _registries = [];
     private readonly List<ChildQuestionCoordinator> _childQuestions = [];
+    private readonly List<ChildRegistry> _childRegistries = [];
 
     public WaitToolTests() => Directory.CreateDirectory(_root);
 
     public async ValueTask DisposeAsync()
     {
+        foreach (var childRegistry in _childRegistries)
+        {
+            await childRegistry.DisposeAsync().ConfigureAwait(false);
+        }
+
         foreach (var childQuestions in _childQuestions)
         {
             childQuestions.Dispose();
@@ -504,6 +510,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var children = new ChildRegistry(identity);
+        _childRegistries.Add(children);
         var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         _childQuestions.Add(childQuestions);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);

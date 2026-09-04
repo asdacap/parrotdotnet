@@ -22,11 +22,17 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly EventBroker _broker = new();
     private readonly List<IAgentSessionScope> _rootScopes = [];
+    private readonly List<ChildRegistry> _childRegistries = [];
 
     public ActiveWorkCompletionTests() => Directory.CreateDirectory(_workspace);
 
     public async ValueTask DisposeAsync()
     {
+        foreach (var childRegistry in _childRegistries)
+        {
+            await childRegistry.DisposeAsync().ConfigureAwait(false);
+        }
+
         foreach (var rootScope in _rootScopes)
         {
             TestModels.UnregisterScope(rootScope);
@@ -668,6 +674,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var queues = queueCatalog.Register(identity);
         var mode = TestModels.Profile();
         var children = new ChildRegistry(identity);
+        _childRegistries.Add(children);
         var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
         var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);

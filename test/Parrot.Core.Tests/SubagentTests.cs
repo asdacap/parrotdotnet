@@ -864,7 +864,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await child.Send("do work", cancellationToken);
         await provider.Arrived(cancellationToken);
 
-        var shutdown = parentScope.AgentSpawner.DisposeAsync().AsTask();
+        var shutdown = parentScope.DisposeAsync().AsTask();
         _ = await Assert.That(parentScope.ChildRegistry.IsAccepting).IsFalse();
         await shutdown;
         var completed = await child.Wait(0, cancellationToken);
@@ -1831,7 +1831,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var createdScope = sessions.CreatedScope ?? throw new InvalidOperationException("Expected a constructed child scope.");
         _ = await Assert.That(registry.ContainsScope(createdScope)).IsFalse();
         TestModels.UnregisterScope(parentScope);
-        await parentScope.DisposeAsync();
 
         AgentLaunchRequest Request() => new(
             parent,
