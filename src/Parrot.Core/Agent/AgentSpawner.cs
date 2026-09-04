@@ -149,6 +149,21 @@ internal sealed class AgentSpawner : IAsyncDisposable
         }
     }
 
+    public void ReleaseRetainedAgent(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        RetainedAgentReservation reservation;
+        lock (_gate)
+        {
+            if (!_retainedAgents.Remove(sessionId, out reservation))
+            {
+                throw new AgentRegistryException($"retained child agent not found: {sessionId}");
+            }
+        }
+
+        reservation.Release();
+    }
+
     public ValueTask DisposeAsync()
     {
         lock (_gate)
