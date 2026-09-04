@@ -33,8 +33,6 @@ internal interface IAgentSession : IAsyncDisposable
 
     Task Abort(CancellationToken cancellationToken);
 
-    void SetCheckpoint(string title, long assistantSequence, string toolCallId);
-
     AgentSelection ResolvePolicySelection();
 
     AgentPolicyLineage ResolvePolicyLineage();

@@ -166,6 +166,11 @@ internal partial class AgentSessionComposition
             .Bind<WebFetchToolFactory>().As(Lifetime.Scoped).To<WebFetchToolFactory>()
             .Bind<AgentSpawnToolFactory>().As(Lifetime.Scoped).To<AgentSpawnToolFactory>()
             .Bind<RunAgentTasksToolFactory>().As(Lifetime.Scoped).To<RunAgentTasksToolFactory>()
+            .Bind<CheckpointService>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return new CheckpointService(arguments.EventRepository, arguments.Identity.SessionId);
+            })
             .Bind<SetCheckpointToolFactory>().As(Lifetime.Scoped).To<SetCheckpointToolFactory>()
             .Bind<SetExitReminderToolFactory>().As(Lifetime.Scoped).To(ctx =>
             {

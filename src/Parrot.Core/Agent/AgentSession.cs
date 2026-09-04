@@ -307,21 +307,6 @@ internal sealed class AgentSession(
         await Interrupt(cancellationToken).ConfigureAwait(false);
     }
 
-    public void SetCheckpoint(string title, long assistantSequence, string toolCallId)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-        {
-            throw new ArgumentException("checkpoint title must not be blank", nameof(title));
-        }
-
-        if (assistantSequence <= 0)
-        {
-            throw new ArgumentException("checkpoint requires a durable assistant tool batch", nameof(assistantSequence));
-        }
-
-        _ = eventRepository.RecordCheckpoint(SessionId, title, assistantSequence, toolCallId);
-    }
-
     public AgentSelection ResolvePolicySelection()
     {
         var selected = Selection();

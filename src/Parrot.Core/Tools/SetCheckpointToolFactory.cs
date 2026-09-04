@@ -2,7 +2,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class SetCheckpointToolFactory : IToolFactory
+internal sealed class SetCheckpointToolFactory(CheckpointService checkpoints) : IToolFactory
 {
-    public ITool Create(IAgentSession session) => new SetCheckpointTool(session);
+    public ITool Create(IAgentSession session) => new SetCheckpointTool(checkpoints);
 }

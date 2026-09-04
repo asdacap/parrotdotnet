@@ -20,7 +20,6 @@ Final source audited: `src/Parrot.Core/Agent/AgentSession.cs` after the scoped-d
 | `internal Task Interrupt(CancellationToken cancellationToken)` | Intrinsic lifecycle | Cancels and joins the owned drain while preserving pending input; called by `UserSession` and by `Abort`. |
 | `internal Task Settled()` | Intrinsic lifecycle | Lets owning resources await drain completion before disposal; called by `UserSession` and `ChildRegistry`. |
 | `internal Task Abort(CancellationToken cancellationToken)` | Intrinsic lifecycle | Permanently prevents further wakes and interrupts execution during agent-task cancellation; called by `AgentTaskGraphRunner`. |
-| `internal void SetCheckpoint(string title, long assistantSequence, string toolCallId)` | Intrinsic conversation operation | Validates and records the current assistant tool-batch checkpoint; called by `SetCheckpointTool`. |
 | `internal AgentSelection ResolvePolicySelection()` | Intrinsic authorization | Resolves this session's selected profile through its policy lineage; called by `AgentSendTool` for caller/recipient delegation checks. |
 | `internal AgentPolicyLineage ResolvePolicyLineage()` | Intrinsic relationship policy | Supplies the parent lineage when `AgentSessionParentScope` links a child's authorization lineage. |
 | `internal bool IsIdle()` | Intrinsic queue-delivery predicate | Lets `AgentQueues` admit notifications only while its owning session is idle. |
@@ -39,6 +38,7 @@ Final source audited: `src/Parrot.Core/Agent/AgentSession.cs` after the scoped-d
 
 - `Queues` was removed. `AgentSession` uses its private `queues` constructor value for delivery; queue factories and tests retain `AgentQueues` directly.
 - `Resolver` was removed, and `AgentResolver` was removed from the `AgentSession` constructor. Scoped composition constructs and injects the resolver directly into `AgentSendToolFactory` and `AgentStatusToolFactory`; resolver tests retain or directly construct the scoped resolver.
+- Checkpoint mutation was extracted into the scoped `CheckpointService`, which receives the owning agent ID directly from composition and is injected into `SetCheckpointToolFactory`.
 - `ApproveWrites` was removed. `PermissionBroker.PendingRequest` retains the exact requesting `AgentSessionSecurity` and approves that instance.
 - `ParentScope` was removed. The private `parentScope` constructor value remains solely for terminal completion routing to the parent scope.
 - `Model` was removed after an AgentSession-qualified search found no production consumer. `UserSession.Model` and protocol/store model properties are separate declarations.
