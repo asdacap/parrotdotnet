@@ -665,11 +665,12 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
-    public async Task Child_reasoning_summaries_keep_hierarchy_and_root_reasoning_state(
+    public async Task Child_reasoning_summaries_flush_the_child_response_and_keep_root_reasoning_state(
         CancellationToken cancellationToken)
     {
         var drawn = new List<string>();
         var committed = new List<string>();
+        var failResponseCommit = false;
         var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
         var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
 
@@ -683,7 +684,14 @@ internal sealed class EnhancedHierarchyTests
         Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            var rendered = string.Join('|', item.Render(scrollbackContext));
+            if (failResponseCommit && rendered.Contains("Buffered response", StringComparison.Ordinal))
+            {
+                failResponseCommit = false;
+                throw new InvalidOperationException("commit failed");
+            }
+
+            committed.Add(rendered);
             drawn.Add(Render(items, liveContext));
             return Task.CompletedTask;
         }
@@ -727,13 +735,25 @@ internal sealed class EnhancedHierarchyTests
             new Event
             {
                 AgentSessionId = "child",
-                ReasoningChunk = new ReasoningChunk
-                {
-                    Fragment = "# Findings\n- **bold**",
-                    Kind = ReasoningKind.Summary,
-                },
+                ReasoningChunk = new ReasoningChunk { Fragment = "Initial", Kind = ReasoningKind.Summary },
             },
             cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "Buffered response" } },
+            cancellationToken);
+        var findings = new Event
+        {
+            AgentSessionId = "child",
+            ReasoningChunk = new ReasoningChunk
+            {
+                Fragment = "# Findings\n- **bold**",
+                Kind = ReasoningKind.Summary,
+            },
+        };
+        failResponseCommit = true;
+        _ = await Assert.That(async () => await view.Render(findings, cancellationToken))
+            .Throws<InvalidOperationException>();
+        await view.Render(findings, cancellationToken);
         await view.Render(
             new Event
             {
@@ -749,9 +769,11 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
 
-        _ = await Assert.That(committed).Count().IsEqualTo(2);
-        _ = await Assert.That(committed[0]).IsEqualTo("  ✦ [child] Findings|    [child] • bold");
-        _ = await Assert.That(committed[1]).IsEqualTo("    ✦ [grandchild] Deep result");
+        _ = await Assert.That(committed).Count().IsEqualTo(4);
+        _ = await Assert.That(committed[0]).IsEqualTo("  ✦ [child] Initial");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ● [child] Buffered response");
+        _ = await Assert.That(committed[2]).IsEqualTo("  ✦ [child] Findings|    [child] • bold");
+        _ = await Assert.That(committed[3]).IsEqualTo("    ✦ [grandchild] Deep result");
         _ = await Assert.That(drawn[^1]).Contains("Thinking…");
         _ = await Assert.That(string.Join('|', committed)).DoesNotContain("• [child] ✦");
     }

@@ -107,6 +107,31 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
     }
 
+    public async Task FlushResponse(Func<string, Task> flush)
+    {
+        ArgumentNullException.ThrowIfNull(flush);
+
+        var responseComplete = _responseComplete;
+        var responseLineBreaks = _responseLineBreaks;
+        var response = DrainResponse();
+        if (response.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await flush(response).ConfigureAwait(false);
+        }
+        catch
+        {
+            _ = _response.Append(response);
+            _responseComplete = responseComplete;
+            _responseLineBreaks = responseLineBreaks;
+            throw;
+        }
+    }
+
     public (string ActivityId, string Response, string Line)? FinishTurn(Event published, bool failed)
     {
         if (!_activities.Remove(AgentActivity))
@@ -117,10 +142,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         _terminalCommitted = true;
         var interrupted = !failed
             && string.Equals(published.TurnEnded.FinishReason, "interrupted", StringComparison.Ordinal);
-        var response = _response.ToString();
-        _ = _response.Clear();
-        _responseComplete = false;
-        _responseLineBreaks = 0;
+        var response = DrainResponse();
         var status = failed
             ? $"! agent: {TerminalText.Sanitize(published.TurnFailed.Message)}"
             : interrupted
@@ -137,10 +159,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
 
         _terminalCommitted = true;
-        var response = _response.ToString();
-        _ = _response.Clear();
-        _responseComplete = false;
-        _responseLineBreaks = 0;
+        var response = DrainResponse();
         var status = failed
             ? $"! agent: {TerminalText.Sanitize(published.AgentFailed.Message)}"
             : "+ agent finished";
@@ -338,6 +357,15 @@ internal sealed class AgentSessionState(string agentSessionId)
     };
 
     private static string FormatContextLimit(long limit) => limit == 0 ? "?" : FormatTokenCount(limit);
+
+    private string DrainResponse()
+    {
+        var response = _response.ToString();
+        _ = _response.Clear();
+        _responseComplete = false;
+        _responseLineBreaks = 0;
+        return response;
+    }
 
     private string CreateAgentLabel()
     {
