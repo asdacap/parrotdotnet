@@ -407,7 +407,9 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             TestModels.CompletionCallbacks(
                 childQuestions,
                 dependencies.ActiveWorkReminder,
-                dependencies.ExitReminder),
+                dependencies.ExitReminder,
+                repository,
+                _broker),
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,
             children,

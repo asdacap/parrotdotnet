@@ -102,6 +102,55 @@ internal sealed class AgentSession(
     // two overlap.
     private bool _stopping;
 
+    internal AgentSession(
+        AgentIdentity identity,
+        AgentSessionParentScope parentScope,
+        ModelSelector model,
+        ModelRouter router,
+        EventBroker eventBroker,
+        EventRepository eventRepository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        ToolDefinitionCatalog toolDefinitions,
+        ISystemPrompt systemPrompt,
+        ToolOutputBlobStore toolOutputBlobs,
+        Compactor compactor,
+        PromptTemplateCatalog promptTemplates,
+        ChildQuestionCoordinator childQuestions,
+        ExitReminder exitReminder,
+        IMode mode,
+        IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
+        AgentSessionSecurity security,
+        RuntimeStatus status,
+        ChildRegistry childRegistry,
+        AgentQueues queues,
+        AgentSessionActivity activity,
+        AgentSessionScopeArguments arguments)
+        : this(
+            identity,
+            parentScope,
+            model,
+            router,
+            eventBroker,
+            eventRepository,
+            toolFactories,
+            toolDefinitions,
+            systemPrompt,
+            toolOutputBlobs,
+            compactor,
+            promptTemplates,
+            childQuestions,
+            exitReminder,
+            mode,
+            turnCompletionCallbacks,
+            security,
+            status,
+            childRegistry,
+            queues,
+            activity,
+            arguments.Lifetime)
+    {
+    }
+
     internal string SessionId => identity.SessionId;
 
     internal string Name => identity.Name;
@@ -1206,8 +1255,19 @@ internal sealed class AgentSession(
 
                     if (retryOutcome is not null)
                     {
-                        await ApplyCompletionRetry(retryOutcome, completed.AssistantText, cancellationToken)
-                            .ConfigureAwait(false);
+                        var systemMessage = retryOutcome.SystemMessage
+                            ?? throw new InvalidOperationException("A retry outcome requires a system message.");
+                        if (retryOutcome.RetainCandidateAssistant)
+                        {
+                            _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                        }
+
+                        _history.Add(LLMMessage.System(systemMessage));
+                        if (retryOutcome.RecordAssistantActivity)
+                        {
+                            Activity.RecordAssistantMessage(completed.AssistantText);
+                        }
+
                         if (retryOutcome.SelectCandidateAnswer)
                         {
                             answer = completed.AssistantText;
@@ -1307,53 +1367,6 @@ internal sealed class AgentSession(
                 ProviderErrors.ReadResponseBody(failure),
                 CancellationToken.None).ConfigureAwait(false);
             return AgentExecution.Failed(failure.Message);
-        }
-    }
-
-    private async Task ApplyCompletionRetry(
-        AgentTurnCompletionOutcome.RetryOutcome outcome,
-        string assistantText,
-        CancellationToken cancellationToken)
-    {
-        var systemMessage = outcome.SystemMessage
-            ?? throw new InvalidOperationException("A retry outcome requires a system message.");
-        var published = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-        };
-        switch (outcome.Projection)
-        {
-            case AgentTurnCompletionProjection.PendingChildQuestionReminder:
-                eventRepository.AppendPendingChildQuestionReminder(published, assistantText, systemMessage);
-                break;
-            case AgentTurnCompletionProjection.ActiveWorkReminder:
-                eventRepository.AppendActiveWorkReminder(published, systemMessage);
-                break;
-            case AgentTurnCompletionProjection.PlanValidationRepair:
-                published.PlanValidationRepairInjected = new PlanValidationRepairInjected
-                {
-                    Diagnostic = systemMessage,
-                };
-                eventRepository.AppendPlanValidationRepair(published, assistantText, systemMessage);
-                break;
-            case AgentTurnCompletionProjection.ExitReminder:
-                eventRepository.AppendExitReminder(published, assistantText, systemMessage);
-                break;
-            default:
-                throw new InvalidOperationException("Unknown completion retry projection.");
-        }
-
-        if (outcome.RetainCandidateAssistant)
-        {
-            _history.Add(LLMMessage.Assistant(assistantText, []));
-        }
-
-        _history.Add(LLMMessage.System(systemMessage));
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-        if (outcome.RecordAssistantActivity)
-        {
-            Activity.RecordAssistantMessage(assistantText);
         }
     }
 

@@ -739,7 +739,9 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             TestModels.CompletionCallbacks(
                 childQuestions,
                 dependencies.ActiveWorkReminder,
-                dependencies.ExitReminder),
+                dependencies.ExitReminder,
+                _repository,
+                _broker),
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,
             children,

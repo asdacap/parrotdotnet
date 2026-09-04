@@ -648,7 +648,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var rootScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
         {
             var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-            return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates), exitReminder), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+            return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         });
         queues.Attach(rootScope.Session);
         registry.RegisterRootScope(rootScope);
@@ -673,7 +673,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var children = new ChildRegistry(identity, registry);
         var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
         return session;
     }
@@ -790,7 +790,9 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                 TestModels.CompletionCallbacks(
                     scopedChildQuestions,
                     new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates),
-                    exitReminder),
+                    exitReminder,
+                    eventRepository,
+                    eventBroker),
                 SecurityProfileTestFactory.Create(securityProfile),
                 status,
                 children,

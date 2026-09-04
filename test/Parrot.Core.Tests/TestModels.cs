@@ -236,12 +236,14 @@ internal static class TestModels
     public static IReadOnlyList<IAgentTurnCompletionCallback> CompletionCallbacks(
         ChildQuestionCoordinator childQuestions,
         ActiveWorkCompletionReminder activeWorkReminder,
-        ExitReminder exitReminder) =>
+        ExitReminder exitReminder,
+        EventRepository eventRepository,
+        EventBroker eventBroker) =>
         [
-            new PendingChildQuestionTurnCompletionCallback(childQuestions),
-            new ActiveWorkTurnCompletionCallback(activeWorkReminder),
-            new ModeTurnCompletionCallback(),
-            new ExitReminderTurnCompletionCallback(exitReminder),
+            new PendingChildQuestionTurnCompletionCallback(childQuestions, eventRepository, eventBroker),
+            new ActiveWorkTurnCompletionCallback(activeWorkReminder, eventRepository, eventBroker),
+            new ModeTurnCompletionCallback(eventRepository, eventBroker),
+            new ExitReminderTurnCompletionCallback(exitReminder, eventRepository, eventBroker),
         ];
 
     public static ISystemPrompt MaterializePrompt(

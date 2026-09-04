@@ -14,7 +14,6 @@ internal abstract record AgentTurnCompletionOutcome
         new ContinueOutcome(completionReservation, deferredPlanCompletion);
 
     internal static AgentTurnCompletionOutcome Retry(
-        AgentTurnCompletionProjection projection,
         string systemMessage,
         bool retainCandidateAssistant,
         bool selectCandidateAnswer,
@@ -22,7 +21,6 @@ internal abstract record AgentTurnCompletionOutcome
         bool? completionRetryPending,
         bool resetProviderRequestBudget) =>
         new RetryOutcome(
-            projection,
             systemMessage,
             retainCandidateAssistant,
             selectCandidateAnswer,
@@ -35,7 +33,6 @@ internal abstract record AgentTurnCompletionOutcome
         PlanCompleted? DeferredPlanCompletion) : AgentTurnCompletionOutcome;
 
     internal sealed record RetryOutcome(
-        AgentTurnCompletionProjection Projection,
         string SystemMessage,
         bool RetainCandidateAssistant,
         bool SelectCandidateAnswer,

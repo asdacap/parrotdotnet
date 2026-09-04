@@ -1,25 +1,27 @@
+using Parrot.Events;
+using Parrot.Protocol;
+using Parrot.Store;
+
 namespace Parrot.Agent;
 
 internal sealed class ActiveWorkTurnCompletionCallback(
-    ActiveWorkCompletionReminder activeWorkReminder) : IAgentTurnCompletionCallback
+    ActiveWorkCompletionReminder activeWorkReminder,
+    EventRepository eventRepository,
+    EventBroker eventBroker) : IAgentTurnCompletionCallback
 {
-    public ValueTask<AgentTurnCompletionOutcome> Complete(
+    public async ValueTask<AgentTurnCompletionOutcome> Complete(
         AgentTurnCompletionCandidate candidate,
         CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var reminder = candidate.Profile.EnforceActiveWorkCompletion
-            ? activeWorkReminder.Build()
-            : null;
-        return ValueTask.FromResult(reminder is null
-            ? AgentTurnCompletionOutcome.Continue(null, null)
-            : AgentTurnCompletionOutcome.Retry(
-                AgentTurnCompletionProjection.ActiveWorkReminder,
-                reminder,
-                false,
-                false,
-                false,
-                null,
-                false));
+        var reminder = candidate.Profile.EnforceActiveWorkCompletion ? activeWorkReminder.Build() : null;
+        if (reminder is null)
+        {
+            return AgentTurnCompletionOutcome.Continue(null, null);
+        }
+
+        var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
+        eventRepository.AppendActiveWorkReminder(published, reminder);
+        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+        return AgentTurnCompletionOutcome.Retry(reminder, false, false, false, null, false);
     }
 }

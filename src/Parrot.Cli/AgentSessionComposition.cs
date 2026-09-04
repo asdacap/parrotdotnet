@@ -143,11 +143,6 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Queues;
             })
-            .Bind<CancellationToken>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Lifetime;
-            })
             .Bind<ExecCommandToolFactory>().As(Lifetime.Scoped).To<ExecCommandToolFactory>()
             .Bind<WriteStdinToolFactory>().As(Lifetime.Scoped).To<WriteStdinToolFactory>()
             .Bind<InterruptProcessToolFactory>().As(Lifetime.Scoped).To<InterruptProcessToolFactory>()
