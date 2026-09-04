@@ -426,6 +426,12 @@ internal sealed class RawActivityView(
                         {
                             _ = _reasoning.Clear();
                         }
+                        else
+                        {
+                            await CommitResponse(
+                                GetNamedAgentSession(published.AgentSessionId),
+                                cancellationToken).ConfigureAwait(false);
+                        }
 
                         if (fragment.Length > 0)
                         {
@@ -1077,6 +1083,12 @@ internal sealed class RawActivityView(
             _hierarchy.GetLabel(state.AgentSessionId),
             state.Name,
             successfulIcon);
+
+    private Task CommitResponse(AgentSessionState state, CancellationToken cancellationToken) =>
+        state.FlushResponse(response => commit(
+            Wrap(state, new FinalMessageScrollbackValue(response), null),
+            Snapshot(),
+            cancellationToken));
 
     private async Task CommitCompletion(
         AgentSessionState state,
