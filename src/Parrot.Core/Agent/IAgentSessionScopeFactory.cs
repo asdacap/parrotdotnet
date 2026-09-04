@@ -37,7 +37,7 @@ internal interface IAgentSessionScopeFactory
         AgentSessionSecurity security,
         PermissionBroker permissions,
         RuntimeStatus status,
-        AgentRegistry registry,
+        IAgentRegistry registry,
         AgentQueues queues,
         QuestionBroker userQuestions,
         TimeProvider timeProvider,

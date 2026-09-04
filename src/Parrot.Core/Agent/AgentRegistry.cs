@@ -13,7 +13,7 @@ internal sealed class AgentRegistry(
     ProfileRegistry profiles,
     PromptTemplateCatalog promptTemplates,
     RetainedAgentBudget retainedAgents,
-    CancellationToken lifetime) : IAsyncDisposable, IActiveWorkSource, IAgentStatusSource
+    CancellationToken lifetime) : IAgentRegistry
 {
     private readonly RetainedAgentBudget _retainedAgents = retainedAgents
         ?? throw new ArgumentNullException(nameof(retainedAgents));
@@ -26,11 +26,11 @@ internal sealed class AgentRegistry(
     private RuntimeStatus? _status;
     private Task? _shutdown;
 
-    internal CancellationToken ChildLifetime => _lifetime.Token;
+    public CancellationToken ChildLifetime => _lifetime.Token;
 
-    internal PromptTemplateCatalog PromptTemplates => promptTemplates;
+    public PromptTemplateCatalog PromptTemplates => promptTemplates;
 
-    internal bool IsAccepting
+    public bool IsAccepting
     {
         get
         {
@@ -142,9 +142,9 @@ internal sealed class AgentRegistry(
         }
     }
 
-    internal AgentProfile ResolveChildProfile(string profileId) => profiles.ResolveChild(profileId);
+    public AgentProfile ResolveChildProfile(string profileId) => profiles.ResolveChild(profileId);
 
-    internal RetainedAgentReservation ReserveRetainedAgent()
+    public RetainedAgentReservation ReserveRetainedAgent()
     {
         lock (_gate)
         {
@@ -153,7 +153,7 @@ internal sealed class AgentRegistry(
         }
     }
 
-    internal RuntimeStatus RequireStatus()
+    public RuntimeStatus RequireStatus()
     {
         lock (_gate)
         {
@@ -162,7 +162,7 @@ internal sealed class AgentRegistry(
         }
     }
 
-    internal bool ContainsScope(IAgentSessionScope candidate)
+    public bool ContainsScope(IAgentSessionScope candidate)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         foreach (var root in SnapshotRoots())
@@ -176,7 +176,7 @@ internal sealed class AgentRegistry(
         return false;
     }
 
-    internal IAgentSessionScope? FindScope(string sessionId)
+    public IAgentSessionScope? FindScope(string sessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         foreach (var root in SnapshotRoots())
@@ -196,7 +196,7 @@ internal sealed class AgentRegistry(
         return null;
     }
 
-    internal IAgentSessionScope CreateChildScope(
+    public IAgentSessionScope CreateChildScope(
         AgentIdentity identity,
         AgentSessionParentScope parentScope,
         Llm.ModelSelector model,
@@ -216,7 +216,7 @@ internal sealed class AgentRegistry(
             this,
             childLifetime);
 
-    internal void InitializeChildHistory(
+    public void InitializeChildHistory(
         string parentSessionId,
         string childSessionId,
         long assistantSequence,
@@ -229,7 +229,7 @@ internal sealed class AgentRegistry(
             spawnToolCallId,
             fork);
 
-    internal void CleanupChildHistory(string childSessionId) =>
+    public void CleanupChildHistory(string childSessionId) =>
         eventRepository.CleanupForkedAgentHistory(childSessionId);
 
     private IAgentSessionScope[] SnapshotRoots()

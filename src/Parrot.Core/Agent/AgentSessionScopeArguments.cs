@@ -36,7 +36,7 @@ internal sealed record AgentSessionScopeArguments(
     AgentSessionSecurity Security,
     PermissionBroker Permissions,
     RuntimeStatus Status,
-    AgentRegistry Registry,
+    IAgentRegistry Registry,
     AgentQueues Queues,
     QuestionBroker UserQuestions,
     TimeProvider TimeProvider,

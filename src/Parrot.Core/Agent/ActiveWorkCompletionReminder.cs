@@ -6,7 +6,7 @@ using Parrot.Statuses;
 namespace Parrot.Agent;
 
 internal sealed class ActiveWorkCompletionReminder(
-    ChildRegistry children,
+    IChildRegistry children,
     ShellProcessOwner processes,
     PromptTemplateCatalog promptTemplates)
 {

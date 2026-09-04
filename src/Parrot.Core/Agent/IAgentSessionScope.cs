@@ -6,7 +6,7 @@ internal interface IAgentSessionScope : IAsyncDisposable
 {
     IAgentSession Session { get; }
 
-    ChildRegistry ChildRegistry { get; }
+    IChildRegistry ChildRegistry { get; }
 
     ChildQuestionCoordinator ChildQuestions { get; }
 }

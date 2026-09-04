@@ -187,7 +187,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
     {
         public AgentSessionDirectScope Build(
             AgentIdentity identity,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             RuntimeStatus status,
             EventRepository repository,
             EventBroker broker,
@@ -216,7 +216,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             CancellationToken lifetime) =>
             Build(identity, registry, status, eventRepository, eventBroker, lifetime);
     }

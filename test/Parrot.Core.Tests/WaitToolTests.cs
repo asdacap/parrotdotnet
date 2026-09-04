@@ -640,7 +640,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
     }
@@ -680,7 +680,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 IMode mode,
                 SecurityProfile securityProfile,
                 Parrot.Statuses.RuntimeStatus status,
-                AgentRegistry registry,
+                IAgentRegistry registry,
                 CancellationToken lifetime)
             {
                 var processes = owner.ShellProcesses.Prepare(identity.SessionId);

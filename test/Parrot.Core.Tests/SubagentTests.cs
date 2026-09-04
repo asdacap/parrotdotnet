@@ -1970,7 +1970,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     {
         public IAgentSession Session => scope.Session;
 
-        public ChildRegistry ChildRegistry => scope.ChildRegistry;
+        public IChildRegistry ChildRegistry => scope.ChildRegistry;
 
         public Questions.ChildQuestionCoordinator ChildQuestions => scope.ChildQuestions;
 
@@ -2000,7 +2000,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             CancellationToken lifetime)
         {
             parentScope.Validate(identity);
@@ -2032,7 +2032,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
     }
@@ -2066,7 +2066,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             CancellationToken lifetime)
         {
             parentScope.Validate(identity);

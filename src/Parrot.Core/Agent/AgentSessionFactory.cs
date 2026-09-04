@@ -34,7 +34,7 @@ internal sealed class AgentSessionFactory(
         IMode mode,
         SecurityProfile securityProfile,
         RuntimeStatus status,
-        AgentRegistry registry,
+        IAgentRegistry registry,
         CancellationToken lifetime)
     {
         parentScope.Validate(identity);

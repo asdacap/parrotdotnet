@@ -5,7 +5,7 @@ using Parrot.Config;
 namespace Parrot.Questions;
 
 internal sealed class ChildQuestionCoordinator(
-    ChildRegistry children,
+    IChildRegistry children,
     PromptTemplateCatalog promptTemplates)
 {
     private readonly Lock _gate = new();

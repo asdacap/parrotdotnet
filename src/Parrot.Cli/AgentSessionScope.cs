@@ -15,7 +15,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     internal AgentSessionScope(
         AgentIdentity owner,
-        AgentRegistry registry,
+        IAgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
         AgentQueues queues)
     {
@@ -35,7 +35,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         }
     }
 
-    public ChildRegistry ChildRegistry { get; }
+    public IChildRegistry ChildRegistry { get; }
 
     public ChildQuestionCoordinator ChildQuestions { get; }
 

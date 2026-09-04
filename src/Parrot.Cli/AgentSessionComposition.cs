@@ -270,7 +270,7 @@ internal partial class AgentSessionComposition
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<ShellProcessOwner>(out var processes);
-                ctx.Inject<ChildRegistry>(out var children);
+                ctx.Inject<IChildRegistry>(out var children);
                 return new ActiveWorkCompletionReminder(
                     children,
                     processes,
@@ -286,7 +286,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new AgentSessionActivity(arguments.TimeProvider);
             })
-            .Bind<ChildRegistry>().To(ctx =>
+            .Bind<IChildRegistry>().To(ctx =>
             {
                 ctx.Inject<IAgentSessionScope>(out var scope);
                 return scope.ChildRegistry;

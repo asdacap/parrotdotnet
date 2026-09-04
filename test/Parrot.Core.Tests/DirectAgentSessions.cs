@@ -65,7 +65,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             CancellationToken lifetime)
         {
             source._identities.Add(identity);
