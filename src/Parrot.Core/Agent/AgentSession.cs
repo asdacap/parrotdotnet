@@ -92,7 +92,7 @@ internal sealed class AgentSession(
     private bool _epochInitialized;
     private bool _initialStatusPending = identity.Depth > 0;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
-    private CancellationTokenSource? _drainCancellation;
+    private DrainCancellation? _drainCancellation;
     private bool _wake;
     private bool _aborted;
     private bool _started;
@@ -214,7 +214,7 @@ internal sealed class AgentSession(
     public async Task Interrupt(CancellationToken cancellationToken)
     {
         Task draining;
-        CancellationTokenSource? stopping = null;
+        DrainCancellation? stopping = null;
 
         lock (_drainGate)
         {
@@ -258,7 +258,7 @@ internal sealed class AgentSession(
 
             // The drain left it alone because _stopping was set, and it has
             // finished, so nothing else can be holding it.
-            stopping.Dispose();
+            stopping.Release();
         }
 
         if (!_aborted && eventRepository.HasPendingInputs(SessionId))
@@ -271,7 +271,7 @@ internal sealed class AgentSession(
     // Run to bound the drain by, so this is how an owner keeps its own Run from
     // returning while a turn is still writing to a database it is about to
     // close.
-    public async Task Settled() =>
+    public async ValueTask DisposeAsync() =>
         _ = await WaitForDrainResult().ConfigureAwait(false);
 
     public Task Compact(CancellationToken cancellationToken)
@@ -293,7 +293,7 @@ internal sealed class AgentSession(
             }
             else
             {
-                _drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+                _drainCancellation = new DrainCancellation(lifetime);
                 _state = DrainState.Running;
                 Activity.ChangeState(DrainState.Running);
                 _drain = Drain(_drainCancellation.Token);
@@ -668,6 +668,9 @@ internal sealed class AgentSession(
         }
     }
 
+    internal async Task Settled() =>
+        _ = await WaitForDrainResult().ConfigureAwait(false);
+
     private static long Elapsed(long started) =>
         (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
@@ -997,7 +1000,7 @@ internal sealed class AgentSession(
             // Linked to the session's lifetime, never to the request that woke
             // it: a unary call's token is cancelled when the call returns, and
             // the turn outlives the call that admitted its prompt.
-            _drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            _drainCancellation = new DrainCancellation(lifetime);
             _state = DrainState.Running;
             Activity.ChangeState(DrainState.Running);
             _drain = Drain(_drainCancellation.Token);
@@ -1040,7 +1043,7 @@ internal sealed class AgentSession(
                 // still holding it, and disposes it once this task has ended.
                 if (!_stopping)
                 {
-                    _drainCancellation?.Dispose();
+                    _drainCancellation?.Release();
                 }
 
                 _drainCancellation = null;
@@ -2104,6 +2107,18 @@ internal sealed class AgentSession(
         {
             await eventBroker.Publish(usage.ConvertToEvent(), cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private sealed class DrainCancellation(CancellationToken lifetime)
+    {
+        private readonly CancellationTokenSource _source =
+            CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+
+        internal CancellationToken Token => _source.Token;
+
+        internal async ValueTask CancelAsync() => await _source.CancelAsync().ConfigureAwait(false);
+
+        internal void Release() => _source.Dispose();
     }
 
     private sealed class ForcedCompactionRequest(CancellationToken cancellationToken)

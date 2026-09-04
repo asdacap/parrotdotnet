@@ -37,7 +37,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
@@ -89,7 +89,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
@@ -137,7 +137,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
@@ -181,7 +181,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,
@@ -241,7 +241,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         using var events = new EventBroker();
         using var database = SessionDatabase.Open(":memory:");
         var resources = CreateResources();
-        var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
+        await using var agent = CreateAgent(events, database, resources.AgentScratch("agent").BlobDirectory, lifetime.Token);
         using var inventory = new ShellProcessInventory();
         var owner = new ShellProcessOwner(
             agent.SessionId,

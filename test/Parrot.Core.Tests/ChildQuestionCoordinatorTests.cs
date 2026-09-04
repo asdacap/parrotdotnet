@@ -23,7 +23,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "parent", registry, cancellationToken);
+        await using var parent = Session(provider, 0, "parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
         var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
         var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "child"));
@@ -46,7 +46,7 @@ internal sealed partial class SubagentTests
             && published.PayloadCase == ProtocolEvent.PayloadOneofCase.InputAdmitted
             && published.InputAdmitted.Delivery == Delivery.Steer);
         provider.Release();
-        await parent.Settled();
+        await parent.DisposeAsync();
 
         options[0] = "Red";
         questions[0] = new QuestionDefinition(string.Empty, "Changed", [], false, true);
@@ -106,7 +106,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "parent-tool", registry, cancellationToken);
+        await using var parent = Session(provider, 0, "parent-tool", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
         var unrelated = Session(provider, 0, "unrelated-tool", registry, cancellationToken);
         var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "tool-child"));
@@ -142,7 +142,7 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(coordinator.Pending(parent)).IsEmpty();
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await parent.Settled();
+        await parent.DisposeAsync();
     }
 
     [Test]
@@ -221,7 +221,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "answer-parent", registry, cancellationToken);
+        await using var parent = Session(provider, 0, "answer-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
         var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "answer-child"));
         var asking = coordinator.Ask(child, [Question("continue")], cancellationToken);
@@ -240,6 +240,7 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(() => coordinator.Reply(parent, child.SessionId, Answer("yes")))
             .Throws<QuestionRejectedException>();
         _ = await Assert.That(pending.Id).IsNotEqualTo(string.Empty);
+        await parent.Abort(cancellationToken);
     }
 
     [Test]
@@ -255,7 +256,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var root = Session(provider, 0, "question-root", registry, cancellationToken);
+        await using var root = Session(provider, 0, "question-root", registry, cancellationToken);
         var parent = root.ChildRegistry.Spawn(QuestionChildRequest(root, router, "question-parent"));
         var coordinator = TestModels.CreateChildQuestions(parent);
         var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "question-child"));
@@ -273,8 +274,9 @@ internal sealed partial class SubagentTests
         coordinator.Reply(parent, child.SessionId, Answer("yes"));
         provider.Release();
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
-        await parent.Settled();
+        await parent.DisposeAsync();
         _ = await Assert.That(provider.Requests).HasSingleItem();
+        await root.Abort(cancellationToken);
     }
 
     [Test]
@@ -290,7 +292,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "multiple-parent", registry, cancellationToken);
+        await using var parent = Session(provider, 0, "multiple-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
         var first = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "first-question-child"));
         var second = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "second-question-child"));
@@ -310,7 +312,7 @@ internal sealed partial class SubagentTests
         coordinator.Reply(parent, second.SessionId, Answer("yes"));
         _ = await Task.WhenAll(firstAsking, secondAsking);
         provider.Release();
-        await parent.Settled();
+        await parent.DisposeAsync();
     }
 
     [Test]
@@ -327,7 +329,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var root = Session(provider, 0, "factory-root", registry, cancellationToken);
+        await using var root = Session(provider, 0, "factory-root", registry, cancellationToken);
         var rootScope = _rootScopes[^1];
         var child = root.ChildRegistry.Spawn(QuestionChildRequest(root, router, "factory-child"));
         var childQuestions = rootScope.ChildQuestions;
@@ -356,7 +358,7 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(childExecution).Throws<OperationCanceledException>();
         _ = await Assert.That(childQuestions.Pending(root)).IsEmpty();
         provider.Release();
-        await root.Settled();
+        await root.DisposeAsync();
     }
 
     [Test]
@@ -372,7 +374,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var parent = Session(provider, 0, "reservation-parent", registry, cancellationToken);
+        await using var parent = Session(provider, 0, "reservation-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(parent);
         var child = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "reservation-child"));
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -397,7 +399,7 @@ internal sealed partial class SubagentTests
             TestModels.ProfileRegistry(),
             TestModels.PromptTemplates,
             cancellationToken);
-        var root = Session(provider, 0, "root", registry, cancellationToken);
+        await using var root = Session(provider, 0, "root", registry, cancellationToken);
         var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
         var child = root.ChildRegistry.Spawn(QuestionChildRequest(root, router, "child"));
         var grandchild = child.ChildRegistry.Spawn(QuestionChildRequest(child, router, "grandchild"));

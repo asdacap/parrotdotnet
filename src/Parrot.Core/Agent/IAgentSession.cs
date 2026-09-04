@@ -5,7 +5,7 @@ using Parrot.Store;
 
 namespace Parrot.Agent;
 
-internal interface IAgentSession
+internal interface IAgentSession : IAsyncDisposable
 {
     string SessionId { get; }
 
@@ -30,8 +30,6 @@ internal interface IAgentSession
     bool Wake(IncomingActivity? activity);
 
     Task Interrupt(CancellationToken cancellationToken);
-
-    Task Settled();
 
     Task Compact(CancellationToken cancellationToken);
 

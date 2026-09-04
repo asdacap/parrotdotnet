@@ -32,9 +32,9 @@ internal sealed class PermissionBrokerTests : IDisposable
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
         var requestingSecurity = Security(_root);
-        var requesting = Session("requesting", database, events, requestingSecurity);
+        await using var requesting = Session("requesting", database, events, requestingSecurity);
         var otherSecurity = Security(_root);
-        var other = Session("other", database, events, otherSecurity);
+        await using var other = Session("other", database, events, otherSecurity);
         var first = Target("first");
         var second = Target("second");
         var request = broker.Request(requesting.Identity, requestingSecurity, "update generated files", [first, second], cancellationToken);
@@ -265,7 +265,7 @@ internal sealed class PermissionBrokerTests : IDisposable
             Timeout.InfiniteTimeSpan,
             TimeProvider.System);
         var security = Security(_root);
-        var session = Session("requesting", database, events, security);
+        await using var session = Session("requesting", database, events, security);
         var target = Target("dependency");
         var request = broker.Request(
             session.Identity,

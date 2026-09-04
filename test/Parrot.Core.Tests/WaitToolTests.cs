@@ -58,7 +58,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var provider = new UnusedProvider();
         using var queueCatalog = QueueCatalog("schema-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
-        var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
+        await using var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         _ = queues.Create("work", "queued work");
         _ = await queues.Push("work", ["item"], QueueDirection.Back, false, cancellationToken);
         var processes = new ProcessStatusSource(
@@ -108,7 +108,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var provider = new UnusedProvider();
         using var queueCatalog = QueueCatalog("pending-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
-        var session = Session(provider, [], repository, queueCatalog, queues);
+        await using var session = Session(provider, [], repository, queueCatalog, queues);
         var unobservedProcesses = new UnobservedProcessStatusSource();
         var unobservedAgents = new UnobservedAgentStatusSource();
         var tool = new WaitTool(
@@ -136,7 +136,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var provider = new UnusedProvider();
         using var queueCatalog = QueueCatalog("agent-completion-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
-        var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
+        await using var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource(), TestModels.PromptTemplates, TimeProvider.System),
             session,
@@ -156,7 +156,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var provider = new UnusedProvider();
         using var queueCatalog = QueueCatalog("process-completion-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
-        var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
+        await using var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         var tool = new WaitTool(
             new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource(), TestModels.PromptTemplates, TimeProvider.System),
             session,
@@ -180,7 +180,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var provider = new UnusedProvider();
         using var queueCatalog = QueueCatalog("cancellation-queues");
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
-        var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
+        await using var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         var unobservedProcesses = new UnobservedProcessStatusSource();
         var unobservedAgents = new UnobservedAgentStatusSource();
         var tool = new WaitTool(
@@ -209,7 +209,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var processes = new ProcessStatusSource();
         var agents = new AgentStatusSource();
         var factory = new WaitToolFactory(new RuntimeStatus(queueCatalog, processes, agents, TestModels.PromptTemplates, TimeProvider.System), TimeProvider.System);
-        var session = Session(provider, [factory], repository, queueCatalog, queues);
+        await using var session = Session(provider, [factory], repository, queueCatalog, queues);
 
         _ = await session.Send(
             [ConversationPart.TextPart("first")], "message-1", Delivery.Steer, cancellationToken);
@@ -231,7 +231,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await Assert.That(session.Activity.Capture().State).IsEqualTo(DrainState.Running);
 
         provider.Release();
-        await session.Settled();
+        await session.DisposeAsync();
         _ = await Assert.That(session.Activity.Capture().State).IsEqualTo(DrainState.Idle);
         var lifecycle = repository.Replay().Where(published => published.PayloadCase is
             Event.PayloadOneofCase.ToolStarted or Event.PayloadOneofCase.ToolFinished).ToArray();
@@ -247,7 +247,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates));
         using var childQueues = queueCatalog.Register(
             AgentIdentity.Child("child", "parent", "parent", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        var child = Session(
+        await using var child = Session(
             provider,
             [],
             repository,
@@ -267,7 +267,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             .Contains("Queue notification from \"parent-work\":\n\nfrom-parent");
         _ = await Assert.That(parentQueues.Get("parent-work").Size).IsEqualTo(0);
         provider.Release();
-        await child.Settled();
+        await child.DisposeAsync();
     }
 
     [Test]
@@ -282,14 +282,14 @@ internal sealed class WaitToolTests : IAsyncDisposable
             AgentIdentity.Child("first-child", "parent", "parent", "first", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         using var secondQueues = queueCatalog.Register(
             AgentIdentity.Child("second-child", "parent", "parent", "second", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        var first = Session(
+        await using var first = Session(
             firstProvider,
             [],
             repository,
             queueCatalog,
             firstQueues,
             AgentIdentity.Child("first-child", "parent", "parent", "first", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        var second = Session(
+        await using var second = Session(
             secondProvider,
             [],
             repository,
@@ -333,7 +333,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             await secondWaitCancellation.CancelAsync();
             _ = await Assert.That(secondWaiting).Throws<OperationCanceledException>();
             firstProvider.Release();
-            await first.Settled();
+            await first.DisposeAsync();
         }
         else
         {
@@ -341,7 +341,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             await firstWaitCancellation.CancelAsync();
             _ = await Assert.That(firstWaiting).Throws<OperationCanceledException>();
             secondProvider.Release();
-            await second.Settled();
+            await second.DisposeAsync();
         }
     }
 
@@ -357,14 +357,14 @@ internal sealed class WaitToolTests : IAsyncDisposable
             AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
         using var activeQueues = queueCatalog.Register(
             AgentIdentity.Child("active-child", "parent", "parent", "active", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        var disabled = Session(
+        await using var disabled = Session(
             disabledProvider,
             [],
             repository,
             queueCatalog,
             disabledQueues,
             AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
-        var active = Session(
+        await using var active = Session(
             activeProvider,
             [],
             repository,
@@ -396,7 +396,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         await disabledWaitCancellation.CancelAsync();
         _ = await Assert.That(disabledWaiting).Throws<OperationCanceledException>();
         activeProvider.Release();
-        await active.Settled();
+        await active.DisposeAsync();
     }
 
     [Test]

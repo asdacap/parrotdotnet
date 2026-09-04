@@ -312,7 +312,6 @@ internal sealed class UserSession : IAsyncDisposable
 
         foreach (var agent in _agents)
         {
-            await agent.Session.Settled().ConfigureAwait(false);
             Registry.UnregisterRootScope(agent);
             await agent.DisposeAsync().ConfigureAwait(false);
         }

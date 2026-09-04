@@ -59,7 +59,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 4);
-        var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
+        await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = parent.ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
@@ -95,7 +95,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         parentProvider.Release();
         await parentProvider.Arrived(cancellationToken);
         parentProvider.Release();
-        await parent.Settled();
+        await parent.DisposeAsync();
 
         var allEvents = beforeSettlement.Concat(Events(subscription)).ToArray();
         _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(3);
@@ -134,7 +134,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
-        var parent = Session(
+        await using var parent = Session(
             "parent",
             provider,
             router,
@@ -159,7 +159,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
 
         parent.ClearGoal();
         provider.Release();
-        await parent.Settled();
+        await parent.DisposeAsync();
 
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
         _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
@@ -188,7 +188,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 3);
-        var parent = Session(
+        await using var parent = Session(
             "parent",
             parentProvider,
             router,
@@ -231,7 +231,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         ownedChildQuestions.Reply(parent, secondChild.SessionId, QuestionAnswer("second"));
         _ = await Task.WhenAll(firstQuestion, secondQuestion);
         parentProvider.Release();
-        await parent.Settled();
+        await parent.DisposeAsync();
 
         _ = await Assert.That(mode.Completions).IsEqualTo(1);
         _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
@@ -255,7 +255,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 2);
-        var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
+        await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = parent.ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
@@ -274,7 +274,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         _ = await parent.Send("finish", cancellationToken);
         await parentProvider.Arrived(cancellationToken);
         parentProvider.Release();
-        await parent.Settled();
+        await parent.DisposeAsync();
 
         _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(Reminders(Events(subscription), "parent")).IsEmpty();
@@ -301,7 +301,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
-        var root = Session(
+        await using var root = Session(
             "root",
             rootProvider,
             router,
@@ -357,12 +357,18 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         _ = await monitored.Send("finish", cancellationToken);
         await monitoredProvider.Arrived(cancellationToken);
         monitoredProvider.Release();
-        await monitored.Settled();
+        await monitored.DisposeAsync();
 
         _ = await Assert.That(monitoredProvider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(Reminders(Events(subscription), monitored.SessionId)).IsEmpty();
         _ = await Assert.That(Payloads(
             repository, monitored.SessionId, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+        siblingProvider.Release();
+        grandchildProvider.Release();
+        await Task.WhenAll(
+            sibling.Abort(cancellationToken),
+            grandchild.Abort(cancellationToken));
+        await lifetime.CancelAsync();
     }
 
     [Test]
@@ -386,7 +392,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
-        var parent = Session(
+        await using var parent = Session(
             "parent",
             provider,
             router,
@@ -401,7 +407,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var otherRouter = Router(otherProvider);
         var otherProcesses = processes.Prepare("other");
         processes.Register(otherProcesses);
-        var other = BareSession(
+        await using var other = BareSession(
             "other",
             otherProvider,
             otherRouter,
@@ -424,7 +430,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         _ = await parent.Send("finish", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
-        await parent.Settled();
+        await parent.DisposeAsync();
 
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(Reminders(Events(subscription), "parent")).IsEmpty();
@@ -453,7 +459,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 3);
-        var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
+        await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = parent.ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
@@ -476,7 +482,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             parentProvider.Release();
         }
 
-        await parent.Settled();
+        await parent.DisposeAsync();
 
         var events = Events(subscription);
         _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(3);
@@ -509,7 +515,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
-        var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
+        await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
         var child = parent.ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),

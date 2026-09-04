@@ -91,7 +91,7 @@ internal sealed class RequestWritePermissionToolTests : IDisposable
             [],
             []);
         var security = SecurityProfileTestFactory.Create(profile);
-        var session = Session(database, events, security);
+        await using var session = Session(database, events, security);
         var tool = BuildTool(broker, security);
 
         var result = (await tool.Execute(

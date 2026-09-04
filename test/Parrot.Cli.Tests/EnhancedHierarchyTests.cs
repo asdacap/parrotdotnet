@@ -308,7 +308,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             static (_, token) =>
             {
                 token.ThrowIfCancellationRequested();

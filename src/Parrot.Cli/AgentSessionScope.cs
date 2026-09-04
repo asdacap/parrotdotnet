@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Parrot.Agent;
 using Parrot.Questions;
 using Parrot.Queues;
@@ -30,14 +31,46 @@ internal sealed class AgentSessionScope(
 
     private async Task ShutDown()
     {
+        Exception? failure = null;
         try
         {
             await ChildRegistry.DisposeAsync().ConfigureAwait(false);
         }
-        finally
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+
+        try
+        {
+            await Session.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        try
         {
             ChildQuestions.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        try
+        {
             queues.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
         }
     }
 }

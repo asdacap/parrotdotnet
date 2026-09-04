@@ -509,15 +509,6 @@ internal sealed class ChildRegistry(
             failure = exception;
         }
 
-        try
-        {
-            await Task.WhenAll(children.Select(static child => child.Scope.Session.Settled())).ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            failure ??= exception;
-        }
-
         for (var index = children.Length - 1; index >= 0; index--)
         {
             var child = children[index];

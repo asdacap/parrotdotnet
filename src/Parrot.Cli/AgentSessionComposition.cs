@@ -294,7 +294,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<ChildRegistry>(out var children);
                 return new AgentResolver(arguments.Identity, arguments.ParentScope, children, arguments.Registry);
             })
-            .Bind<IAgentSession>().As(Lifetime.Scoped).To<AgentSession>()
+            .Bind<IAgentSession>().As(Lifetime.PerResolve).To<AgentSession>()
             .Root<IAgentSession>("Session")
             .Root<ShellProcessOwner>("Processes")
             .Root<ChildRegistry>("Children")
