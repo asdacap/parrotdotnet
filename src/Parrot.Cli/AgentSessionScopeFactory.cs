@@ -73,6 +73,8 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             timeProvider,
             lifetime);
         var composition = new AgentSessionComposition(arguments);
+        queues.Attach(composition.Session);
+        shellProcesses.Register(composition.Processes);
         return new AgentSessionScope(
             composition.Session,
             composition.Children,
