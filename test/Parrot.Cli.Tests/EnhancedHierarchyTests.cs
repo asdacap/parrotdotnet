@@ -133,15 +133,28 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "parent", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
+        _ = await Assert.That(string.Join('|', committed)).IsEqualTo("  ● [parent] parent response");
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "parent",
+                AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = "root",
+                    Name = "parent",
+                    ElapsedMs = 65_000,
+                },
+            },
+            cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished");
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished (1m 05s)");
         _ = await Assert.That(drawn[^1]).DoesNotContain("[parent] agent finished");
 
         await view.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished|    ● [child] child|      [child] response|    ♟ [child] agent finished");
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished (1m 05s)|    ● [child] child|      [child] response");
         await view.Render(
             new Event
             {
@@ -150,17 +163,22 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished|    ● [child] child|      [child] response|    ♟ [child] agent finished|    ✓ [child] tool call read");
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished (1m 05s)|    ● [child] child|      [child] response|    ✓ [child] tool call read");
 
-        var count = committed.Count;
         await view.Render(
             new Event
             {
                 AgentSessionId = "child",
-                AgentFinished = new AgentFinished { ParentAgentSessionId = "parent", Name = "child" },
+                AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = "parent",
+                    Name = "child",
+                    ElapsedMs = 7_000,
+                },
             },
             cancellationToken);
-        _ = await Assert.That(committed.Count).IsEqualTo(count);
+        _ = await Assert.That(string.Join('|', committed))
+            .IsEqualTo("  ● [parent] parent response|  ♟ [parent] agent finished (1m 05s)|    ● [child] child|      [child] response|    ✓ [child] tool call read|    ♟ [child] agent finished (7s)");
     }
 
     [Test]
@@ -277,6 +295,18 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = "root",
+                    Name = "child",
+                    ElapsedMs = 7_000,
+                },
+            },
+            cancellationToken);
 
         _ = await Assert.That(committed).Count().IsEqualTo(2);
         _ = await Assert.That(layouts[0]).IsEqualTo(ScrollbackLayout.Assistant);
@@ -287,7 +317,7 @@ internal sealed class EnhancedHierarchyTests
         _ = await Assert.That(committed[0]).DoesNotContain("# Findings");
         _ = await Assert.That(committed[0]).DoesNotContain("**");
         _ = await Assert.That(committed[0]).DoesNotContain("```");
-        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished (7s)");
     }
 
     [Test]
@@ -340,12 +370,24 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = "root",
+                    Name = "child",
+                    ElapsedMs = 7_000,
+                },
+            },
+            cancellationToken);
 
         _ = await Assert.That(committed).Count().IsEqualTo(2);
         _ = await Assert.That(committed[0]).Contains("  ● [child] answer:");
         _ = await Assert.That(committed[0]).Contains("value: 1");
         _ = await Assert.That(committed[0]).DoesNotContain("{\\\"answer\\\"");
-        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished (7s)");
     }
 
     [Test]
@@ -416,10 +458,22 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = "root",
+                    Name = "child",
+                    ElapsedMs = 7_000,
+                },
+            },
+            cancellationToken);
 
         _ = await Assert.That(committed[0]).IsEqualTo(expectedResponse);
         _ = await Assert.That(string.Join('|', committed)).DoesNotContain("line 11");
-        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished");
+        _ = await Assert.That(committed[1]).IsEqualTo("  ♟ [child] agent finished (7s)");
     }
 
     [Test]
@@ -556,11 +610,21 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } },
             cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentFinished = new AgentFinished
+                {
+                    ParentAgentSessionId = "root",
+                    Name = "worker",
+                    ElapsedMs = 7_000,
+                },
+            },
+            cancellationToken);
 
         _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished");
-        _ = await Assert.That(string.Join('|', committed))
-            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished");
+            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished (7s)");
         _ = await Assert.That(drawn[^1]).DoesNotContain("agent main");
         _ = await Assert.That(drawn[^1]).DoesNotContain("Working:");
     }
@@ -611,6 +675,82 @@ internal sealed class EnhancedHierarchyTests
 
         _ = await Assert.That(committed.Count).IsEqualTo(1);
         _ = await Assert.That(committed[0]).IsEqualTo("✗ agent: the turn exceeded its tool-call limit");
+    }
+
+    [Test]
+    public async Task Child_terminal_events_retry_failed_commits(CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var failCommit = true;
+        var context = new ScrollbackRenderContext(120, new TerminalPalette(false));
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = items;
+            if (failCommit)
+            {
+                failCommit = false;
+                throw new InvalidOperationException("commit failed");
+            }
+
+            committed.Add(string.Join('|', item.Render(context)));
+            return Task.CompletedTask;
+        }
+
+        await using var view = new RawActivityView(
+            static (_, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            },
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", TextChunk = new TextChunk { Fragment = "completed work" } },
+            cancellationToken);
+        var turnEnded = new Event
+        {
+            AgentSessionId = "child",
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
+        };
+
+        _ = await Assert.That(async () => await view.Render(turnEnded, cancellationToken))
+            .Throws<InvalidOperationException>();
+        await view.Render(turnEnded, cancellationToken);
+
+        var agentFinished = new Event
+        {
+            AgentSessionId = "child",
+            AgentFinished = new AgentFinished
+            {
+                ParentAgentSessionId = "root",
+                Name = "worker",
+                ElapsedMs = 7_000,
+            },
+        };
+        failCommit = true;
+        _ = await Assert.That(async () => await view.Render(agentFinished, cancellationToken))
+            .Throws<InvalidOperationException>();
+        await view.Render(agentFinished, cancellationToken);
+        await view.Render(agentFinished, cancellationToken);
+
+        _ = await Assert.That(string.Join('|', committed))
+            .IsEqualTo("  ● [worker] completed work|  ♟ [worker] agent finished (7s)");
     }
 
     [Test]

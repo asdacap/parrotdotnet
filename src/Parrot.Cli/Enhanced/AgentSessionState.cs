@@ -7,7 +7,7 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class AgentSessionState(string agentSessionId)
 {
-    private const string AgentActivity = "agent";
+    internal const string AgentActivityId = "agent";
     private const string CompactionActivity = "compaction";
     private const int MaximumResponseLines = 10;
     private const string ToolActivityPrefix = "tool:";
@@ -23,6 +23,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     private readonly StringBuilder _response = new();
 
     private bool _terminalCommitted;
+    private bool _agentTerminalPending;
     private bool _responseComplete;
     private string? _name;
     private AgentStatisticsUpdatedEvent? _statistics;
@@ -39,7 +40,7 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string ModelineLabel => $"agent {Name}";
 
-    public bool IsAgentActive => _activities.Contains(AgentActivity);
+    public bool IsAgentActive => _activities.Contains(AgentActivityId);
 
     public LiveModelAliasIcon? ModelAliasIcon { get; private set; }
 
@@ -49,19 +50,20 @@ internal sealed class AgentSessionState(string agentSessionId)
 
     public string? StartTurn(LiveModelAliasIcon? modelAliasIcon)
     {
-        if (!_activities.Add(AgentActivity))
+        if (!_activities.Add(AgentActivityId))
         {
             return null;
         }
 
         ModelAliasIcon = modelAliasIcon;
         _terminalCommitted = false;
+        _agentTerminalPending = true;
         _foldedTools.Clear();
         _foldedToolOrder = 0;
         _ = _response.Clear();
         _responseComplete = false;
         _responseLineBreaks = 0;
-        return AgentActivity;
+        return AgentActivityId;
     }
 
     public string? StartCompaction() => _activities.Add(CompactionActivity) ? CompactionActivity : null;
@@ -132,9 +134,32 @@ internal sealed class AgentSessionState(string agentSessionId)
         }
     }
 
+    public async Task<string?> FinishChildTurn(Func<string, Task> flush)
+    {
+        ArgumentNullException.ThrowIfNull(flush);
+
+        if (!_activities.Remove(AgentActivityId))
+        {
+            return null;
+        }
+
+        try
+        {
+            await FlushResponse(flush).ConfigureAwait(false);
+        }
+        catch
+        {
+            _ = _activities.Add(AgentActivityId);
+            throw;
+        }
+
+        _terminalCommitted = true;
+        return AgentActivityId;
+    }
+
     public (string ActivityId, string Response, string Line)? FinishTurn(Event published, bool failed)
     {
-        if (!_activities.Remove(AgentActivity))
+        if (!_activities.Remove(AgentActivityId))
         {
             return null;
         }
@@ -148,22 +173,28 @@ internal sealed class AgentSessionState(string agentSessionId)
             : interrupted
                 ? "- agent interrupted"
                 : "+ agent finished";
-        return (AgentActivity, response, status);
+        return (AgentActivityId, response, status);
     }
 
-    public (string ActivityId, string Response, string Line)? FinishAgent(Event published, bool failed)
+    public (string ActivityId, string Line)? FinishAgent(Event published, bool failed)
     {
-        if (_terminalCommitted || !_activities.Remove(AgentActivity))
+        if (!_agentTerminalPending)
         {
             return null;
         }
 
-        _terminalCommitted = true;
-        var response = DrainResponse();
         var status = failed
             ? $"! agent: {TerminalText.Sanitize(published.AgentFailed.Message)}"
             : $"+ agent finished ({AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)})";
-        return (AgentActivity, response, status);
+        return (AgentActivityId, status);
+    }
+
+    public void CompleteAgent()
+    {
+        _agentTerminalPending = false;
+        _terminalCommitted = true;
+        _ = _activities.Remove(AgentActivityId);
+        _ = DrainResponse();
     }
 
     public void CollectToolCall(ToolCallChunk chunk)
@@ -304,7 +335,7 @@ internal sealed class AgentSessionState(string agentSessionId)
     }
 
     public bool IsAgentActivity(string activityId) =>
-        _activities.Contains(AgentActivity) && string.Equals(activityId, AgentActivity, StringComparison.Ordinal);
+        _activities.Contains(AgentActivityId) && string.Equals(activityId, AgentActivityId, StringComparison.Ordinal);
 
     public ILiveBufferItem CreateLiveBufferItem(
         string activityId,
