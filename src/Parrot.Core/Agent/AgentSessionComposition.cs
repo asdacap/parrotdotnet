@@ -14,7 +14,7 @@ using Pure.DI;
 
 namespace Parrot.Agent;
 
-internal partial class AgentSessionComposition
+internal partial class AgentSessionComposition : IAsyncDisposable
 {
     internal static void Setup() =>
         DI.Setup(nameof(AgentSessionComposition))
@@ -309,12 +309,10 @@ internal partial class AgentSessionComposition
             })
             .Bind<IAgentSession>().As(Lifetime.Scoped).To<AgentSession>()
             .Bind<GoalService>().As(Lifetime.Scoped).To<GoalService>()
-            .Bind<AgentSessionScopeLifetime>().As(Lifetime.Scoped).To<AgentSessionScopeLifetime>()
             .Root<IAgentSession>("Session")
             .Root<GoalService>("Goals")
             .Root<IChildRegistry>("ChildRegistry")
             .Root<AgentSessionParentScope>("ParentScope")
             .Root<ChildQuestionCoordinator>("ChildQuestions")
-            .Root<ShellProcessOwner>("Processes")
-            .Root<AgentSessionScopeLifetime>("ScopeLifetime");
+            .Root<ShellProcessOwner>("Processes");
 }

@@ -36,11 +36,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     internal ShellProcessOwner Processes => _composition.Processes;
 
-    public async ValueTask DisposeAsync()
-    {
-        await _composition.ScopeLifetime.DisposeAsync().ConfigureAwait(false);
-        _composition.Dispose();
-    }
+    public ValueTask DisposeAsync() => _composition.DisposeAsync();
 
-    internal void DisposeRejectedConstruction() => _composition.ScopeLifetime.DisposeRejectedConstruction();
+    internal void DisposeRejectedConstruction() => _composition.Dispose();
 }
