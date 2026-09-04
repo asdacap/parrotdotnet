@@ -853,8 +853,11 @@ internal sealed class RawActivityView(
         _ = _activities.Remove((state, completion.ActivityId));
         if (completion.Response.Length > 0)
         {
+            var scrollbackValue = ToolYamlFormatter.TryFormat(completion.Response, out var yaml)
+                ? new MarkdownScrollbackValue($"```yaml\n{yaml}\n```")
+                : new MarkdownScrollbackValue(completion.Response);
             await commit(
-                Wrap(state, new MarkdownScrollbackValue(completion.Response), null),
+                Wrap(state, scrollbackValue, null),
                 Snapshot(),
                 cancellationToken).ConfigureAwait(false);
         }

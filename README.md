@@ -903,7 +903,11 @@ highlight one, and press Tab to complete it; Enter then runs the completed
 command. In the enhanced main chat input, Shift+Enter inserts a newline. Enter
 submits after 100ms of quiet; typing or editing during that grace period instead
 inserts a newline, allowing fast unbracketed multiline messages. The basic CLI
-remains line-based.
+remains line-based. At the existing flush boundaries, the enhanced CLI formats a
+complete valid JSON value in foreground pending text or a completed subagent response
+as YAML for display. This is display-only: protocol, persistence, accumulation, and
+basic CLI behavior are unchanged. Already-promoted multiline foreground content is not
+reconstructed or reformatted.
 
 The enhanced modeline's `i/s` and `o/s` are live client-side rates. On receipt
 of each provider completion, they add that call's exact provider-reported input

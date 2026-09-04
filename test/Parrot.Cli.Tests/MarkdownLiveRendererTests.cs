@@ -20,6 +20,48 @@ internal sealed class MarkdownLiveRendererTests
     }
 
     [Test]
+    public async Task Formats_complete_json_pending_value_as_yaml_at_commit()
+    {
+        var renderer = new MarkdownLiveRenderer(static () => 80, false);
+
+        _ = renderer.Append(new LiveTerminalStreamMessage(
+            "answer",
+            "assistant: ",
+            "{\"value\":{\"enabled\":true,\"label\":\"ready\"}}"));
+        var committed = renderer.Commit();
+
+        var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
+        var rendered = string.Join('\n', committed.Scrollback?.Render(context) ?? []);
+        _ = await Assert.That(rendered).Contains("value:");
+        _ = await Assert.That(rendered).Contains("enabled: true");
+        _ = await Assert.That(rendered).Contains("label: \"ready\"");
+        _ = await Assert.That(rendered).DoesNotContain("{\"value\"");
+    }
+
+    [Test]
+    public async Task Keeps_non_json_and_promoted_messages_as_markdown_at_commit()
+    {
+        var nonJsonRenderer = new MarkdownLiveRenderer(static () => 80, false);
+        var promotedRenderer = new MarkdownLiveRenderer(static () => 80, false);
+
+        _ = nonJsonRenderer.Append(new LiveTerminalStreamMessage("answer", "assistant: ", "**bold**"));
+        var nonJsonCommit = nonJsonRenderer.Commit();
+        var promoted = promotedRenderer.Append(
+            new LiveTerminalStreamMessage("answer", "assistant: ", "Explanation:\n{\"value\":1}"));
+        var promotedCommit = promotedRenderer.Commit();
+
+        var context = new ScrollbackRenderContext(80, new TerminalPalette(false));
+        var nonJsonRendered = string.Join('\n', nonJsonCommit.Scrollback?.Render(context) ?? []);
+        var promotedRendered = string.Join('\n', promoted.Scrollback?.Render(context) ?? []);
+        var promotedCommitRendered = string.Join('\n', promotedCommit.Scrollback?.Render(context) ?? []);
+        _ = await Assert.That(nonJsonRendered).Contains("bold");
+        _ = await Assert.That(nonJsonRendered).DoesNotContain("```yaml");
+        _ = await Assert.That(promotedRendered).Contains("Explanation:");
+        _ = await Assert.That(promotedCommitRendered).Contains("{\"value\":1}");
+        _ = await Assert.That(promotedCommitRendered).DoesNotContain("value: 1");
+    }
+
+    [Test]
     public async Task Keeps_fenced_code_live_until_the_closing_fence()
     {
         var renderer = new MarkdownLiveRenderer(static () => 80, false);
