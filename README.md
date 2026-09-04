@@ -915,6 +915,12 @@ has no previous rate and sees only later completions. They describe local
 completion receipt, not provider-side token-generation timing, and are distinct
 from durable session metered usage.
 
+The enhanced modeline shows elapsed time only for the active root (main) turn.
+Timing begins at its `TurnStarted` event and ends at `TurnEnded` or `TurnFailed`;
+child-agent turns do not start or replace this timer. The duration is appended to
+the currently winning activity label and uses compact formatting such as `0s`,
+`1m 05s`, and `2h 03m 04s`.
+
 > **`git add` new files before `nix build`/`nix run`.** A flake sees only
 > git-tracked files, so an untracked `.cs` file is silently dropped from the
 > build — which surfaces as a spurious "type not found" from the sandbox

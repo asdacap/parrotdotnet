@@ -22,6 +22,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     private readonly RuntimeUsageTracker _usage = new();
     private readonly RollingTokenRateWindow _rates;
     private readonly RollingTokenRateRefreshLifecycle _rateRefresh;
+    private readonly TimeProvider _timeProvider;
     private readonly ForegroundTurn _foreground = new();
     private readonly HashSet<string> _modelineTools = new(StringComparer.Ordinal);
     private readonly LiveUpdateScheduler _updates;
@@ -31,6 +32,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
     private IReadOnlyList<ILiveBufferItem> _input;
     private string _mainAgentActivity = string.Empty;
     private string _modelineActivity = string.Empty;
+    private RunningDuration? _rootTurnDuration;
     private int _modelineFrame;
     private Task _spinnerRendering = Task.CompletedTask;
     private TaskCompletionSource? _spinnerStop;
@@ -105,6 +107,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         _isBusy = isBusy;
         _completePlan = completePlan;
         _exitOnFirstCompletion = exitOnFirstCompletion;
+        _timeProvider = timeProvider;
         _updates = new LiveUpdateScheduler(DrawScheduled);
         _rates = new RollingTokenRateWindow(timeProvider);
         _rateRefresh = new RollingTokenRateRefreshLifecycle(
@@ -238,6 +241,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             _modelineTools.Clear();
             _mainAgentActivity = string.Empty;
             _modelineActivity = string.Empty;
+            _rootTurnDuration = null;
             _modelineFrame = 0;
         }
         finally
@@ -304,6 +308,11 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             : _mainAgentActivity.Length > 0
                 ? _mainAgentActivity
                 : _modelineActivity;
+        if (_rootTurnDuration is { } duration && activityLabel.Length > 0)
+        {
+            activityLabel = $"{activityLabel} (running {duration.Format()})";
+        }
+
         var activity = activityLabel.Length == 0
             ? string.Empty
             : $"{TerminalIcons.SpinnerFrames[_modelineFrame % TerminalIcons.SpinnerFrames.Length]} {activityLabel}";
@@ -480,10 +489,16 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
 
     private void ObserveModelineActivity(Event published)
     {
-        if (_foreground.IsTerminal(published)
-            || (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
-                && _foreground.IsMain(published.AgentSessionId)))
+        if (_foreground.IsTerminal(published))
         {
+            _rootTurnDuration = null;
+            _modelineTools.Clear();
+            _modelineActivity = string.Empty;
+        }
+        else if (published.PayloadCase == Event.PayloadOneofCase.TurnStarted
+                 && _foreground.IsMain(published.AgentSessionId))
+        {
+            _rootTurnDuration = new RunningDuration(_timeProvider);
             _modelineTools.Clear();
             _modelineActivity = string.Empty;
         }
