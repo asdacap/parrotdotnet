@@ -19,8 +19,8 @@ internal sealed class ShellProcessSnapshotStreamReaderTests
                 return Task.CompletedTask;
             });
 
-        await source.WriteAsync(Snapshot("one", 1, 0, 2, Process("first")), cancellationToken);
-        await source.WriteAsync(Snapshot("one", 1, 1, 2, Process("second")), cancellationToken);
+        await source.WriteAsync(Snapshot("one", 1, 0, 2, [Process("first")], []), cancellationToken);
+        await source.WriteAsync(Snapshot("one", 1, 1, 2, [Process("second")], [Completion("done", 7_123)]), cancellationToken);
         await source.WriteAsync(new Event { Id = "visible", TextChunk = new TextChunk { Fragment = "answer" } }, cancellationToken);
 
         _ = await Assert.That(await reader.MoveNext(cancellationToken)).IsTrue();
@@ -28,10 +28,13 @@ internal sealed class ShellProcessSnapshotStreamReaderTests
         _ = await Assert.That(applied).Count().IsEqualTo(1);
         _ = await Assert.That(string.Join(',', applied[0].Processes.Select(static process => process.ProcessId)))
             .IsEqualTo("first,second");
+        _ = await Assert.That(applied[0].CompletedProcesses).HasSingleItem();
+        _ = await Assert.That(applied[0].CompletedProcesses[0].ProcessId).IsEqualTo("done");
+        _ = await Assert.That(applied[0].CompletedProcesses[0].ElapsedMs).IsEqualTo(7_123L);
 
-        await source.WriteAsync(Snapshot("one", 1, 0, 1, Process("stale")), cancellationToken);
-        await source.WriteAsync(Snapshot("one", 3, 1, 2, Process("orphan")), cancellationToken);
-        await source.WriteAsync(Snapshot("one", 2, 0, 1), cancellationToken);
+        await source.WriteAsync(Snapshot("one", 1, 0, 1, [Process("stale")], []), cancellationToken);
+        await source.WriteAsync(Snapshot("one", 3, 1, 2, [Process("orphan")], [Completion("orphan", null)]), cancellationToken);
+        await source.WriteAsync(Snapshot("one", 2, 0, 1, [], [Completion("done", 7_123)]), cancellationToken);
         await source.WriteAsync(new Event { Id = "next", TextChunk = new TextChunk { Fragment = "next" } }, cancellationToken);
 
         _ = await Assert.That(await reader.MoveNext(cancellationToken)).IsTrue();
@@ -39,6 +42,7 @@ internal sealed class ShellProcessSnapshotStreamReaderTests
         _ = await Assert.That(applied).Count().IsEqualTo(2);
         _ = await Assert.That(applied[1].Revision).IsEqualTo(2UL);
         _ = await Assert.That(applied[1].Processes).IsEmpty();
+        _ = await Assert.That(applied[1].CompletedProcesses).HasSingleItem();
     }
 
     [Test]
@@ -54,9 +58,9 @@ internal sealed class ShellProcessSnapshotStreamReaderTests
                 return Task.CompletedTask;
             });
 
-        await source.WriteAsync(Snapshot("old", 4, 0, 1, Process("old")), cancellationToken);
-        await source.WriteAsync(Snapshot("new", 1, 0, 1, Process("new")), cancellationToken);
-        await source.WriteAsync(Snapshot("old", 5, 0, 1, Process("resurrected")), cancellationToken);
+        await source.WriteAsync(Snapshot("old", 4, 0, 1, [Process("old")], []), cancellationToken);
+        await source.WriteAsync(Snapshot("new", 1, 0, 1, [Process("new")], []), cancellationToken);
+        await source.WriteAsync(Snapshot("old", 5, 0, 1, [Process("resurrected")], [Completion("old", 9_000)]), cancellationToken);
         await source.WriteAsync(new Event { Id = "visible", TextChunk = new TextChunk() }, cancellationToken);
 
         _ = await Assert.That(await reader.MoveNext(cancellationToken)).IsTrue();
@@ -72,12 +76,24 @@ internal sealed class ShellProcessSnapshotStreamReaderTests
         Command = "sleep 10",
     };
 
+    private static CompletedShellProcess Completion(string id, long? elapsedMilliseconds)
+    {
+        var completion = new CompletedShellProcess { ProcessId = id };
+        if (elapsedMilliseconds is { } value)
+        {
+            completion.ElapsedMs = value;
+        }
+
+        return completion;
+    }
+
     private static Event Snapshot(
         string instanceId,
         ulong revision,
         uint chunkIndex,
         uint chunkCount,
-        params ActiveShellProcess[] processes)
+        IEnumerable<ActiveShellProcess> processes,
+        IEnumerable<CompletedShellProcess> completedProcesses)
     {
         var snapshot = new ShellProcessSnapshot
         {
@@ -87,6 +103,7 @@ internal sealed class ShellProcessSnapshotStreamReaderTests
             ChunkCount = chunkCount,
         };
         snapshot.Processes.AddRange(processes);
+        snapshot.CompletedProcesses.AddRange(completedProcesses);
         return new Event { ShellProcessSnapshot = snapshot };
     }
 }

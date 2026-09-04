@@ -1,5 +1,6 @@
 using Parrot.Protocol;
 using ProtocolActiveShellProcess = Parrot.Protocol.ActiveShellProcess;
+using ProtocolCompletedShellProcess = Parrot.Protocol.CompletedShellProcess;
 
 namespace Parrot.Process;
 
@@ -9,50 +10,82 @@ internal static class ShellProcessInventoryProtocol
 
     public static IEnumerable<Event> Convert(ShellProcessInventorySnapshot inventory)
     {
-        var chunkCount = checked((uint)Math.Max(1, inventory.Processes.Count));
-        if (inventory.Processes.Count == 0)
+        var recordCount = checked(inventory.Processes.Count + inventory.CompletedProcesses.Count);
+        var chunkCount = checked((uint)Math.Max(1, recordCount));
+        if (recordCount == 0)
         {
-            yield return Build(inventory, 0, chunkCount, null);
+            yield return BuildEmpty(inventory, chunkCount);
             yield break;
         }
 
-        for (var index = 0; index < inventory.Processes.Count; index++)
+        var chunkIndex = 0U;
+        foreach (var process in inventory.Processes)
         {
-            yield return Build(inventory, checked((uint)index), chunkCount, inventory.Processes[index]);
+            yield return BuildActive(inventory, chunkIndex++, chunkCount, process);
+        }
+
+        foreach (var process in inventory.CompletedProcesses)
+        {
+            yield return BuildCompleted(inventory, chunkIndex++, chunkCount, process);
         }
     }
 
-    private static Event Build(
+    private static Event BuildEmpty(ShellProcessInventorySnapshot inventory, uint chunkCount) =>
+        Validate(new Event { ShellProcessSnapshot = BuildSnapshot(inventory, 0, chunkCount) });
+
+    private static Event BuildActive(
         ShellProcessInventorySnapshot inventory,
         uint chunkIndex,
         uint chunkCount,
-        ActiveShellProcessState? state)
+        ActiveShellProcessState state)
     {
-        var snapshot = new ShellProcessSnapshot
+        var snapshot = BuildSnapshot(inventory, chunkIndex, chunkCount);
+        snapshot.Processes.Add(new ProtocolActiveShellProcess
+        {
+            ProcessId = state.ProcessId,
+            Name = state.Name,
+            Command = state.Command,
+            OriginToolCallId = state.OriginToolCallId,
+            OwnerAgentSessionId = state.OwnerAgentSessionId,
+            OwnerAgentName = state.OwnerAgentName,
+            ParentAgentSessionId = state.ParentAgentSessionId,
+            ParentAgentName = state.ParentAgentName,
+            Depth = state.Depth,
+            ElapsedMs = state.ElapsedMilliseconds,
+        });
+        return Validate(new Event { ShellProcessSnapshot = snapshot });
+    }
+
+    private static Event BuildCompleted(
+        ShellProcessInventorySnapshot inventory,
+        uint chunkIndex,
+        uint chunkCount,
+        CompletedShellProcessState state)
+    {
+        var completed = new ProtocolCompletedShellProcess { ProcessId = state.ProcessId };
+        if (state.ElapsedMilliseconds is { } elapsedMilliseconds)
+        {
+            completed.ElapsedMs = elapsedMilliseconds;
+        }
+
+        var snapshot = BuildSnapshot(inventory, chunkIndex, chunkCount);
+        snapshot.CompletedProcesses.Add(completed);
+        return Validate(new Event { ShellProcessSnapshot = snapshot });
+    }
+
+    private static ShellProcessSnapshot BuildSnapshot(
+        ShellProcessInventorySnapshot inventory,
+        uint chunkIndex,
+        uint chunkCount) => new()
         {
             InventoryInstanceId = inventory.InventoryInstanceId,
             Revision = inventory.Revision,
             ChunkIndex = chunkIndex,
             ChunkCount = chunkCount,
         };
-        if (state is not null)
-        {
-            snapshot.Processes.Add(new ProtocolActiveShellProcess
-            {
-                ProcessId = state.ProcessId,
-                Name = state.Name,
-                Command = state.Command,
-                OriginToolCallId = state.OriginToolCallId,
-                OwnerAgentSessionId = state.OwnerAgentSessionId,
-                OwnerAgentName = state.OwnerAgentName,
-                ParentAgentSessionId = state.ParentAgentSessionId,
-                ParentAgentName = state.ParentAgentName,
-                Depth = state.Depth,
-                ElapsedMs = state.ElapsedMilliseconds,
-            });
-        }
 
-        var published = new Event { ShellProcessSnapshot = snapshot };
+    private static Event Validate(Event published)
+    {
         if (published.CalculateSize() > MaximumEventBytes)
         {
             throw new InvalidOperationException($"Shell process inventory record exceeds {MaximumEventBytes} bytes.");

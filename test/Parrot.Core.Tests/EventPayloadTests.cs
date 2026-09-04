@@ -436,6 +436,11 @@ internal sealed class EventPayloadTests
                         ElapsedMs = 42,
                     },
                 },
+                CompletedProcesses =
+                {
+                    new CompletedShellProcess { ProcessId = "process-2", ElapsedMs = 5_001 },
+                    new CompletedShellProcess { ProcessId = "process-3" },
+                },
             },
         };
 
@@ -448,6 +453,13 @@ internal sealed class EventPayloadTests
         _ = await Assert.That(roundtripped.ShellProcessSnapshot.ChunkCount).IsEqualTo(1U);
         _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].ProcessId).IsEqualTo("process-1");
         _ = await Assert.That(roundtripped.ShellProcessSnapshot.Processes[0].Command).IsEqualTo("dotnet build");
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[0].ProcessId)
+            .IsEqualTo("process-2");
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[0].HasElapsedMs).IsTrue();
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[0].ElapsedMs).IsEqualTo(5_001);
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[1].ProcessId)
+            .IsEqualTo("process-3");
+        _ = await Assert.That(roundtripped.ShellProcessSnapshot.CompletedProcesses[1].HasElapsedMs).IsFalse();
         _ = await Assert.That(bytes[0]).IsEqualTo((byte)0xca);
         _ = await Assert.That(bytes[1]).IsEqualTo((byte)0x01);
     }
