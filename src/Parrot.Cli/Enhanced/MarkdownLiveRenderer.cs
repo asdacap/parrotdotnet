@@ -1,5 +1,4 @@
 using System.Text;
-using Parrot.Cli.Enhanced.Tools;
 
 namespace Parrot.Cli.Enhanced;
 
@@ -59,15 +58,9 @@ internal sealed class MarkdownLiveRenderer(Func<int> columns, bool color)
     {
         var prefix = _started ? new string(' ', TerminalText.Width(_prefix)) : _prefix;
         var pending = _pending.ToString();
-        var source = pending;
-        if (!_started && pending.Length > 0 && ToolYamlFormatter.TryFormat(pending, out var yaml))
-        {
-            source = $"```yaml\n{yaml}\n```";
-        }
-
         var scrollback = pending.Length == 0
             ? []
-            : MarkdownRenderer.Render(prefix, source, Columns(), color);
+            : EnhancedFinalMessageRenderer.Render(pending, prefix, Columns(), color, !_started);
         var completed = _sequence.Complete(scrollback);
         Reset();
         return new MarkdownLiveUpdate(completed, string.Empty, []);
