@@ -769,6 +769,7 @@ internal sealed class EnhancedCliTests
                 {
                     ParentAgentSessionId = "main-session",
                     Name = "explorer",
+                    ElapsedMs = 7_000,
                 },
             },
             cancellationToken);
@@ -776,11 +777,11 @@ internal sealed class EnhancedCliTests
         await animating.CancelAsync();
         await animation;
 
-        _ = await Assert.That(beforeAgentFinished).IsEqualTo(5);
+        _ = await Assert.That(beforeAgentFinished).IsEqualTo(4);
         _ = await Assert.That(committed.Count).IsEqualTo(5);
         _ = await Assert.That(string.Join('|', committed)).Contains("✓ tool call exec_command|dotnet test");
         _ = await Assert.That(string.Join('|', committed)).Contains("  ✗ [explorer[31m] tool call read[2J|    [explorer[31m] denied[2J");
-        _ = await Assert.That(string.Join('|', committed)).Contains("  ♟ [explorer[31m] agent finished");
+        _ = await Assert.That(string.Join('|', committed)).Contains("  ♟ [explorer] agent finished (7s)");
         _ = await Assert.That(draws.Last()).IsEmpty();
     }
 
