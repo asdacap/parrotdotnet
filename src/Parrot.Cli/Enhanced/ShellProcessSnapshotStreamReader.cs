@@ -8,7 +8,8 @@ internal sealed class ShellProcessSnapshotStreamReader(
     Func<ShellProcessSnapshot, CancellationToken, Task> replace) : IAsyncStreamReader<Event>
 {
     private readonly HashSet<string> _retiredInstances = new(StringComparer.Ordinal);
-    private readonly List<ActiveShellProcess> _staged = [];
+    private readonly List<ActiveShellProcess> _stagedProcesses = [];
+    private readonly List<CompletedShellProcess> _stagedCompletedProcesses = [];
     private string? _acceptedInstance;
     private string? _stagedInstance;
     private uint _chunkCount;
@@ -53,7 +54,8 @@ internal sealed class ShellProcessSnapshotStreamReader(
                 return;
             }
 
-            _staged.Clear();
+            _stagedProcesses.Clear();
+            _stagedCompletedProcesses.Clear();
             _stagedInstance = snapshot.InventoryInstanceId;
             _stagedRevision = snapshot.Revision;
             _chunkCount = snapshot.ChunkCount;
@@ -70,7 +72,8 @@ internal sealed class ShellProcessSnapshotStreamReader(
             return;
         }
 
-        _staged.AddRange(snapshot.Processes.Select(static process => process.Clone()));
+        _stagedProcesses.AddRange(snapshot.Processes.Select(static process => process.Clone()));
+        _stagedCompletedProcesses.AddRange(snapshot.CompletedProcesses.Select(static process => process.Clone()));
         _nextChunk++;
         if (_nextChunk != _chunkCount)
         {
@@ -84,7 +87,8 @@ internal sealed class ShellProcessSnapshotStreamReader(
             ChunkIndex = 0,
             ChunkCount = 1,
         };
-        completed.Processes.AddRange(_staged);
+        completed.Processes.AddRange(_stagedProcesses);
+        completed.CompletedProcesses.AddRange(_stagedCompletedProcesses);
         if (_acceptedInstance is not null
             && !string.Equals(_acceptedInstance, completed.InventoryInstanceId, StringComparison.Ordinal))
         {
@@ -99,7 +103,8 @@ internal sealed class ShellProcessSnapshotStreamReader(
 
     private void ResetStaging()
     {
-        _staged.Clear();
+        _stagedProcesses.Clear();
+        _stagedCompletedProcesses.Clear();
         _stagedInstance = null;
         _stagedRevision = 0;
         _chunkCount = 0;

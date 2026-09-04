@@ -108,6 +108,82 @@ internal sealed class ShellProcessActivityTests
     }
 
     [Test]
+    public async Task Completion_tombstone_correlates_after_yield(CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
+
+        await activity.Replace(
+            SnapshotWithCompletions("inventory", 2, [], [Completion("process-1", 7_123)]),
+            cancellationToken);
+
+        _ = await Assert.That(activity.Commits).HasSingleItem();
+        _ = await Assert.That(activity.Commits[0]).IsEqualTo("$ sleep 20 (7s)");
+    }
+
+    [Test]
+    public async Task Retained_completion_tombstone_flushes_a_command_once(CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
+
+        await activity.Replace(
+            SnapshotWithCompletions("inventory", 2, [], [Completion("process-1", 7_123)]),
+            cancellationToken);
+        await activity.Replace(
+            SnapshotWithCompletions("inventory", 3, [], [Completion("process-1", 7_123)]),
+            cancellationToken);
+
+        _ = await Assert.That(activity.Commits).HasSingleItem();
+        _ = await Assert.That(activity.Commits[0]).IsEqualTo("$ sleep 20 (7s)");
+    }
+
+    [Test]
+    [Arguments(null, "$ sleep 20")]
+    [Arguments(4_999L, "$ sleep 20")]
+    [Arguments(5_000L, "$ sleep 20")]
+    [Arguments(5_001L, "$ sleep 20 (5s)")]
+    [Arguments(65_123L, "$ sleep 20 (1m 05s)")]
+    [Arguments(3_723_000L, "$ sleep 20 (1h 02m 03s)")]
+    public async Task Completion_tombstone_renders_duration_only_above_the_strict_threshold(
+        long? elapsedMilliseconds,
+        string expected,
+        CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
+
+        await activity.Replace(
+            SnapshotWithCompletions("inventory", 2, [], [Completion("process-1", elapsedMilliseconds)]),
+            cancellationToken);
+
+        _ = await Assert.That(activity.Commits).HasSingleItem();
+        _ = await Assert.That(activity.Commits[0]).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task Completion_tombstone_correlates_before_yield_without_replaying_history(
+        CancellationToken cancellationToken)
+    {
+        await using var activity = new ProcessActivity();
+        await activity.Replace(
+            SnapshotWithCompletions(
+                "inventory",
+                2,
+                [],
+                [Completion("process-1", 8_456), Completion("historical", 9_000)]),
+            cancellationToken);
+
+        _ = await Assert.That(activity.Commits).IsEmpty();
+
+        await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
+        await activity.Finish("call", "build", "process-1", "inventory", 1, cancellationToken);
+
+        _ = await Assert.That(activity.Commits).HasSingleItem();
+        _ = await Assert.That(activity.Commits[0]).IsEqualTo("$ sleep 20 (8s)");
+    }
+
+    [Test]
     public async Task Equal_and_stale_snapshots_do_not_complete_yielded_process(CancellationToken cancellationToken)
     {
         await using var activity = new ProcessActivity();
@@ -223,10 +299,28 @@ internal sealed class ShellProcessActivityTests
         OwnerAgentName = "main",
     };
 
+    private static CompletedShellProcess Completion(string processId, long? elapsedMilliseconds)
+    {
+        var completion = new CompletedShellProcess { ProcessId = processId };
+        if (elapsedMilliseconds is { } value)
+        {
+            completion.ElapsedMs = value;
+        }
+
+        return completion;
+    }
+
     private static ShellProcessSnapshot Snapshot(
         string instanceId,
         ulong revision,
-        params ActiveShellProcess[] processes)
+        params ActiveShellProcess[] processes) =>
+        SnapshotWithCompletions(instanceId, revision, processes, []);
+
+    private static ShellProcessSnapshot SnapshotWithCompletions(
+        string instanceId,
+        ulong revision,
+        IEnumerable<ActiveShellProcess> processes,
+        IEnumerable<CompletedShellProcess> completedProcesses)
     {
         var snapshot = new ShellProcessSnapshot
         {
@@ -235,6 +329,7 @@ internal sealed class ShellProcessActivityTests
             ChunkCount = 1,
         };
         snapshot.Processes.AddRange(processes);
+        snapshot.CompletedProcesses.AddRange(completedProcesses);
         return snapshot;
     }
 

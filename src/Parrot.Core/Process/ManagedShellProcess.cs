@@ -132,13 +132,15 @@ internal sealed class ManagedShellProcess
 
     private async Task<ProcessResult> ObserveCompletion(Task<ProcessResult> result)
     {
+        ProcessResult? completed = null;
         try
         {
-            return await result.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            completed = await result.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            return completed;
         }
         finally
         {
-            _inventory.Remove(State.ProcessId);
+            _inventory.Complete(State.ProcessId, completed?.ElapsedMilliseconds);
         }
     }
 
