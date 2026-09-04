@@ -806,6 +806,22 @@ internal sealed class RawActivityView(
         return items;
     }
 
+    private List<ILiveBufferItem> SnapshotWithout(AgentSessionState state, string activityId)
+    {
+        var removed = _activities.Remove((state, activityId));
+        try
+        {
+            return Snapshot();
+        }
+        finally
+        {
+            if (removed)
+            {
+                _activities.Add((state, activityId));
+            }
+        }
+    }
+
     private IReadOnlyList<ILiveBufferItem> Capture(IReadOnlyList<ILiveBufferItem> items) =>
         [.. items.Select(item => item is MarqueeValue value ? value.Animate(_frame) : item)];
 
@@ -878,6 +894,20 @@ internal sealed class RawActivityView(
     private async Task FinishTurn(Event published, bool failed, CancellationToken cancellationToken)
     {
         var state = GetAgentSession(published.AgentSessionId);
+        if (_hierarchy.IsChild(published.AgentSessionId))
+        {
+            if (await state.FinishChildTurn(response => commit(
+                    Wrap(state, new FinalMessageScrollbackValue(response), null),
+                    SnapshotWithout(state, AgentSessionState.AgentActivityId),
+                    cancellationToken)).ConfigureAwait(false) is { } activityId)
+            {
+                _ = _activities.Remove((state, activityId));
+                await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         if (state.FinishTurn(published, failed) is not { } completion)
         {
             return;
@@ -904,7 +934,8 @@ internal sealed class RawActivityView(
             await updateMainAgentActivity(string.Empty, cancellationToken).ConfigureAwait(false);
         }
 
-        await CommitCompletion(state, completion, cancellationToken).ConfigureAwait(false);
+        await CommitAgentCompletion(state, completion, cancellationToken).ConfigureAwait(false);
+        state.CompleteAgent();
     }
 
     private async Task UpdateAgentName(string agentSessionId, string name, CancellationToken cancellationToken)
@@ -1104,6 +1135,18 @@ internal sealed class RawActivityView(
                 cancellationToken).ConfigureAwait(false);
         }
 
+        await CommitAgentCompletion(
+            state,
+            (completion.ActivityId, completion.Line),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task CommitAgentCompletion(
+        AgentSessionState state,
+        (string ActivityId, string Line) completion,
+        CancellationToken cancellationToken)
+    {
+        _ = _activities.Remove((state, completion.ActivityId));
         await commit(
             Wrap(state, ImmediateScrollbackValue.Muted([completion.Line]), "♟"),
             Snapshot(),

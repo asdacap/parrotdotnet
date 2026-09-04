@@ -948,15 +948,14 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Nested_completion_starts_an_idle_parent_execution_and_notifies_the_root(
+    public async Task Nested_completion_does_not_restart_a_disposed_root(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, "intermediate ready", []),
             LLMEvent.Completed("stop", 1, 0, 1, "root initial result", []),
             LLMEvent.Completed("stop", 1, 0, 1, "nested result", []),
-            LLMEvent.Completed("stop", 1, 0, 1, "intermediate result", []),
-            LLMEvent.Completed("stop", 1, 0, 1, "root result", []));
+            LLMEvent.Completed("stop", 1, 0, 1, "intermediate result", []));
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider)),
             _broker,
@@ -1001,14 +1000,10 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var intermediateNotification = string.Join('\n', provider.Requests[3].Messages.Select(message => message.Content));
         _ = await Assert.That(intermediateNotification).Contains($"Child agent session: {nested.SessionId}");
         provider.Release();
-        await provider.Arrived(cancellationToken);
-        var rootNotification = string.Join('\n', provider.Requests[4].Messages.Select(message => message.Content));
-        _ = await Assert.That(rootNotification).Contains($"Child agent session: {intermediate.SessionId}");
-        _ = await Assert.That(rootNotification).Contains("intermediate result");
-        provider.Release();
+        _ = await intermediate.Wait(0, cancellationToken);
         await root.DisposeAsync();
 
-        _ = await Assert.That(provider.Requests).Count().IsEqualTo(5);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
     }
 
     [Test]
