@@ -10,11 +10,11 @@ A confirmed row contains repository-authored prose that is delivered through `LL
 
 ## Counts
 
-- git-tracked files inventoried: 840
-- confirmed: 70
+- git-tracked files inventoried: 836
+- confirmed: 71
 - errors-that-cannot-reach-a-model: 147
 - external-data: 3
-- protocol-tokens-schema: 443
+- protocol-tokens-schema: 438
 - ui-only-text: 177
 
 ## Verification

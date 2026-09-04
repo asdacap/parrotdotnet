@@ -157,6 +157,10 @@ prompt_templates:
     template: 'Working directory: {working_directory}'
     allowed_arguments: [working_directory]
     required_arguments: [working_directory]
+  context.git-repository:
+    template: 'Git repository: {is_repository}'
+    allowed_arguments: [is_repository]
+    required_arguments: [is_repository]
   status.selection:
     template: |-
       Active profile: {profile}

@@ -249,6 +249,7 @@ internal static class TestModels
                 new DateProvider("2026-07-24", TestModels.PromptTemplates),
                 new PlatformProvider(TestModels.PromptTemplates),
                 new WorkingDirectoryProvider(workingDirectory, TestModels.PromptTemplates),
+                new GitRepositoryProvider(ProjectWorkspace.FromLaunchDirectory(Path.GetFullPath(workingDirectory)), TestModels.PromptTemplates),
                 new OptionalCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
                 new SessionIdentityProvider(),
                 new SubagentsProvider(ProfileRegistry(), TestModels.PromptTemplates),

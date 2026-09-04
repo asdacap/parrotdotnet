@@ -2,16 +2,19 @@ namespace Parrot.Store;
 
 internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
 {
-    private ProjectWorkspace(string launchDirectory, string physicalIdentity)
+    private ProjectWorkspace(string launchDirectory, string physicalIdentity, GitRepository repository)
     {
         LaunchDirectory = launchDirectory;
         PhysicalIdentity = physicalIdentity;
-        WritableRoots = ResolveWritableRoots(launchDirectory, physicalIdentity);
+        IsGitRepository = repository.IsRepository;
+        WritableRoots = ResolveWritableRoots(launchDirectory, physicalIdentity, repository.WritableRoot);
     }
 
     public string LaunchDirectory { get; }
 
     public string PhysicalIdentity { get; }
+
+    public bool IsGitRepository { get; }
 
     public IReadOnlyList<string> WritableRoots { get; }
 
@@ -29,7 +32,8 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
             throw new DirectoryNotFoundException($"Project launch directory does not exist: {launchDirectory}");
         }
 
-        return new ProjectWorkspace(launchDirectory, ResolvePhysicalIdentity(launchDirectory));
+        var physicalIdentity = ResolvePhysicalIdentity(launchDirectory);
+        return new ProjectWorkspace(launchDirectory, physicalIdentity, FindGitRepository(launchDirectory));
     }
 
     public bool Equals(ProjectWorkspace? other) =>
@@ -39,10 +43,9 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
 
     public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(PhysicalIdentity);
 
-    private static IReadOnlyList<string> ResolveWritableRoots(string launchDirectory, string physicalIdentity)
+    private static IReadOnlyList<string> ResolveWritableRoots(string launchDirectory, string physicalIdentity, string? repositoryRoot)
     {
         var roots = new List<string>();
-        var repositoryRoot = FindGitRepositoryRoot(launchDirectory);
         if (repositoryRoot is not null)
         {
             roots.Add(repositoryRoot);
@@ -53,7 +56,7 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
         return [.. roots.Distinct(StringComparer.Ordinal)];
     }
 
-    private static string? FindGitRepositoryRoot(string workingDirectory)
+    private static GitRepository FindGitRepository(string workingDirectory)
     {
         try
         {
@@ -64,12 +67,15 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
                 var gitPath = Path.Combine(directory.FullName, ".git");
                 if (Directory.Exists(gitPath))
                 {
-                    return directory.FullName;
+                    return new GitRepository(true, directory.FullName);
                 }
 
                 if (File.Exists(gitPath))
                 {
-                    return FindLinkedRepositoryRoot(gitPath);
+                    var gitDirectory = ReadGitDirectory(gitPath);
+                    return gitDirectory is not null && Directory.Exists(gitDirectory)
+                        ? new GitRepository(true, FindLinkedRepositoryRoot(gitPath))
+                        : new GitRepository(false, null);
                 }
             }
         }
@@ -77,24 +83,18 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
         {
         }
 
-        return null;
+        return new GitRepository(false, null);
     }
 
     private static string? FindLinkedRepositoryRoot(string gitPath)
     {
-        var gitFile = File.ReadAllText(gitPath).Trim();
-        if (!gitFile.StartsWith("gitdir: ", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
         var worktreeRoot = Path.GetDirectoryName(gitPath);
-        if (worktreeRoot is null)
+        var gitDirectory = ReadGitDirectory(gitPath);
+        if (worktreeRoot is null || gitDirectory is null)
         {
             return null;
         }
 
-        var gitDirectory = ResolvePath(worktreeRoot, gitFile[8..]);
         var commonDirectoryPath = Path.Combine(gitDirectory, "commondir");
         var backlinkPath = Path.Combine(gitDirectory, "gitdir");
         if (!File.Exists(commonDirectoryPath) || !File.Exists(backlinkPath))
@@ -115,6 +115,16 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
                && string.Equals(Path.GetFileName(commonDirectory), ".git", StringComparison.Ordinal)
                && string.Equals(Path.GetDirectoryName(gitDirectory), worktreesDirectory, StringComparison.Ordinal)
             ? Path.GetDirectoryName(commonDirectory)
+            : null;
+    }
+
+    private static string? ReadGitDirectory(string gitPath)
+    {
+        var gitFile = File.ReadAllText(gitPath).Trim();
+        var worktreeRoot = Path.GetDirectoryName(gitPath);
+        return worktreeRoot is not null && gitFile.StartsWith("gitdir: ", StringComparison.Ordinal)
+            && gitFile.Length > 8
+            ? ResolvePath(worktreeRoot, gitFile[8..])
             : null;
     }
 
@@ -146,4 +156,6 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
 
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(current));
     }
+
+    private sealed record GitRepository(bool IsRepository, string? WritableRoot);
 }
