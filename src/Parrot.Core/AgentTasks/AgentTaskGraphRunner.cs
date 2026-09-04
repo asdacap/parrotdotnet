@@ -1060,7 +1060,7 @@ internal sealed class AgentTaskGraphRunner(
         }
         catch (OperationCanceledException)
         {
-            await childScope.Session.Abort(CancellationToken.None).ConfigureAwait(false);
+            await childScope.Session.Interrupt(CancellationToken.None).ConfigureAwait(false);
             _ = await childScope.Session.Wait(0, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
@@ -1080,7 +1080,7 @@ internal sealed class AgentTaskGraphRunner(
 
         await Task.WhenAll(active.Select(async child =>
         {
-            await child.Abort(CancellationToken.None).ConfigureAwait(false);
+            await child.Interrupt(CancellationToken.None).ConfigureAwait(false);
             _ = await child.Wait(0, CancellationToken.None).ConfigureAwait(false);
         })).ConfigureAwait(false);
     }

@@ -17,9 +17,8 @@ Final source audited: `src/Parrot.Core/Agent/AgentSession.cs` after the scoped-d
 | `internal AgentSelection Selection()` | Intrinsic selection observation | Returns the gate-protected immutable selection snapshot used by `AgentPolicyLineage` when deriving child policy and profile lineage. |
 | `internal void UpdateSelection(ModelSelector selectedModel, IMode mode)` | Intrinsic selection mutation | Applies user-session model/mode changes at turn boundaries; called by `UserSession`. |
 | `internal void Recover()` | Intrinsic lifecycle | Wakes durable pending input when `UserSession` initializes a recovered main agent. |
-| `internal Task Interrupt(CancellationToken cancellationToken)` | Intrinsic lifecycle | Cancels and joins the owned drain while preserving pending input; called by `UserSession` and by `Abort`. |
-| `internal Task Settled()` | Intrinsic lifecycle | Lets owning resources await drain completion before disposal; called by `UserSession` and `ChildRegistry`. |
-| `internal Task Abort(CancellationToken cancellationToken)` | Intrinsic lifecycle | Permanently prevents further wakes and interrupts execution during agent-task cancellation; called by `AgentTaskGraphRunner`. |
+| `internal Task Interrupt(CancellationToken cancellationToken)` | Intrinsic lifecycle | Cancels and joins the owned drain while preserving pending input; called by `UserSession`, agent-task cancellation, and session-scope disposal. |
+| `internal ValueTask DisposeAsync()` | Intrinsic lifecycle | Lets the owning scope await drain completion before releasing session resources. |
 | `internal void SetCheckpoint(string title, long assistantSequence, string toolCallId)` | Intrinsic conversation operation | Validates and records the current assistant tool-batch checkpoint; called by `SetCheckpointTool`. |
 | `internal AgentSelection ResolvePolicySelection()` | Intrinsic authorization | Resolves this session's selected profile through its policy lineage; called by `AgentSendTool` for caller/recipient delegation checks. |
 | `internal AgentPolicyLineage ResolvePolicyLineage()` | Intrinsic relationship policy | Supplies the parent lineage when `AgentSessionParentScope` links a child's authorization lineage. |

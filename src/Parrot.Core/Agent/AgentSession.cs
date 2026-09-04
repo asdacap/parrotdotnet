@@ -97,7 +97,7 @@ internal sealed class AgentSession(
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private DrainCancellation? _drainCancellation;
     private bool _wake;
-    private bool _aborted;
+    private bool _disposing;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private TaskCompletionSource<IncomingActivity>? _incomingInputWait;
@@ -331,7 +331,7 @@ internal sealed class AgentSession(
             stopping.Release();
         }
 
-        if (!_aborted && eventRepository.HasPendingInputs(SessionId))
+        if (!_disposing && eventRepository.HasPendingInputs(SessionId))
         {
             _ = Wake(new IncomingActivity(IncomingActivityKind.Input, string.Empty));
         }
@@ -341,8 +341,16 @@ internal sealed class AgentSession(
     // Run to bound the drain by, so this is how an owner keeps its own Run from
     // returning while a turn is still writing to a database it is about to
     // close.
-    public async ValueTask DisposeAsync() =>
-        _ = await WaitForDrainResult().ConfigureAwait(false);
+    public async ValueTask DisposeAsync()
+    {
+        lock (_drainGate)
+        {
+            _disposing = true;
+            _wake = false;
+        }
+
+        await Interrupt(CancellationToken.None).ConfigureAwait(false);
+    }
 
     public Task Compact(CancellationToken cancellationToken)
     {
@@ -351,7 +359,7 @@ internal sealed class AgentSession(
 
         lock (_drainGate)
         {
-            if (_aborted || lifetime.IsCancellationRequested)
+            if (_disposing || lifetime.IsCancellationRequested)
             {
                 throw new AgentRegistryException("the user session is shutting down");
             }
@@ -431,17 +439,6 @@ internal sealed class AgentSession(
             tools.Definitions,
             [.. _history]);
         return new ContextCompactionResult(after, compacted.Reduced);
-    }
-
-    public async Task Abort(CancellationToken cancellationToken)
-    {
-        lock (_drainGate)
-        {
-            _aborted = true;
-            _wake = false;
-        }
-
-        await Interrupt(cancellationToken).ConfigureAwait(false);
     }
 
     public void SetCheckpoint(string title, long assistantSequence, string toolCallId)
@@ -1212,7 +1209,7 @@ internal sealed class AgentSession(
     {
         lock (_drainGate)
         {
-            if (_aborted)
+            if (_disposing)
             {
                 return (false, _drain);
             }

@@ -29,8 +29,6 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     {
         foreach (var rootScope in _rootScopes)
         {
-            await rootScope.Session.Abort(CancellationToken.None).ConfigureAwait(false);
-            await rootScope.Session.DisposeAsync().ConfigureAwait(false);
             TestModels.UnregisterScope(rootScope);
             await rootScope.DisposeAsync().ConfigureAwait(false);
         }
