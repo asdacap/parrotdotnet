@@ -606,47 +606,24 @@ internal sealed class AgentSession(
 
     public async Task<AgentSendResult> Send(string message, CancellationToken cancellationToken)
     {
-        if (lifetime.IsCancellationRequested)
+        var (result, _) = await SendAndSelectExecution(message, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    public async Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken)
+    {
+        var (_, execution) = await SendAndSelectExecution(prompt, cancellationToken).ConfigureAwait(false);
+        var result = await execution.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        return result.Status switch
         {
-            throw new AgentRegistryException("the user session is shutting down");
-        }
-
-        if (string.IsNullOrWhiteSpace(message))
-        {
-            throw new AgentRegistryException("no message given");
-        }
-
-        if (Encoding.UTF8.GetByteCount(message) > MaxAgentMessageBytes)
-        {
-            throw new AgentRegistryException("agent message exceeds 1048576 bytes");
-        }
-
-        var messageId = Identifier.MessageId();
-        Task<AgentExecution>? started = null;
-        var followUp = false;
-
-        lock (_executionGate)
-        {
-            if (!_started || _execution.IsCompleted)
-            {
-                followUp = _started;
-                _started = true;
-                started = Execute(
-                    message,
-                    messageId,
-                    selectedDrain: null,
-                    followUp ? cancellationToken : CancellationToken.None);
-                _execution = started;
-            }
-        }
-
-        if (started is null)
-        {
-            _ = await Send(
-                [ConversationPart.TextPart(message)], messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
-        }
-
-        return new AgentSendResult(SessionId, Name, messageId, followUp);
+            AgentExecutionStatus.Succeeded => result.Output,
+            AgentExecutionStatus.Failed =>
+                throw new AgentExecutionException(AgentTaskStatus.Failed, result.Error),
+            AgentExecutionStatus.Canceled =>
+                throw new AgentExecutionException(AgentTaskStatus.Canceled, result.Error),
+            _ => throw new InvalidOperationException("agent execution did not terminate"),
+        };
     }
 
     public async Task ReceiveChildQuestion(
@@ -1037,6 +1014,58 @@ internal sealed class AgentSession(
         string output,
         string error) =>
         new(SessionId, Name, status, yielded, elapsedMilliseconds, output, error);
+
+    private async Task<(AgentSendResult Result, Task<AgentExecution> Execution)> SendAndSelectExecution(
+        string message,
+        CancellationToken cancellationToken)
+    {
+        if (lifetime.IsCancellationRequested)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            throw new AgentRegistryException("no message given");
+        }
+
+        if (Encoding.UTF8.GetByteCount(message) > MaxAgentMessageBytes)
+        {
+            throw new AgentRegistryException("agent message exceeds 1048576 bytes");
+        }
+
+        var messageId = Identifier.MessageId();
+        Task<AgentExecution>? execution = null;
+        var followUp = false;
+
+        lock (_executionGate)
+        {
+            if (!_started || _execution.IsCompleted)
+            {
+                followUp = _started;
+                _started = true;
+                execution = Execute(
+                    message,
+                    messageId,
+                    selectedDrain: null,
+                    followUp ? cancellationToken : CancellationToken.None);
+                _execution = execution;
+            }
+        }
+
+        if (execution is null)
+        {
+            var admitted = await AdmitPartsAndWake(
+                [ConversationPart.TextPart(message)],
+                messageId,
+                Delivery.Steer,
+                new IncomingActivity(IncomingActivityKind.Input, string.Empty),
+                cancellationToken).ConfigureAwait(false);
+            execution = admitted.SelectedDrain;
+        }
+
+        return (new AgentSendResult(SessionId, Name, messageId, followUp), execution);
+    }
 
     private async Task<AgentExecution> Execute(
         string prompt,

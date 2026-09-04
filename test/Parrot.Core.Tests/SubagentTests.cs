@@ -107,6 +107,80 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Send_and_wait_returns_output_or_reports_terminal_and_caller_cancellation(
+        CancellationToken cancellationToken)
+    {
+        using var successProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "result", []));
+        await using var successRegistry = TestModels.Registry(
+            new TestAgentSessions(Router(successProvider)),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var success = Session(successProvider, 0, "success", successRegistry, cancellationToken);
+        var successTask = success.SendAndWaitForResult("work", cancellationToken);
+        await successProvider.Arrived(cancellationToken);
+        successProvider.Release();
+        _ = await Assert.That(await successTask).IsEqualTo("result");
+
+        var failureProvider = new TerminalFailureProvider("provider failed");
+        await using var failureRegistry = TestModels.Registry(
+            new TestAgentSessions(Router(failureProvider)),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var failure = Session(failureProvider, 0, "failure", failureRegistry, cancellationToken);
+        AgentExecutionException? failed = null;
+        try
+        {
+            _ = await failure.SendAndWaitForResult("work", cancellationToken);
+        }
+        catch (AgentExecutionException exception)
+        {
+            failed = exception;
+        }
+
+        var failedExecution = failed ?? throw new InvalidOperationException("Expected terminal failure.");
+        _ = await Assert.That(failedExecution.Status).IsEqualTo(AgentTaskStatus.Failed);
+        _ = await Assert.That(failedExecution.Message).IsEqualTo("provider failed");
+
+        using var canceledProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "unreachable", []));
+        await using var canceledRegistry = TestModels.Registry(
+            new TestAgentSessions(Router(canceledProvider)),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var canceled = Session(canceledProvider, 0, "canceled", canceledRegistry, cancellationToken);
+        var canceledTask = canceled.SendAndWaitForResult("work", cancellationToken);
+        await canceledProvider.Arrived(cancellationToken);
+        await canceled.Abort(CancellationToken.None);
+        var terminalCanceled = await Assert.That(canceledTask).Throws<AgentExecutionException>();
+        _ = await Assert.That(terminalCanceled?.Status).IsEqualTo(AgentTaskStatus.Canceled);
+        _ = await Assert.That(terminalCanceled?.Message).IsEqualTo("interrupted");
+
+        using var callerProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "unreachable", []));
+        await using var callerRegistry = TestModels.Registry(
+            new TestAgentSessions(Router(callerProvider)),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var caller = Session(callerProvider, 0, "caller", callerRegistry, cancellationToken);
+        using var callerCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var callerTask = caller.SendAndWaitForResult("work", callerCancellation.Token);
+        await callerProvider.Arrived(cancellationToken);
+        await callerCancellation.CancelAsync();
+        _ = await Assert.That(callerTask).Throws<OperationCanceledException>();
+        await caller.Abort(CancellationToken.None);
+    }
+
+    [Test]
     public async Task Spawn_full_fork_seeds_child_before_its_first_prompt(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
@@ -1919,11 +1993,11 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             selection.SecurityProfile);
     }
 
-    private static ModelRouter Router(SteppedProvider provider) =>
+    private static ModelRouter Router(ILLMProvider provider) =>
         Router(provider, []);
 
     private static ModelRouter Router(
-        SteppedProvider provider,
+        ILLMProvider provider,
         IReadOnlyList<ModelAliasDefinition> aliases)
     {
         var models = new[] { new LLMModel("model", provider.Id), new LLMModel("replacement", provider.Id) };
@@ -1934,7 +2008,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     private IAgentSession Session(
-        SteppedProvider provider,
+        ILLMProvider provider,
         int depth,
         string sessionId,
         AgentRegistry registry,
@@ -1942,7 +2016,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         Session(provider, depth, sessionId, depth == 0 ? string.Empty : "parent", registry, cancellationToken);
 
     private IAgentSession Session(
-        SteppedProvider provider,
+        ILLMProvider provider,
         int depth,
         string sessionId,
         string name,
@@ -1955,7 +2029,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", name, depth, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         var scope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
-            new AgentSession(identity, sessionParentScope, new ModelSelector("stepped/model"), router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
+            new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
         TestModels.RegisterScope(scope);
         if (depth == 0)
         {

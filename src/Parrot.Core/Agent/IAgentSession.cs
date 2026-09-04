@@ -93,6 +93,8 @@ internal interface IAgentSession : IAsyncDisposable
 
     Task<AgentSendResult> Send(string message, CancellationToken cancellationToken);
 
+    Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken);
+
     Task ReceiveChildQuestion(
         string message,
         string messageId,

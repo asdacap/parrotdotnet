@@ -687,6 +687,26 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Failed_role_reports_failure_and_releases_active_internal_child(CancellationToken cancellationToken)
+    {
+        var provider = new TerminalFailureProvider("role failed");
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"failed-role","description":"Fail task","payload":"work","acceptance_criteria":"Done"}]}
+            """);
+
+        var result = await Runner(runtime, "failed-role")
+            .Run(artifact, cancellationToken);
+
+        var task = result.Tasks.Single();
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(task.Failure).IsEqualTo("execution agent failed: role failed");
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.ObserveActive()).IsEmpty();
+    }
+
+    [Test]
     public async Task Cancellation_interrupts_and_joins_active_internal_child(CancellationToken cancellationToken)
     {
         using var provider = new AgentTaskBlockingProvider();

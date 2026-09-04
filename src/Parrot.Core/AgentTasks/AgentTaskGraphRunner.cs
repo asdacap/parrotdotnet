@@ -1048,13 +1048,16 @@ internal sealed class AgentTaskGraphRunner(
 
         try
         {
-            _ = await childScope.Session.Send(prompt, cancellationToken).ConfigureAwait(false);
-            var waited = await childScope.Session.Wait(0, cancellationToken).ConfigureAwait(false);
-            var execution = waited.Status switch
+            var output = await childScope.Session.SendAndWaitForResult(prompt, cancellationToken).ConfigureAwait(false);
+            return new AgentRoleRun(childScope, AgentExecution.Succeeded(output));
+        }
+        catch (AgentExecutionException exception)
+        {
+            var execution = exception.Status switch
             {
-                AgentTaskStatus.Succeeded => AgentExecution.Succeeded(waited.Output),
+                AgentTaskStatus.Failed => AgentExecution.Failed(exception.Message),
                 AgentTaskStatus.Canceled => AgentExecution.Canceled(),
-                _ => AgentExecution.Failed(waited.Error),
+                _ => throw new InvalidOperationException("agent execution exception did not represent a terminal failure", exception),
             };
             return new AgentRoleRun(childScope, execution);
         }
