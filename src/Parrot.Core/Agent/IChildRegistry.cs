@@ -6,11 +6,7 @@ internal interface IChildRegistry
 
     bool IsAccepting { get; }
 
-    IAgentSessionScope SpawnScope(AgentLaunchRequest request);
-
     IAgentSessionScope? FindDirectChildScope(string childSessionId);
-
-    ValueTask DisposeAsync();
 
     void ValidateOwner(AgentIdentity identity);
 
@@ -23,4 +19,10 @@ internal interface IChildRegistry
     IReadOnlyList<IAgentSession> SnapshotDescendants();
 
     IAgentSessionScope ResolveNamedChildScope(string name);
+
+    bool ContainsName(string name);
+
+    void Add(IAgentSessionScope scope);
+
+    IReadOnlyList<IAgentSessionScope> TakeAll();
 }

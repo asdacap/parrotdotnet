@@ -1030,7 +1030,7 @@ internal sealed class AgentTaskGraphRunner(
                 var historyBoundary = ReferenceEquals(owningAgentScope, ownerScope)
                     ? rootHistoryBoundary
                     : new HistoryForkBoundary.AfterCompletedHistory();
-                childScope = owningAgentScope.ChildRegistry.SpawnScope(new AgentLaunchRequest(
+                childScope = owningAgentScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
                     owningAgentScope.Session,
                     selection,
                     ResolveRoleProfile(role),

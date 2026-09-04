@@ -254,7 +254,7 @@ internal sealed class AgentRegistry(
         {
             try
             {
-                await root.ChildRegistry.DisposeAsync().ConfigureAwait(false);
+                await root.AgentSpawner.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception exception)
             {

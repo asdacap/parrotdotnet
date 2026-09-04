@@ -503,10 +503,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var registry = PrepareRegistry(repository);
         var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
-        var children = new ChildRegistry(
-            identity,
-            registry,
-            () => throw new InvalidOperationException("The test session has no owner scope."));
+        var children = new ChildRegistry(identity);
         var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         _childQuestions.Add(childQuestions);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);

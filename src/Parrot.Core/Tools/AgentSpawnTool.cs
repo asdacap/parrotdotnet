@@ -45,7 +45,7 @@ internal sealed class AgentSpawnTool(
             var model = requestedModel.Length == 0
                 ? selection.RequestedModel
                 : router.Resolve(requestedModel).RequestedSelector;
-            var agent = ownerScope.ChildRegistry.SpawnScope(new AgentLaunchRequest(
+            var agent = ownerScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
                 ownerScope.Session,
                 selection,
                 requestedProfile,

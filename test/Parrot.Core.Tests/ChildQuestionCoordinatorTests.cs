@@ -26,7 +26,7 @@ internal sealed partial class SubagentTests
         await using var parent = Session(provider, 0, "parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(TestModels.ScopeOf(parent));
         var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
-        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "child")).Session;
+        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(QuestionChildRequest(parent, router, "child")).Session;
         var options = new[] { "Blue" };
         var questions = new[] { new QuestionDefinition("Colour", "Pick", options, false, false) };
         var asking = coordinator.Ask(child, questions, cancellationToken);
@@ -109,7 +109,7 @@ internal sealed partial class SubagentTests
         await using var parent = Session(provider, 0, "parent-tool", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(TestModels.ScopeOf(parent));
         var unrelated = Session(provider, 0, "unrelated-tool", registry, cancellationToken);
-        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "tool-child")).Session;
+        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(QuestionChildRequest(parent, router, "tool-child")).Session;
         var asking = coordinator.Ask(child, [Question("continue")], cancellationToken);
         _ = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         var arguments = $$"""
@@ -169,13 +169,13 @@ internal sealed partial class SubagentTests
         var secondParent = Session(provider, 0, "second-parent", secondRegistry, cancellationToken);
         var firstCoordinator = new ChildQuestionCoordinator(TestModels.ScopeOf(firstParent).ParentScope, TestModels.PromptTemplates);
         var secondCoordinator = new ChildQuestionCoordinator(TestModels.ScopeOf(secondParent).ParentScope, TestModels.PromptTemplates);
-        var firstChild = TestModels.ScopeOf(firstParent).ChildRegistry.SpawnScope(QuestionChildRequest(firstParent, router, "first-child")).Session;
-        var secondChild = TestModels.ScopeOf(secondParent).ChildRegistry.SpawnScope(QuestionChildRequest(secondParent, router, "second-child")).Session;
+        var firstChild = TestModels.ScopeOf(firstParent).AgentSpawner.SpawnScope(QuestionChildRequest(firstParent, router, "first-child")).Session;
+        var secondChild = TestModels.ScopeOf(secondParent).AgentSpawner.SpawnScope(QuestionChildRequest(secondParent, router, "second-child")).Session;
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var cancelled = firstCoordinator.Ask(firstChild, [Question("cancelled")], stopping.Token);
         _ = await WaitForChildQuestion(firstCoordinator, firstParent, cancellationToken);
         var disposed = firstCoordinator.Ask(
-            TestModels.ScopeOf(firstParent).ChildRegistry.SpawnScope(QuestionChildRequest(firstParent, router, "disposed-child")).Session,
+            TestModels.ScopeOf(firstParent).AgentSpawner.SpawnScope(QuestionChildRequest(firstParent, router, "disposed-child")).Session,
             [Question("disposed")],
             cancellationToken);
         var isolated = secondCoordinator.Ask(secondChild, [Question("isolated")], cancellationToken);
@@ -226,7 +226,7 @@ internal sealed partial class SubagentTests
             cancellationToken);
         await using var parent = Session(provider, 0, "answer-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(TestModels.ScopeOf(parent));
-        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "answer-child")).Session;
+        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(QuestionChildRequest(parent, router, "answer-child")).Session;
         var asking = coordinator.Ask(child, [Question("continue")], cancellationToken);
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         var arguments = argumentsTemplate.Replace("{0}", child.SessionId, StringComparison.Ordinal);
@@ -259,9 +259,9 @@ internal sealed partial class SubagentTests
             TestModels.PromptTemplates,
             cancellationToken);
         await using var root = Session(provider, 0, "question-root", registry, cancellationToken);
-        var parent = TestModels.ScopeOf(root).ChildRegistry.SpawnScope(QuestionChildRequest(root, router, "question-parent")).Session;
+        var parent = TestModels.ScopeOf(root).AgentSpawner.SpawnScope(QuestionChildRequest(root, router, "question-parent")).Session;
         var coordinator = TestModels.CreateChildQuestions(TestModels.ScopeOf(parent));
-        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "question-child")).Session;
+        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(QuestionChildRequest(parent, router, "question-child")).Session;
 
         var asking = coordinator.Ask(child, [Question("nested")], cancellationToken);
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
@@ -295,8 +295,8 @@ internal sealed partial class SubagentTests
             cancellationToken);
         await using var parent = Session(provider, 0, "multiple-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(TestModels.ScopeOf(parent));
-        var first = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "first-question-child")).Session;
-        var second = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "second-question-child")).Session;
+        var first = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(QuestionChildRequest(parent, router, "first-question-child")).Session;
+        var second = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(QuestionChildRequest(parent, router, "second-question-child")).Session;
 
         var firstAsking = coordinator.Ask(first, [Question("first")], cancellationToken);
         var secondAsking = coordinator.Ask(second, [Question("second")], cancellationToken);
@@ -332,7 +332,7 @@ internal sealed partial class SubagentTests
             cancellationToken);
         await using var root = Session(provider, 0, "factory-root", registry, cancellationToken);
         var rootScope = _rootScopes[^1];
-        var child = TestModels.ScopeOf(root).ChildRegistry.SpawnScope(QuestionChildRequest(root, router, "factory-child")).Session;
+        var child = TestModels.ScopeOf(root).AgentSpawner.SpawnScope(QuestionChildRequest(root, router, "factory-child")).Session;
         var childQuestions = rootScope.ChildQuestions;
         var rootFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Root());
         var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope, AgentCompletionDeliveryPolicy.RetainedOnly));
@@ -377,7 +377,7 @@ internal sealed partial class SubagentTests
             cancellationToken);
         await using var parent = Session(provider, 0, "reservation-parent", registry, cancellationToken);
         var coordinator = TestModels.CreateChildQuestions(TestModels.ScopeOf(parent));
-        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "reservation-child")).Session;
+        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(QuestionChildRequest(parent, router, "reservation-child")).Session;
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var reservation = coordinator.BeginCompletion(parent);
         var asking = coordinator.Ask(child, [Question("reserved")], stopping.Token);
@@ -402,8 +402,8 @@ internal sealed partial class SubagentTests
             cancellationToken);
         await using var root = Session(provider, 0, "root", registry, cancellationToken);
         var unrelated = Session(provider, 0, "unrelated", registry, cancellationToken);
-        var child = TestModels.ScopeOf(root).ChildRegistry.SpawnScope(QuestionChildRequest(root, router, "child")).Session;
-        var grandchild = TestModels.ScopeOf(child).ChildRegistry.SpawnScope(QuestionChildRequest(child, router, "grandchild")).Session;
+        var child = TestModels.ScopeOf(root).AgentSpawner.SpawnScope(QuestionChildRequest(root, router, "child")).Session;
+        var grandchild = TestModels.ScopeOf(child).AgentSpawner.SpawnScope(QuestionChildRequest(child, router, "grandchild")).Session;
 
         _ = await Assert.That(TestModels.ScopeOf(root).ParentScope.AuthorizeDirectChild(child.SessionId)).IsSameReferenceAs(TestModels.ScopeOf(child));
         _ = await Assert.That(() => TestModels.ScopeOf(root).ParentScope.AuthorizeDirectChild(grandchild.SessionId))

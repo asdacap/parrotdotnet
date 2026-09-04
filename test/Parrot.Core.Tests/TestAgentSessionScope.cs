@@ -19,7 +19,8 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         PromptTemplateCatalog promptTemplates)
     {
         _promptTemplates = promptTemplates;
-        ChildRegistry = new ChildRegistry(owner, registry, () => this);
+        ChildRegistry = new ChildRegistry(owner);
+        AgentSpawner = new AgentSpawner(owner, registry, this, ChildRegistry);
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
         ChildQuestions = new ChildQuestionCoordinator(ParentScope, promptTemplates);
     }
@@ -39,6 +40,8 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 
     public GoalService Goals =>
         GoalsState ?? throw new InvalidOperationException("The agent session is not attached to its scope.");
+
+    public AgentSpawner AgentSpawner { get; }
 
     public IChildRegistry ChildRegistry { get; }
 
@@ -102,7 +105,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
     private void DisposeRejectedConstruction()
     {
         ChildQuestions.Dispose();
-        _shutdown = ChildRegistry.DisposeAsync().AsTask();
+        _shutdown = AgentSpawner.DisposeAsync().AsTask();
     }
 
     private async Task ShutDown()
@@ -110,7 +113,7 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         Exception? failure = null;
         try
         {
-            await ChildRegistry.DisposeAsync().ConfigureAwait(false);
+            await AgentSpawner.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception exception)
         {

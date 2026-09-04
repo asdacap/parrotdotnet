@@ -8,6 +8,8 @@ internal interface IAgentSessionScope : IAsyncDisposable
 
     GoalService Goals { get; }
 
+    AgentSpawner AgentSpawner { get; }
+
     IChildRegistry ChildRegistry { get; }
 
     AgentSessionParentScope ParentScope { get; }

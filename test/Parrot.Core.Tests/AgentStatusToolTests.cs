@@ -68,8 +68,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             cancellationToken);
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
-        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(Request(parent, router, "child")).Session;
-        var grandchild = TestModels.ScopeOf(child).ChildRegistry.SpawnScope(Request(child, router, "grandchild")).Session;
+        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(Request(parent, router, "child")).Session;
+        var grandchild = TestModels.ScopeOf(child).AgentSpawner.SpawnScope(Request(child, router, "grandchild")).Session;
         _ = await child.Send("work", cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await grandchild.Send("work", cancellationToken);

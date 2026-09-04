@@ -28,6 +28,8 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     public GoalService Goals => _composition.Goals;
 
+    public AgentSpawner AgentSpawner => _composition.AgentSpawner;
+
     public IChildRegistry ChildRegistry => _composition.ChildRegistry;
 
     public AgentSessionParentScope ParentScope => _composition.ParentScope;
