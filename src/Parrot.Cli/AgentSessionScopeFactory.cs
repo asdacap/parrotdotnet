@@ -45,7 +45,9 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
         CancellationToken lifetime)
     {
         parentScope.Validate(identity);
+        var scope = new AgentSessionScope(identity, registry, promptTemplates, queues);
         var arguments = new AgentSessionScopeArguments(
+            scope,
             identity,
             parentScope,
             model,
@@ -72,14 +74,18 @@ internal sealed class AgentSessionScopeFactory : IAgentSessionScopeFactory
             userQuestions,
             timeProvider,
             lifetime);
-        var composition = new AgentSessionComposition(arguments);
-        var session = composition.Session;
-        queues.Attach(session);
-        shellProcesses.Register(composition.Processes);
-        return new AgentSessionScope(
-            session,
-            composition.Children,
-            composition.ChildQuestions,
-            queues);
+        try
+        {
+            var composition = new AgentSessionComposition(arguments);
+            scope.AttachSession(composition.Session);
+            queues.Attach(composition.Session);
+            shellProcesses.Register(composition.Processes);
+            return scope;
+        }
+        catch
+        {
+            scope.DisposeRejectedConstruction();
+            throw;
+        }
     }
 }

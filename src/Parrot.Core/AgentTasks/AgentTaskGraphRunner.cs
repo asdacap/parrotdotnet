@@ -8,7 +8,7 @@ namespace Parrot.AgentTasks;
 
 internal sealed class AgentTaskGraphRunner(
     ModelRouter router,
-    IAgentSession owner,
+    IAgentSessionScope ownerScope,
     AgentTurnSelection selection,
     AgentTaskProgress progress,
     AgentTaskConfig configuration)
@@ -44,7 +44,7 @@ internal sealed class AgentTaskGraphRunner(
                 [],
                 [],
                 "task",
-                owner,
+                ownerScope,
                 cancellationToken).ConfigureAwait(false);
             var status = tasks.All(task => task.Status == AgentTaskExecutionStatus.Succeeded)
                 ? AgentTaskExecutionStatus.Succeeded
@@ -324,7 +324,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         string parentPath,
-        IAgentSession owningAgent,
+        IAgentSessionScope owningAgentScope,
         CancellationToken cancellationToken)
     {
         if (tasks.Count != handles.Count)
@@ -393,7 +393,7 @@ internal sealed class AgentTaskGraphRunner(
                     contexts,
                     dependencies,
                     $"{parentPath}/{task.Name}",
-                    owningAgent,
+                    owningAgentScope,
                     cancellationToken));
                 changed = true;
             }
@@ -458,7 +458,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
-        IAgentSession owningAgent,
+        IAgentSessionScope owningAgentScope,
         CancellationToken cancellationToken)
     {
         var effective = EffectiveAgentTask.FromArtifact(approved);
@@ -472,7 +472,7 @@ internal sealed class AgentTaskGraphRunner(
                 inheritedContexts,
                 dependencies,
                 path,
-                owningAgent,
+                owningAgentScope,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -481,7 +481,7 @@ internal sealed class AgentTaskGraphRunner(
             effective.Model,
             "prepare",
             approved.Name,
-            owningAgent,
+            owningAgentScope,
             null,
             BuildPreparePrompt(effective, ancestors, inheritedContexts, dependencies, path),
             cancellationToken).ConfigureAwait(false);
@@ -535,7 +535,7 @@ internal sealed class AgentTaskGraphRunner(
             dependencies,
             path,
             preparation.TaskPatch,
-            prepareRun.Agent,
+            prepareRun.Scope,
             [],
             1,
             null,
@@ -550,11 +550,11 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
-        IAgentSession owningAgent,
+        IAgentSessionScope owningAgentScope,
         CancellationToken cancellationToken)
     {
         var feedback = new List<string>();
-        IAgentSession? payloadAgent = null;
+        IAgentSessionScope? payloadAgentScope = null;
         string? currentResult = null;
         var maximumAttempts = configuration.MaximumAttempts;
 
@@ -566,11 +566,11 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "execute",
                 approved.Name,
-                owningAgent,
-                payloadAgent,
+                owningAgentScope,
+                payloadAgentScope,
                 BuildLeafPrompt(effective, ancestors, promptContexts, dependencies, feedback, currentResult),
                 cancellationToken).ConfigureAwait(false);
-            payloadAgent = payloadRun.Agent;
+            payloadAgentScope = payloadRun.Scope;
             var executed = payloadRun.Execution;
             if (executed.Status != AgentExecutionStatus.Succeeded)
             {
@@ -702,7 +702,7 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "prepare",
                 approved.Name,
-                owningAgent,
+                owningAgentScope,
                 null,
                 BuildPreparePromptWithResult(effective, ancestors, retryContexts, dependencies, path, currentResult ?? throw new InvalidOperationException("A leaf retry requires a result.")),
                 cancellationToken).ConfigureAwait(false);
@@ -776,7 +776,7 @@ internal sealed class AgentTaskGraphRunner(
                 dependencies,
                 path,
                 preparation.TaskPatch,
-                prepareRun.Agent,
+                prepareRun.Scope,
                 feedback,
                 attempt + 1,
                 currentResult,
@@ -797,13 +797,13 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
         AgentTaskPatch? taskPatch,
-        IAgentSession compositeAgent,
+        IAgentSessionScope compositeAgentScope,
         List<string> feedback,
         int firstAttempt,
         string? carriedResult,
         CancellationToken cancellationToken)
     {
-        IAgentSession? executionAgent = null;
+        IAgentSessionScope? executionAgentScope = null;
         string? execution = null;
         IReadOnlyList<AgentTaskResult>? nested = null;
         AcceptanceVerdict? verdict = null;
@@ -821,11 +821,11 @@ internal sealed class AgentTaskGraphRunner(
                     effective.Model,
                     "execute",
                     approved.Name,
-                    compositeAgent,
-                    executionAgent,
+                    compositeAgentScope,
+                    executionAgentScope,
                     BuildExecutionPrompt(effective, ancestors, currentContexts, dependencies, feedback),
                     cancellationToken).ConfigureAwait(false);
-                executionAgent = executionRun.Agent;
+                executionAgentScope = executionRun.Scope;
                 var executed = executionRun.Execution;
                 if (executed.Status != AgentExecutionStatus.Succeeded)
                 {
@@ -847,7 +847,7 @@ internal sealed class AgentTaskGraphRunner(
             }
             else
             {
-                executionAgent = null;
+                executionAgentScope = null;
                 var nestedTasks = effective.Payload.Tasks
                     ?? throw new InvalidOperationException("A composite payload requires nested tasks.");
                 nested = await RunSiblings(
@@ -856,7 +856,7 @@ internal sealed class AgentTaskGraphRunner(
                     currentAncestors,
                     currentContexts,
                     path,
-                    compositeAgent,
+                    compositeAgentScope,
                     cancellationToken).ConfigureAwait(false);
                 var succeeded = nested.Count(result => result.Status == AgentTaskExecutionStatus.Succeeded);
                 execution = Render(
@@ -870,8 +870,8 @@ internal sealed class AgentTaskGraphRunner(
                 effective.Model,
                 "accept",
                 approved.Name,
-                compositeAgent,
-                compositeAgent,
+                compositeAgentScope,
+                compositeAgentScope,
                 BuildAcceptancePrompt(effective, ancestors, currentContexts, dependencies, feedback, execution, nested, acceptanceResult),
                 cancellationToken).ConfigureAwait(false);
             carriedResult = null;
@@ -1006,15 +1006,15 @@ internal sealed class AgentTaskGraphRunner(
         string? requestedModel,
         string role,
         string taskName,
-        IAgentSession owningAgent,
-        IAgentSession? retainedAgent,
+        IAgentSessionScope owningAgentScope,
+        IAgentSessionScope? retainedAgentScope,
         string prompt,
         CancellationToken cancellationToken)
     {
         var model = requestedModel is null
             ? selection.RequestedModel
             : router.Resolve(requestedModel).RequestedSelector;
-        IAgentSession child;
+        IAgentSessionScope childScope;
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1023,11 +1023,11 @@ internal sealed class AgentTaskGraphRunner(
                 throw new OperationCanceledException(cancellationToken);
             }
 
-            if (retainedAgent is null)
+            if (retainedAgentScope is null)
             {
                 var requestedName = role is "execute" or "prepare" ? taskName : $"{taskName}-{role}";
-                child = owningAgent.ChildRegistry.Spawn(new AgentLaunchRequest(
-                    owningAgent,
+                childScope = owningAgentScope.ChildRegistry.SpawnScope(new AgentLaunchRequest(
+                    owningAgentScope.Session,
                     selection,
                     ResolveRoleProfile(role),
                     model,
@@ -1040,33 +1040,33 @@ internal sealed class AgentTaskGraphRunner(
             }
             else
             {
-                child = retainedAgent;
+                childScope = retainedAgentScope;
             }
 
-            _ = _activeChildren.Add(child);
+            _ = _activeChildren.Add(childScope.Session);
         }
 
         try
         {
-            _ = await child.Send(prompt, cancellationToken).ConfigureAwait(false);
-            var waited = await child.Wait(0, cancellationToken).ConfigureAwait(false);
+            _ = await childScope.Session.Send(prompt, cancellationToken).ConfigureAwait(false);
+            var waited = await childScope.Session.Wait(0, cancellationToken).ConfigureAwait(false);
             var execution = waited.Status switch
             {
                 AgentTaskStatus.Succeeded => AgentExecution.Succeeded(waited.Output),
                 AgentTaskStatus.Canceled => AgentExecution.Canceled(),
                 _ => AgentExecution.Failed(waited.Error),
             };
-            return new AgentRoleRun(child, execution);
+            return new AgentRoleRun(childScope, execution);
         }
         catch (OperationCanceledException)
         {
-            await child.Abort(CancellationToken.None).ConfigureAwait(false);
-            _ = await child.Wait(0, CancellationToken.None).ConfigureAwait(false);
+            await childScope.Session.Abort(CancellationToken.None).ConfigureAwait(false);
+            _ = await childScope.Session.Wait(0, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
         finally
         {
-            Untrack(child);
+            Untrack(childScope.Session);
         }
     }
 
@@ -1101,5 +1101,5 @@ internal sealed class AgentTaskGraphRunner(
         }
     }
 
-    private sealed record AgentRoleRun(IAgentSession Agent, AgentExecution Execution);
+    private sealed record AgentRoleRun(IAgentSessionScope Scope, AgentExecution Execution);
 }

@@ -33,6 +33,11 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.ShellProcesses.Prepare(arguments.Identity.SessionId);
             })
+            .Bind<IAgentSessionScope>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.Scope;
+            })
             .Bind<AgentIdentity>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -277,26 +282,22 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new AgentSessionActivity(arguments.TimeProvider);
             })
-            .Bind().As(Lifetime.Scoped).To(ctx =>
+            .Bind<ChildRegistry>().To(ctx =>
             {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new ChildRegistry(arguments.Identity, arguments.Registry);
+                ctx.Inject<IAgentSessionScope>(out var scope);
+                return scope.ChildRegistry;
+            })
+            .Bind<ChildQuestionCoordinator>().To(ctx =>
+            {
+                ctx.Inject<IAgentSessionScope>(out var scope);
+                return scope.ChildQuestions;
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<ChildRegistry>(out var children);
-                return new ChildQuestionCoordinator(children, arguments.PromptTemplates);
-            })
-            .Bind().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<ChildRegistry>(out var children);
-                return new AgentResolver(arguments.Identity, arguments.ParentScope, children, arguments.Registry);
+                return new AgentResolver(arguments.Identity, arguments.ParentScope, arguments.Scope, arguments.Registry);
             })
             .Bind<IAgentSession>().As(Lifetime.PerResolve).To<AgentSession>()
             .Root<IAgentSession>("Session")
-            .Root<ShellProcessOwner>("Processes")
-            .Root<ChildRegistry>("Children")
-            .Root<ChildQuestionCoordinator>("ChildQuestions");
+            .Root<ShellProcessOwner>("Processes");
 }

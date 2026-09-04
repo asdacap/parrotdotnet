@@ -855,7 +855,7 @@ Divergences from upstream `session.Service` / `agent.agentSession`:
   Each agent-scoped `ChildRegistry` exclusively owns that agent's direct-child
   scopes, friendly-name namespace, pending reservations, recursion accounting,
   completion policy, and child lifetime.
-- **Inbound** register the root and coordinate session-wide profile, budget, and status services. Child creation and retrieval enter through the owning `ChildRegistry`.
+- **Inbound** register the root and coordinate session-wide profile, budget, and status services. Child creation and retrieval enter through the owning `IAgentSessionScope.ChildRegistry`; `IAgentSession` is not a child-tree boundary.
   Friendly names are unique and resolvable only among one caller's direct
   children. `agent_send` can address the sender's direct parent or a descendant
   within the sender's own descendant tree and user session. Descendants use

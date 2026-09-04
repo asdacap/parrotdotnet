@@ -7,10 +7,10 @@ namespace Parrot.Tools;
 
 internal sealed class AnswerTool(ChildQuestionCoordinator questions) : ITool
 {
-    private readonly IAgentSession? _parent;
+    private readonly IAgentSessionScope? _parentScope;
 
-    public AnswerTool(ChildQuestionCoordinator questions, IAgentSession parent)
-        : this(questions) => _parent = parent;
+    public AnswerTool(ChildQuestionCoordinator questions, IAgentSessionScope parentScope)
+        : this(questions) => _parentScope = parentScope;
 
     public string Name => "answer";
 
@@ -33,13 +33,13 @@ internal sealed class AnswerTool(ChildQuestionCoordinator questions) : ITool
                 ?? throw new FormatException("Tool arguments require an array 'answers'.");
             var reply = new QuestionReply([.. wireAnswers.Select(answer => new QuestionAnswer(answer ?? string.Empty))]);
 
-            if (_parent is null)
+            if (_parentScope is null)
             {
                 questions.Reply(agentSessionId, reply);
             }
             else
             {
-                questions.Reply(_parent, agentSessionId, reply);
+                questions.Reply(_parentScope, agentSessionId, reply);
             }
 
             return Task.FromResult<ToolExecutionResult>(ToolResultFormatter.QuestionReplied(invocation, agentSessionId));

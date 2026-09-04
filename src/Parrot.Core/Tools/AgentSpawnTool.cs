@@ -7,9 +7,8 @@ using Parrot.Store;
 namespace Parrot.Tools;
 
 internal sealed class AgentSpawnTool(
-    ChildRegistry children,
-    ModelRouter router,
-    IAgentSession session) : ITool
+    IAgentSessionScope ownerScope,
+    ModelRouter router) : ITool
 {
     public string Name => "agent_spawn";
 
@@ -46,8 +45,8 @@ internal sealed class AgentSpawnTool(
             var model = requestedModel.Length == 0
                 ? selection.RequestedModel
                 : router.Resolve(requestedModel).RequestedSelector;
-            var agent = children.Spawn(new AgentLaunchRequest(
-                session,
+            var agent = ownerScope.ChildRegistry.Spawn(new AgentLaunchRequest(
+                ownerScope.Session,
                 selection,
                 requestedProfile,
                 model,

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
@@ -20,6 +21,7 @@ internal static class TestModels
     private static readonly ConcurrentBag<AgentQueueCatalog> QueueCatalogs = [];
     private static readonly ConcurrentBag<Parrot.Process.ShellProcessOwners> ProcessOwners = [];
     private static readonly ConcurrentBag<AgentRegistry> Registries = [];
+    private static readonly ConditionalWeakTable<IAgentSession, IAgentSessionScope> Scopes = [];
 
     public static IReadOnlyDictionary<string, ProfileConfig> Profiles { get; } =
         new Dictionary<string, ProfileConfig>(StringComparer.Ordinal)
@@ -142,8 +144,17 @@ internal static class TestModels
     public static ProfileRegistry ProfileRegistry() =>
         new(Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
 
-    public static ChildQuestionCoordinator CreateChildQuestions(IAgentSession owner) =>
-        new(owner.ChildRegistry, PromptTemplates);
+    public static IAgentSessionScope ScopeOf(IAgentSession session) =>
+        Scopes.TryGetValue(session, out var scope)
+            ? scope
+            : throw new InvalidOperationException($"scope is not registered: {session.SessionId}");
+
+    public static void RegisterScope(IAgentSessionScope scope) => Scopes.Add(scope.Session, scope);
+
+    public static void UnregisterScope(IAgentSessionScope scope) => _ = Scopes.Remove(scope.Session);
+
+    public static ChildQuestionCoordinator CreateChildQuestions(IAgentSessionScope owner) =>
+        owner.ChildQuestions;
 
     public static IMode Profile()
     {
@@ -236,7 +247,6 @@ internal static class TestModels
             Profile(),
             status,
             registry,
-            children,
             queues);
     }
 

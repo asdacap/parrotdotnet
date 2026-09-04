@@ -67,8 +67,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             cancellationToken);
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
-        var child = parent.ChildRegistry.Spawn(Request(parent, router, "child"));
-        var grandchild = child.ChildRegistry.Spawn(Request(child, router, "grandchild"));
+        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(Request(parent, router, "child"));
+        var grandchild = TestModels.ScopeOf(child).ChildRegistry.Spawn(Request(child, router, "grandchild"));
         _ = await child.Send("work", cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await grandchild.Send("work", cancellationToken);
@@ -78,8 +78,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         time.Advance(TimeSpan.FromSeconds(2));
         var toolExecution = child.Activity.BeginTool("wait");
         var tool = new AgentStatusTool(
-            new AgentResolver(parent.Identity, AgentSessionParentScope.Root(), parent.ChildRegistry, registry),
-            parent.ChildRegistry,
+            new AgentResolver(parent.Identity, AgentSessionParentScope.Root(), TestModels.ScopeOf(parent), registry),
+            TestModels.ScopeOf(parent),
             processes);
 
         var report = (await tool.Execute(
@@ -137,8 +137,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
         var tool = new AgentStatusTool(
-            new AgentResolver(parent.Identity, AgentSessionParentScope.Root(), parent.ChildRegistry, registry),
-            parent.ChildRegistry,
+            new AgentResolver(parent.Identity, AgentSessionParentScope.Root(), TestModels.ScopeOf(parent), registry),
+            TestModels.ScopeOf(parent),
             processes);
 
         var blank = (await tool.Execute(
@@ -196,13 +196,15 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             var processOwner = processes.Prepare(identity.SessionId);
             processes.Register(processOwner);
             var queues = queueCatalog.Register(identity);
-            return AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
+            var scope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-                var session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, children, queues, new AgentSessionActivity(timeProvider), lifetime);
+                var session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, queues, new AgentSessionActivity(timeProvider), lifetime);
                 queues.Attach(session);
                 return session;
             });
+            TestModels.RegisterScope(scope);
+            return scope;
         }
 
         public IAgentSessionScope Create(

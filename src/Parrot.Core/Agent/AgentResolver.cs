@@ -3,29 +3,32 @@ namespace Parrot.Agent;
 internal sealed class AgentResolver(
     AgentIdentity owner,
     AgentSessionParentScope parentScope,
-    ChildRegistry children,
+    IAgentSessionScope ownerScope,
     AgentRegistry authority)
 {
     private const string ParentRecipient = "parent";
 
-    public IAgentSession ResolveStatusTarget(string sessionIdOrName)
+    public IAgentSessionScope ResolveStatusTargetScope(string sessionIdOrName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
-        _ = children.RequireOwnerScope();
+        _ = ownerScope.ChildRegistry.RequireOwnerScope();
         var canonical = authority.FindScope(sessionIdOrName);
         return canonical is not null && canonical.Session.Depth > 0
-            ? canonical.Session
-            : children.ResolveDirectChild(sessionIdOrName);
+            ? canonical
+            : ownerScope.ChildRegistry.ResolveDirectChildScope(sessionIdOrName);
     }
+
+    public IAgentSession ResolveStatusTarget(string sessionIdOrName) =>
+        ResolveStatusTargetScope(sessionIdOrName).Session;
 
     public IAgentSession ResolveRecipient(string sessionIdOrName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
-        _ = children.RequireOwnerScope();
+        _ = ownerScope.ChildRegistry.RequireOwnerScope();
 
         if (sessionIdOrName.Contains('/', StringComparison.Ordinal))
         {
-            return ResolveDescendantPath(sessionIdOrName);
+            return ResolveDescendantPath(sessionIdOrName).Session;
         }
 
         var canonical = authority.FindScope(sessionIdOrName);
@@ -48,13 +51,13 @@ internal sealed class AgentResolver(
             return parent.Session;
         }
 
-        return children.ResolveDirectChild(sessionIdOrName);
+        return ownerScope.ChildRegistry.ResolveDirectChildScope(sessionIdOrName).Session;
     }
 
-    private IAgentSession ResolveDescendantPath(string path)
+    private IAgentSessionScope ResolveDescendantPath(string path)
     {
-        var registry = children;
-        IAgentSession? descendant = null;
+        var registry = ownerScope.ChildRegistry;
+        IAgentSessionScope? descendant = null;
 
         foreach (var segment in path.Split('/', StringSplitOptions.None))
         {
@@ -65,7 +68,7 @@ internal sealed class AgentResolver(
 
             try
             {
-                descendant = registry.ResolveNamedChild(segment);
+                descendant = registry.ResolveNamedChildScope(segment);
                 registry = descendant.ChildRegistry;
             }
             catch (AgentRegistryException)

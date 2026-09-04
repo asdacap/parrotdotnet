@@ -7,34 +7,28 @@ namespace Parrot.Agent;
 internal sealed class AgentSessionDirectScope : IAgentSessionScope
 {
     private readonly Lock _gate = new();
+    private IAgentSession? _session;
     private Task? _shutdown;
 
     private AgentSessionDirectScope(
         AgentIdentity owner,
-        AgentSessionParentScope parentScope,
         AgentRegistry registry,
-        PromptTemplateCatalog promptTemplates,
-        Func<AgentSessionParentScope, ChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession)
+        PromptTemplateCatalog promptTemplates)
     {
         ChildRegistry = new ChildRegistry(owner, registry);
         ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
-        try
-        {
-            Session = buildSession(parentScope, ChildRegistry, ChildQuestions);
-            ChildRegistry.ValidateOwner(Session.Identity);
-            if (!ReferenceEquals(Session.ChildRegistry, ChildRegistry))
-            {
-                throw new AgentRegistryException("agent session does not retain its scope child registry");
-            }
-        }
-        catch
-        {
-            ChildQuestions.Dispose();
-            throw;
-        }
     }
 
-    public IAgentSession Session { get; }
+    public IAgentSession Session
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _session ?? throw new InvalidOperationException("The agent session is not attached to its scope.");
+            }
+        }
+    }
 
     public ChildRegistry ChildRegistry { get; }
 
@@ -45,8 +39,37 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
         AgentSessionParentScope parentScope,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
-        Func<AgentSessionParentScope, ChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession) =>
-        new(owner, parentScope, registry, promptTemplates, buildSession);
+        Func<AgentSessionParentScope, IAgentSessionScope, ChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession)
+    {
+        var scope = new AgentSessionDirectScope(owner, registry, promptTemplates);
+        try
+        {
+            scope.AttachSession(buildSession(parentScope, scope, scope.ChildRegistry, scope.ChildQuestions));
+            return scope;
+        }
+        catch
+        {
+            scope.DisposeRejectedConstruction();
+            throw;
+        }
+    }
+
+    public void AttachSession(IAgentSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        lock (_gate)
+        {
+            if (_session is not null)
+            {
+                throw new InvalidOperationException("The agent session is already attached to its scope.");
+            }
+
+            ObjectDisposedException.ThrowIf(_shutdown is not null, this);
+            ChildRegistry.ValidateOwner(session.Identity);
+            _session = session;
+        }
+    }
 
     public ValueTask DisposeAsync()
     {
@@ -55,6 +78,12 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
             _shutdown ??= ShutDown();
             return new ValueTask(_shutdown);
         }
+    }
+
+    private void DisposeRejectedConstruction()
+    {
+        ChildQuestions.Dispose();
+        _shutdown = ChildRegistry.DisposeAsync().AsTask();
     }
 
     private async Task ShutDown()

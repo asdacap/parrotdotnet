@@ -11,8 +11,9 @@ internal sealed class RunAgentTasksToolFactory(
     ModelRouter router,
     EventBroker eventBroker,
     EventRepository eventRepository,
+    IAgentSessionScope ownerScope,
     AgentTaskConfig agentTasks) : IToolFactory
 {
     public ITool Create(IAgentSession session) =>
-        new RunAgentTasksTool(workspace, router, session, eventBroker, eventRepository, agentTasks);
+        new RunAgentTasksTool(workspace, router, ownerScope, eventBroker, eventRepository, agentTasks);
 }

@@ -26,7 +26,9 @@ internal sealed class ChildRegistry(
 
     internal AgentRegistry Authority => authority;
 
-    public IAgentSession Spawn(AgentLaunchRequest request)
+    public IAgentSession Spawn(AgentLaunchRequest request) => SpawnScope(request).Session;
+
+    public IAgentSessionScope SpawnScope(AgentLaunchRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Parent);
@@ -114,7 +116,7 @@ internal sealed class ChildRegistry(
                 status,
                 _lifetime.Token);
             RegisterConstructedScope(constructedScope, request.DeliveryPolicy, retainedReservation);
-            return constructedScope.Session;
+            return constructedScope;
         }
         catch
         {
@@ -141,7 +143,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    public IAgentSession AuthorizeDirectChild(string childSessionId)
+    public IAgentSessionScope AuthorizeDirectChild(string childSessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
         _ = RequireOwnerScope();
@@ -150,7 +152,7 @@ internal sealed class ChildRegistry(
         {
             if (_accepting && _entries.TryGetValue(childSessionId, out var child))
             {
-                return child.Scope.Session;
+                return child.Scope;
             }
         }
 
@@ -161,7 +163,7 @@ internal sealed class ChildRegistry(
     {
         ArgumentNullException.ThrowIfNull(child);
         var registeredChild = AuthorizeDirectChild(child.SessionId);
-        if (!ReferenceEquals(registeredChild, child))
+        if (!ReferenceEquals(registeredChild.Session, child))
         {
             throw new AgentRegistryException($"parent agent not found: {child.ParentSessionId}");
         }
@@ -213,7 +215,6 @@ internal sealed class ChildRegistry(
     {
         ArgumentNullException.ThrowIfNull(scope);
         if (!ReferenceEquals(scope.Session.Identity, owner)
-            || !ReferenceEquals(scope.Session.ChildRegistry, this)
             || !ReferenceEquals(scope.ChildRegistry, this))
         {
             throw new AgentRegistryException($"agent scope does not match child registry owner: {owner.SessionId}");
@@ -262,20 +263,20 @@ internal sealed class ChildRegistry(
             : throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
     }
 
-    internal IAgentSession ResolveDirectChild(string sessionIdOrName)
+    internal IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName)
     {
         lock (_gate)
         {
             if (_accepting && _entries.TryGetValue(sessionIdOrName, out var canonical))
             {
-                return canonical.Scope.Session;
+                return canonical.Scope;
             }
 
             if (_accepting
                 && _names.TryGetValue(sessionIdOrName, out var sessionId)
                 && _entries.TryGetValue(sessionId, out var named))
             {
-                return named.Scope.Session;
+                return named.Scope;
             }
         }
 
@@ -354,7 +355,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    internal IAgentSession ResolveNamedChild(string name)
+    internal IAgentSessionScope ResolveNamedChildScope(string name)
     {
         lock (_gate)
         {
@@ -362,7 +363,7 @@ internal sealed class ChildRegistry(
                 && _names.TryGetValue(name, out var sessionId)
                 && _entries.TryGetValue(sessionId, out var child))
             {
-                return child.Scope.Session;
+                return child.Scope;
             }
         }
 

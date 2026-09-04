@@ -14,7 +14,7 @@ using Parrot.Store;
 
 namespace Parrot.Core.Tests;
 
-internal sealed class ActiveWorkCompletionTests : IDisposable
+internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
 {
     private readonly string _workspace = Path.Combine(
         Path.GetTempPath(), "parrot-active-work-completion-tests", Guid.NewGuid().ToString("n"));
@@ -25,11 +25,14 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
 
     public ActiveWorkCompletionTests() => Directory.CreateDirectory(_workspace);
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         foreach (var rootScope in _rootScopes)
         {
-            rootScope.ChildQuestions.Dispose();
+            await rootScope.Session.Abort(CancellationToken.None).ConfigureAwait(false);
+            await rootScope.Session.DisposeAsync().ConfigureAwait(false);
+            TestModels.UnregisterScope(rootScope);
+            await rootScope.DisposeAsync().ConfigureAwait(false);
         }
 
         _broker.Dispose();
@@ -60,7 +63,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 4);
         await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = parent.ChildRegistry.Spawn(new AgentLaunchRequest(
+        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
@@ -200,8 +203,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             mode,
             lifetime.Token);
         var ownedChildQuestions = _rootScopes[^1].ChildQuestions;
-        var firstChild = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "first"));
-        var secondChild = parent.ChildRegistry.Spawn(QuestionChildRequest(parent, router, "second"));
+        var firstChild = TestModels.ScopeOf(parent).ChildRegistry.Spawn(QuestionChildRequest(parent, router, "first"));
+        var secondChild = TestModels.ScopeOf(parent).ChildRegistry.Spawn(QuestionChildRequest(parent, router, "second"));
         using var subscription = _broker.Subscribe();
 
         _ = await parent.Send("finish", cancellationToken);
@@ -227,8 +230,8 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             && message.Content.Contains($"second ({secondChild.SessionId})", StringComparison.Ordinal)
             && message.Content.Contains("answer", StringComparison.Ordinal));
 
-        ownedChildQuestions.Reply(parent, firstChild.SessionId, QuestionAnswer("first"));
-        ownedChildQuestions.Reply(parent, secondChild.SessionId, QuestionAnswer("second"));
+        ownedChildQuestions.Reply(TestModels.ScopeOf(parent), firstChild.SessionId, QuestionAnswer("first"));
+        ownedChildQuestions.Reply(TestModels.ScopeOf(parent), secondChild.SessionId, QuestionAnswer("second"));
         _ = await Task.WhenAll(firstQuestion, secondQuestion);
         parentProvider.Release();
         await parent.DisposeAsync();
@@ -256,7 +259,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 2);
         await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = parent.ChildRegistry.Spawn(new AgentLaunchRequest(
+        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
@@ -312,7 +315,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             status,
             new CompletionMode(enforce: true, maxTurns: 2),
             lifetime.Token);
-        var monitored = root.ChildRegistry.Spawn(new AgentLaunchRequest(
+        var monitored = TestModels.ScopeOf(root).ChildRegistry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, router),
             "worker",
@@ -326,7 +329,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         monitored.UpdateSelection(
             new ModelSelector("monitored/model"),
             new CompletionMode(enforce: true, maxTurns: 2));
-        var sibling = root.ChildRegistry.Spawn(new AgentLaunchRequest(
+        var sibling = TestModels.ScopeOf(root).ChildRegistry.Spawn(new AgentLaunchRequest(
             root,
             Turn(root, router),
             "worker",
@@ -337,7 +340,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             0,
             string.Empty,
             AgentCompletionDeliveryPolicy.Automatic));
-        var grandchild = sibling.ChildRegistry.Spawn(new AgentLaunchRequest(
+        var grandchild = TestModels.ScopeOf(sibling).ChildRegistry.Spawn(new AgentLaunchRequest(
             sibling,
             Turn(sibling, router),
             "worker",
@@ -363,12 +366,6 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         _ = await Assert.That(Reminders(Events(subscription), monitored.SessionId)).IsEmpty();
         _ = await Assert.That(Payloads(
             repository, monitored.SessionId, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
-        siblingProvider.Release();
-        grandchildProvider.Release();
-        await Task.WhenAll(
-            sibling.Abort(cancellationToken),
-            grandchild.Abort(cancellationToken));
-        await lifetime.CancelAsync();
     }
 
     [Test]
@@ -460,7 +457,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 3);
         await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = parent.ChildRegistry.Spawn(new AgentLaunchRequest(
+        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
@@ -516,7 +513,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
         await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = parent.ChildRegistry.Spawn(new AgentLaunchRequest(
+        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
@@ -651,11 +648,12 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         processes.Register(owner);
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
-        var rootScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
+        var rootScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
         {
             var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-            return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+            return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         });
+        TestModels.RegisterScope(rootScope);
         queues.Attach(rootScope.Session);
         registry.RegisterRootScope(rootScope);
         _rootScopes.Add(rootScope);
@@ -679,7 +677,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         var children = new ChildRegistry(identity, registry);
         var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, children, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
         return session;
     }
@@ -774,7 +772,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             var owner = processes.Prepare(identity.SessionId);
             processes.Register(owner);
             var queues = queueCatalog.Register(identity);
-            return AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, children, scopedChildQuestions) =>
+            var scope = AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, scopedChildQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
                 var session = new AgentSession(
@@ -802,13 +800,14 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
                     eventBroker),
                 SecurityProfileTestFactory.Create(securityProfile),
                 status,
-                children,
                 queues,
                 new AgentSessionActivity(TimeProvider.System),
                 lifetime);
                 queues.Attach(session);
                 return session;
             });
+            TestModels.RegisterScope(scope);
+            return scope;
         }
     }
 

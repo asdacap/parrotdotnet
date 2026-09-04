@@ -19,8 +19,6 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentIdentity Identity { get; }
 
-    ChildRegistry ChildRegistry { get; }
-
     AgentSessionActivity Activity { get; }
 
     AgentSelection Selection();

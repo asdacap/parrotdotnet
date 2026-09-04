@@ -4,9 +4,9 @@ using Parrot.Llm;
 namespace Parrot.Tools;
 
 internal sealed class AgentSpawnToolFactory(
-    ChildRegistry children,
+    IAgentSessionScope ownerScope,
     ModelRouter router) : IToolFactory
 {
     public ITool Create(IAgentSession session) =>
-        new AgentSpawnTool(children, router, session);
+        new AgentSpawnTool(ownerScope, router);
 }

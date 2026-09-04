@@ -77,7 +77,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         }
 
         var agentQueues = queues.Register(identity);
-        return AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
+        var scope = AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
         {
             var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
             var session = new AgentSession(
@@ -105,12 +105,13 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
                 eventBroker),
             SecurityProfileTestFactory.Create(securityProfile),
             status,
-            children,
             agentQueues,
             new AgentSessionActivity(TimeProvider.System),
             lifetime);
             agentQueues.Attach(session);
             return session;
         });
+        TestModels.RegisterScope(scope);
+        return scope;
     }
 }

@@ -12,7 +12,7 @@ namespace Parrot.Tools;
 internal sealed class RunAgentTasksTool(
     ToolWorkspace workspace,
     ModelRouter router,
-    IAgentSession session,
+    IAgentSessionScope ownerScope,
     EventBroker eventBroker,
     EventRepository eventRepository,
     AgentTaskConfig agentTasks) : ITool
@@ -108,9 +108,9 @@ internal sealed class RunAgentTasksTool(
             var progress = new AgentTaskProgress(
                 eventBroker,
                 eventRepository,
-                session.SessionId,
+                ownerScope.Session.SessionId,
                 invocation.CallId);
-            var runner = new AgentTaskGraphRunner(router, session, selection, progress, agentTasks);
+            var runner = new AgentTaskGraphRunner(router, ownerScope, selection, progress, agentTasks);
             return (await runner.Run(artifact, cancellationToken).ConfigureAwait(false)).Serialize();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

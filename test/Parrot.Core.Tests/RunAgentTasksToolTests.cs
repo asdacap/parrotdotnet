@@ -368,7 +368,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     private RunAgentTasksTool ToolWithAttempts(RuntimeContext runtime, int maximumAttempts) => new(
         new ToolWorkspace(_root),
         runtime.Router,
-        runtime.Parent,
+        runtime.ParentScope,
         _broker,
         runtime.Repository,
         new AgentTaskConfig(maximumAttempts, TestModels.PromptTemplates));
@@ -388,7 +388,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var registry = TestModels.Registry(sessions, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         var identity = AgentIdentity.Main("tool-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, cancellationToken);
-        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) => new AgentSession(
+        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) => new AgentSession(
             identity,
             sessionParentScope,
             new ModelSelector($"{provider.Id}/model"),
@@ -413,7 +413,6 @@ internal sealed class RunAgentTasksToolTests : IDisposable
                 _broker),
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,
-            children,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
             cancellationToken));
@@ -424,6 +423,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             router,
             sessions,
             registry,
+            parentScope,
             parent,
             repository,
             new AgentTurnSelection(
@@ -437,6 +437,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         ModelRouter Router,
         AgentTaskTestSessionFactory Sessions,
         AgentRegistry Registry,
+        IAgentSessionScope ParentScope,
         IAgentSession Parent,
         EventRepository Repository,
         AgentTurnSelection Selection);

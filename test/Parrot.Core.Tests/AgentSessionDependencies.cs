@@ -12,7 +12,6 @@ internal sealed record AgentSessionDependencies(
     IMode Profile,
     RuntimeStatus Status,
     AgentRegistry Registry,
-    ChildRegistry ChildRegistry,
     AgentQueues Queues) : IDisposable
 {
     public void Dispose() => ChildQuestions.Dispose();

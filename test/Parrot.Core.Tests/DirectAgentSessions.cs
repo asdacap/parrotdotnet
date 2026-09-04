@@ -76,14 +76,16 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
             source._queues.Add(queues);
             var security = SecurityProfileTestFactory.Create(securityProfile);
             source._securities.Add(security);
-            return AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
+            var scope = AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker), security, status, children, queues, new AgentSessionActivity(source._timeProvider), lifetime);
+                var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, source._includeStatusTool ? [new StatusToolFactory(owner.Status)] : [], source._includeStatusTool ? TestModels.DocumentTools("status") : TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker), security, status, queues, new AgentSessionActivity(source._timeProvider), lifetime);
                 queues.Attach(session);
                 source._sessions.Add(session);
                 return session;
             });
+            TestModels.RegisterScope(scope);
+            return scope;
         }
     }
 }

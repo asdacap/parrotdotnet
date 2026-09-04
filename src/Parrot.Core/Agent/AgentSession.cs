@@ -45,7 +45,6 @@ internal sealed class AgentSession(
     [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,
     RuntimeStatus status,
-    ChildRegistry childRegistry,
     AgentQueues queues,
     AgentSessionActivity activity,
     CancellationToken lifetime) : IAgentSession
@@ -126,7 +125,6 @@ internal sealed class AgentSession(
         IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
         AgentSessionSecurity security,
         RuntimeStatus status,
-        ChildRegistry childRegistry,
         AgentQueues queues,
         AgentSessionActivity activity,
         AgentSessionScopeArguments arguments)
@@ -150,7 +148,6 @@ internal sealed class AgentSession(
             turnCompletionCallbacks,
             security,
             status,
-            childRegistry,
             queues,
             activity,
             arguments.Lifetime)
@@ -170,10 +167,6 @@ internal sealed class AgentSession(
     public int Depth => identity.Depth;
 
     public AgentIdentity Identity => identity;
-
-    // The session is the root of its descendant tree; exposing its scoped
-    // registry lets routing and lifecycle owners traverse that same tree.
-    public ChildRegistry ChildRegistry { get; } = childRegistry;
 
     // Status reporting observes this session-scoped, synchronized activity log.
     public AgentSessionActivity Activity { get; } = activity

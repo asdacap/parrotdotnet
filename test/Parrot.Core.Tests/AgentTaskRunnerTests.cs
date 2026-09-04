@@ -703,7 +703,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         await canceled.CancelAsync();
         _ = await Assert.That(running).Throws<OperationCanceledException>();
 
-        _ = await Assert.That(runtime.Parent.ChildRegistry.ObserveActive()).IsEmpty();
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.ObserveActive()).IsEmpty();
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(snapshots[^1].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Canceled);
@@ -727,7 +727,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         string originToolCallId,
         int maximumAttempts) => new(
             runtime.Router,
-            runtime.Parent,
+            runtime.ParentScope,
             runtime.Selection,
             new AgentTaskProgress(
                 _broker,
@@ -753,7 +753,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             cancellationToken);
         var identity = AgentIdentity.Main("agent-task-parent", "parent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) => new AgentSession(
+        var parentScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) => new AgentSession(
             identity,
             sessionParentScope,
             new ModelSelector($"{provider.Id}/model"),
@@ -778,7 +778,6 @@ internal sealed class AgentTaskRunnerTests : IDisposable
                 _broker),
             SecurityProfileTestFactory.Create(SecurityProfile.Compose(false, [], [], [])),
             dependencies.Status,
-            children,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
             cancellationToken));
@@ -790,13 +789,14 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             router.Resolve(selected.RequestedModel.Value),
             selected.Profile,
             selected.SecurityProfile);
-        return new RuntimeContext(router, sessions, registry, parent, selection);
+        return new RuntimeContext(router, sessions, registry, parentScope, parent, selection);
     }
 
     private sealed record RuntimeContext(
         ModelRouter Router,
         AgentTaskTestSessionFactory Sessions,
         AgentRegistry Registry,
+        IAgentSessionScope ParentScope,
         IAgentSession Parent,
         AgentTurnSelection Selection);
 }

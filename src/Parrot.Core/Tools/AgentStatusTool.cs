@@ -9,7 +9,7 @@ namespace Parrot.Tools;
 
 internal sealed class AgentStatusTool(
     AgentResolver resolver,
-    ChildRegistry children,
+    IAgentSessionScope ownerScope,
     ShellProcessOwners processes) : ITool
 {
     public string Name => "agent_status";
@@ -43,10 +43,10 @@ internal sealed class AgentStatusTool(
 
         try
         {
-            var child = resolver.ResolveStatusTarget(sessionId);
-            _ = children.AuthorizeDirectChild(child.SessionId);
-            var activity = child.Activity.Capture();
-            return Task.FromResult<ToolExecutionResult>(Format(child, activity));
+            var childScope = resolver.ResolveStatusTargetScope(sessionId);
+            _ = ownerScope.ChildRegistry.AuthorizeDirectChild(childScope.Session.SessionId);
+            var activity = childScope.Session.Activity.Capture();
+            return Task.FromResult<ToolExecutionResult>(Format(childScope, activity));
         }
         catch (AgentRegistryException failure)
         {
@@ -126,21 +126,21 @@ internal sealed class AgentStatusTool(
         return string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:F0}ms");
     }
 
-    private string Format(IAgentSession child, AgentSessionActivitySnapshot activity)
+    private string Format(IAgentSessionScope childScope, AgentSessionActivitySnapshot activity)
     {
         var report = new StringBuilder("Agent status");
-        _ = report.Append("\nSession: ").Append(child.SessionId);
-        _ = report.Append("\nName: ").Append(child.Name);
+        _ = report.Append("\nSession: ").Append(childScope.Session.SessionId);
+        _ = report.Append("\nName: ").Append(childScope.Session.Name);
         _ = report.Append("\nLifecycle: ").Append(activity.State.ToString().ToLowerInvariant());
         AppendActivity(report, activity);
-        AppendActive(report, child.SessionId);
+        AppendActive(report, childScope);
         AppendRecent(report, activity);
         return report.ToString();
     }
 
-    private void AppendActive(StringBuilder report, string childSessionId)
+    private void AppendActive(StringBuilder report, IAgentSessionScope childScope)
     {
-        var activeChildren = children.AuthorizeDirectChild(childSessionId).ChildRegistry.ObserveActive();
+        var activeChildren = childScope.ChildRegistry.ObserveActive();
         _ = report.Append("\nActive direct subagents:");
         if (activeChildren.Count == 0)
         {
@@ -155,7 +155,7 @@ internal sealed class AgentStatusTool(
         }
 
         var activeProcesses = processes.Snapshot()
-            .Where(process => string.Equals(process.OwnerSessionId, childSessionId, StringComparison.Ordinal));
+            .Where(process => string.Equals(process.OwnerSessionId, childScope.Session.SessionId, StringComparison.Ordinal));
         _ = report.Append("\nActive processes:");
         var count = 0;
         foreach (var process in activeProcesses)

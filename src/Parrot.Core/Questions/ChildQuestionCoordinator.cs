@@ -159,11 +159,11 @@ internal sealed class ChildQuestionCoordinator(
         pending.Complete();
     }
 
-    public void Reply(IAgentSession parent, string childSessionId, QuestionReply reply)
+    public void Reply(IAgentSessionScope parentScope, string childSessionId, QuestionReply reply)
     {
-        if (!string.Equals(parent.SessionId, children.OwnerSessionId, StringComparison.Ordinal))
+        if (!string.Equals(parentScope.Session.SessionId, children.OwnerSessionId, StringComparison.Ordinal))
         {
-            _ = parent.ChildRegistry.AuthorizeDirectChild(childSessionId);
+            _ = parentScope.ChildRegistry.AuthorizeDirectChild(childSessionId);
             throw new QuestionException("only the owning parent may answer a child question");
         }
 
