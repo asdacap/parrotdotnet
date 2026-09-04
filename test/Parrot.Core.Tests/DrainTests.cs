@@ -214,7 +214,6 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    [Skip("Existing drain regression at cbfc8dd: terminal assistant output is not retained after a steered final provider request.")]
     public async Task A_steer_admitted_during_a_tool_round_joins_the_turn_already_running(
         CancellationToken cancellationToken)
     {
@@ -241,6 +240,7 @@ internal sealed class DrainTests : IDisposable
             message.Role == LLMRole.System
             && message.Content.Contains("Tool access is restored", StringComparison.Ordinal));
         provider.Release();
+        await session.Settled();
         await session.DisposeAsync();
 
         // One turn, not two: the steer was answered inside the turn that was
@@ -561,7 +561,6 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    [Skip("Existing drain regression at cbfc8dd: queued input is not promoted after the final provider request.")]
     public async Task A_profile_turn_omits_tools_on_its_final_provider_request_and_resets_for_queued_input(
         CancellationToken cancellationToken)
     {
@@ -596,6 +595,7 @@ internal sealed class DrainTests : IDisposable
             message.Role == LLMRole.System
             && message.Content.Contains("Tool access is restored", StringComparison.Ordinal));
         provider.Release();
+        await session.Settled();
         await session.DisposeAsync();
 
         _ = await Assert.That(Endings(repository)).IsEqualTo("stop | stop");
