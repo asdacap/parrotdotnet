@@ -756,7 +756,22 @@ replace their local process inventory with each snapshot, including the initial
 snapshot after reconnect, so a dropped stream cannot leave stale rows or lose
 surviving processes. A process row remains live after the originating tool call
 yields and is removed only when a later snapshot reports that the process has
-actually exited.
+actually exited. Each snapshot also retains completion tombstones for processes
+that have exited in the current user session. A tombstone contains the process
+identity and, when available, the exact final elapsed milliseconds; retention
+allows a client to recover completion timing after dropped updates or reconnect.
+The client flushes a tombstone only after correlating it with a yielded command
+it observed, so initial historical inventory does not replay commands. This
+trades bounded session-memory growth for loss-free completion resynchronization;
+the current snapshot protocol has no acknowledgement watermark that would make
+earlier reclamation safe.
+
+When that correlated yielded command is flushed to enhanced scrollback, its
+compact elapsed duration is appended only if the authoritative raw final duration
+is strictly greater than five seconds, for example `$ dotnet test (1m 05s)`.
+At or below five seconds, or when the final duration is unavailable, the flushed
+entry remains the command alone. The threshold uses unrounded milliseconds;
+compact display uses the same nearest-second style as other CLI duration labels.
 
 Configured aliases may be used anywhere a model selector is accepted,
 including `agent_spawn.model`. An omitted or empty `agent_spawn.model` inherits

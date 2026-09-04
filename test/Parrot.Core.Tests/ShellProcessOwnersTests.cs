@@ -179,12 +179,141 @@ internal sealed class ShellProcessOwnersTests : IDisposable
 
         var claimed = owner.Claim(process.Name);
         await File.WriteAllTextAsync(completionMarker, string.Empty, cancellationToken);
-        _ = await claimed.Wait(null, cancellationToken);
+        var result = await claimed.Wait(null, cancellationToken);
         var completed = await subscription.Reader.ReadAsync(cancellationToken);
 
         _ = await Assert.That(completed.Revision).IsGreaterThan(initial.Revision);
         _ = await Assert.That(completed.Processes).IsEmpty();
+        _ = await Assert.That(completed.CompletedProcesses).HasSingleItem();
+        _ = await Assert.That(completed.CompletedProcesses[0].ProcessId).IsEqualTo(process.State.ProcessId);
+        _ = await Assert.That(completed.CompletedProcesses[0].ElapsedMilliseconds)
+            .IsEqualTo(result.Result?.ElapsedMilliseconds);
+
+        using var resumed = coordinator.SubscribeInventory();
+        var resumedSnapshot = await resumed.Reader.ReadAsync(cancellationToken);
+        _ = await Assert.That(resumedSnapshot.CompletedProcesses).HasSingleItem();
+        _ = await Assert.That(resumedSnapshot.CompletedProcesses[0]).IsEqualTo(completed.CompletedProcesses[0]);
+
+        var laterProcess = owner.Start(
+            "later",
+            "sleep 30",
+            "later-call",
+            ProcessEnvironmentOverrides.Empty,
+            agent,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
+        var laterSnapshot = await resumed.Reader.ReadAsync(cancellationToken);
+        _ = await Assert.That(laterSnapshot.Processes).HasSingleItem();
+        _ = await Assert.That(laterSnapshot.Processes[0].ProcessId).IsEqualTo(laterProcess.State.ProcessId);
+        _ = await Assert.That(laterSnapshot.CompletedProcesses).HasSingleItem();
+        _ = await Assert.That(laterSnapshot.CompletedProcesses[0]).IsEqualTo(completed.CompletedProcesses[0]);
+
+        await lifetime.CancelAsync();
         await coordinator.Settle();
+    }
+
+    [Test]
+    public async Task Faulted_process_completion_retains_a_tombstone_without_elapsed_time(
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var lifetime = new CancellationTokenSource();
+        using var events = new EventBroker();
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var resources = CreateResources();
+        using var coordinator = new ShellProcessOwners(
+            resources,
+            new ProcessRunner(CreateSandboxPassThrough()),
+            lifetime.Token);
+        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
+        var owner = coordinator.Prepare(agent.SessionId);
+        coordinator.Register(owner);
+        var completionMarker = Path.Combine(_workspace, "fault");
+        var command = $"while [ ! -f '{completionMarker}' ]; do sleep 0.01; done; "
+            + "awk 'BEGIN { for (i = 0; i < 1000000; i++) printf \"x\" }'";
+        var process = owner.Start(
+            "faulted",
+            command,
+            "call-id",
+            ProcessEnvironmentOverrides.Empty,
+            agent,
+            SecurityProfile.Compose(readOnly: false, [], [], []));
+
+        using var subscription = coordinator.SubscribeInventory();
+        var active = await subscription.Reader.ReadAsync(cancellationToken);
+        _ = await Assert.That(active.Processes).HasSingleItem();
+        var claimed = process;
+        var blobDirectory = resources.AgentScratch(agent.SessionId).BlobDirectory;
+        var movedBlobDirectory = blobDirectory + "-moved";
+        Directory.Move(blobDirectory, movedBlobDirectory);
+        await File.WriteAllTextAsync(blobDirectory, string.Empty, cancellationToken);
+        await File.WriteAllTextAsync(completionMarker, string.Empty, cancellationToken);
+
+        var failure = await Assert.That(async () => await claimed.Wait(null, cancellationToken))
+            .Throws<IOException>();
+        var completed = await subscription.Reader.ReadAsync(cancellationToken);
+
+        _ = await Assert.That(failure?.Message).Contains("blob");
+        _ = await Assert.That(completed.Processes).IsEmpty();
+        _ = await Assert.That(completed.CompletedProcesses).HasSingleItem();
+        _ = await Assert.That(completed.CompletedProcesses[0].ProcessId).IsEqualTo(process.State.ProcessId);
+        _ = await Assert.That(completed.CompletedProcesses[0].ElapsedMilliseconds).IsNull();
+
+        using var resumed = coordinator.SubscribeInventory();
+        var resumedSnapshot = await resumed.Reader.ReadAsync(cancellationToken);
+        _ = await Assert.That(resumedSnapshot.CompletedProcesses).HasSingleItem();
+        _ = await Assert.That(resumedSnapshot.CompletedProcesses[0]).IsEqualTo(completed.CompletedProcesses[0]);
+
+        await coordinator.Settle();
+    }
+
+    [Test]
+    public async Task Inventory_protocol_chunks_active_and_completed_records_deterministically()
+    {
+        var active = new ActiveShellProcessState(
+            "active-b",
+            "build",
+            "dotnet build",
+            "call-id",
+            "agent-id",
+            "main",
+            string.Empty,
+            string.Empty,
+            0,
+            System.Diagnostics.Stopwatch.GetTimestamp());
+        var inventory = new ShellProcessInventorySnapshot(
+            "inventory",
+            7,
+            [active],
+            [
+                new CompletedShellProcessState("completed-a", 5_001),
+                new CompletedShellProcessState("completed-c", null),
+            ]);
+
+        var chunks = ShellProcessInventoryProtocol.Convert(inventory).ToArray();
+
+        _ = await Assert.That(chunks).Count().IsEqualTo(3);
+        _ = await Assert.That(string.Join(',', chunks.Select(static chunk => chunk.ShellProcessSnapshot.ChunkIndex)))
+            .IsEqualTo("0,1,2");
+        _ = await Assert.That(chunks.All(static chunk => chunk.ShellProcessSnapshot.ChunkCount == 3)).IsTrue();
+        _ = await Assert.That(chunks[0].ShellProcessSnapshot.Processes[0].ProcessId).IsEqualTo("active-b");
+        _ = await Assert.That(chunks[1].ShellProcessSnapshot.CompletedProcesses[0].ProcessId)
+            .IsEqualTo("completed-a");
+        _ = await Assert.That(chunks[1].ShellProcessSnapshot.CompletedProcesses[0].ElapsedMs).IsEqualTo(5_001);
+        _ = await Assert.That(chunks[2].ShellProcessSnapshot.CompletedProcesses[0].ProcessId)
+            .IsEqualTo("completed-c");
+        _ = await Assert.That(chunks[2].ShellProcessSnapshot.CompletedProcesses[0].HasElapsedMs).IsFalse();
+
+        var empty = ShellProcessInventoryProtocol.Convert(
+            new ShellProcessInventorySnapshot("empty", 0, [], [])).Single();
+        _ = await Assert.That(empty.ShellProcessSnapshot.ChunkCount).IsEqualTo(1U);
+        _ = await Assert.That(empty.ShellProcessSnapshot.Processes).IsEmpty();
+        _ = await Assert.That(empty.ShellProcessSnapshot.CompletedProcesses).IsEmpty();
     }
 
     [Test]

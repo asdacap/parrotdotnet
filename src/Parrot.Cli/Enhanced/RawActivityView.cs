@@ -21,6 +21,7 @@ internal sealed class RawActivityView(
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
     private readonly AgentSessionHierarchy _hierarchy = new();
     private readonly Dictionary<string, ProcessState> _processes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CompletedShellProcess> _processCompletions = new(StringComparer.Ordinal);
     private readonly Dictionary<(string OwnerAgentSessionId, string Name), QueueLiveBufferItem> _queues = [];
     private readonly HashSet<string> _completedProcesses = new(StringComparer.Ordinal);
     private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _omittedProcessTools = [];
@@ -195,9 +196,11 @@ internal sealed class RawActivityView(
                 _inventoryInstanceId = snapshot.InventoryInstanceId;
                 _inventoryRevision = snapshot.Revision;
                 _processes.Clear();
+                _processCompletions.Clear();
                 _completedProcesses.Clear();
                 _omittedProcessTools.Clear();
                 _terminalProcessTools.Clear();
+                ObserveProcessCompletions(snapshot.CompletedProcesses);
                 foreach (var process in snapshot.Processes)
                 {
                     ObserveProcessHierarchy(process);
@@ -212,6 +215,7 @@ internal sealed class RawActivityView(
             var snapshotProcessIds = snapshot.Processes
                 .Select(static process => process.ProcessId)
                 .ToHashSet(StringComparer.Ordinal);
+            ObserveProcessCompletions(snapshot.CompletedProcesses);
             var completions = _processes.Values
                 .Where(process => process.Revision < snapshot.Revision
                     && !snapshotProcessIds.Contains(process.Process.ProcessId))
@@ -265,7 +269,7 @@ internal sealed class RawActivityView(
                     await commit(
                         WrapProcess(
                             completion.Process,
-                            new ProcessCompletionScrollbackValue($"$ {completion.Command}")),
+                            ProcessCompletion(completion.Command, completion.Process.ProcessId)),
                         Snapshot(),
                         cancellationToken).ConfigureAwait(false);
                 }
@@ -525,6 +529,23 @@ internal sealed class RawActivityView(
             process.Depth == 0 ? null : owner,
             owner,
             null);
+    }
+
+    private void ObserveProcessCompletions(IEnumerable<CompletedShellProcess> completions)
+    {
+        foreach (var completion in completions)
+        {
+            _processCompletions[completion.ProcessId] = completion.Clone();
+        }
+    }
+
+    private ProcessCompletionScrollbackValue ProcessCompletion(string command, string processId)
+    {
+        var elapsedMilliseconds = _processCompletions.TryGetValue(processId, out var completion)
+            && completion.HasElapsedMs
+                ? completion.ElapsedMs
+                : (long?)null;
+        return new ProcessCompletionScrollbackValue($"$ {command}", elapsedMilliseconds);
     }
 
     private async Task ShutdownCore()
@@ -1024,7 +1045,7 @@ internal sealed class RawActivityView(
             scrollback = ObserveDeferredProcess(deferred, published, call, command)
                 && !string.IsNullOrWhiteSpace(command)
                 && _completedProcesses.Add(ProcessKey(deferred.InventoryInstanceId, deferred.ProcessId))
-                    ? new ProcessCompletionScrollbackValue($"$ {command}")
+                    ? ProcessCompletion(command, deferred.ProcessId)
                     : null;
         }
 
@@ -1177,7 +1198,8 @@ internal sealed class RawActivityView(
                 return false;
             }
 
-            if (_inventoryRevision > yielded.VisibleRevision)
+            if (_processCompletions.ContainsKey(yielded.ProcessId)
+                || _inventoryRevision > yielded.VisibleRevision)
             {
                 return true;
             }
@@ -1188,6 +1210,7 @@ internal sealed class RawActivityView(
         {
             _ = _retiredInventoryInstances.Add(_inventoryInstanceId);
             _processes.Clear();
+            _processCompletions.Clear();
             _completedProcesses.Clear();
             _omittedProcessTools.Clear();
             _terminalProcessTools.Clear();

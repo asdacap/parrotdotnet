@@ -467,11 +467,17 @@ message ActiveShellProcess {
 // A complete in-memory inventory. Chunks sharing an instance and revision are
 // applied only as one replacement; chunk_count is one for an empty inventory.
 message ShellProcessSnapshot {
-  string inventory_instance_id          = 1;
-  uint64 revision                        = 2;
-  uint32 chunk_index                     = 3;
-  uint32 chunk_count                     = 4;
-  repeated ActiveShellProcess processes = 5;
+  string inventory_instance_id                    = 1;
+  uint64 revision                                  = 2;
+  uint32 chunk_index                               = 3;
+  uint32 chunk_count                               = 4;
+  repeated ActiveShellProcess processes           = 5;
+  repeated CompletedShellProcess completed_processes = 6;
+}
+
+message CompletedShellProcess {
+  string process_id            = 1;
+  optional int64 elapsed_ms    = 2;
 }
 
 message QueueState {

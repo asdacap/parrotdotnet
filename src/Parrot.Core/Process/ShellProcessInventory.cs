@@ -5,6 +5,7 @@ internal sealed class ShellProcessInventory : IDisposable
     private readonly ShellProcessInventoryFeed _feed = new();
     private readonly Lock _gate = new();
     private readonly Dictionary<string, ActiveShellProcessState> _processes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CompletedShellProcessState> _completedProcesses = new(StringComparer.Ordinal);
     private ulong _revision;
 
     public string InstanceId { get; } = $"process-inventory-{Guid.CreateVersion7():n}";
@@ -16,7 +17,7 @@ internal sealed class ShellProcessInventory : IDisposable
 
         lock (_gate)
         {
-            if (!_processes.TryAdd(process.ProcessId, process))
+            if (_completedProcesses.ContainsKey(process.ProcessId) || !_processes.TryAdd(process.ProcessId, process))
             {
                 throw new InvalidOperationException($"Shell process '{process.ProcessId}' is already visible.");
             }
@@ -29,7 +30,7 @@ internal sealed class ShellProcessInventory : IDisposable
         return new YieldedShellProcess(process.ProcessId, process.Name, InstanceId, visibleRevision, null, null);
     }
 
-    public void Remove(string processId)
+    public void Complete(string processId, long? elapsedMilliseconds)
     {
         lock (_gate)
         {
@@ -38,6 +39,7 @@ internal sealed class ShellProcessInventory : IDisposable
                 return;
             }
 
+            _completedProcesses[processId] = new CompletedShellProcessState(processId, elapsedMilliseconds);
             _revision++;
             _feed.Publish(CaptureLocked());
         }
@@ -57,5 +59,6 @@ internal sealed class ShellProcessInventory : IDisposable
         new(
             InstanceId,
             _revision,
-            [.. _processes.Values.OrderBy(process => process.ProcessId, StringComparer.Ordinal)]);
+            [.. _processes.Values.OrderBy(process => process.ProcessId, StringComparer.Ordinal)],
+            [.. _completedProcesses.Values.OrderBy(process => process.ProcessId, StringComparer.Ordinal)]);
 }
