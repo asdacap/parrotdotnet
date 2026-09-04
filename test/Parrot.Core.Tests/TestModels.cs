@@ -346,7 +346,7 @@ internal static class TestModels
             IMode mode,
             SecurityProfile securityProfile,
             RuntimeStatus status,
-            AgentRegistry registry,
+            IAgentRegistry registry,
             CancellationToken lifetime) =>
             throw new NotSupportedException("This test session does not support spawning subagents.");
     }

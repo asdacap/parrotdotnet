@@ -125,7 +125,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal ShellProcessOwners ShellProcesses { get; }
 
-    internal AgentRegistry Registry { get; }
+    internal IAgentRegistry Registry { get; }
 
     internal RuntimeStatus Status { get; }
 

@@ -6,7 +6,7 @@ namespace Parrot.Agent;
 
 internal sealed class ChildRegistry(
     AgentIdentity owner,
-    AgentRegistry authority)
+    IAgentRegistry authority) : IChildRegistry
 {
     private const int MaxDepth = 4;
     private readonly Dictionary<string, ChildEntry> _entries = new(StringComparer.Ordinal);
@@ -22,9 +22,7 @@ internal sealed class ChildRegistry(
     private TaskCompletionSource? _constructionsSettled;
     private Task? _shutdown;
 
-    internal string OwnerSessionId => owner.SessionId;
-
-    internal AgentRegistry Authority => authority;
+    public string OwnerSessionId => owner.SessionId;
 
     public IAgentSession Spawn(AgentLaunchRequest request) => SpawnScope(request).Session;
 
@@ -202,7 +200,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    internal void ValidateOwner(AgentIdentity identity)
+    public void ValidateOwner(AgentIdentity identity)
     {
         if (!ReferenceEquals(identity, owner))
         {
@@ -211,7 +209,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    internal void AttachOwnerScope(IAgentSessionScope scope)
+    public void AttachOwnerScope(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
         if (!ReferenceEquals(scope.Session.Identity, owner)
@@ -231,7 +229,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    internal void DetachOwnerScope(IAgentSessionScope scope)
+    public void DetachOwnerScope(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
 
@@ -244,7 +242,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    internal IAgentSessionScope RequireOwnerScope()
+    public IAgentSessionScope RequireOwnerScope()
     {
         if (!authority.IsAccepting)
         {
@@ -263,7 +261,7 @@ internal sealed class ChildRegistry(
             : throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
     }
 
-    internal IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName)
+    public IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName)
     {
         lock (_gate)
         {
@@ -283,7 +281,7 @@ internal sealed class ChildRegistry(
         throw new AgentRegistryException($"child agent not found: {sessionIdOrName}");
     }
 
-    internal IAgentSessionScope? FindDescendantScope(string sessionId)
+    public IAgentSessionScope? FindDescendantScope(string sessionId)
     {
         foreach (var child in SnapshotChildScopes())
         {
@@ -302,7 +300,7 @@ internal sealed class ChildRegistry(
         return null;
     }
 
-    internal bool ContainsDescendantScope(IAgentSessionScope candidate)
+    public bool ContainsDescendantScope(IAgentSessionScope candidate)
     {
         foreach (var child in SnapshotChildScopes())
         {
@@ -315,14 +313,14 @@ internal sealed class ChildRegistry(
         return false;
     }
 
-    internal IReadOnlyList<IAgentSession> SnapshotDescendants()
+    public IReadOnlyList<IAgentSession> SnapshotDescendants()
     {
         var children = SnapshotChildScopes();
         return [.. children.SelectMany(static child =>
             child.ChildRegistry.SnapshotDescendants().Prepend(child.Session))];
     }
 
-    internal async Task ReceiveCompletion(AgentIdentity child, AgentExecution completed)
+    public async Task ReceiveCompletion(AgentIdentity child, AgentExecution completed)
     {
         ArgumentNullException.ThrowIfNull(child);
         ArgumentNullException.ThrowIfNull(completed);
@@ -355,7 +353,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    internal IAgentSessionScope ResolveNamedChildScope(string name)
+    public IAgentSessionScope ResolveNamedChildScope(string name)
     {
         lock (_gate)
         {

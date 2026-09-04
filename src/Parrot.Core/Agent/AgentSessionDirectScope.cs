@@ -12,7 +12,7 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
 
     private AgentSessionDirectScope(
         AgentIdentity owner,
-        AgentRegistry registry,
+        IAgentRegistry registry,
         PromptTemplateCatalog promptTemplates)
     {
         ChildRegistry = new ChildRegistry(owner, registry);
@@ -30,16 +30,16 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
         }
     }
 
-    public ChildRegistry ChildRegistry { get; }
+    public IChildRegistry ChildRegistry { get; }
 
     public ChildQuestionCoordinator ChildQuestions { get; }
 
     public static AgentSessionDirectScope Build(
         AgentIdentity owner,
         AgentSessionParentScope parentScope,
-        AgentRegistry registry,
+        IAgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
-        Func<AgentSessionParentScope, IAgentSessionScope, ChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession)
+        Func<AgentSessionParentScope, IAgentSessionScope, IChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession)
     {
         var scope = new AgentSessionDirectScope(owner, registry, promptTemplates);
         try

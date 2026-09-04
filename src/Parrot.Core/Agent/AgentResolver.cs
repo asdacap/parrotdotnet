@@ -4,7 +4,7 @@ internal sealed class AgentResolver(
     AgentIdentity owner,
     AgentSessionParentScope parentScope,
     IAgentSessionScope ownerScope,
-    AgentRegistry authority)
+    IAgentRegistry authority)
 {
     private const string ParentRecipient = "parent";
 

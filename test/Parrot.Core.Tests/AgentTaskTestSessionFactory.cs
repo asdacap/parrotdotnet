@@ -50,7 +50,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         IMode mode,
         SecurityProfile securityProfile,
         RuntimeStatus status,
-        AgentRegistry registry,
+        IAgentRegistry registry,
         CancellationToken lifetime)
     {
         lock (_gate)
