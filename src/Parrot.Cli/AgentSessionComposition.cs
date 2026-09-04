@@ -103,6 +103,11 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.UserQuestions;
             })
+            .Bind<CompactionGroupBlobStore>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return new CompactionGroupBlobStore(arguments.Scratch);
+            })
             .Bind<Compactor>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);

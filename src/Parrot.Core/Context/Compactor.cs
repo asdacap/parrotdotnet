@@ -1,5 +1,6 @@
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Store;
 
 namespace Parrot.Context;
 
@@ -12,6 +13,7 @@ internal sealed class Compactor(
 {
     private const string SummaryInstructionsTemplate = "compaction.summary-instructions";
     private const string SummaryPrefixTemplate = "compaction.summary-prefix";
+    private const string OversizedToolGroupNoticeTemplate = "compaction.oversized-tool-group-notice";
 
     private readonly string _summaryInstructions = promptTemplates.Render(SummaryInstructionsTemplate, []);
     private readonly string _summaryPrefix = promptTemplates.Render(SummaryPrefixTemplate, []);
@@ -59,6 +61,7 @@ internal sealed class Compactor(
         IReadOnlyList<LLMToolDefinition> tools,
         IReadOnlyList<LLMMessage> history,
         LLMMessage fixedMessage,
+        CompactionGroupBlobStore groupBlobs,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
@@ -66,9 +69,14 @@ internal sealed class Compactor(
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(fixedMessage);
+        ArgumentNullException.ThrowIfNull(groupBlobs);
 
         var groups = Groups(history)
-            .Select((messages, index) => new CompactionGroup(messages, index + 1L, false))
+            .Select((messages, index) => new CompactionGroup(
+                messages,
+                index + 1L,
+                false,
+                IsComplete(messages)))
             .ToList();
         return await Compact(
             selectedModel,
@@ -77,6 +85,7 @@ internal sealed class Compactor(
             groups,
             0,
             fixedMessage,
+            groupBlobs,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -87,6 +96,7 @@ internal sealed class Compactor(
         IReadOnlyList<CompactionGroup> groups,
         long baseWatermark,
         LLMMessage fixedMessage,
+        CompactionGroupBlobStore groupBlobs,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
@@ -94,6 +104,7 @@ internal sealed class Compactor(
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(groups);
         ArgumentNullException.ThrowIfNull(fixedMessage);
+        ArgumentNullException.ThrowIfNull(groupBlobs);
         if (groups.Count < 2)
         {
             return null;
@@ -139,6 +150,19 @@ internal sealed class Compactor(
             retained = checkpointCut.Retained;
         }
 
+        var incompleteGroup = groups.Take(keepGroupFrom).Select((group, index) => new { Group = group, Index = index })
+            .FirstOrDefault(candidate => !candidate.Group.IsComplete);
+        if (incompleteGroup is not null)
+        {
+            keepGroupFrom = incompleteGroup.Index;
+            retained = [.. groups.Skip(keepGroupFrom).SelectMany(group => group.Messages)];
+        }
+
+        if (keepGroupFrom == 0 || groups[keepGroupFrom - 1].EndWatermark <= baseWatermark)
+        {
+            return null;
+        }
+
         var summaryBaseTokens = EstimateWithSummary(instructions, tools, fixedMessage, retained);
         var targetExceededByRequiredContext = summaryBaseTokens + 1 > targetBudget;
         var summaryBudget = (targetExceededByRequiredContext ? contextWindow : targetBudget) - summaryBaseTokens;
@@ -154,20 +178,41 @@ internal sealed class Compactor(
             throw new InvalidOperationException("The selected model leaves no room for a compaction request.");
         }
 
-        var toSummarise = groups.Take(keepGroupFrom).Select(group => group.Messages).ToList();
+        var toSummarise = groups.Take(keepGroupFrom).ToList();
+        var substitutions = new Dictionary<CompactionGroup, LLMMessage>(ReferenceEqualityComparer.Instance);
+        var providerGroups = new Dictionary<CompactionGroup, IReadOnlyList<LLMMessage>>(
+            ReferenceEqualityComparer.Instance);
         foreach (var group in toSummarise)
         {
-            if (EstimateRequestTokens(string.Empty, group) > inputBudget)
+            var providerGroup = group.Messages;
+            if (EstimateRequestTokens(string.Empty, [], providerGroup) > inputBudget)
             {
-                throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
+                if (!IsEligibleForSpill(group))
+                {
+                    throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
+                }
+
+                var path = await groupBlobs.Persist(group, cancellationToken).ConfigureAwait(false);
+                var notice = LLMMessage.System(promptTemplates.Render(
+                    OversizedToolGroupNoticeTemplate,
+                    [new PromptTemplateArgument("path", path)]));
+                substitutions.Add(group, notice);
+                providerGroup = [notice];
+                if (EstimateRequestTokens(string.Empty, [], providerGroup) > inputBudget)
+                {
+                    throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
+                }
             }
+
+            providerGroups.Add(group, providerGroup);
         }
 
         var summary = string.Empty;
         var chunk = new List<LLMMessage>();
         foreach (var group in toSummarise)
         {
-            if (chunk.Count > 0 && EstimateRequestTokens(summary, chunk, group) > inputBudget)
+            var providerGroup = providerGroups[group];
+            if (chunk.Count > 0 && EstimateRequestTokens(summary, chunk, providerGroup) > inputBudget)
             {
                 summary = await Summarise(
                     selectedModel,
@@ -178,12 +223,26 @@ internal sealed class Compactor(
                 chunk.Clear();
             }
 
-            if (EstimateRequestTokens(summary, chunk, group) > inputBudget)
+            if (EstimateRequestTokens(summary, chunk, providerGroup) > inputBudget)
             {
-                throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
+                if (!IsEligibleForSpill(group) || substitutions.ContainsKey(group))
+                {
+                    throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
+                }
+
+                var path = await groupBlobs.Persist(group, cancellationToken).ConfigureAwait(false);
+                var notice = LLMMessage.System(promptTemplates.Render(
+                    OversizedToolGroupNoticeTemplate,
+                    [new PromptTemplateArgument("path", path)]));
+                substitutions.Add(group, notice);
+                providerGroup = [notice];
+                if (EstimateRequestTokens(summary, chunk, providerGroup) > inputBudget)
+                {
+                    throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
+                }
             }
 
-            chunk.AddRange(group);
+            chunk.AddRange(providerGroup);
         }
 
         summary = await Summarise(
@@ -208,6 +267,20 @@ internal sealed class Compactor(
         var watermark = keepGroupFrom == 0 ? baseWatermark : groups[keepGroupFrom - 1].EndWatermark;
         return new CompactionResult(compacted, summaryMessage, retained.Count, watermark);
     }
+
+    private static bool IsComplete(IReadOnlyList<LLMMessage> messages)
+    {
+        var toolCalls = messages.SelectMany(message => message.ToolCalls).ToArray();
+        return toolCalls.Length == 0 || toolCalls.All(call => messages.Any(message =>
+            message.Role == LLMRole.Tool
+            && string.Equals(message.ToolCallId, call.Id, StringComparison.Ordinal)));
+    }
+
+    private static bool IsEligibleForSpill(CompactionGroup group) =>
+        group.IsComplete
+        && group.Messages.Count > 0
+        && group.Messages[0].Role == LLMRole.Assistant
+        && group.Messages[0].ToolCalls.Count > 0;
 
     private static long EstimateTokens(LLMMessage message) =>
         message.Contents.Sum(content => content.Kind switch
@@ -279,9 +352,6 @@ internal sealed class Compactor(
         var messages = RequestMessages(precedingSummary, chunk, nextGroup);
         return EstimateTokens(messages);
     }
-
-    private long EstimateRequestTokens(string precedingSummary, IReadOnlyList<LLMMessage> chunk) =>
-        EstimateTokens(RequestMessages(precedingSummary, chunk, []));
 
     private List<LLMMessage> RequestMessages(
         string precedingSummary,

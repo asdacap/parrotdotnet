@@ -106,6 +106,13 @@ internal static class TestModels
     public static ToolDefinitionCatalog EmptyToolDefinitions { get; } = new(
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
 
+    public static CompactionGroupBlobStore CompactionGroupBlobs() =>
+        new(new AgentScratchDirectory(Path.Combine(
+            Path.GetTempPath(),
+            "parrot-tests",
+            Guid.NewGuid().ToString("N"),
+            "scratch")));
+
     public static ToolDefinitionCatalog DocumentTools(params string[] names) => new(
         names.ToDictionary(
             name => name,

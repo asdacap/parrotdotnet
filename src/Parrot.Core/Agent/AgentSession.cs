@@ -36,6 +36,7 @@ internal sealed class AgentSession(
     ToolDefinitionCatalog toolDefinitions,
     ISystemPrompt systemPrompt,
     ToolOutputBlobStore toolOutputBlobs,
+    CompactionGroupBlobStore compactionGroupBlobs,
     Compactor compactor,
     PromptTemplateCatalog promptTemplates,
     ChildQuestionCoordinator childQuestions,
@@ -113,6 +114,7 @@ internal sealed class AgentSession(
         ToolDefinitionCatalog toolDefinitions,
         ISystemPrompt systemPrompt,
         ToolOutputBlobStore toolOutputBlobs,
+        CompactionGroupBlobStore compactionGroupBlobs,
         Compactor compactor,
         PromptTemplateCatalog promptTemplates,
         ChildQuestionCoordinator childQuestions,
@@ -136,6 +138,7 @@ internal sealed class AgentSession(
             toolDefinitions,
             systemPrompt,
             toolOutputBlobs,
+            compactionGroupBlobs,
             compactor,
             promptTemplates,
             childQuestions,
@@ -1704,13 +1707,15 @@ internal sealed class AgentSession(
                 compactionGroups.Add(new CompactionGroup(
                     [LLMMessage.System(effective.Snapshot.Summary)],
                     effective.Snapshot.Watermark,
-                    false));
+                    false,
+                    true));
             }
 
             compactionGroups.AddRange(effective.Groups.Select(group => new CompactionGroup(
                 [.. group.Items.Select(item => RestoreMessage(eventRepository, item))],
                 group.EndWatermark,
-                group.AssistantSequence > 0 && activeCheckpoints.Contains(group.AssistantSequence))));
+                group.AssistantSequence > 0 && activeCheckpoints.Contains(group.AssistantSequence),
+                group.IsComplete)));
             var statusContent = await status.Observe(this, selection, selection.Profile, cancellationToken)
                 .ConfigureAwait(false);
             var fixedStatus = LLMMessage.System(statusContent);
@@ -1721,9 +1726,16 @@ internal sealed class AgentSession(
                 compactionGroups,
                 effective.Snapshot?.Watermark ?? 0,
                 fixedStatus,
+                compactionGroupBlobs,
                 cancellationToken).ConfigureAwait(false);
-            if (compacted is not null
-                && compacted.Watermark > (effective.Snapshot?.Watermark ?? 0))
+            var currentWatermark = effective.Snapshot?.Watermark ?? 0;
+            if ((compacted is null || compacted.Watermark <= currentWatermark)
+                && Compactor.EstimateInputTokens(instructions, tools, _history) > selectedModel.Model.ContextWindow)
+            {
+                throw new InvalidOperationException("The conversation has no safe compaction boundary before the context limit.");
+            }
+
+            if (compacted is not null && compacted.Watermark > currentWatermark)
             {
                 var statusInjected = new Event
                 {
