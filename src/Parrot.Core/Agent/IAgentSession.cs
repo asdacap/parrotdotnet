@@ -85,9 +85,7 @@ internal interface IAgentSession : IAsyncDisposable
         Delivery delivery,
         CancellationToken cancellationToken);
 
-    Task SetGoal(string goal, CancellationToken cancellationToken);
-
-    void ClearGoal();
+    void SetExitReminder(string? reminder);
 
     Task<bool> ReceiveQueueNotification(
         QueueNotification notification,

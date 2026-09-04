@@ -562,23 +562,7 @@ internal sealed class AgentSession(
         return (admitted.Admission, admitted.FollowUp);
     }
 
-    public async Task SetGoal(string goal, CancellationToken cancellationToken)
-    {
-        var reminder = promptTemplates.Render(
-            "goal.root-reminder",
-            [new PromptTemplateArgument("goal", goal)]);
-        exitReminder.Set(reminder);
-        var notice = promptTemplates.Render(
-            "goal.root-reminder-notice",
-            [new PromptTemplateArgument("reminder", reminder)]);
-        _ = await Send(
-            [ConversationPart.TextPart(notice)],
-            Identifier.MessageId(),
-            Delivery.Steer,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    public void ClearGoal() => exitReminder.Set(null);
+    public void SetExitReminder(string? reminder) => exitReminder.Set(reminder);
 
     public async Task<bool> ReceiveQueueNotification(
         QueueNotification notification,

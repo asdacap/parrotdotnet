@@ -147,7 +147,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             new CompletionMode(enforce: false, maxTurns: 3),
             lifetime.Token);
 
-        await parent.SetGoal("changed after construction", cancellationToken);
+        var goals = TestModels.ScopeOf(parent).Goals;
+        await goals.SetGoal("changed after construction", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
@@ -158,7 +159,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             message.Role == LLMRole.System
             && message.Content.Contains("changed after construction", StringComparison.Ordinal));
 
-        parent.ClearGoal();
+        goals.ClearGoal();
         provider.Release();
         await parent.DisposeAsync();
 

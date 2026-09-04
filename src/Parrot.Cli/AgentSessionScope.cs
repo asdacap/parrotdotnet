@@ -10,6 +10,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 {
     private readonly Lock _gate = new();
     private readonly AgentQueues _queues;
+    private readonly PromptTemplateCatalog _promptTemplates;
     private IAgentSession? _session;
     private Task? _shutdown;
 
@@ -20,6 +21,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         AgentQueues queues)
     {
         _queues = queues;
+        _promptTemplates = promptTemplates;
         ChildRegistry = new ChildRegistry(owner, registry);
         ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
     }
@@ -34,6 +36,11 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             }
         }
     }
+
+    public GoalService? GoalsState { get; private set; }
+
+    public GoalService Goals =>
+        GoalsState ?? throw new InvalidOperationException("The agent session is not attached to its scope.");
 
     public IChildRegistry ChildRegistry { get; }
 
@@ -53,6 +60,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
             ObjectDisposedException.ThrowIf(_shutdown is not null, this);
             ChildRegistry.ValidateOwner(session.Identity);
             _session = session;
+            GoalsState = new GoalService(session, _promptTemplates);
         }
     }
 

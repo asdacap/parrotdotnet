@@ -1970,6 +1970,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     {
         public IAgentSession Session => scope.Session;
 
+        public GoalService Goals => scope.Goals;
+
         public IChildRegistry ChildRegistry => scope.ChildRegistry;
 
         public Questions.ChildQuestionCoordinator ChildQuestions => scope.ChildQuestions;

@@ -38,7 +38,7 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly string _mainSessionId;
     private readonly string _rootAgentName;
     private ModelSelector _model;
-    private IAgentSession? _main;
+    private IAgentSessionScope? _main;
 
     public UserSession(
         string id,
@@ -151,7 +151,7 @@ internal sealed class UserSession : IAsyncDisposable
             _eventRepository.UpdateMode(Id, _mainSessionId, selected.Id);
             Mode = selected;
 
-            _main?.UpdateSelection(_model, selected);
+            _main?.Session.UpdateSelection(_model, selected);
         }
     }
 
@@ -176,10 +176,10 @@ internal sealed class UserSession : IAsyncDisposable
                 CanonicalModel = model.CanonicalModel.Selector;
             }
 
-            _main?.UpdateSelection(_model, Mode);
+            _main?.Session.UpdateSelection(_model, Mode);
             if (model is not null)
             {
-                _main?.UseResolvedSelection(model);
+                _main?.Session.UseResolvedSelection(model);
             }
         }
     }
@@ -316,7 +316,13 @@ internal sealed class UserSession : IAsyncDisposable
         await _lifetime.CancelAsync().ConfigureAwait(false);
         await ShellProcesses.Settle().ConfigureAwait(false);
 
-        foreach (var agent in _agents)
+        if (_main is not null)
+        {
+            Registry.UnregisterRootScope(_main);
+            await _main.DisposeAsync().ConfigureAwait(false);
+        }
+
+        foreach (var agent in _agents.Where(agent => !ReferenceEquals(agent, _main)))
         {
             Registry.UnregisterRootScope(agent);
             await agent.DisposeAsync().ConfigureAwait(false);
@@ -335,22 +341,24 @@ internal sealed class UserSession : IAsyncDisposable
     internal IReadOnlyList<ActiveWorkObservation> ActiveWork() => [.. ShellProcesses.Active(), .. Registry.Active()];
 
     internal Task SetGoal(string goal, CancellationToken cancellationToken) =>
-        Main().SetGoal(goal, cancellationToken);
+        MainScope().Goals.SetGoal(goal, cancellationToken);
 
-    internal void ClearGoal() => Main().ClearGoal();
+    internal void ClearGoal() => MainScope().Goals.ClearGoal();
 
     internal Task Compact(CancellationToken cancellationToken) =>
         Main().Compact(cancellationToken);
 
     // Built once after owner initialization. The lock also protects concurrent
     // access from RPC handlers throughout the session lifetime.
-    private IAgentSession Main()
+    private IAgentSessionScope MainScope()
     {
         lock (_mainGate)
         {
             return _main ?? throw new InvalidOperationException("the main agent session is not initialized");
         }
     }
+
+    private IAgentSession Main() => MainScope().Session;
 
     private IAgentSession InitializeMain()
     {
@@ -370,9 +378,9 @@ internal sealed class UserSession : IAsyncDisposable
             Registry.RegisterRootScope(scope);
             lock (_mainGate)
             {
-                _main = scope.Session;
+                _main = scope;
                 _agents.Add(scope);
-                return _main;
+                return _main.Session;
             }
         }
         catch
