@@ -5,6 +5,7 @@
     <AssemblyName>parrot</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Parrot.Cli</RootNamespace>
+    <DefineConstants>$(DefineConstants);PUREDI_API_SUPPRESSION</DefineConstants>
   </PropertyGroup>
 
   <PropertyGroup>

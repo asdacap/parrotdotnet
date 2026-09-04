@@ -14,9 +14,8 @@ using Parrot.Web;
 namespace Parrot.Agent;
 
 internal sealed record AgentSessionScopeArguments(
-    IAgentSessionScope Scope,
     AgentIdentity Identity,
-    AgentSessionParentScope ParentScope,
+    AgentSessionParentLink ParentLink,
     ModelSelector Model,
     ModelRouter Router,
     EventBroker EventBroker,

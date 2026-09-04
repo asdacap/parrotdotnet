@@ -2,26 +2,22 @@ using System.Runtime.ExceptionServices;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Questions;
-using Parrot.Queues;
 
-namespace Parrot.Cli;
+namespace Parrot.Core.Tests;
 
-internal sealed class AgentSessionScope : IAgentSessionScope
+internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
 {
     private readonly Lock _gate = new();
-    private readonly AgentQueues _queues;
     private readonly PromptTemplateCatalog _promptTemplates;
     private IAgentSession? _session;
     private Task? _shutdown;
 
-    internal AgentSessionScope(
+    private TestAgentSessionScope(
         AgentIdentity owner,
         IAgentRegistry registry,
         AgentSessionParentLink parentLink,
-        PromptTemplateCatalog promptTemplates,
-        AgentQueues queues)
+        PromptTemplateCatalog promptTemplates)
     {
-        _queues = queues;
         _promptTemplates = promptTemplates;
         ChildRegistry = new ChildRegistry(owner, registry, () => this);
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
@@ -50,6 +46,26 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     public ChildQuestionCoordinator ChildQuestions { get; }
 
+    public static TestAgentSessionScope Build(
+        AgentIdentity owner,
+        AgentSessionParentLink parentLink,
+        IAgentRegistry registry,
+        PromptTemplateCatalog promptTemplates,
+        Func<AgentSessionParentScope, IAgentSessionScope, IChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession)
+    {
+        var scope = new TestAgentSessionScope(owner, registry, parentLink, promptTemplates);
+        try
+        {
+            scope.AttachSession(buildSession(scope.ParentScope, scope, scope.ChildRegistry, scope.ChildQuestions));
+            return scope;
+        }
+        catch
+        {
+            scope.DisposeRejectedConstruction();
+            throw;
+        }
+    }
+
     public void AttachSession(IAgentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -70,6 +86,10 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         }
     }
 
+    public void Dispose()
+    {
+    }
+
     public ValueTask DisposeAsync()
     {
         lock (_gate)
@@ -79,10 +99,9 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         }
     }
 
-    internal void DisposeRejectedConstruction()
+    private void DisposeRejectedConstruction()
     {
         ChildQuestions.Dispose();
-        _queues.Dispose();
         _shutdown = ChildRegistry.DisposeAsync().AsTask();
     }
 
@@ -110,15 +129,6 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         try
         {
             ChildQuestions.Dispose();
-        }
-        catch (Exception exception)
-        {
-            failure ??= exception;
-        }
-
-        try
-        {
-            _queues.Dispose();
         }
         catch (Exception exception)
         {

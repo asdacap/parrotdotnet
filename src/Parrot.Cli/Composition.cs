@@ -17,8 +17,8 @@ namespace Parrot.Cli;
 // AGENTS.md says "not IoC container"; this is a bounded exception, and the
 // bounds are here. Hint.Resolve is Off, so no runtime Resolve<T>() exists and a
 // missing binding is a build error rather than a startup one. Pure.DI is
-// referenced only by Parrot.Cli -- Parrot.Core takes factory interfaces it owns
-// and declares, so the domain gains no codegen dependency.
+// also used by Parrot.Core for the per-agent composition; each composition is
+// compile-time generated and remains bounded to its assembly-owned graph.
 //
 // Three things stay hand-written on purpose. SlashCommandRegistry is a cycle
 // (HelpCommand needs the registry holding it), clearer as four explicit lines
@@ -174,7 +174,6 @@ internal partial class Composition
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<ModelRouter>(out var router);
                 ctx.Inject<ISystemPromptProvider>(out var systemPromptProvider);
-                ctx.Inject<IAgentSessionScopeFactory>(out var scopes);
 
                 return new AgentSessionFactorySource(
                     processes,
@@ -185,11 +184,8 @@ internal partial class Composition
                     configuration.ReadOnlyExecCommandPrefixes,
                     router,
                     systemPromptProvider,
-                    configuration.PromptTemplates,
-                    scopes);
+                    configuration.PromptTemplates);
             })
-
-            .Bind().As(Lifetime.Singleton).To<IAgentSessionScopeFactory>(_ => new AgentSessionScopeFactory())
 
             .Bind().As(Lifetime.Singleton).To<IUserSessionFactory>(ctx =>
             {

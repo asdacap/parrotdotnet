@@ -691,7 +691,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 var processes = owner.ShellProcesses.Prepare(identity.SessionId);
                 owner.ShellProcesses.Register(processes);
                 var queues = owner.QueueCatalog.Register(identity);
-                return AgentSessionDirectScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
+                return TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
                 {
                     var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
                     var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker), SecurityProfileTestFactory.Create(securityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);

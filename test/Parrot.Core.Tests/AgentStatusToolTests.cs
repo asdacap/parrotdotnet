@@ -186,7 +186,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         AgentQueueCatalog queueCatalog,
         TimeProvider timeProvider) : IAgentSessionFactory
     {
-        public AgentSessionDirectScope Build(
+        public TestAgentSessionScope Build(
             AgentIdentity identity,
             AgentSessionParentLink parentLink,
             IAgentRegistry registry,
@@ -198,7 +198,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             var processOwner = processes.Prepare(identity.SessionId);
             processes.Register(processOwner);
             var queues = queueCatalog.Register(identity);
-            var scope = AgentSessionDirectScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
+            var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
                 var session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, queues, new AgentSessionActivity(timeProvider), lifetime);

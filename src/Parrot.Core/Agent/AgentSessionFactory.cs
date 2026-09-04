@@ -20,8 +20,7 @@ internal sealed class AgentSessionFactory(
     IReadOnlyList<string> readOnlyExecCommandPrefixes,
     ModelRouter router,
     ISystemPromptProvider systemPromptProvider,
-    PromptTemplateCatalog promptTemplates,
-    IAgentSessionScopeFactory scopes) : IAgentSessionFactory
+    PromptTemplateCatalog promptTemplates) : IAgentSessionFactory
 {
     private readonly ImageArtifactRepository _images = owner.Images;
 
@@ -51,7 +50,7 @@ internal sealed class AgentSessionFactory(
             var prompts = new CompositeSystemPromptProvider(
                 "runtime:agent-session-system-prompt",
                 [systemPromptProvider, new ScratchDirectoryProvider(scratch, promptTemplates)]);
-            return scopes.Create(
+            var arguments = new AgentSessionScopeArguments(
                 identity,
                 parentLink,
                 model,
@@ -78,6 +77,18 @@ internal sealed class AgentSessionFactory(
                 owner.Questions,
                 owner.TimeProvider,
                 lifetime);
+            var scope = new AgentSessionScope(arguments);
+            try
+            {
+                queues.Attach(scope.Session);
+                owner.ShellProcesses.Register(scope.Processes);
+                return scope;
+            }
+            catch
+            {
+                scope.DisposeRejectedConstruction();
+                throw;
+            }
         }
         catch
         {

@@ -45,6 +45,7 @@
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Haikunator" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Pure.DI" PrivateAssets="all" />
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Grpc.Core.Api" />
     <PackageReference Include="Grpc.Tools" PrivateAssets="all" />

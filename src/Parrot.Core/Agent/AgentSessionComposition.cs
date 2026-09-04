@@ -1,4 +1,3 @@
-using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
@@ -13,7 +12,7 @@ using Parrot.Tools;
 using Parrot.Web;
 using Pure.DI;
 
-namespace Parrot.Cli;
+namespace Parrot.Agent;
 
 internal partial class AgentSessionComposition
 {
@@ -22,6 +21,7 @@ internal partial class AgentSessionComposition
             .Hint(Hint.Resolve, "Off")
             .TagAttribute<InjectionTagAttribute>()
             .Arg<AgentSessionScopeArguments>("arguments")
+            .Arg<IAgentSessionScope>("scope")
             .Bind().As(Lifetime.Scoped).To<ISystemPrompt>(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -33,21 +33,30 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.ShellProcesses.Prepare(arguments.Identity.SessionId);
             })
-            .Bind<IAgentSessionScope>().To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.Scope;
-            })
             .Bind<AgentIdentity>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Identity;
             })
-            .Bind<AgentSessionParentScope>().To(ctx =>
+            .Bind<IChildRegistry>().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return arguments.ParentScope;
+                ctx.Inject<IAgentSessionScope>(out var scope);
+                return new ChildRegistry(arguments.Identity, arguments.Registry, () => scope);
             })
+            .Bind<AgentSessionParentScope>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                ctx.Inject<IAgentSessionScope>(out var scope);
+                ctx.Inject<IChildRegistry>(out var children);
+                return AgentSessionParentScope.Bind(
+                    arguments.Identity,
+                    arguments.Registry,
+                    () => scope,
+                    children,
+                    arguments.ParentLink);
+            })
+            .Bind<ChildQuestionCoordinator>().As(Lifetime.Scoped).To<ChildQuestionCoordinator>()
             .Bind<ModelSelector>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -291,22 +300,21 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new AgentSessionActivity(arguments.TimeProvider);
             })
-            .Bind<IChildRegistry>().To(ctx =>
-            {
-                ctx.Inject<IAgentSessionScope>(out var scope);
-                return scope.ChildRegistry;
-            })
-            .Bind<ChildQuestionCoordinator>().To(ctx =>
-            {
-                ctx.Inject<IAgentSessionScope>(out var scope);
-                return scope.ChildQuestions;
-            })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                return new AgentResolver(arguments.Identity, arguments.ParentScope, arguments.Scope, arguments.Registry);
+                ctx.Inject<AgentSessionParentScope>(out var parentScope);
+                ctx.Inject<IAgentSessionScope>(out var scope);
+                return new AgentResolver(arguments.Identity, parentScope, scope, arguments.Registry);
             })
-            .Bind<IAgentSession>().As(Lifetime.PerResolve).To<AgentSession>()
+            .Bind<IAgentSession>().As(Lifetime.Scoped).To<AgentSession>()
+            .Bind<GoalService>().As(Lifetime.Scoped).To<GoalService>()
+            .Bind<AgentSessionScopeLifetime>().As(Lifetime.Scoped).To<AgentSessionScopeLifetime>()
             .Root<IAgentSession>("Session")
-            .Root<ShellProcessOwner>("Processes");
+            .Root<GoalService>("Goals")
+            .Root<IChildRegistry>("ChildRegistry")
+            .Root<AgentSessionParentScope>("ParentScope")
+            .Root<ChildQuestionCoordinator>("ChildQuestions")
+            .Root<ShellProcessOwner>("Processes")
+            .Root<AgentSessionScopeLifetime>("ScopeLifetime");
 }
