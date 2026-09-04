@@ -73,7 +73,7 @@ internal sealed class AgentTaskProgressLiveValueTests
     }
 
     [Test]
-    public async Task Render_limits_output_to_ten_rows_and_marks_truncation()
+    public async Task Render_includes_every_row_when_tree_exceeds_ten_rows()
     {
         var snapshot = new AgentTaskProgressSnapshot();
         for (var index = 0; index < 12; index++)
@@ -86,10 +86,34 @@ internal sealed class AgentTaskProgressLiveValueTests
         }
 
         var lines = Render(snapshot, 80);
+        var rendered = string.Join('|', lines);
 
-        _ = await Assert.That(lines).Count().IsEqualTo(10);
-        _ = await Assert.That(lines[^1]).IsEqualTo("… more tasks");
-        _ = await Assert.That(string.Join('|', lines)).DoesNotContain("task-8");
+        _ = await Assert.That(lines).Count().IsEqualTo(13);
+        _ = await Assert.That(rendered).Contains("task-0");
+        _ = await Assert.That(rendered).Contains("task-11");
+        _ = await Assert.That(rendered).DoesNotContain("… more tasks");
+    }
+
+    [Test]
+    public async Task Render_uses_description_and_falls_back_to_name_for_legacy_nodes()
+    {
+        var snapshot = new AgentTaskProgressSnapshot();
+        snapshot.RootNodes.Add(new AgentTaskProgressNode
+        {
+            Name = "internal-name",
+            Description = "display\ntext\u001b[2J",
+            Status = AgentTaskProgressStatus.Running,
+        });
+        snapshot.RootNodes.Add(new AgentTaskProgressNode
+        {
+            Name = "legacy-name",
+            Status = AgentTaskProgressStatus.Pending,
+        });
+
+        var lines = Render(snapshot, 80);
+
+        _ = await Assert.That(lines[1]).IsEqualTo("◐ display text[2J");
+        _ = await Assert.That(lines[2]).IsEqualTo("○ legacy-name");
     }
 
     [Test]

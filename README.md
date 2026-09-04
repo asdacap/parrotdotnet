@@ -412,18 +412,21 @@ effective subtree, so stale attempt descendants are not retained. Cancellation
 publishes a final snapshot after runner-owned children have been joined, then
 propagates cancellation.
 
-Both CLI modes append and flush each complete snapshot as permanent output;
-that history is not replaced or removed. In addition, the persistent enhanced
-CLI projects the latest snapshot into the matching active `run_agent_tasks`
-live row. The row begins with a neutral label that exposes neither the path nor
-an embedded artifact, then becomes a bounded, sanitized tree when progress
-arrives. Only strictly newer revisions for the same agent session and origin
-tool-call id update it; terminal cleanup removes it, and stale or late events do
-not resurrect it. Live truncation does not change the complete snapshot or its
-permanent tree. Snapshots are self-contained, but the stream provides no replay
-or resume guarantee for a client that was not listening. The ordinary
-`ToolStarted`/`ToolFinished` lifecycle and the final hierarchical JSON result
-are unchanged; progress snapshots supplement them.
+Progress lines display each node's description, falling back to its name for
+legacy snapshots that have no description. The basic CLI appends and flushes
+every complete snapshot immediately as permanent output; that history is not
+replaced or removed. The persistent enhanced CLI immediately projects the latest
+snapshot into the matching active `run_agent_tasks` live tree, then commits the
+latest accepted complete tree to permanent scrollback after a one-second quiet
+period or when the tool lifecycle requires a flush. Each accepted revision is
+scoped to its agent session and origin tool-call id, and terminal cleanup removes
+its live projection without allowing stale events to resurrect it. Enhanced live
+trees are not capped by an AgentTask-row limit, and the complete snapshots remain
+self-contained. This progress behavior introduces no new graph, event, or
+transport size limit. The stream provides no replay or resume guarantee for a
+client that was not listening. The ordinary `ToolStarted`/`ToolFinished`
+lifecycle and final hierarchical JSON result are unchanged; progress snapshots
+supplement them.
 
 ## Image attachments
 

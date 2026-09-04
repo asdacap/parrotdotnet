@@ -14,11 +14,17 @@ internal static class AgentTaskProgressFormatter
         for (var index = 0; index < snapshot.RootNodes.Count; index++)
         {
             var node = snapshot.RootNodes[index];
-            lines.Add($"{Icon(node.Status)} {Name(node.Name)}");
+            lines.Add($"{Icon(node.Status)} {DisplayText(node)}");
             Append(node.Children, string.Empty, lines);
         }
 
         return lines;
+    }
+
+    internal static string DisplayText(AgentTaskProgressNode node)
+    {
+        var text = string.IsNullOrEmpty(node.Description) ? node.Name : node.Description;
+        return TerminalText.Sanitize(text).Replace('\n', ' ');
     }
 
     private static void Append(
@@ -30,12 +36,10 @@ internal static class AgentTaskProgressFormatter
         {
             var last = index == nodes.Count - 1;
             var node = nodes[index];
-            lines.Add($"{ancestors}{(last ? "└──" : "├──")} {Icon(node.Status)} {Name(node.Name)}");
+            lines.Add($"{ancestors}{(last ? "└──" : "├──")} {Icon(node.Status)} {DisplayText(node)}");
             Append(node.Children, ancestors + (last ? "    " : "│   "), lines);
         }
     }
-
-    private static string Name(string name) => TerminalText.Sanitize(name).Replace('\n', ' ');
 
     private static string Icon(AgentTaskProgressStatus status) => status switch
     {

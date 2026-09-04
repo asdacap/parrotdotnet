@@ -5,39 +5,24 @@ namespace Parrot.Cli.Enhanced;
 
 internal sealed class AgentTaskProgressLiveValue(AgentTaskProgressSnapshot snapshot) : ILiveBufferItem
 {
-    private const int MaximumRows = 10;
-
     public MultiLine Render(LiveBufferRenderContext context)
     {
         var columns = Math.Max(1, context.Columns);
         var rows = new List<string> { "Agent tasks:" };
         var remaining = new Stack<NodeFrame>();
         Push(snapshot.RootNodes, string.Empty, true, remaining);
-        var truncated = false;
         while (remaining.Count > 0)
         {
             var frame = remaining.Pop();
             var connector = frame.Root ? string.Empty : frame.Last ? "└── " : "├── ";
             var prefix = frame.Ancestors + connector;
             var lines = TerminalText.LayoutHanging(
-                $"{prefix}{Icon(frame.Node.Status)} {Name(frame.Node.Name)}",
+                $"{prefix}{Icon(frame.Node.Status)} {AgentTaskProgressFormatter.DisplayText(frame.Node)}",
                 columns,
                 new string(' ', TerminalText.Width(prefix)));
-            if (rows.Count + lines.Count > MaximumRows)
-            {
-                truncated = true;
-                break;
-            }
-
             rows.AddRange(lines);
             var descendants = frame.Ancestors + (frame.Root ? string.Empty : frame.Last ? "    " : "│   ");
             Push(frame.Node.Children, descendants, false, remaining);
-        }
-
-        if (truncated || remaining.Count > 0)
-        {
-            rows = [.. rows.Take(MaximumRows - 1)];
-            rows.Add(TerminalText.Clip("… more tasks", columns));
         }
 
         return new MultiLine(
@@ -57,8 +42,6 @@ internal sealed class AgentTaskProgressLiveValue(AgentTaskProgressSnapshot snaps
             remaining.Push(new NodeFrame(nodes[index], ancestors, roots, index == nodes.Count - 1));
         }
     }
-
-    private static string Name(string value) => TerminalText.Sanitize(value).Replace('\n', ' ');
 
     private static string Icon(AgentTaskProgressStatus status) => status switch
     {

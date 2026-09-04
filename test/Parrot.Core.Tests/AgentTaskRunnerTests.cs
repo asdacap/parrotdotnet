@@ -65,6 +65,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(string.Join(',', snapshots.Select(snapshot => snapshot.Revision)))
             .IsEqualTo("1,2,3");
+        _ = await Assert.That(snapshots[0].RootNodes.Single().Name).IsEqualTo("leaf");
+        _ = await Assert.That(snapshots[0].RootNodes.Single().Description).IsEqualTo("Implement leaf");
         _ = await Assert.That(snapshots[0].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Pending);
         _ = await Assert.That(snapshots[1].RootNodes.Single().Status)
@@ -369,7 +371,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     public async Task Preparation_patch_replaces_the_effective_progress_subtree(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
-            "{\"context\":\"parent context\",\"task_patch\":{\"payload\":[{\"name\":\"new-child\",\"description\":\"New child\",\"payload\":\"new work\",\"acceptance_criteria\":\"New proof\"}]}}",
+            "{\"context\":\"parent context\",\"task_patch\":{\"description\":\"Updated parent\",\"payload\":[{\"name\":\"new-child\",\"description\":\"New child\",\"payload\":\"new work\",\"acceptance_criteria\":\"New proof\"}]}}",
             "{\"result\":\"new child context\",\"verdict\":\"accept\",\"evidence\":\"new child done\"}",
             "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
         ]);
@@ -388,14 +390,45 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             snapshot.RootNodes[0].Children.Count == 1
             && snapshot.RootNodes[0].Children[0].Name == "new-child"
             && snapshot.RootNodes[0].Children[0].Status == AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(replacement.RootNodes[0].Description).IsEqualTo("Updated parent");
+        _ = await Assert.That(replacement.Revision).IsEqualTo(3UL);
         _ = await Assert.That(replacement.RootNodes[0].Children.Select(node => node.Name))
             .DoesNotContain("old-child");
+        _ = await Assert.That(snapshots.Any(snapshot =>
+            snapshot.RootNodes[0].Description == "Updated parent"
+            && snapshot.RootNodes[0].Children.Any(node => node.Name == "old-child"))).IsFalse();
         _ = await Assert.That(snapshots.SkipWhile(snapshot => snapshot.Revision < replacement.Revision)
             .SelectMany(snapshot => snapshot.RootNodes[0].Children)
             .Select(node => node.Name))
             .DoesNotContain("old-child");
         _ = await Assert.That(snapshots[^1].RootNodes[0].Children.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Succeeded);
+    }
+
+    [Test]
+    public async Task Preparation_description_patch_updates_progress_without_replacing_children(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"parent context\",\"task_patch\":{\"description\":\"Updated parent\"}}",
+            "{\"result\":\"child result\",\"verdict\":\"accept\",\"evidence\":\"child done\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"parent done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"parent","description":"Parent","payload":[{"name":"child","description":"Child","payload":"child work","acceptance_criteria":"Child proof"}],"acceptance_criteria":"Parent proof"}]}
+            """);
+
+        _ = await Runner(runtime, "description-replacement")
+            .Run(artifact, cancellationToken);
+
+        var snapshots = ProgressEvents("description-replacement");
+        var updated = snapshots.First(snapshot => snapshot.RootNodes[0].Description == "Updated parent");
+        var before = snapshots.Single(snapshot => snapshot.Revision == updated.Revision - 1);
+        _ = await Assert.That(before.RootNodes[0].Description).IsEqualTo("Parent");
+        _ = await Assert.That(updated.RootNodes[0].Children.Single().Name).IsEqualTo("child");
+        _ = await Assert.That(snapshots.Where(snapshot => snapshot.Revision >= updated.Revision)
+            .All(snapshot => snapshot.RootNodes[0].Description == "Updated parent")).IsTrue();
     }
 
     [Test]

@@ -110,14 +110,35 @@ internal sealed class AgentTaskProgress(
         {
             cancellationToken.ThrowIfCancellationRequested();
             var node = Resolve(handle);
-            RemoveNodes(node.Children);
-            node.Children.Clear();
-            if (payload.Tasks is not null)
+            ReplaceChildrenNodes(node, payload);
+            PublishSnapshot();
+            return Handles(node.Children);
+        }
+    }
+
+    internal IReadOnlyList<NodeHandle> UpdatePreparedTask(
+        NodeHandle handle,
+        string description,
+        AgentTaskPayload? payload,
+        CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var node = Resolve(handle);
+            var changed = node.Description != description;
+            node.Description = description;
+            if (payload is not null)
             {
-                node.Children.AddRange(payload.Tasks.Select(BuildNode));
+                ReplaceChildrenNodes(node, payload);
+                changed = true;
             }
 
-            PublishSnapshot();
+            if (changed)
+            {
+                PublishSnapshot();
+            }
+
             return Handles(node.Children);
         }
     }
@@ -188,16 +209,28 @@ internal sealed class AgentTaskProgress(
         var snapshot = new AgentTaskProgressNode
         {
             Name = node.Name,
+            Description = node.Description,
             Status = node.Status,
         };
         snapshot.Children.Add(node.Children.Select(BuildSnapshotNode));
         return snapshot;
     }
 
+    private void ReplaceChildrenNodes(ProgressNode node, AgentTaskPayload payload)
+    {
+        RemoveNodes(node.Children);
+        node.Children.Clear();
+        if (payload.Tasks is not null)
+        {
+            node.Children.AddRange(payload.Tasks.Select(BuildNode));
+        }
+    }
+
     private ProgressNode BuildNode(AgentTask task)
     {
         var node = new ProgressNode(
             task.Name,
+            task.Description,
             task.Payload.Tasks?.Select(BuildNode).ToList() ?? []);
         _nodes.Add(node.Handle, node);
         return node;
@@ -237,9 +270,11 @@ internal sealed class AgentTaskProgress(
 
     internal sealed class NodeHandle;
 
-    private sealed class ProgressNode(string name, List<ProgressNode> children)
+    private sealed class ProgressNode(string name, string description, List<ProgressNode> children)
     {
         internal string Name { get; } = name;
+
+        internal string Description { get; set; } = description;
 
         internal AgentTaskProgressStatus Status { get; set; } = AgentTaskProgressStatus.Pending;
 

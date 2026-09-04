@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using Parrot.Cli.Enhanced.Tools;
@@ -9,10 +10,12 @@ internal sealed class RawActivityView(
     Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
     Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
     Func<CancellationToken, Task> delay,
+    Func<TimeSpan, CancellationToken, Task> progressDelay,
     ToolPresenterRegistry presenters,
-    Func<string, CancellationToken, Task> updateMainAgentActivity) : IDisposable
+    Func<string, CancellationToken, Task> updateMainAgentActivity) : IAsyncDisposable
 {
     private const int SpinnerIntervalMilliseconds = 80;
+    private static readonly TimeSpan ProgressQuietPeriod = TimeSpan.FromSeconds(1);
 
     private readonly List<(AgentSessionState State, string ActivityId)> _activities = [];
     private readonly Dictionary<string, AgentSessionState> _agentSessions = new(StringComparer.Ordinal);
@@ -23,10 +26,20 @@ internal sealed class RawActivityView(
     private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _omittedProcessTools = [];
     private readonly HashSet<(string OwnerAgentSessionId, string ToolCallId)> _terminalProcessTools = [];
     private readonly HashSet<string> _retiredInventoryInstances = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string AgentSessionId, string ToolCallId), PendingProgress> _pendingProgress = [];
+    private readonly HashSet<Task> _progressTasks = [];
+    private readonly object _progressTasksLock = new();
+    private readonly object _shutdownLock = new();
     private readonly TimeProvider _timeProvider = TimeProvider.System;
 
     private readonly StringBuilder _reasoning = new();
     private readonly SemaphoreSlim _rendering = new(1, 1);
+
+    private bool _progressShutdown;
+    private bool _disposed;
+    private bool _progressFailureReported;
+    private ExceptionDispatchInfo? _progressFailure;
+    private Task? _shutdownTask;
 
     private IReadOnlyList<ILiveBufferItem> _content = [];
     private string? _inventoryInstanceId;
@@ -42,12 +55,39 @@ internal sealed class RawActivityView(
             replace,
             commit,
             static cancellationToken => Task.Delay(SpinnerIntervalMilliseconds, cancellationToken),
+            static (quietPeriod, cancellationToken) => Task.Delay(quietPeriod, cancellationToken),
             presenters,
             updateMainAgentActivity)
     {
     }
 
-    public void Dispose() => _rendering.Dispose();
+    internal RawActivityView(
+        Func<IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> replace,
+        Func<IScrollbackItem, IReadOnlyList<ILiveBufferItem>, CancellationToken, Task> commit,
+        Func<CancellationToken, Task> delay,
+        ToolPresenterRegistry presenters,
+        Func<string, CancellationToken, Task> updateMainAgentActivity)
+        : this(
+            replace,
+            commit,
+            delay,
+            static (quietPeriod, cancellationToken) => Task.Delay(quietPeriod, cancellationToken),
+            presenters,
+            updateMainAgentActivity)
+    {
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        var failureAlreadyReported = _progressFailureReported;
+        try
+        {
+            await Shutdown().ConfigureAwait(false);
+        }
+        catch when (failureAlreadyReported)
+        {
+        }
+    }
 
     public async Task Run(CancellationToken cancellationToken)
     {
@@ -355,13 +395,17 @@ internal sealed class RawActivityView(
                     await FinishTool(published, cancellationToken).ConfigureAwait(false);
                     break;
                 case Event.PayloadOneofCase.AgentTaskProgressSnapshot:
-                    if (GetAgentSession(published.AgentSessionId)
-                        .OfferAgentTaskProgress(published.AgentTaskProgressSnapshot))
+                {
+                    var state = GetAgentSession(published.AgentSessionId);
+                    if (!_progressShutdown && state.OfferAgentTaskProgress(published.AgentTaskProgressSnapshot))
                     {
+                        ScheduleProgress(state, published.AgentTaskProgressSnapshot);
                         await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
                     }
 
                     break;
+                }
+
                 case Event.PayloadOneofCase.ExitReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
                     await commit(
                         Wrap(
@@ -411,6 +455,33 @@ internal sealed class RawActivityView(
         }
     }
 
+    public async Task Shutdown()
+    {
+        Task shutdown;
+        lock (_shutdownLock)
+        {
+            shutdown = _shutdownTask ??= ShutdownCore();
+        }
+
+        try
+        {
+            await Task.WhenAll(shutdown).ConfigureAwait(false);
+        }
+        catch
+        {
+            _progressFailureReported = true;
+            throw;
+        }
+    }
+
+    private static string GetTerminalToolCallId(Event published) => published.PayloadCase switch
+    {
+        Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
+        Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
+        Event.PayloadOneofCase.ToolError => published.ToolError.ToolCallId,
+        _ => string.Empty,
+    };
+
     private static string ProcessKey(string inventoryInstanceId, string processId) =>
         string.Concat(inventoryInstanceId, "\n", processId);
 
@@ -448,6 +519,165 @@ internal sealed class RawActivityView(
             process.Depth == 0 ? null : owner,
             owner,
             null);
+    }
+
+    private async Task ShutdownCore()
+    {
+        await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            _progressShutdown = true;
+            foreach (var pending in _pendingProgress.Values)
+            {
+                pending.Cancel();
+            }
+        }
+        finally
+        {
+            _ = _rendering.Release();
+        }
+
+        Task[] tasks;
+        lock (_progressTasksLock)
+        {
+            tasks = [.. _progressTasks];
+        }
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        ExceptionDispatchInfo? progressFailure = null;
+        await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            foreach (var entry in _pendingProgress.OrderBy(static entry => entry.Key.AgentSessionId, StringComparer.Ordinal)
+                         .ThenBy(static entry => entry.Key.ToolCallId, StringComparer.Ordinal))
+            {
+                try
+                {
+                    await FlushProgress(entry.Key, entry.Value, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception failure)
+                {
+                    progressFailure ??= ExceptionDispatchInfo.Capture(failure);
+                }
+            }
+
+            _pendingProgress.Clear();
+            progressFailure ??= _progressFailure;
+        }
+        finally
+        {
+            _ = _rendering.Release();
+            DisposeSynchronization();
+        }
+
+        progressFailure?.Throw();
+    }
+
+    private void ScheduleProgress(AgentSessionState state, AgentTaskProgressSnapshot snapshot)
+    {
+        var key = (state.AgentSessionId, snapshot.OriginToolCallId);
+        var flushedRevision = 0UL;
+        if (_pendingProgress.TryGetValue(key, out var previous))
+        {
+            flushedRevision = previous.FlushedRevision;
+            previous.Cancel();
+        }
+
+        var pending = new PendingProgress(snapshot.Clone(), flushedRevision);
+        _pendingProgress[key] = pending;
+        pending.DelayTask = DelayAndFlushProgress(key, pending);
+        TrackProgressTask(pending.DelayTask);
+    }
+
+    private async Task DelayAndFlushProgress(
+        (string AgentSessionId, string ToolCallId) key,
+        PendingProgress pending)
+    {
+        try
+        {
+            await progressDelay(ProgressQuietPeriod, pending.Cancellation.Token).ConfigureAwait(false);
+            await _rendering.WaitAsync(pending.Cancellation.Token).ConfigureAwait(false);
+            try
+            {
+                await FlushProgress(key, pending, pending.Cancellation.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = _rendering.Release();
+            }
+        }
+        catch (OperationCanceledException) when (pending.Cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception failure)
+        {
+            await _rendering.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                _progressFailure ??= ExceptionDispatchInfo.Capture(failure);
+            }
+            finally
+            {
+                _ = _rendering.Release();
+            }
+        }
+        finally
+        {
+            pending.Cancellation.Dispose();
+        }
+    }
+
+    private async Task FlushProgress(
+        (string AgentSessionId, string ToolCallId) key,
+        PendingProgress pending,
+        CancellationToken cancellationToken)
+    {
+        if (!_pendingProgress.TryGetValue(key, out var current)
+            || !ReferenceEquals(current, pending)
+            || pending.FlushedRevision >= pending.Snapshot.Revision
+            || !_agentSessions.TryGetValue(key.AgentSessionId, out var state)
+            || !state.IsCurrentAgentTaskProgress(key.ToolCallId, pending.Snapshot.Revision))
+        {
+            return;
+        }
+
+        await commit(
+            Wrap(state, new AgentTaskProgressScrollbackValue(pending.Snapshot), null),
+            Snapshot(),
+            cancellationToken).ConfigureAwait(false);
+        pending.FlushedRevision = pending.Snapshot.Revision;
+    }
+
+    private void TrackProgressTask(Task task)
+    {
+        lock (_progressTasksLock)
+        {
+            _ = _progressTasks.Add(task);
+        }
+
+        _ = task.ContinueWith(
+            completed =>
+            {
+                lock (_progressTasksLock)
+                {
+                    _ = _progressTasks.Remove(completed);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void DisposeSynchronization()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _rendering.Dispose();
     }
 
     private void ObserveQueueHierarchy(QueueState queue)
@@ -726,6 +956,15 @@ internal sealed class RawActivityView(
     private async Task FinishTool(Event published, CancellationToken cancellationToken)
     {
         var state = GetNamedAgentSession(published.AgentSessionId);
+        var toolCallId = GetTerminalToolCallId(published);
+        var key = (published.AgentSessionId, toolCallId);
+        if (_pendingProgress.TryGetValue(key, out var pending))
+        {
+            pending.Cancel();
+            await FlushProgress(key, pending, cancellationToken).ConfigureAwait(false);
+            _ = _pendingProgress.Remove(key);
+        }
+
         var (activityId, scrollback, call, terminal) = state.FinishTool(
             published,
             presenters,
@@ -734,12 +973,6 @@ internal sealed class RawActivityView(
         var deferred = terminal.YieldedProcess;
         if (deferred is null && string.Equals(call.ToolName, "exec_command", StringComparison.Ordinal))
         {
-            var toolCallId = published.PayloadCase switch
-            {
-                Event.PayloadOneofCase.ToolFinished => published.ToolFinished.ToolCallId,
-                Event.PayloadOneofCase.ToolCancelled => published.ToolCancelled.ToolCallId,
-                _ => published.ToolError.ToolCallId,
-            };
             var origin = (published.AgentSessionId, toolCallId);
             if (!_omittedProcessTools.Remove(origin)
                 && _processes.Values.Any(process => OriginTool(process.Process) == origin))
@@ -992,6 +1225,30 @@ internal sealed class RawActivityView(
                 IsDeferred = true,
                 Command = originalCommand,
             };
+        }
+    }
+
+    private sealed class PendingProgress(
+        AgentTaskProgressSnapshot snapshot,
+        ulong flushedRevision)
+    {
+        public AgentTaskProgressSnapshot Snapshot { get; } = snapshot;
+
+        public CancellationTokenSource Cancellation { get; } = new();
+
+        public ulong FlushedRevision { get; set; } = flushedRevision;
+
+        public Task DelayTask { get; set; } = Task.CompletedTask;
+
+        public void Cancel()
+        {
+            try
+            {
+                Cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
     }
 }

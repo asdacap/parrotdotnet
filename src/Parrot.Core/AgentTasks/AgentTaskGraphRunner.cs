@@ -506,13 +506,11 @@ internal sealed class AgentTaskGraphRunner(
                 }
 
                 effective = patched;
-                if (preparation.TaskPatch.Payload is not null)
-                {
-                    childHandles = progress.ReplaceChildren(
-                        handle,
-                        effective.Payload,
-                        cancellationToken);
-                }
+                childHandles = progress.UpdatePreparedTask(
+                    handle,
+                    effective.Description,
+                    preparation.TaskPatch.Payload,
+                    cancellationToken);
             }
         }
         catch (Exception failure) when (failure is ArgumentException or LLMProviderException)
@@ -739,13 +737,11 @@ internal sealed class AgentTaskGraphRunner(
                     }
 
                     effective = patched;
-                    if (preparation.TaskPatch.Payload is not null)
-                    {
-                        childHandles = progress.ReplaceChildren(
-                            handle,
-                            effective.Payload,
-                            cancellationToken);
-                    }
+                    childHandles = progress.UpdatePreparedTask(
+                        handle,
+                        effective.Description,
+                        preparation.TaskPatch.Payload,
+                        cancellationToken);
                 }
             }
             catch (Exception failure) when (failure is ArgumentException or LLMProviderException)
