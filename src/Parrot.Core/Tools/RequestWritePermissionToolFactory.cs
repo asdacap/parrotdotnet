@@ -8,7 +8,7 @@ internal sealed class RequestWritePermissionToolFactory(
     AgentSessionSecurity security,
     PermissionBroker broker) : IToolFactory
 {
-    public bool Supports(AgentSession session) => identity.Depth == 0;
+    public bool Supports(IAgentSession session) => identity.Depth == 0;
 
-    public ITool Create(AgentSession session) => new RequestWritePermissionTool(identity, security, broker);
+    public ITool Create(IAgentSession session) => new RequestWritePermissionTool(identity, security, broker);
 }

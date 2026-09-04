@@ -363,7 +363,7 @@ internal sealed class StatusDrainTests : IDisposable
     }
 
     private static async Task WaitForRecentActivity(
-        AgentSession session,
+        IAgentSession session,
         int count,
         CancellationToken cancellationToken)
     {

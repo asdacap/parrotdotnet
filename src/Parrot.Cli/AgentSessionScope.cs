@@ -5,7 +5,7 @@ using Parrot.Queues;
 namespace Parrot.Cli;
 
 internal sealed class AgentSessionScope(
-    AgentSession session,
+    IAgentSession session,
     ChildRegistry children,
     ChildQuestionCoordinator childQuestions,
     AgentQueues queues) : IAgentSessionScope
@@ -13,7 +13,7 @@ internal sealed class AgentSessionScope(
     private readonly Lock _gate = new();
     private Task? _shutdown;
 
-    public AgentSession Session { get; } = session;
+    public IAgentSession Session { get; } = session;
 
     public ChildRegistry ChildRegistry { get; } = children;
 

@@ -7,7 +7,7 @@ internal sealed class QuestionToolFactory(
     QuestionBroker userQuestions,
     AgentSessionParentScope parentScope) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new QuestionTool(session.Depth == 0
+    public ITool Create(IAgentSession session) => new QuestionTool(session.Depth == 0
         ? new UserQuestionRequester(userQuestions)
         : new ChildQuestionRequester(parentScope.ChildQuestions, session));
 }

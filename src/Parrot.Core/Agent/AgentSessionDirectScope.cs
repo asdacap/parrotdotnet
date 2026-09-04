@@ -13,7 +13,7 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
         AgentSessionParentScope parentScope,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
-        Func<AgentSessionParentScope, ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession)
+        Func<AgentSessionParentScope, ChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession)
     {
         ChildRegistry = new ChildRegistry(owner, registry);
         ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
@@ -33,7 +33,7 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
         }
     }
 
-    public AgentSession Session { get; }
+    public IAgentSession Session { get; }
 
     public ChildRegistry ChildRegistry { get; }
 
@@ -44,7 +44,7 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
         AgentSessionParentScope parentScope,
         AgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
-        Func<AgentSessionParentScope, ChildRegistry, ChildQuestionCoordinator, AgentSession> buildSession) =>
+        Func<AgentSessionParentScope, ChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession) =>
         new(owner, parentScope, registry, promptTemplates, buildSession);
 
     public ValueTask DisposeAsync()

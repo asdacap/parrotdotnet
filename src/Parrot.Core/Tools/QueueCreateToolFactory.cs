@@ -5,5 +5,5 @@ namespace Parrot.Tools;
 
 internal sealed class QueueCreateToolFactory(AgentQueues queues) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new QueueCreateTool(queues);
+    public ITool Create(IAgentSession session) => new QueueCreateTool(queues);
 }

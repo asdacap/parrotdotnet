@@ -542,7 +542,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
     private static LLMEvent Answer(string text) => LLMEvent.Completed("stop", 1, 0, 1, text, []);
 
     private static AgentLaunchRequest QuestionChildRequest(
-        AgentSession parent,
+        IAgentSession parent,
         ModelRouter router,
         string name) => new(
             parent,
@@ -568,7 +568,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
 
     private static async Task<IReadOnlyList<PendingChildQuestionRequest>> WaitForPendingQuestions(
         ChildQuestionCoordinator coordinator,
-        AgentSession parent,
+        IAgentSession parent,
         int count,
         CancellationToken cancellationToken)
     {
@@ -584,7 +584,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
         }
     }
 
-    private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
+    private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)
     {
         var selection = session.Selection();
         return new AgentTurnSelection(
@@ -629,7 +629,7 @@ internal sealed class ActiveWorkCompletionTests : IDisposable
             $"{providers[0].Id}/model");
     }
 
-    private AgentSession Session(
+    private IAgentSession Session(
         string sessionId,
         HeldProvider provider,
         ModelRouter router,

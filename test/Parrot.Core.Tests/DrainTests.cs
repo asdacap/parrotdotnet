@@ -1381,7 +1381,7 @@ internal sealed class DrainTests : IDisposable
 
         public ITool Tool => _tool;
 
-        public ITool Create(AgentSession session)
+        public ITool Create(IAgentSession session)
         {
             CreateCount++;
             return _tool;
@@ -1431,7 +1431,7 @@ internal sealed class DrainTests : IDisposable
 
         public int CreateCount { get; private set; }
 
-        public ITool Create(AgentSession session)
+        public ITool Create(IAgentSession session)
         {
             CreateCount++;
             return Tool;

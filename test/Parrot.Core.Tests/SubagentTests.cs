@@ -617,7 +617,7 @@ internal sealed partial class SubagentTests : IDisposable
             cancellationToken);
         var root = Session(provider, 0, "root-id", registry, cancellationToken);
 
-        AgentSession Spawn(AgentSession parent, string profile, string name) => parent.ChildRegistry.Spawn(new AgentLaunchRequest(
+        IAgentSession Spawn(IAgentSession parent, string profile, string name) => parent.ChildRegistry.Spawn(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             profile,
@@ -1385,7 +1385,7 @@ internal sealed partial class SubagentTests : IDisposable
 
         _ = await Assert.That(rejected?.Message).IsEqualTo("subagent retention limit reached");
 
-        AgentLaunchRequest Request(AgentSession parent, string name) => new(
+        AgentLaunchRequest Request(IAgentSession parent, string name) => new(
             parent,
             Turn(parent, Router(provider)),
             "worker",
@@ -1771,7 +1771,7 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await Assert.That(child.ParentSessionId).IsEqualTo(firstParent.SessionId);
         _ = await Assert.That(ReferenceEquals(firstScope.ChildRegistry, sessions.Scopes.Single().ChildRegistry)).IsFalse();
 
-        AgentLaunchRequest Request(AgentSession parent) => new(
+        AgentLaunchRequest Request(IAgentSession parent) => new(
             parent,
             Turn(parent, Router(provider)),
             "worker",
@@ -1833,7 +1833,7 @@ internal sealed partial class SubagentTests : IDisposable
         _ = await Assert.That(sessions.ParentScopes.Single().Parent).IsSameReferenceAs(registeredParentScope);
         _ = await Assert.That(child.Name).IsEqualTo("captured");
 
-        AgentLaunchRequest Request(AgentSession parent, string name) => new(
+        AgentLaunchRequest Request(IAgentSession parent, string name) => new(
             parent,
             Turn(parent, Router(provider)),
             "worker",
@@ -1860,10 +1860,10 @@ internal sealed partial class SubagentTests : IDisposable
         return new NoopMode(profile, SecurityProfile.Compose(readOnly, [], [], runtimeCapabilities));
     }
 
-    private static AgentResolver Resolver(AgentSession session, AgentRegistry registry) =>
+    private static AgentResolver Resolver(IAgentSession session, AgentRegistry registry) =>
         new(session.Identity, ParentScope(session, registry), session.ChildRegistry, registry);
 
-    private static AgentSessionParentScope ParentScope(AgentSession session, AgentRegistry registry)
+    private static AgentSessionParentScope ParentScope(IAgentSession session, AgentRegistry registry)
     {
         if (session.ParentSessionId.Length == 0)
         {
@@ -1875,7 +1875,7 @@ internal sealed partial class SubagentTests : IDisposable
         return AgentSessionParentScope.Child(parent);
     }
 
-    private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
+    private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)
     {
         var selection = session.Selection();
         return new AgentTurnSelection(
@@ -1899,7 +1899,7 @@ internal sealed partial class SubagentTests : IDisposable
         return new ModelRouter(registry, new ModelAliasCatalog(registry, aliases), "stepped/model");
     }
 
-    private AgentSession Session(
+    private IAgentSession Session(
         SteppedProvider provider,
         int depth,
         string sessionId,
@@ -1907,7 +1907,7 @@ internal sealed partial class SubagentTests : IDisposable
         CancellationToken cancellationToken) =>
         Session(provider, depth, sessionId, depth == 0 ? string.Empty : "parent", registry, cancellationToken);
 
-    private AgentSession Session(
+    private IAgentSession Session(
         SteppedProvider provider,
         int depth,
         string sessionId,
@@ -1933,7 +1933,7 @@ internal sealed partial class SubagentTests : IDisposable
 
     private sealed class TrackingAgentSessionScope(IAgentSessionScope scope) : IAgentSessionScope
     {
-        public AgentSession Session => scope.Session;
+        public IAgentSession Session => scope.Session;
 
         public ChildRegistry ChildRegistry => scope.ChildRegistry;
 

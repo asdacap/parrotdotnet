@@ -13,6 +13,6 @@ internal sealed class RunAgentTasksToolFactory(
     EventRepository eventRepository,
     AgentTaskConfig agentTasks) : IToolFactory
 {
-    public ITool Create(AgentSession session) =>
+    public ITool Create(IAgentSession session) =>
         new RunAgentTasksTool(workspace, router, session, eventBroker, eventRepository, agentTasks);
 }

@@ -4,7 +4,7 @@ using Parrot.Agent;
 
 namespace Parrot.Tools;
 
-internal sealed class SetCheckpointTool(AgentSession session) : ITool
+internal sealed class SetCheckpointTool(IAgentSession session) : ITool
 {
     public string Name => "set_checkpoint";
 

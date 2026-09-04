@@ -7,6 +7,6 @@ internal sealed class AgentSpawnToolFactory(
     ChildRegistry children,
     ModelRouter router) : IToolFactory
 {
-    public ITool Create(AgentSession session) =>
+    public ITool Create(IAgentSession session) =>
         new AgentSpawnTool(children, router, session);
 }

@@ -14,6 +14,6 @@ internal sealed class ExecCommandToolFactory(
     {
     }
 
-    public ITool Create(AgentSession session) =>
+    public ITool Create(IAgentSession session) =>
         new ExecCommandTool(processes, session, _readOnlyCommandClassifier);
 }

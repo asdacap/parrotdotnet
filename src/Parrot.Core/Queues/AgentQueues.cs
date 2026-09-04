@@ -10,7 +10,7 @@ internal sealed class AgentQueues(
     bool deleteDirectory) : IDisposable
 {
     private readonly SemaphoreSlim _delivery = new(1, 1);
-    private AgentSession? _session;
+    private IAgentSession? _session;
     private int _disposed;
 
     public string SessionId => Identity.SessionId;
@@ -21,7 +21,7 @@ internal sealed class AgentQueues(
 
     internal QueueStore Local { get; } = new(directory);
 
-    public void Attach(AgentSession session)
+    public void Attach(IAgentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);

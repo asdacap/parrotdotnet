@@ -6,7 +6,7 @@ namespace Parrot.Tools;
 
 internal sealed class WaitTool(
     RuntimeStatus status,
-    AgentSession session,
+    IAgentSession session,
     TimeProvider timeProvider) : ITool
 {
     internal const long DefaultDurationMilliseconds = 10_000;

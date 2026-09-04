@@ -4,7 +4,7 @@ using Parrot.Store;
 namespace Parrot.Agent;
 
 internal sealed record AgentLaunchRequest(
-    AgentSession Parent,
+    IAgentSession Parent,
     AgentTurnSelection Selection,
     string RequestedProfile,
     ModelSelector Model,

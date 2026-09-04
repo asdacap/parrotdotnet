@@ -4,7 +4,7 @@ namespace Parrot.Agent;
 
 internal interface IAgentSessionScope : IAsyncDisposable
 {
-    AgentSession Session { get; }
+    IAgentSession Session { get; }
 
     ChildRegistry ChildRegistry { get; }
 

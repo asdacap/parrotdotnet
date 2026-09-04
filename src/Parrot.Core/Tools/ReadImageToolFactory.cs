@@ -5,6 +5,6 @@ namespace Parrot.Tools;
 
 internal sealed class ReadImageToolFactory(ToolWorkspace workspace, ImageArtifactRepository artifacts) : IToolFactory
 {
-    public ITool Create(AgentSession session) =>
+    public ITool Create(IAgentSession session) =>
         new ReadImageTool(workspace, artifacts);
 }

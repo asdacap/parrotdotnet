@@ -8,7 +8,7 @@ internal sealed class AgentResolver(
 {
     private const string ParentRecipient = "parent";
 
-    public AgentSession ResolveStatusTarget(string sessionIdOrName)
+    public IAgentSession ResolveStatusTarget(string sessionIdOrName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
         _ = children.RequireOwnerScope();
@@ -18,7 +18,7 @@ internal sealed class AgentResolver(
             : children.ResolveDirectChild(sessionIdOrName);
     }
 
-    public AgentSession ResolveRecipient(string sessionIdOrName)
+    public IAgentSession ResolveRecipient(string sessionIdOrName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
         _ = children.RequireOwnerScope();
@@ -51,10 +51,10 @@ internal sealed class AgentResolver(
         return children.ResolveDirectChild(sessionIdOrName);
     }
 
-    private AgentSession ResolveDescendantPath(string path)
+    private IAgentSession ResolveDescendantPath(string path)
     {
         var registry = children;
-        AgentSession? descendant = null;
+        IAgentSession? descendant = null;
 
         foreach (var segment in path.Split('/', StringSplitOptions.None))
         {

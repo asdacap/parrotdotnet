@@ -156,7 +156,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         processes.Dispose();
     }
 
-    private static AgentLaunchRequest Request(AgentSession parent, ModelRouter router, string name) =>
+    private static AgentLaunchRequest Request(IAgentSession parent, ModelRouter router, string name) =>
         new(
             parent,
             Turn(parent, router),
@@ -169,7 +169,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             string.Empty,
             AgentCompletionDeliveryPolicy.RetainedOnly);
 
-    private static AgentTurnSelection Turn(AgentSession session, ModelRouter router)
+    private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)
     {
         var selection = session.Selection();
         return new AgentTurnSelection(

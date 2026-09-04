@@ -7,5 +7,5 @@ internal sealed class QueuePushToolFactory(
     AgentQueues queues,
     ToolWorkspace workspace) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new QueuePushTool(queues, workspace);
+    public ITool Create(IAgentSession session) => new QueuePushTool(queues, workspace);
 }

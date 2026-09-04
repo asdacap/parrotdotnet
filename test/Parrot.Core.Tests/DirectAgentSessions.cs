@@ -20,7 +20,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
     private readonly List<AgentIdentity> _identities = [];
     private readonly List<AgentSessionSecurity> _securities = [];
     private readonly List<AgentQueues> _queues = [];
-    private readonly List<AgentSession> _sessions = [];
+    private readonly List<IAgentSession> _sessions = [];
     private readonly List<UserSession> _owners = [];
     private ModelRouter? _router;
     private TimeProvider _timeProvider = TimeProvider.System;
@@ -32,7 +32,7 @@ internal sealed class DirectAgentSessions : IAgentSessionFactorySource
 
     public IReadOnlyList<AgentQueues> Queues => _queues;
 
-    public IReadOnlyList<AgentSession> Sessions => _sessions;
+    public IReadOnlyList<IAgentSession> Sessions => _sessions;
 
     public IReadOnlyList<UserSession> Owners => _owners;
 

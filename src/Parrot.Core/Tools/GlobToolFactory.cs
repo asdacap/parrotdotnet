@@ -4,6 +4,6 @@ namespace Parrot.Tools;
 
 internal sealed class GlobToolFactory(ToolWorkspace workspace) : IToolFactory
 {
-    public ITool Create(AgentSession session) =>
+    public ITool Create(IAgentSession session) =>
         new GlobTool(workspace);
 }

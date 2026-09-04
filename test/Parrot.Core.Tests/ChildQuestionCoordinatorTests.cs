@@ -412,7 +412,7 @@ internal sealed partial class SubagentTests
     }
 
     private static AgentLaunchRequest QuestionChildRequest(
-        AgentSession parent,
+        IAgentSession parent,
         ModelRouter router,
         string name) => new(
             parent,
@@ -438,7 +438,7 @@ internal sealed partial class SubagentTests
 
     private static async Task<PendingChildQuestionRequest> WaitForChildQuestion(
         ChildQuestionCoordinator coordinator,
-        AgentSession parent,
+        IAgentSession parent,
         CancellationToken cancellationToken)
     {
         while (true)

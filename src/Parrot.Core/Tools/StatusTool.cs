@@ -6,7 +6,7 @@ namespace Parrot.Tools;
 
 internal sealed class StatusTool(
     RuntimeStatus status,
-    AgentSession session) : ITool
+    IAgentSession session) : ITool
 {
     public string Name => "status";
 

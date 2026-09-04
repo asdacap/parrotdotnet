@@ -135,7 +135,7 @@ internal static class TestModels
     public static ProfileRegistry ProfileRegistry() =>
         new(Profiles, [], [], new HashSet<string>(StringComparer.Ordinal));
 
-    public static ChildQuestionCoordinator CreateChildQuestions(AgentSession owner) =>
+    public static ChildQuestionCoordinator CreateChildQuestions(IAgentSession owner) =>
         new(owner.ChildRegistry, PromptTemplates);
 
     public static IMode Profile()

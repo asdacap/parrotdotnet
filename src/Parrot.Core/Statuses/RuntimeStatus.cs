@@ -24,7 +24,7 @@ internal sealed class RuntimeStatus
     }
 
     public Task<string> Observe(
-        AgentSession session,
+        IAgentSession session,
         AgentTurnSelection selection,
         IAgentProfile profile,
         CancellationToken cancellationToken) =>
@@ -34,13 +34,13 @@ internal sealed class RuntimeStatus
             cancellationToken);
 
     public Task<string> ObserveRuntime(
-        AgentSession session,
+        IAgentSession session,
         AgentTurnSelection selection,
         CancellationToken cancellationToken) =>
         _activity.Observe(Query(session, selection, selection.Profile.Id), null, cancellationToken);
 
     private static StatusQuery Query(
-        AgentSession session,
+        IAgentSession session,
         AgentTurnSelection selection,
         string profile) =>
         new(

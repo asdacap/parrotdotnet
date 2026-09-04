@@ -47,7 +47,7 @@ internal sealed class AgentSession(
     ChildRegistry childRegistry,
     AgentQueues queues,
     AgentSessionActivity activity,
-    CancellationToken lifetime)
+    CancellationToken lifetime) : IAgentSession
 {
     private const string InterruptedFinish = "interrupted";
     private const int MaxAgentMessageBytes = 1024 * 1024;
@@ -67,6 +67,9 @@ internal sealed class AgentSession(
     // The conversation, carried across turns so the agent remembers. The system
     // context is sampled once per epoch and prefixed at each turn.
     private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
+
+    // Compaction runs inside the drain so it cannot mutate history concurrently
+    // with a turn. Callers enqueue requests under _drainGate and wake that drain.
     private readonly Queue<ForcedCompactionRequest> _forcedCompactions = [];
     private readonly IReadOnlyList<IAgentTurnCompletionCallback> _turnCompletionCallbacks =
         turnCompletionCallbacks ?? throw new ArgumentNullException(nameof(turnCompletionCallbacks));
@@ -151,26 +154,29 @@ internal sealed class AgentSession(
     {
     }
 
-    internal string SessionId => identity.SessionId;
+    public string SessionId => identity.SessionId;
 
-    internal string Name => identity.Name;
+    public string Name => identity.Name;
 
-    internal string ParentSessionId => identity.ParentSessionId;
+    public string ParentSessionId => identity.ParentSessionId;
 
-    internal string ParentSessionName => identity.ParentSessionName;
+    public string ParentSessionName => identity.ParentSessionName;
 
     // How deep this session sits below the root. The registry refuses a child
     // beyond its recursion limit.
-    internal int Depth => identity.Depth;
+    public int Depth => identity.Depth;
 
-    internal AgentIdentity Identity => identity;
+    public AgentIdentity Identity => identity;
 
-    internal ChildRegistry ChildRegistry { get; } = childRegistry;
+    // The session is the root of its descendant tree; exposing its scoped
+    // registry lets routing and lifecycle owners traverse that same tree.
+    public ChildRegistry ChildRegistry { get; } = childRegistry;
 
-    internal AgentSessionActivity Activity { get; } = activity
+    // Status reporting observes this session-scoped, synchronized activity log.
+    public AgentSessionActivity Activity { get; } = activity
         ?? throw new ArgumentNullException(nameof(activity));
 
-    internal AgentSelection Selection()
+    public AgentSelection Selection()
     {
         lock (_selectionGate)
         {
@@ -178,7 +184,7 @@ internal sealed class AgentSession(
         }
     }
 
-    internal void UpdateSelection(ModelSelector selectedModel, IMode mode)
+    public void UpdateSelection(ModelSelector selectedModel, IMode mode)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
         ArgumentNullException.ThrowIfNull(mode);
@@ -192,18 +198,17 @@ internal sealed class AgentSession(
         }
     }
 
-    // Accepts a prompt. It does not run it: the prompt becomes durable here
-    // (principle 1) and joins the conversation when the drain reaches the
-    // boundary its delivery asks for. Waking is not waiting -- the caller is
-    // told the prompt was taken, not what the model said about it.
-    internal void Recover() => _ = Wake(null);
+    // Starts a drain, or tells the one already running that there is more to
+    // take. Coalescing rather than starting a second drain keeps one owner,
+    // however many prompts arrive.
+    public bool Wake(IncomingActivity? activity) => WakeSelected(activity).FollowUp;
 
     // Stops the turn in flight and returns once the drain has unwound, so a
     // caller that sends again cannot race the turn it just stopped.
     //
     // Input admitted and not yet promoted outlives the interrupt: the drain
     // resumes for it rather than making the user ask a second time.
-    internal async Task Interrupt(CancellationToken cancellationToken)
+    public async Task Interrupt(CancellationToken cancellationToken)
     {
         Task draining;
         CancellationTokenSource? stopping = null;
@@ -263,10 +268,10 @@ internal sealed class AgentSession(
     // Run to bound the drain by, so this is how an owner keeps its own Run from
     // returning while a turn is still writing to a database it is about to
     // close.
-    internal async Task Settled() =>
+    public async Task Settled() =>
         _ = await WaitForDrainResult().ConfigureAwait(false);
 
-    internal Task Compact(CancellationToken cancellationToken)
+    public Task Compact(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var request = new ForcedCompactionRequest(cancellationToken);
@@ -295,7 +300,7 @@ internal sealed class AgentSession(
         return AwaitForcedCompaction(request);
     }
 
-    internal async Task Abort(CancellationToken cancellationToken)
+    public async Task Abort(CancellationToken cancellationToken)
     {
         lock (_drainGate)
         {
@@ -306,7 +311,7 @@ internal sealed class AgentSession(
         await Interrupt(cancellationToken).ConfigureAwait(false);
     }
 
-    internal void SetCheckpoint(string title, long assistantSequence, string toolCallId)
+    public void SetCheckpoint(string title, long assistantSequence, string toolCallId)
     {
         if (string.IsNullOrWhiteSpace(title))
         {
@@ -321,7 +326,7 @@ internal sealed class AgentSession(
         _ = eventRepository.RecordCheckpoint(SessionId, title, assistantSequence, toolCallId);
     }
 
-    internal AgentSelection ResolvePolicySelection()
+    public AgentSelection ResolvePolicySelection()
     {
         var selected = Selection();
         return selected with
@@ -330,11 +335,11 @@ internal sealed class AgentSession(
         };
     }
 
-    internal AgentPolicyLineage ResolvePolicyLineage() => identity.PolicyLineage;
+    public AgentPolicyLineage ResolvePolicyLineage() => identity.PolicyLineage;
 
-    internal bool IsIdle() => _state == DrainState.Idle;
+    public bool IsIdle() => _state == DrainState.Idle;
 
-    internal bool IsActive()
+    public bool IsActive()
     {
         lock (_executionGate)
         {
@@ -342,7 +347,7 @@ internal sealed class AgentSession(
         }
     }
 
-    internal bool IsWaitingForIncomingInput()
+    public bool IsWaitingForIncomingInput()
     {
         lock (_drainGate)
         {
@@ -350,7 +355,7 @@ internal sealed class AgentSession(
         }
     }
 
-    internal async Task<IncomingActivity?> WaitForIncomingInput(
+    public async Task<IncomingActivity?> WaitForIncomingInput(
         TimeSpan duration,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -427,7 +432,7 @@ internal sealed class AgentSession(
         }
     }
 
-    internal async Task<(Admission Admission, bool FollowUp)> Send(
+    public async Task<(Admission Admission, bool FollowUp)> Send(
         IReadOnlyList<ConversationPart> parts,
         string messageId,
         Delivery delivery,
@@ -442,7 +447,7 @@ internal sealed class AgentSession(
         return (admitted.Admission, admitted.FollowUp);
     }
 
-    internal async Task SetGoal(string goal, CancellationToken cancellationToken)
+    public async Task SetGoal(string goal, CancellationToken cancellationToken)
     {
         var reminder = promptTemplates.Render(
             "goal.root-reminder",
@@ -458,9 +463,9 @@ internal sealed class AgentSession(
             cancellationToken).ConfigureAwait(false);
     }
 
-    internal void ClearGoal() => exitReminder.Set(null);
+    public void ClearGoal() => exitReminder.Set(null);
 
-    internal async Task<bool> ReceiveQueueNotification(
+    public async Task<bool> ReceiveQueueNotification(
         QueueNotification notification,
         CancellationToken cancellationToken)
     {
@@ -500,7 +505,7 @@ internal sealed class AgentSession(
         return true;
     }
 
-    internal async Task<AgentSendResult> Send(string message, CancellationToken cancellationToken)
+    public async Task<AgentSendResult> Send(string message, CancellationToken cancellationToken)
     {
         if (lifetime.IsCancellationRequested)
         {
@@ -545,7 +550,7 @@ internal sealed class AgentSession(
         return new AgentSendResult(SessionId, Name, messageId, followUp);
     }
 
-    internal async Task ReceiveChildQuestion(
+    public async Task ReceiveChildQuestion(
         string message,
         string messageId,
         CancellationToken cancellationToken)
@@ -572,7 +577,7 @@ internal sealed class AgentSession(
         }
     }
 
-    internal async Task ReceiveAgentCompletion(
+    public async Task ReceiveAgentCompletion(
         string name,
         string message,
         CancellationToken cancellationToken)
@@ -600,7 +605,7 @@ internal sealed class AgentSession(
         }
     }
 
-    internal async Task ReceiveProcessCompletion(
+    public async Task ReceiveProcessCompletion(
         string name,
         string message,
         string messageId,
@@ -617,7 +622,7 @@ internal sealed class AgentSession(
             cancellationToken).ConfigureAwait(false);
     }
 
-    internal async Task<WaitAgentResult> Wait(
+    public async Task<WaitAgentResult> Wait(
         int yieldAfterMilliseconds,
         CancellationToken cancellationToken)
     {
@@ -965,11 +970,6 @@ internal sealed class AgentSession(
         var (followUp, selectedDrain) = WakeSelected(incoming);
         return (admission, followUp, selectedDrain);
     }
-
-    // Starts a drain, or tells the one already running that there is more to
-    // take. Coalescing rather than starting a second drain is what keeps
-    // principle 2: one owner, however many prompts arrive.
-    private bool Wake(IncomingActivity? activity) => WakeSelected(activity).FollowUp;
 
     private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected(IncomingActivity? activity)
     {

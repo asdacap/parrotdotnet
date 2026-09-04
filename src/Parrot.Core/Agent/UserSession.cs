@@ -12,8 +12,8 @@ using Parrot.Store;
 namespace Parrot.Agent;
 
 // One working directory's session. It owns the event stream and every
-// AgentSession inside it, which is why the stream is here and not on an
-// AgentSession: a subagent runs in a background child session, and its events
+// agent session inside it, which is why the stream is here and not on an
+// agent session: a subagent runs in a background child session, and its events
 // are republished on this one stream so a client needs a single subscription
 // however deep the recursion goes.
 internal sealed class UserSession : IAsyncDisposable
@@ -38,7 +38,7 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly string _mainSessionId;
     private readonly string _rootAgentName;
     private ModelSelector _model;
-    private AgentSession? _main;
+    private IAgentSession? _main;
 
     public UserSession(
         string id,
@@ -90,7 +90,7 @@ internal sealed class UserSession : IAsyncDisposable
             _ = _eventRepository.PrepareAgentHistory(agentSessionId);
         }
 
-        InitializeMain().Recover();
+        _ = InitializeMain().Wake(null);
     }
 
     public string Id { get; }
@@ -339,7 +339,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     // Built once after owner initialization. The lock also protects concurrent
     // access from RPC handlers throughout the session lifetime.
-    private AgentSession Main()
+    private IAgentSession Main()
     {
         lock (_mainGate)
         {
@@ -347,7 +347,7 @@ internal sealed class UserSession : IAsyncDisposable
         }
     }
 
-    private AgentSession InitializeMain()
+    private IAgentSession InitializeMain()
     {
         var scope = _agentSessions.Create(
             AgentIdentity.Main(_mainSessionId, _rootAgentName, _promptTemplates),

@@ -6,6 +6,6 @@ internal sealed class AgentSendToolFactory(
     AgentIdentity identity,
     AgentResolver resolver) : IToolFactory
 {
-    public ITool Create(AgentSession session) =>
+    public ITool Create(IAgentSession session) =>
         new AgentSendTool(identity, resolver, session);
 }

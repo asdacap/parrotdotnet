@@ -2,11 +2,11 @@ using Parrot.Security;
 
 namespace Parrot.Agent;
 
-internal sealed class AgentPolicyLineage(AgentSession? parent, AgentPolicyLineage? ancestors)
+internal sealed class AgentPolicyLineage(IAgentSession? parent, AgentPolicyLineage? ancestors)
 {
     public static AgentPolicyLineage Root() => new(null, null);
 
-    public AgentPolicyLineage Link(AgentSession linkedParent)
+    public AgentPolicyLineage Link(IAgentSession linkedParent)
     {
         ArgumentNullException.ThrowIfNull(linkedParent);
         return new AgentPolicyLineage(linkedParent, this);

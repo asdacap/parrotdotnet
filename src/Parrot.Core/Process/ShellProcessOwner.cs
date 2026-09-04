@@ -26,7 +26,7 @@ internal sealed class ShellProcessOwner(
         string? requestedName,
         string command,
         ProcessEnvironmentOverrides environment,
-        AgentSession agent,
+        IAgentSession agent,
         SecurityProfile securityProfile,
         ShellProcessTerminalMode terminalMode) =>
         Start(
@@ -43,7 +43,7 @@ internal sealed class ShellProcessOwner(
         string command,
         string originToolCallId,
         ProcessEnvironmentOverrides environment,
-        AgentSession agent,
+        IAgentSession agent,
         SecurityProfile securityProfile) =>
         Start(
             requestedName,
@@ -59,7 +59,7 @@ internal sealed class ShellProcessOwner(
         string command,
         string originToolCallId,
         ProcessEnvironmentOverrides environment,
-        AgentSession agent,
+        IAgentSession agent,
         SecurityProfile securityProfile,
         ShellProcessTerminalMode terminalMode)
     {

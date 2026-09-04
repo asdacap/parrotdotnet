@@ -8,7 +8,7 @@ namespace Parrot.Tools;
 internal sealed class AgentSendTool(
     AgentIdentity identity,
     AgentResolver resolver,
-    AgentSession session) : ITool
+    IAgentSession session) : ITool
 {
     private const int MaximumMessageBytes = 32 * 1024;
 

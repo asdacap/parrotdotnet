@@ -126,7 +126,7 @@ internal sealed class AgentStatusTool(
         return string.Create(CultureInfo.InvariantCulture, $"{duration.TotalMilliseconds:F0}ms");
     }
 
-    private string Format(AgentSession child, AgentSessionActivitySnapshot activity)
+    private string Format(IAgentSession child, AgentSessionActivitySnapshot activity)
     {
         var report = new StringBuilder("Agent status");
         _ = report.Append("\nSession: ").Append(child.SessionId);

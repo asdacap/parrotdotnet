@@ -796,6 +796,6 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         ModelRouter Router,
         AgentTaskTestSessionFactory Sessions,
         AgentRegistry Registry,
-        AgentSession Parent,
+        IAgentSession Parent,
         AgentTurnSelection Selection);
 }

@@ -5,7 +5,7 @@ namespace Parrot.Tools;
 
 internal sealed class ChildQuestionRequester(
     ChildQuestionCoordinator parentQuestions,
-    AgentSession session) : IQuestionRequester
+    IAgentSession session) : IQuestionRequester
 {
     public Task<QuestionReply> Ask(IReadOnlyList<QuestionDefinition> questions, CancellationToken cancellationToken) =>
         parentQuestions.Ask(session, questions, cancellationToken);

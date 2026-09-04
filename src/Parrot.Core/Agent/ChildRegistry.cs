@@ -26,7 +26,7 @@ internal sealed class ChildRegistry(
 
     internal AgentRegistry Authority => authority;
 
-    public AgentSession Spawn(AgentLaunchRequest request)
+    public IAgentSession Spawn(AgentLaunchRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Parent);
@@ -141,7 +141,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    public AgentSession AuthorizeDirectChild(string childSessionId)
+    public IAgentSession AuthorizeDirectChild(string childSessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
         _ = RequireOwnerScope();
@@ -157,7 +157,7 @@ internal sealed class ChildRegistry(
         throw new AgentRegistryException($"child agent not found: {childSessionId}");
     }
 
-    public AgentSession AuthorizeQuestionChild(AgentSession child)
+    public IAgentSession AuthorizeQuestionChild(IAgentSession child)
     {
         ArgumentNullException.ThrowIfNull(child);
         var registeredChild = AuthorizeDirectChild(child.SessionId);
@@ -262,7 +262,7 @@ internal sealed class ChildRegistry(
             : throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
     }
 
-    internal AgentSession ResolveDirectChild(string sessionIdOrName)
+    internal IAgentSession ResolveDirectChild(string sessionIdOrName)
     {
         lock (_gate)
         {
@@ -314,7 +314,7 @@ internal sealed class ChildRegistry(
         return false;
     }
 
-    internal IReadOnlyList<AgentSession> SnapshotDescendants()
+    internal IReadOnlyList<IAgentSession> SnapshotDescendants()
     {
         var children = SnapshotChildScopes();
         return [.. children.SelectMany(static child =>
@@ -326,7 +326,7 @@ internal sealed class ChildRegistry(
         ArgumentNullException.ThrowIfNull(child);
         ArgumentNullException.ThrowIfNull(completed);
 
-        AgentSession? parent;
+        IAgentSession? parent;
         lock (_gate)
         {
             parent = _accepting
@@ -354,7 +354,7 @@ internal sealed class ChildRegistry(
         }
     }
 
-    internal AgentSession ResolveNamedChild(string name)
+    internal IAgentSession ResolveNamedChild(string name)
     {
         lock (_gate)
         {

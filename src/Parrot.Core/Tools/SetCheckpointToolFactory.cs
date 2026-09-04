@@ -4,5 +4,5 @@ namespace Parrot.Tools;
 
 internal sealed class SetCheckpointToolFactory : IToolFactory
 {
-    public ITool Create(AgentSession session) => new SetCheckpointTool(session);
+    public ITool Create(IAgentSession session) => new SetCheckpointTool(session);
 }

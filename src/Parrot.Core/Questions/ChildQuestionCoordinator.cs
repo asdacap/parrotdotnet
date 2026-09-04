@@ -13,7 +13,7 @@ internal sealed class ChildQuestionCoordinator(
     private TaskCompletionSource? _completionReservation;
     private bool _disposed;
 
-    public async Task<QuestionReply> Ask(AgentSession askingChild, IReadOnlyList<QuestionDefinition> questions, CancellationToken cancellationToken)
+    public async Task<QuestionReply> Ask(IAgentSession askingChild, IReadOnlyList<QuestionDefinition> questions, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(askingChild);
         ArgumentNullException.ThrowIfNull(questions);
@@ -92,7 +92,7 @@ internal sealed class ChildQuestionCoordinator(
         }
     }
 
-    public IReadOnlyList<PendingChildQuestionRequest> Pending(AgentSession parent) =>
+    public IReadOnlyList<PendingChildQuestionRequest> Pending(IAgentSession parent) =>
         string.Equals(parent.SessionId, children.OwnerSessionId, StringComparison.Ordinal)
             ? Pending()
             : [];
@@ -124,7 +124,7 @@ internal sealed class ChildQuestionCoordinator(
         }
     }
 
-    public ChildQuestionCompletionAttempt BeginCompletion(AgentSession parent)
+    public ChildQuestionCompletionAttempt BeginCompletion(IAgentSession parent)
     {
         if (!string.Equals(parent.SessionId, children.OwnerSessionId, StringComparison.Ordinal))
         {
@@ -159,7 +159,7 @@ internal sealed class ChildQuestionCoordinator(
         pending.Complete();
     }
 
-    public void Reply(AgentSession parent, string childSessionId, QuestionReply reply)
+    public void Reply(IAgentSession parent, string childSessionId, QuestionReply reply)
     {
         if (!string.Equals(parent.SessionId, children.OwnerSessionId, StringComparison.Ordinal))
         {
@@ -274,7 +274,7 @@ internal sealed class ChildQuestionCoordinator(
 
     private sealed class PendingRequest(
         string id,
-        AgentSession askingAgent,
+        IAgentSession askingAgent,
         string parentAgentSessionId,
         IReadOnlyList<QuestionDefinition> questions)
     {

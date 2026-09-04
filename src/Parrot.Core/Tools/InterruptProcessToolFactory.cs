@@ -5,5 +5,5 @@ namespace Parrot.Tools;
 
 internal sealed class InterruptProcessToolFactory(ShellProcessOwner processes) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new InterruptProcessTool(processes);
+    public ITool Create(IAgentSession session) => new InterruptProcessTool(processes);
 }

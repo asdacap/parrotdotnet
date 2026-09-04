@@ -8,5 +8,5 @@ internal sealed class AgentStatusToolFactory(
     ChildRegistry children,
     ShellProcessOwners processes) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new AgentStatusTool(resolver, children, processes);
+    public ITool Create(IAgentSession session) => new AgentStatusTool(resolver, children, processes);
 }

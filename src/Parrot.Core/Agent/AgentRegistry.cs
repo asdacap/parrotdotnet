@@ -240,7 +240,7 @@ internal sealed class AgentRegistry(
         }
     }
 
-    private AgentSession[] SnapshotDescendants() =>
+    private IAgentSession[] SnapshotDescendants() =>
         [.. SnapshotRoots().SelectMany(static root => root.ChildRegistry.SnapshotDescendants())];
 
     private void EnsureAccepting()

@@ -4,7 +4,7 @@ namespace Parrot.Process;
 
 internal sealed class ManagedShellProcess
 {
-    private readonly AgentSession _agent;
+    private readonly IAgentSession _agent;
     private readonly Task<ProcessResult> _completion;
     private readonly ShellProcessExecution _execution;
     private readonly ShellProcessInventory _inventory;
@@ -20,7 +20,7 @@ internal sealed class ManagedShellProcess
 
     public ManagedShellProcess(
         ActiveShellProcessState state,
-        AgentSession agent,
+        IAgentSession agent,
         ShellProcessExecution execution,
         ShellProcessInventory inventory,
         CancellationToken lifetime)

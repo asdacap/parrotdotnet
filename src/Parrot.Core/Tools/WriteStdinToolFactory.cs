@@ -5,5 +5,5 @@ namespace Parrot.Tools;
 
 internal sealed class WriteStdinToolFactory(ShellProcessOwner processes) : IToolFactory
 {
-    public ITool Create(AgentSession session) => new WriteStdinTool(processes);
+    public ITool Create(IAgentSession session) => new WriteStdinTool(processes);
 }

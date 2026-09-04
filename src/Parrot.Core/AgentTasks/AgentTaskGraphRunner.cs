@@ -8,7 +8,7 @@ namespace Parrot.AgentTasks;
 
 internal sealed class AgentTaskGraphRunner(
     ModelRouter router,
-    AgentSession owner,
+    IAgentSession owner,
     AgentTurnSelection selection,
     AgentTaskProgress progress,
     AgentTaskConfig configuration)
@@ -18,7 +18,7 @@ internal sealed class AgentTaskGraphRunner(
     private const int MaxPromptCharacters = 256 * 1024;
 
     private readonly Lock _gate = new();
-    private readonly HashSet<AgentSession> _activeChildren = [];
+    private readonly HashSet<IAgentSession> _activeChildren = [];
     private bool _stopping;
 
     internal static string ResolveRoleProfile(string role) => role switch
@@ -324,7 +324,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskAncestor> ancestors,
         IReadOnlyList<AgentTaskPrepareContext> contexts,
         string parentPath,
-        AgentSession owningAgent,
+        IAgentSession owningAgent,
         CancellationToken cancellationToken)
     {
         if (tasks.Count != handles.Count)
@@ -458,7 +458,7 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
-        AgentSession owningAgent,
+        IAgentSession owningAgent,
         CancellationToken cancellationToken)
     {
         var effective = EffectiveAgentTask.FromArtifact(approved);
@@ -550,11 +550,11 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskPrepareContext> inheritedContexts,
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
-        AgentSession owningAgent,
+        IAgentSession owningAgent,
         CancellationToken cancellationToken)
     {
         var feedback = new List<string>();
-        AgentSession? payloadAgent = null;
+        IAgentSession? payloadAgent = null;
         string? currentResult = null;
         var maximumAttempts = configuration.MaximumAttempts;
 
@@ -797,13 +797,13 @@ internal sealed class AgentTaskGraphRunner(
         IReadOnlyList<AgentTaskResult> dependencies,
         string path,
         AgentTaskPatch? taskPatch,
-        AgentSession compositeAgent,
+        IAgentSession compositeAgent,
         List<string> feedback,
         int firstAttempt,
         string? carriedResult,
         CancellationToken cancellationToken)
     {
-        AgentSession? executionAgent = null;
+        IAgentSession? executionAgent = null;
         string? execution = null;
         IReadOnlyList<AgentTaskResult>? nested = null;
         AcceptanceVerdict? verdict = null;
@@ -1006,15 +1006,15 @@ internal sealed class AgentTaskGraphRunner(
         string? requestedModel,
         string role,
         string taskName,
-        AgentSession owningAgent,
-        AgentSession? retainedAgent,
+        IAgentSession owningAgent,
+        IAgentSession? retainedAgent,
         string prompt,
         CancellationToken cancellationToken)
     {
         var model = requestedModel is null
             ? selection.RequestedModel
             : router.Resolve(requestedModel).RequestedSelector;
-        AgentSession child;
+        IAgentSession child;
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1072,7 +1072,7 @@ internal sealed class AgentTaskGraphRunner(
 
     private async Task StopChildren()
     {
-        AgentSession[] active;
+        IAgentSession[] active;
         lock (_gate)
         {
             active = [.. _activeChildren];
@@ -1093,7 +1093,7 @@ internal sealed class AgentTaskGraphRunner(
         }
     }
 
-    private void Untrack(AgentSession child)
+    private void Untrack(IAgentSession child)
     {
         lock (_gate)
         {
@@ -1101,5 +1101,5 @@ internal sealed class AgentTaskGraphRunner(
         }
     }
 
-    private sealed record AgentRoleRun(AgentSession Agent, AgentExecution Execution);
+    private sealed record AgentRoleRun(IAgentSession Agent, AgentExecution Execution);
 }

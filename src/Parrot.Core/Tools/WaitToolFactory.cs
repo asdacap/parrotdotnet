@@ -5,6 +5,6 @@ namespace Parrot.Tools;
 
 internal sealed class WaitToolFactory(RuntimeStatus status, TimeProvider timeProvider) : IToolFactory
 {
-    public ITool Create(AgentSession session) =>
+    public ITool Create(IAgentSession session) =>
         new WaitTool(status, session, timeProvider);
 }

@@ -645,7 +645,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
     private sealed class WaitAgentSessions(ModelRouter router, TimeProvider timeProvider, string root) : IAgentSessionFactorySource
     {
-        private readonly TaskCompletionSource<AgentSession> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<IAgentSession> _created = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<AgentQueues> _createdQueues = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public IAgentSessionFactory Create(AgentUserSession owner) => new Factory(this, owner, router, timeProvider, root);
@@ -656,7 +656,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         public Parrot.Queues.AgentQueueCatalog CreateQueueCatalog(AgentUserSession owner) =>
             new(owner.Resources);
 
-        public async Task<AgentSession> WaitForSession(CancellationToken cancellationToken) =>
+        public async Task<IAgentSession> WaitForSession(CancellationToken cancellationToken) =>
             await _created.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         public async Task<AgentQueues> WaitForQueues(CancellationToken cancellationToken) =>
