@@ -418,6 +418,10 @@ prompt_templates:
     template: "Summary of the earlier conversation:\n"
     allowed_arguments: []
     required_arguments: []
+  compaction.oversized-tool-group-notice:
+    template: 'This tool-call group was too large for compaction and was written out in full as JSON at {path}.'
+    allowed_arguments: [path]
+    required_arguments: [path]
   context.agent-scratch:
     template: 'Persistent writable scratch directory for this agent: {path}. Use this directory for temporary files and durable artifacts that should remain available when this user session resumes.'
     allowed_arguments: [path]

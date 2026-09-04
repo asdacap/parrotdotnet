@@ -91,6 +91,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             TestModels.EmptyToolDefinitions,
             TestModels.MaterializePrompt(identity, root, root),
             new ToolOutputBlobStore(root),
+            TestModels.CompactionGroupBlobs(),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
             childQuestions,

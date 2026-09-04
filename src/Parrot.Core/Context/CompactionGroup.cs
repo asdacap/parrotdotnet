@@ -5,4 +5,5 @@ namespace Parrot.Context;
 internal sealed record CompactionGroup(
     IReadOnlyList<LLMMessage> Messages,
     long EndWatermark,
-    bool HasCheckpointBefore);
+    bool HasCheckpointBefore,
+    bool IsComplete);
