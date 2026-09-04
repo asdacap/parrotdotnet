@@ -1154,9 +1154,22 @@ internal sealed class AgentSession(
         }
 
         Activity.FinishExecution(activityExecution, completed);
-        if (parentScope.Parent is { } parent)
+        if (parentScope.DeliveryPolicy == AgentCompletionDeliveryPolicy.Automatic
+            && parentScope.Parent is { } parent)
         {
-            await parent.ChildRegistry.ReceiveCompletion(identity, completed).ConfigureAwait(false);
+            try
+            {
+                if (parent.ChildRegistry.IsAccepting)
+                {
+                    await parent.Session.ReceiveAgentCompletion(
+                        identity.Name,
+                        completed.FormatCompletion(identity, parent.Session.Identity.PromptTemplates),
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            catch (Exception)
+            {
+            }
         }
 
         return completed;

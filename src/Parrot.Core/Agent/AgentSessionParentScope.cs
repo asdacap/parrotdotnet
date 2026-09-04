@@ -4,9 +4,17 @@ namespace Parrot.Agent;
 
 internal sealed class AgentSessionParentScope
 {
-    private AgentSessionParentScope(IAgentSessionScope? parent) => Parent = parent;
+    private AgentSessionParentScope(
+        IAgentSessionScope? parent,
+        AgentCompletionDeliveryPolicy deliveryPolicy)
+    {
+        Parent = parent;
+        DeliveryPolicy = deliveryPolicy;
+    }
 
     public bool HasParent => Parent is not null;
+
+    internal AgentCompletionDeliveryPolicy DeliveryPolicy { get; }
 
     internal ChildQuestionCoordinator ChildQuestions => Parent?.ChildQuestions
         ?? throw new AgentRegistryException("child agent identity requires a parent scope");
@@ -17,12 +25,15 @@ internal sealed class AgentSessionParentScope
 
     internal IAgentSessionScope? Parent { get; }
 
-    public static AgentSessionParentScope Root() => new(null);
+    public static AgentSessionParentScope Root() =>
+        new(null, AgentCompletionDeliveryPolicy.RetainedOnly);
 
-    public static AgentSessionParentScope Child(IAgentSessionScope parent)
+    public static AgentSessionParentScope Child(
+        IAgentSessionScope parent,
+        AgentCompletionDeliveryPolicy deliveryPolicy)
     {
         ArgumentNullException.ThrowIfNull(parent);
-        return new(parent);
+        return new(parent, deliveryPolicy);
     }
 
     public void Validate(AgentIdentity identity)

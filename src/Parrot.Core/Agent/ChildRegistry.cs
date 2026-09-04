@@ -23,6 +23,17 @@ internal sealed class ChildRegistry(
 
     public string OwnerSessionId => owner.SessionId;
 
+    public bool IsAccepting
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _accepting;
+            }
+        }
+    }
+
     public IAgentSessionScope SpawnScope(AgentLaunchRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -59,7 +70,7 @@ internal sealed class ChildRegistry(
                     throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
                 }
 
-                childParentScope = AgentSessionParentScope.Child(registeredOwnerScope);
+                childParentScope = AgentSessionParentScope.Child(registeredOwnerScope, request.DeliveryPolicy);
                 if (childParentScope.PolicyLineage.CountProfile(profile.Id)
                     + _pendingProfiles.GetValueOrDefault(profile.Id)
                     >= profile.RecursionLimit)
@@ -110,7 +121,7 @@ internal sealed class ChildRegistry(
                 securityProfile,
                 status,
                 _lifetime.Token);
-            RegisterConstructedScope(constructedScope, request.DeliveryPolicy, retainedReservation);
+            RegisterConstructedScope(constructedScope, retainedReservation);
             return constructedScope;
         }
         catch
@@ -281,39 +292,6 @@ internal sealed class ChildRegistry(
             child.ChildRegistry.SnapshotDescendants().Prepend(child.Session))];
     }
 
-    public async Task ReceiveCompletion(AgentIdentity child, AgentExecution completed)
-    {
-        ArgumentNullException.ThrowIfNull(child);
-        ArgumentNullException.ThrowIfNull(completed);
-
-        IAgentSession? parent;
-        lock (_gate)
-        {
-            parent = _accepting
-                && _entries.TryGetValue(child.SessionId, out var entry)
-                && ReferenceEquals(entry.Scope.Session.Identity, child)
-                && entry.DeliveryPolicy == AgentCompletionDeliveryPolicy.Automatic
-                ? _ownerScope?.Session
-                : null;
-        }
-
-        if (parent is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await parent.ReceiveAgentCompletion(
-                child.Name,
-                completed.FormatCompletion(child, owner.PromptTemplates),
-                CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception)
-        {
-        }
-    }
-
     public IAgentSessionScope ResolveNamedChildScope(string name)
     {
         lock (_gate)
@@ -400,7 +378,6 @@ internal sealed class ChildRegistry(
 
     private void RegisterConstructedScope(
         IAgentSessionScope scope,
-        AgentCompletionDeliveryPolicy deliveryPolicy,
         RetainedAgentReservation retainedReservation)
     {
         scope.ChildRegistry.AttachOwnerScope(scope);
@@ -412,7 +389,7 @@ internal sealed class ChildRegistry(
                 throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
             }
 
-            _entries.Add(scope.Session.SessionId, new ChildEntry(scope, deliveryPolicy, retainedReservation));
+            _entries.Add(scope.Session.SessionId, new ChildEntry(scope, retainedReservation));
             retainedReservation.Commit();
         }
     }
@@ -530,6 +507,5 @@ internal sealed class ChildRegistry(
 
     private sealed record ChildEntry(
         IAgentSessionScope Scope,
-        AgentCompletionDeliveryPolicy DeliveryPolicy,
         RetainedAgentReservation RetainedReservation);
 }

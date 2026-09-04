@@ -863,6 +863,48 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Completion_during_parent_registry_teardown_does_not_follow_up_or_lose_terminal_outcome(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "unreachable", []));
+        await using var registry = TestModels.Registry(
+            new TestAgentSessions(Router(provider)),
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var parent = Session(provider, 0, "parent", registry, cancellationToken);
+        var parentScope = TestModels.ScopeOf(parent);
+        var child = parentScope.ChildRegistry.SpawnScope(new AgentLaunchRequest(
+            parent,
+            Turn(parent, Router(provider)),
+            "worker",
+            parent.Selection().RequestedModel,
+            "helper",
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            0,
+            string.Empty,
+            AgentCompletionDeliveryPolicy.Automatic)).Session;
+
+        _ = await child.Send("do work", cancellationToken);
+        await provider.Arrived(cancellationToken);
+
+        var shutdown = parentScope.ChildRegistry.DisposeAsync().AsTask();
+        _ = await Assert.That(parentScope.ChildRegistry.IsAccepting).IsFalse();
+        await shutdown;
+        var completed = await child.Wait(0, cancellationToken);
+        var retained = await child.Wait(0, cancellationToken);
+
+        _ = await Assert.That(completed.Status).IsEqualTo(AgentTaskStatus.Canceled);
+        _ = await Assert.That(completed.Error).IsEqualTo("interrupted");
+        _ = await Assert.That(retained.Status).IsEqualTo(completed.Status);
+        _ = await Assert.That(retained.Error).IsEqualTo(completed.Error);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Retained_only_completion_preserves_terminal_result_without_steering_the_parent(
         CancellationToken cancellationToken)
     {
@@ -2039,7 +2081,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         var parent = registry.FindScope(session.ParentSessionId)
             ?? throw new AgentRegistryException($"parent agent not found: {session.ParentSessionId}");
-        return AgentSessionParentScope.Child(parent);
+        return AgentSessionParentScope.Child(parent, AgentCompletionDeliveryPolicy.RetainedOnly);
     }
 
     private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)

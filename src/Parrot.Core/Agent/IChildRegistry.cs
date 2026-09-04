@@ -4,6 +4,8 @@ internal interface IChildRegistry
 {
     string OwnerSessionId { get; }
 
+    bool IsAccepting { get; }
+
     IAgentSessionScope SpawnScope(AgentLaunchRequest request);
 
     IAgentSessionScope AuthorizeDirectChild(string childSessionId);
@@ -25,8 +27,6 @@ internal interface IChildRegistry
     bool ContainsDescendantScope(IAgentSessionScope candidate);
 
     IReadOnlyList<IAgentSession> SnapshotDescendants();
-
-    Task ReceiveCompletion(AgentIdentity child, AgentExecution completed);
 
     IAgentSessionScope ResolveNamedChildScope(string name);
 }

@@ -332,7 +332,7 @@ internal sealed partial class SubagentTests
         var child = TestModels.ScopeOf(root).ChildRegistry.SpawnScope(QuestionChildRequest(root, router, "factory-child")).Session;
         var childQuestions = rootScope.ChildQuestions;
         var rootFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Root());
-        var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope));
+        var childFactory = new QuestionToolFactory(userQuestions, AgentSessionParentScope.Child(rootScope, AgentCompletionDeliveryPolicy.RetainedOnly));
         const string request = "{\"questions\":[{\"prompt\":\"Choose\",\"options\":[\"Yes\"]}]}";
 
         var rootExecution = rootFactory.Create(root).Execute(
