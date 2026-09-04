@@ -20,6 +20,7 @@ internal partial class AgentSessionComposition
     internal static void Setup() =>
         DI.Setup(nameof(AgentSessionComposition))
             .Hint(Hint.Resolve, "Off")
+            .TagAttribute<InjectionTagAttribute>()
             .Arg<AgentSessionScopeArguments>("arguments")
             .Bind().As(Lifetime.Scoped).To<ISystemPrompt>(ctx =>
             {
@@ -42,6 +43,11 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.ParentScope;
             })
+            .Bind<ModelSelector>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.Model;
+            })
             .Bind<ModelRouter>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -56,6 +62,11 @@ internal partial class AgentSessionComposition
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.EventRepository;
+            })
+            .Bind<ToolDefinitionCatalog>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.ToolDefinitions;
             })
             .Bind<ToolWorkspace>().To(ctx =>
             {
@@ -91,6 +102,21 @@ internal partial class AgentSessionComposition
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.UserQuestions;
+            })
+            .Bind<Compactor>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.Compactor;
+            })
+            .Bind<PromptTemplateCatalog>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.PromptTemplates;
+            })
+            .Bind<IMode>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.Mode;
             })
             .Bind<RuntimeStatus>().To(ctx =>
             {
@@ -151,6 +177,24 @@ internal partial class AgentSessionComposition
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return new ExitReminder(arguments.EventRepository, arguments.PromptTemplates, arguments.Identity.SessionId);
+            })
+            .Bind<PendingChildQuestionTurnCompletionCallback>().As(Lifetime.Scoped).To<PendingChildQuestionTurnCompletionCallback>()
+            .Bind<ActiveWorkTurnCompletionCallback>().As(Lifetime.Scoped).To<ActiveWorkTurnCompletionCallback>()
+            .Bind<ModeTurnCompletionCallback>().As(Lifetime.Scoped).To<ModeTurnCompletionCallback>()
+            .Bind<ExitReminderTurnCompletionCallback>().As(Lifetime.Scoped).To<ExitReminderTurnCompletionCallback>()
+            .Bind<IReadOnlyList<IAgentTurnCompletionCallback>>("turnCompletionCallbacks").As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<PendingChildQuestionTurnCompletionCallback>(out var pendingChildQuestions);
+                ctx.Inject<ActiveWorkTurnCompletionCallback>(out var activeWork);
+                ctx.Inject<ModeTurnCompletionCallback>(out var modeCompletion);
+                ctx.Inject<ExitReminderTurnCompletionCallback>(out var exitReminder);
+                return new IAgentTurnCompletionCallback[]
+                {
+                    pendingChildQuestions,
+                    activeWork,
+                    modeCompletion,
+                    exitReminder,
+                };
             })
             .Bind<IReadOnlyList<IToolFactory>>("toolFactories").As(Lifetime.Scoped).To(ctx =>
             {
@@ -245,46 +289,9 @@ internal partial class AgentSessionComposition
                 ctx.Inject<ChildRegistry>(out var children);
                 return new AgentResolver(arguments.Identity, arguments.ParentScope, children, arguments.Registry);
             })
-            .Bind().As(Lifetime.Scoped).To(ctx =>
-            {
-                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
-                ctx.Inject<ToolOutputBlobStore>(out var toolOutputBlobs);
-                ctx.Inject<ShellProcessOwner>(out var processes);
-                ctx.Inject<ActiveWorkCompletionReminder>(out var activeWorkReminder);
-                ctx.Inject<ExitReminder>(out var exitReminder);
-                ctx.Inject<AgentSessionActivity>(out var activity);
-                ctx.Inject<ChildRegistry>(out var children);
-                ctx.Inject<ChildQuestionCoordinator>(out var childQuestions);
-                ctx.Inject<IReadOnlyList<IToolFactory>>("toolFactories", out var toolFactories);
-                ctx.Inject<ISystemPrompt>(out var systemPrompt);
-                var session = new AgentSession(
-                    arguments.Identity,
-                    arguments.ParentScope,
-                    arguments.Model,
-                    arguments.Router,
-                    arguments.EventBroker,
-                    arguments.EventRepository,
-                    toolFactories,
-                    arguments.ToolDefinitions,
-                    systemPrompt,
-                    toolOutputBlobs,
-                    arguments.Compactor,
-                    arguments.PromptTemplates,
-                    childQuestions,
-                    activeWorkReminder,
-                    exitReminder,
-                    arguments.Mode,
-                    arguments.Security,
-                    arguments.Status,
-                    children,
-                    arguments.Queues,
-                    activity,
-                    arguments.Lifetime);
-                arguments.Queues.Attach(session);
-                arguments.ShellProcesses.Register(processes);
-                return session;
-            })
+            .Bind<AgentSession>().As(Lifetime.Scoped).To<AgentSession>()
             .Root<AgentSession>("Session")
+            .Root<ShellProcessOwner>("Processes")
             .Root<ChildRegistry>("Children")
             .Root<ChildQuestionCoordinator>("ChildQuestions");
 }

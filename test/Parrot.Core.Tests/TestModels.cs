@@ -233,6 +233,19 @@ internal static class TestModels
             queues);
     }
 
+    public static IReadOnlyList<IAgentTurnCompletionCallback> CompletionCallbacks(
+        ChildQuestionCoordinator childQuestions,
+        ActiveWorkCompletionReminder activeWorkReminder,
+        ExitReminder exitReminder,
+        EventRepository eventRepository,
+        EventBroker eventBroker) =>
+        [
+            new PendingChildQuestionTurnCompletionCallback(childQuestions, eventRepository, eventBroker),
+            new ActiveWorkTurnCompletionCallback(activeWorkReminder, eventRepository, eventBroker),
+            new ModeTurnCompletionCallback(eventRepository, eventBroker),
+            new ExitReminderTurnCompletionCallback(exitReminder, eventRepository, eventBroker),
+        ];
+
     public static ISystemPrompt MaterializePrompt(
         AgentIdentity identity,
         string workingDirectory,

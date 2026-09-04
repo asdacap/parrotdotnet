@@ -79,6 +79,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         var agentQueues = queues.Register(identity);
         return AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, children, childQuestions) =>
         {
+            var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
             var session = new AgentSession(
             identity,
             sessionParentScope,
@@ -93,9 +94,14 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
             TestModels.PromptTemplates,
             childQuestions,
-            new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates),
-            new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId),
+            exitReminder,
             mode,
+            TestModels.CompletionCallbacks(
+                childQuestions,
+                new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates),
+                exitReminder,
+                eventRepository,
+                eventBroker),
             SecurityProfileTestFactory.Create(securityProfile),
             status,
             children,

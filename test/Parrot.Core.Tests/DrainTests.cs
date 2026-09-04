@@ -22,9 +22,15 @@ internal sealed class DrainTests : IDisposable
 
     private readonly SessionDatabase _database = SessionDatabase.Open(":memory:");
     private readonly EventBroker _broker = new();
+    private readonly List<AgentSessionDependencies> _dependencies = [];
 
     public void Dispose()
     {
+        foreach (var dependencies in _dependencies)
+        {
+            dependencies.Dispose();
+        }
+
         _broker.Dispose();
         _database.Dispose();
 
@@ -85,6 +91,74 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(2);
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(2);
         _ = await Assert.That(Prompts(provider.Requests[1])).IsEqualTo("first prompt | queued prompt");
+    }
+
+    [Test]
+    public async Task Completion_callbacks_run_in_order_restart_after_retry_and_defer_terminal_events(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(Answer("retry candidate"), Answer("final candidate"));
+        var repository = new EventRepository(_database);
+        var calls = new List<string>();
+        using var firstReservation = new TrackingDisposable();
+        using var terminalReservation = new TrackingDisposable();
+        var firstReservationWasDisposedBeforeSecondAttempt = false;
+        var first = new RecordingCompletionCallback((candidate, invocation) =>
+        {
+            calls.Add($"first:{candidate.MessageId}");
+            if (invocation == 1)
+            {
+                return AgentTurnCompletionOutcome.Continue(
+                    firstReservation,
+                    new PlanCompleted { Markdown = "discarded" });
+            }
+
+            firstReservationWasDisposedBeforeSecondAttempt = firstReservation.Disposed;
+            return AgentTurnCompletionOutcome.Continue(
+                terminalReservation,
+                new PlanCompleted { Markdown = "retained" });
+        });
+        var second = new RecordingCompletionCallback((candidate, invocation) =>
+        {
+            calls.Add($"second:{candidate.MessageId}");
+            return invocation == 1
+                ? AgentTurnCompletionOutcome.Retry(
+                    "retry",
+                    false,
+                    false,
+                    false,
+                    null,
+                    false)
+                : AgentTurnCompletionOutcome.Continue(null, null);
+        });
+        var third = new RecordingCompletionCallback((candidate, _) =>
+        {
+            calls.Add($"third:{candidate.MessageId}");
+            return AgentTurnCompletionOutcome.Continue(null, null);
+        });
+        var session = SessionWithCompletionCallbacks(provider, repository, [first, second, third], cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        var callbackNames = string.Join(',', calls.Select(call => call[..call.IndexOf(':')]));
+        _ = await Assert.That(callbackNames).IsEqualTo("first,second,first,second,third");
+        _ = await Assert.That(calls[0].Split(':')[1]).IsEqualTo(calls[1].Split(':')[1]);
+        _ = await Assert.That(calls[0].Split(':')[1]).IsNotEqualTo(calls[2].Split(':')[1]);
+        _ = await Assert.That(firstReservationWasDisposedBeforeSecondAttempt).IsTrue();
+        _ = await Assert.That(firstReservation.Disposed).IsTrue();
+        _ = await Assert.That(terminalReservation.Disposed).IsTrue();
+        var plans = repository.Replay()
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.PlanCompleted)
+            .ToArray();
+        _ = await Assert.That(plans).HasSingleItem();
+        _ = await Assert.That(plans[0].PlanCompleted.Markdown).IsEqualTo("retained");
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
     }
 
     [Test]
@@ -1167,6 +1241,19 @@ internal sealed class DrainTests : IDisposable
             outputPrice,
             lifetime);
 
+    private AgentSession SessionWithCompletionCallbacks(
+        SteppedProvider provider,
+        EventRepository repository,
+        IReadOnlyList<IAgentTurnCompletionCallback> completionCallbacks,
+        CancellationToken lifetime)
+    {
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
+        _dependencies.Add(dependencies);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, completionCallbacks, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+    }
+
     private AgentSession Session(
         ILLMProvider provider,
         EventRepository repository,
@@ -1191,7 +1278,29 @@ internal sealed class DrainTests : IDisposable
         });
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, toolFactories, definitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, profile ?? dependencies.Profile, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, toolFactories, definitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.ChildRegistry, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+    }
+
+    private sealed class RecordingCompletionCallback(
+        Func<AgentTurnCompletionCandidate, int, AgentTurnCompletionOutcome> complete)
+        : IAgentTurnCompletionCallback
+    {
+        private int _invocations;
+
+        public ValueTask<AgentTurnCompletionOutcome> Complete(
+            AgentTurnCompletionCandidate candidate,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(complete(candidate, ++_invocations));
+        }
+    }
+
+    private sealed class TrackingDisposable : IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public void Dispose() => Disposed = true;
     }
 
     private sealed class GatedTool(string name, bool parallelSafe) : ITool

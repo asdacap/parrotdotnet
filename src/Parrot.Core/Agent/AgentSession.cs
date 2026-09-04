@@ -32,16 +32,16 @@ internal sealed class AgentSession(
     ModelRouter router,
     EventBroker eventBroker,
     EventRepository eventRepository,
-    IReadOnlyList<IToolFactory> toolFactories,
+    [InjectionTag("toolFactories")] IReadOnlyList<IToolFactory> toolFactories,
     ToolDefinitionCatalog toolDefinitions,
     ISystemPrompt systemPrompt,
     ToolOutputBlobStore toolOutputBlobs,
     Compactor compactor,
     PromptTemplateCatalog promptTemplates,
     ChildQuestionCoordinator childQuestions,
-    ActiveWorkCompletionReminder activeWorkReminder,
     ExitReminder exitReminder,
     IMode mode,
+    [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,
     RuntimeStatus status,
     ChildRegistry childRegistry,
@@ -68,6 +68,8 @@ internal sealed class AgentSession(
     // context is sampled once per epoch and prefixed at each turn.
     private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
     private readonly Queue<ForcedCompactionRequest> _forcedCompactions = [];
+    private readonly IReadOnlyList<IAgentTurnCompletionCallback> _turnCompletionCallbacks =
+        turnCompletionCallbacks ?? throw new ArgumentNullException(nameof(turnCompletionCallbacks));
 
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
@@ -78,7 +80,6 @@ internal sealed class AgentSession(
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
         ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);
 
-    private string _messageId = string.Empty;
     private DrainState _state;
 
     private AgentSelection _selection = new(model, mode, security.Policy());
@@ -100,6 +101,55 @@ internal sealed class AgentSession(
     // disposed source, so it hands that duty over for the one case where the
     // two overlap.
     private bool _stopping;
+
+    internal AgentSession(
+        AgentIdentity identity,
+        AgentSessionParentScope parentScope,
+        ModelSelector model,
+        ModelRouter router,
+        EventBroker eventBroker,
+        EventRepository eventRepository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        ToolDefinitionCatalog toolDefinitions,
+        ISystemPrompt systemPrompt,
+        ToolOutputBlobStore toolOutputBlobs,
+        Compactor compactor,
+        PromptTemplateCatalog promptTemplates,
+        ChildQuestionCoordinator childQuestions,
+        ExitReminder exitReminder,
+        IMode mode,
+        IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
+        AgentSessionSecurity security,
+        RuntimeStatus status,
+        ChildRegistry childRegistry,
+        AgentQueues queues,
+        AgentSessionActivity activity,
+        AgentSessionScopeArguments arguments)
+        : this(
+            identity,
+            parentScope,
+            model,
+            router,
+            eventBroker,
+            eventRepository,
+            toolFactories,
+            toolDefinitions,
+            systemPrompt,
+            toolOutputBlobs,
+            compactor,
+            promptTemplates,
+            childQuestions,
+            exitReminder,
+            mode,
+            turnCompletionCallbacks,
+            security,
+            status,
+            childRegistry,
+            queues,
+            activity,
+            arguments.Lifetime)
+    {
+    }
 
     internal string SessionId => identity.SessionId;
 
@@ -1164,114 +1214,120 @@ internal sealed class AgentSession(
                     continue;
                 }
 
-                using var completionAttempt = childQuestions.BeginCompletion();
-                if (completionAttempt.Reminder is { } questionReminder)
+                var completionCandidate = new AgentTurnCompletionCandidate(
+                    SessionId,
+                    Identifier.MessageId(),
+                    completed.AssistantText,
+                    activeSelection.Profile);
+                List<IDisposable> completionReservations = [];
+                PlanCompleted? deferredPlanCompletion = null;
+                AgentTurnCompletionOutcome.RetryOutcome? retryOutcome = null;
+                try
                 {
-                    var published = new Event
+                    foreach (var callback in _turnCompletionCallbacks)
                     {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                    };
-                    eventRepository.AppendPendingChildQuestionReminder(
-                        published,
-                        completed.AssistantText,
-                        questionReminder);
+                        var outcome = await callback.Complete(completionCandidate, cancellationToken)
+                            .ConfigureAwait(false);
+                        switch (outcome)
+                        {
+                            case AgentTurnCompletionOutcome.ContinueOutcome continuation:
+                                if (continuation.CompletionReservation is { } completionReservation)
+                                {
+                                    completionReservations.Add(completionReservation);
+                                }
+
+                                if (continuation.DeferredPlanCompletion is { } planCompletion)
+                                {
+                                    deferredPlanCompletion = planCompletion;
+                                }
+
+                                break;
+                            case AgentTurnCompletionOutcome.RetryOutcome retry:
+                                retryOutcome = retry;
+                                break;
+                        }
+
+                        if (retryOutcome is not null)
+                        {
+                            break;
+                        }
+                    }
+
+                    if (retryOutcome is not null)
+                    {
+                        var systemMessage = retryOutcome.SystemMessage
+                            ?? throw new InvalidOperationException("A retry outcome requires a system message.");
+                        if (retryOutcome.RetainCandidateAssistant)
+                        {
+                            _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
+                        }
+
+                        _history.Add(LLMMessage.System(systemMessage));
+                        if (retryOutcome.RecordAssistantActivity)
+                        {
+                            Activity.RecordAssistantMessage(completed.AssistantText);
+                        }
+
+                        if (retryOutcome.SelectCandidateAnswer)
+                        {
+                            answer = completed.AssistantText;
+                        }
+
+                        if (retryOutcome.CompletionRetryPending is { } retryPending)
+                        {
+                            completionRetryPending = retryPending;
+                        }
+
+                        if (retryOutcome.ResetProviderRequestBudget)
+                        {
+                            providerRequests = 0;
+                        }
+
+                        continue;
+                    }
+
+                    answer = completed.AssistantText;
+                    completionRetryPending = false;
                     _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
-                    _history.Add(LLMMessage.System(questionReminder));
-                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    var ended = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        TurnEnded = new TurnEnded
+                        {
+                            FinishReason = completed.FinishReason,
+                            InputTokens = _statistics.InputTokens,
+                            OutputTokens = _statistics.OutputTokens,
+                        },
+                    };
+                    if (deferredPlanCompletion is { } planCompleted)
+                    {
+                        var plan = new Event
+                        {
+                            Id = Identifier.EventId(),
+                            AgentSessionId = SessionId,
+                            PlanCompleted = planCompleted,
+                        };
+                        await EmitEvent(plan, null, null, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
+                        .ConfigureAwait(false);
                     Activity.RecordAssistantMessage(completed.AssistantText);
-                    continue;
+
+                    // Back to the top rather than out: a queued prompt is promoted
+                    // exactly here, where the turn would otherwise stop.
+                    turnOpen = false;
+                    activeSelection = null;
+                    activeTools = null;
                 }
-
-                if (activeSelection.Profile.EnforceActiveWorkCompletion
-                    && activeWorkReminder.Build() is { } reminder)
+                finally
                 {
-                    var published = new Event
+                    foreach (var completionReservation in completionReservations)
                     {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                    };
-                    eventRepository.AppendActiveWorkReminder(published, reminder);
-                    _history.Add(LLMMessage.System(reminder));
-                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-                    completionAttempt.Dispose();
-                    continue;
+                        completionReservation.Dispose();
+                    }
                 }
-
-                _messageId = Identifier.MessageId();
-                answer = completed.AssistantText;
-                var modeOutcome = activeSelection.Profile.Complete(SessionId, _messageId);
-                if (modeOutcome.RepairDiagnostic is { } diagnostic)
-                {
-                    var repair = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = diagnostic },
-                    };
-                    eventRepository.AppendPlanValidationRepair(repair, completed.AssistantText, diagnostic);
-                    _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
-                    _history.Add(LLMMessage.System(diagnostic));
-                    await eventBroker.Publish(repair, cancellationToken).ConfigureAwait(false);
-                    Activity.RecordAssistantMessage(completed.AssistantText);
-                    completionRetryPending = true;
-                    continue;
-                }
-
-                completionRetryPending = false;
-                if (exitReminder.Build() is { } exitReminderMessage)
-                {
-                    var published = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                    };
-                    eventRepository.AppendExitReminder(
-                        published,
-                        completed.AssistantText,
-                        exitReminderMessage);
-                    _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
-                    _history.Add(LLMMessage.System(exitReminderMessage));
-                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-                    Activity.RecordAssistantMessage(completed.AssistantText);
-                    completionAttempt.Dispose();
-                    providerRequests = 0;
-                    completionRetryPending = true;
-                    continue;
-                }
-
-                _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
-                var ended = new Event
-                {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = SessionId,
-                    TurnEnded = new TurnEnded
-                    {
-                        FinishReason = completed.FinishReason,
-                        InputTokens = _statistics.InputTokens,
-                        OutputTokens = _statistics.OutputTokens,
-                    },
-                };
-                if (modeOutcome.Completion is { } planCompleted)
-                {
-                    var plan = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        PlanCompleted = planCompleted,
-                    };
-                    await EmitEvent(plan, null, null, cancellationToken).ConfigureAwait(false);
-                }
-
-                await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
-                    .ConfigureAwait(false);
-                Activity.RecordAssistantMessage(completed.AssistantText);
-
-                // Back to the top rather than out: a queued prompt is promoted
-                // exactly here, where the turn would otherwise stop.
-                turnOpen = false;
-                activeSelection = null;
-                activeTools = null;
             }
         }
         catch (OperationCanceledException)
