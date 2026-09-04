@@ -10,6 +10,46 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedHierarchyTests
 {
     [Test]
+    public async Task Exit_reminder_is_committed_at_the_owning_agent_level(CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
+        var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
+
+        Task Commit(
+            IScrollbackItem item,
+            IReadOnlyList<ILiveBufferItem> items,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            committed.Add(string.Join('|', item.Render(scrollbackContext)));
+            return Task.CompletedTask;
+        }
+
+        using var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            new ToolPresenterRegistry([], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await view.Render(
+            new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } },
+            cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+            },
+            cancellationToken);
+        await view.Render(
+            new Event { AgentSessionId = "child", ExitReminderInjected = new ExitReminderInjected() },
+            cancellationToken);
+
+        _ = await Assert.That(committed).HasSingleItem();
+        _ = await Assert.That(committed[0]).IsEqualTo("  • [worker] ↻ Exit reminder injected");
+    }
+
+    [Test]
     public async Task Agent_completions_are_committed_immediately(
         CancellationToken cancellationToken)
     {

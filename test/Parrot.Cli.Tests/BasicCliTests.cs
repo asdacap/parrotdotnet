@@ -311,6 +311,30 @@ internal sealed class BasicCliTests
     }
 
     [Test]
+    public async Task Exit_reminder_renders_as_its_own_notification(CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        await stream.WriteAsync(
+            new Event { Id = "text", TextChunk = new TextChunk { Fragment = "draft" } },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "reminder", ExitReminderInjected = new ExitReminderInjected() },
+            cancellationToken);
+        await stream.WriteAsync(
+            new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
+        stream.Complete();
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var completed = await BasicCli.RenderTurn(stream.Reader, output, error, cancellationToken);
+
+        _ = await Assert.That(completed).IsTrue();
+        _ = await Assert.That(output.ToString()).Contains("draft\n↻ Exit reminder injected");
+        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Exit reminder injected");
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
     public async Task Provider_request_limit_prompts_render_as_their_own_notifications(CancellationToken cancellationToken)
     {
         var stream = new ChannelStreamWriter<Event>();

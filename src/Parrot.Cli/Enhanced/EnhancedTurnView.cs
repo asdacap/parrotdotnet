@@ -113,6 +113,16 @@ internal sealed class EnhancedTurnView(
                     cancellationToken).ConfigureAwait(false);
                 break;
 
+            case Event.PayloadOneofCase.ExitReminderInjected:
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Exit reminder injected{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                break;
+
             case Event.PayloadOneofCase.FinalProviderRequestPromptInjected:
                 await Commit(
                     ImmediateScrollbackValue.Trusted([$"{Dim}↻ Final provider request prompt injected{Reset}"]),

@@ -154,6 +154,7 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.CompactionFinished or
                 Event.PayloadOneofCase.CompactionFailed or
                 Event.PayloadOneofCase.ActiveWorkReminderInjected or
+                Event.PayloadOneofCase.ExitReminderInjected or
                 Event.PayloadOneofCase.FinalProviderRequestPromptInjected or
                 Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected or
                 Event.PayloadOneofCase.AgentTaskProgressSnapshot)
@@ -182,6 +183,11 @@ internal sealed class BasicCli(
 
                 case Event.PayloadOneofCase.ActiveWorkReminderInjected:
                     await output.WriteLineAsync("↻ Active work reminder injected".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ExitReminderInjected:
+                    await output.WriteLineAsync("↻ Exit reminder injected".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 
