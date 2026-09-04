@@ -782,7 +782,7 @@ internal sealed class RawActivityView(
             : null;
         return new HierarchicalLiveValue(
             value,
-            isAgentActivity ? Math.Max(0, depth - 1) : depth,
+            depth,
             _hierarchy.GetLabel(activity.State.AgentSessionId),
             activity.State.Name,
             "♟",
