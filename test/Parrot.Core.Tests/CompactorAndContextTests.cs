@@ -59,6 +59,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(built).StartsWith("Configured base prompt.");
         _ = await Assert.That(built).Contains("Date: 2026-07-24\n\nPlatform:");
         _ = await Assert.That(built).Contains($"\n\nWorking directory: {_workspace}");
+        _ = await Assert.That(built).Contains("Git repository: false");
         _ = await Assert.That(built).Contains("GLOBAL RULE: be concise.");
         _ = await Assert.That(built).Contains("PROJECT RULE: be terse.");
         _ = await Assert.That(built).Contains("Available CLI utilities: none");
@@ -68,6 +69,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var dateIndex = built.IndexOf("Date: 2026-07-24", StringComparison.Ordinal);
         var platformIndex = built.IndexOf("Platform:", StringComparison.Ordinal);
         var workingDirectoryIndex = built.IndexOf("Working directory:", StringComparison.Ordinal);
+        var gitRepositoryIndex = built.IndexOf("Git repository: false", StringComparison.Ordinal);
         var optionalIndex = built.IndexOf("Available optional CLI utilities: none", StringComparison.Ordinal);
         var subagentsIndex = built.IndexOf("Available subagents;", StringComparison.Ordinal);
         var securityIndex = built.IndexOf("The following configured sandbox rules", StringComparison.Ordinal);
@@ -77,12 +79,44 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(expectedIndex).IsLessThan(dateIndex);
         _ = await Assert.That(dateIndex).IsLessThan(platformIndex);
         _ = await Assert.That(platformIndex).IsLessThan(workingDirectoryIndex);
-        _ = await Assert.That(workingDirectoryIndex).IsLessThan(optionalIndex);
+        _ = await Assert.That(workingDirectoryIndex).IsLessThan(gitRepositoryIndex);
+        _ = await Assert.That(gitRepositoryIndex).IsLessThan(optionalIndex);
         _ = await Assert.That(optionalIndex).IsLessThan(subagentsIndex);
         _ = await Assert.That(subagentsIndex).IsLessThan(securityIndex);
         _ = await Assert.That(built).EndsWith("Rules, in enforcement order:");
         _ = await Assert.That(new SecurityProfileProvider([], TestModels.PromptTemplates).Key)
             .IsEqualTo("runtime:system-context:10-security-profile");
+    }
+
+    [Test]
+    public async Task Git_repository_context_reports_membership_for_nested_and_non_repository_directories()
+    {
+        var repositoryRoot = Path.Combine(_temporaryDirectory, "repository");
+        var nestedDirectory = Directory.CreateDirectory(Path.Combine(repositoryRoot, "nested", "directory")).FullName;
+        _ = Directory.CreateDirectory(Path.Combine(repositoryRoot, ".git"));
+
+        var gitFileRepository = Directory.CreateDirectory(Path.Combine(_temporaryDirectory, "git-file-repository"));
+        var separateGitDirectory = Directory.CreateDirectory(Path.Combine(_temporaryDirectory, "separate-git-directory"));
+        await File.WriteAllTextAsync(
+            Path.Combine(gitFileRepository.FullName, ".git"), $"gitdir: {separateGitDirectory.FullName}\n");
+
+        var identity = AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates);
+        var repositoryPrompt = new GitRepositoryProvider(
+            ProjectWorkspace.FromLaunchDirectory(nestedDirectory), TestModels.PromptTemplates)
+            .Materialize(identity);
+        var gitFilePrompt = new GitRepositoryProvider(
+            ProjectWorkspace.FromLaunchDirectory(gitFileRepository.FullName), TestModels.PromptTemplates)
+            .Materialize(identity);
+        var nonRepositoryPrompt = new GitRepositoryProvider(
+            ProjectWorkspace.FromLaunchDirectory(_workspace), TestModels.PromptTemplates)
+            .Materialize(identity);
+        repositoryPrompt.RenewEpoch();
+        gitFilePrompt.RenewEpoch();
+        nonRepositoryPrompt.RenewEpoch();
+
+        _ = await Assert.That(repositoryPrompt.Build(Selection())).IsEqualTo("Git repository: true");
+        _ = await Assert.That(gitFilePrompt.Build(Selection())).IsEqualTo("Git repository: true");
+        _ = await Assert.That(nonRepositoryPrompt.Build(Selection())).IsEqualTo("Git repository: false");
     }
 
     [Test]
@@ -1107,6 +1141,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new DateProvider("2026-07-24", TestModels.PromptTemplates),
                 new PlatformProvider(TestModels.PromptTemplates),
                 new WorkingDirectoryProvider(_workspace, TestModels.PromptTemplates),
+                new GitRepositoryProvider(ProjectWorkspace.FromLaunchDirectory(_workspace), TestModels.PromptTemplates),
                 new OptionalCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
                 new SessionIdentityProvider(),
                 new SubagentsProvider(TestModels.ProfileRegistry(), TestModels.PromptTemplates),

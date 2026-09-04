@@ -143,6 +143,7 @@ internal partial class Composition
                     new DateProvider(date, configuration.PromptTemplates),
                     new PlatformProvider(configuration.PromptTemplates),
                     new WorkingDirectoryProvider(workingDirectory, configuration.PromptTemplates),
+                    new GitRepositoryProvider(ProjectWorkspace.FromLaunchDirectory(Path.GetFullPath(workingDirectory)), configuration.PromptTemplates),
                     new OptionalCliUtilitiesProvider(cliUtilities, configuration.PromptTemplates),
                     new SessionIdentityProvider(),
                     new SubagentsProvider(profiles, configuration.PromptTemplates),
