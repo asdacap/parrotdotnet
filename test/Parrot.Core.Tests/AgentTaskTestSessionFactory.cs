@@ -43,7 +43,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
 
     public IAgentSessionScope Create(
         AgentIdentity identity,
-        AgentSessionParentScope parentScope,
+        AgentSessionParentLink parentLink,
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,
@@ -77,7 +77,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
         }
 
         var agentQueues = queues.Register(identity);
-        var scope = AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
+        var scope = AgentSessionDirectScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
         {
             var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
             var session = new AgentSession(

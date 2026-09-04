@@ -60,7 +60,7 @@ internal sealed class ChildRegistry(
         var status = authority.RequireStatus();
         var retainedReservation = authority.ReserveRetainedAgent();
         AgentIdentity childIdentity;
-        AgentSessionParentScope childParentScope;
+        AgentSessionParentLink childParentLink;
 
         try
         {
@@ -72,8 +72,8 @@ internal sealed class ChildRegistry(
                     throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
                 }
 
-                childParentScope = AgentSessionParentScope.Child(registeredOwnerScope, request.DeliveryPolicy);
-                if (childParentScope.PolicyLineage.CountProfile(profile.Id)
+                childParentLink = new AgentSessionParentLink(registeredOwnerScope, request.DeliveryPolicy);
+                if (childParentLink.PolicyLineage.CountProfile(profile.Id)
                     + _pendingProfiles.GetValueOrDefault(profile.Id)
                     >= profile.RecursionLimit)
                 {
@@ -90,7 +90,7 @@ internal sealed class ChildRegistry(
                     name,
                     depth,
                     scope,
-                    childParentScope.PolicyLineage,
+                    childParentLink.PolicyLineage,
                     owner.PromptTemplates);
                 _names.Add(name, sessionId);
                 _pendingConstructions++;
@@ -114,10 +114,10 @@ internal sealed class ChildRegistry(
                 request.SpawnToolCallId,
                 request.Fork);
             historyInitialized = true;
-            var securityProfile = childParentScope.PolicyLineage.Resolve(profile.SecurityProfile);
+            var securityProfile = childParentLink.PolicyLineage.Resolve(profile.SecurityProfile);
             constructedScope = authority.CreateChildScope(
                 childIdentity,
-                childParentScope,
+                childParentLink,
                 request.Model,
                 new NoopMode(profile, securityProfile),
                 securityProfile,
@@ -151,32 +151,15 @@ internal sealed class ChildRegistry(
         }
     }
 
-    public IAgentSessionScope AuthorizeDirectChild(string childSessionId)
+    public IAgentSessionScope? FindDirectChildScope(string childSessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
-        _ = RequireOwnerScope();
-
         lock (_gate)
         {
-            if (_accepting && _entries.TryGetValue(childSessionId, out var child))
-            {
-                return child.Scope;
-            }
+            return _accepting && _entries.TryGetValue(childSessionId, out var child)
+                ? child.Scope
+                : null;
         }
-
-        throw new AgentRegistryException($"child agent not found: {childSessionId}");
-    }
-
-    public IAgentSession AuthorizeQuestionChild(IAgentSession child)
-    {
-        ArgumentNullException.ThrowIfNull(child);
-        var registeredChild = AuthorizeDirectChild(child.SessionId);
-        if (!ReferenceEquals(registeredChild.Session, child))
-        {
-            throw new AgentRegistryException($"parent agent not found: {child.ParentSessionId}");
-        }
-
-        return RequireOwnerScope().Session;
     }
 
     public ValueTask DisposeAsync()
@@ -199,16 +182,6 @@ internal sealed class ChildRegistry(
         {
             throw new AgentRegistryException(
                 $"child registry owner does not match agent identity: expected {owner.SessionId}, actual {identity.SessionId}");
-        }
-    }
-
-    public void ValidateOwnerScope(IAgentSessionScope scope)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-        if (!ReferenceEquals(_ownerAccessor(), scope)
-            || !ReferenceEquals(scope.ChildRegistry, this))
-        {
-            throw new AgentRegistryException($"agent scope does not match child registry owner: {owner.SessionId}");
         }
     }
 
@@ -359,9 +332,6 @@ internal sealed class ChildRegistry(
         IAgentSessionScope scope,
         RetainedAgentReservation retainedReservation)
     {
-        scope.ChildRegistry.ValidateOwner(scope.Session.Identity);
-        scope.ChildRegistry.ValidateOwnerScope(scope);
-
         lock (_gate)
         {
             EnsureAccepting();

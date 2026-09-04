@@ -60,11 +60,11 @@ internal sealed partial class SubagentTests
             await coordinator.Ask(child, [Question("duplicate")], cancellationToken))
             .Throws<QuestionRejectedException>();
         _ = await Assert.That(() => coordinator.Reply(
-            TestModels.ScopeOf(unrelated),
+            TestModels.ScopeOf(unrelated).ParentScope,
             child.SessionId,
             Answer("blue"))).Throws<AgentRegistryException>();
         _ = await Assert.That(() => coordinator.Reply(
-            TestModels.ScopeOf(parent),
+            TestModels.ScopeOf(parent).ParentScope,
             child.SessionId,
             new QuestionReply([new QuestionAnswer(string.Empty)]))).Throws<QuestionException>();
         _ = await Assert.That(coordinator.Pending(parent)).Count().IsEqualTo(1);
@@ -74,7 +74,7 @@ internal sealed partial class SubagentTests
             {
                 try
                 {
-                    coordinator.Reply(TestModels.ScopeOf(parent), child.SessionId, Answer("blue"));
+                    coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, child.SessionId, Answer("blue"));
                     return true;
                 }
                 catch (QuestionRejectedException)
@@ -88,7 +88,7 @@ internal sealed partial class SubagentTests
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("blue");
         _ = await Assert.That(coordinator.Pending(parent)).IsEmpty();
         _ = await Assert.That(() => coordinator.Reply(
-            TestModels.ScopeOf(parent),
+            TestModels.ScopeOf(parent).ParentScope,
             child.SessionId,
             Answer("blue"))).Throws<QuestionRejectedException>();
     }
@@ -119,11 +119,11 @@ internal sealed partial class SubagentTests
             {"agent_session_id":"{{child.SessionId}}","answers":[""]}
             """;
 
-        var unauthorized = await new AnswerTool(coordinator, TestModels.ScopeOf(unrelated)).Execute(
+        var unauthorized = await new AnswerTool(coordinator, TestModels.ScopeOf(unrelated).ParentScope).Execute(
             new ToolInvocation("unauthorized", arguments),
             Turn(unrelated, router),
             cancellationToken);
-        var invalid = await new AnswerTool(coordinator, TestModels.ScopeOf(parent)).Execute(
+        var invalid = await new AnswerTool(coordinator, TestModels.ScopeOf(parent).ParentScope).Execute(
             new ToolInvocation("invalid", invalidArguments),
             Turn(parent, router),
             cancellationToken);
@@ -132,7 +132,7 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(invalid.Text).IsEqualTo("error: question answers cannot be empty");
         _ = await Assert.That(coordinator.Pending(parent)).Count().IsEqualTo(1);
 
-        var answered = await new AnswerTool(coordinator, TestModels.ScopeOf(parent)).Execute(
+        var answered = await new AnswerTool(coordinator, TestModels.ScopeOf(parent).ParentScope).Execute(
             new ToolInvocation("answered", arguments),
             Turn(parent, router),
             cancellationToken);
@@ -167,8 +167,8 @@ internal sealed partial class SubagentTests
             cancellationToken);
         var firstParent = Session(provider, 0, "first-parent", firstRegistry, cancellationToken);
         var secondParent = Session(provider, 0, "second-parent", secondRegistry, cancellationToken);
-        var firstCoordinator = new ChildQuestionCoordinator(TestModels.ScopeOf(firstParent).ChildRegistry, TestModels.PromptTemplates);
-        var secondCoordinator = new ChildQuestionCoordinator(TestModels.ScopeOf(secondParent).ChildRegistry, TestModels.PromptTemplates);
+        var firstCoordinator = new ChildQuestionCoordinator(TestModels.ScopeOf(firstParent).ParentScope, TestModels.PromptTemplates);
+        var secondCoordinator = new ChildQuestionCoordinator(TestModels.ScopeOf(secondParent).ParentScope, TestModels.PromptTemplates);
         var firstChild = TestModels.ScopeOf(firstParent).ChildRegistry.SpawnScope(QuestionChildRequest(firstParent, router, "first-child")).Session;
         var secondChild = TestModels.ScopeOf(secondParent).ChildRegistry.SpawnScope(QuestionChildRequest(secondParent, router, "second-child")).Session;
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -194,7 +194,7 @@ internal sealed partial class SubagentTests
             await firstCoordinator.Ask(firstChild, [Question("late")], cancellationToken))
             .Throws<ObjectDisposedException>();
 
-        secondCoordinator.Reply(TestModels.ScopeOf(secondParent), secondChild.SessionId, Answer("yes"));
+        secondCoordinator.Reply(TestModels.ScopeOf(secondParent).ParentScope, secondChild.SessionId, Answer("yes"));
         _ = await isolated;
     }
 
@@ -228,16 +228,16 @@ internal sealed partial class SubagentTests
         var pending = await WaitForChildQuestion(coordinator, parent, cancellationToken);
         var arguments = argumentsTemplate.Replace("{0}", child.SessionId, StringComparison.Ordinal);
 
-        var result = await new AnswerTool(coordinator, TestModels.ScopeOf(parent)).Execute(
+        var result = await new AnswerTool(coordinator, TestModels.ScopeOf(parent).ParentScope).Execute(
             new ToolInvocation("malformed", arguments),
             Turn(parent, router),
             cancellationToken);
 
         _ = await Assert.That(result.Text).StartsWith("error:");
         _ = await Assert.That(coordinator.Pending(parent)).HasSingleItem();
-        coordinator.Reply(TestModels.ScopeOf(parent), child.SessionId, Answer("yes"));
+        coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, child.SessionId, Answer("yes"));
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
-        _ = await Assert.That(() => coordinator.Reply(TestModels.ScopeOf(parent), child.SessionId, Answer("yes")))
+        _ = await Assert.That(() => coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, child.SessionId, Answer("yes")))
             .Throws<QuestionRejectedException>();
         _ = await Assert.That(pending.Id).IsNotEqualTo(string.Empty);
     }
@@ -270,7 +270,7 @@ internal sealed partial class SubagentTests
             .Contains(content => content.Contains(child.SessionId, StringComparison.Ordinal));
         _ = await Assert.That(coordinator.Pending(root)).IsEmpty();
 
-        coordinator.Reply(TestModels.ScopeOf(parent), child.SessionId, Answer("yes"));
+        coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, child.SessionId, Answer("yes"));
         provider.Release();
         _ = await Assert.That((await asking).Answers.Single().Text).IsEqualTo("yes");
         await parent.DisposeAsync();
@@ -306,8 +306,8 @@ internal sealed partial class SubagentTests
         _ = await Assert.That(reminder.Reminder).Contains(first.Name);
         _ = await Assert.That(reminder.Reminder).Contains(second.Name);
         reminder.Dispose();
-        coordinator.Reply(TestModels.ScopeOf(parent), first.SessionId, Answer("yes"));
-        coordinator.Reply(TestModels.ScopeOf(parent), second.SessionId, Answer("yes"));
+        coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, first.SessionId, Answer("yes"));
+        coordinator.Reply(TestModels.ScopeOf(parent).ParentScope, second.SessionId, Answer("yes"));
         _ = await Task.WhenAll(firstAsking, secondAsking);
         provider.Release();
         await parent.DisposeAsync();
@@ -402,12 +402,12 @@ internal sealed partial class SubagentTests
         var child = TestModels.ScopeOf(root).ChildRegistry.SpawnScope(QuestionChildRequest(root, router, "child")).Session;
         var grandchild = TestModels.ScopeOf(child).ChildRegistry.SpawnScope(QuestionChildRequest(child, router, "grandchild")).Session;
 
-        _ = await Assert.That(TestModels.ScopeOf(root).ChildRegistry.AuthorizeDirectChild(child.SessionId)).IsSameReferenceAs(TestModels.ScopeOf(child));
-        _ = await Assert.That(() => TestModels.ScopeOf(root).ChildRegistry.AuthorizeDirectChild(grandchild.SessionId))
+        _ = await Assert.That(TestModels.ScopeOf(root).ParentScope.AuthorizeDirectChild(child.SessionId)).IsSameReferenceAs(TestModels.ScopeOf(child));
+        _ = await Assert.That(() => TestModels.ScopeOf(root).ParentScope.AuthorizeDirectChild(grandchild.SessionId))
             .Throws<AgentRegistryException>();
-        _ = await Assert.That(() => TestModels.ScopeOf(unrelated).ChildRegistry.AuthorizeDirectChild(child.SessionId))
+        _ = await Assert.That(() => TestModels.ScopeOf(unrelated).ParentScope.AuthorizeDirectChild(child.SessionId))
             .Throws<AgentRegistryException>();
-        _ = await Assert.That(() => TestModels.ScopeOf(root).ChildRegistry.AuthorizeDirectChild(child.Name))
+        _ = await Assert.That(() => TestModels.ScopeOf(root).ParentScope.AuthorizeDirectChild(child.Name))
             .Throws<AgentRegistryException>();
     }
 

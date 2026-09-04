@@ -14,11 +14,13 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
     private AgentSessionDirectScope(
         AgentIdentity owner,
         IAgentRegistry registry,
+        AgentSessionParentLink parentLink,
         PromptTemplateCatalog promptTemplates)
     {
         _promptTemplates = promptTemplates;
         ChildRegistry = new ChildRegistry(owner, registry, () => this);
-        ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
+        ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
+        ChildQuestions = new ChildQuestionCoordinator(ParentScope, promptTemplates);
     }
 
     public IAgentSession Session
@@ -39,19 +41,21 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
 
     public IChildRegistry ChildRegistry { get; }
 
+    public AgentSessionParentScope ParentScope { get; }
+
     public ChildQuestionCoordinator ChildQuestions { get; }
 
     public static AgentSessionDirectScope Build(
         AgentIdentity owner,
-        AgentSessionParentScope parentScope,
+        AgentSessionParentLink parentLink,
         IAgentRegistry registry,
         PromptTemplateCatalog promptTemplates,
         Func<AgentSessionParentScope, IAgentSessionScope, IChildRegistry, ChildQuestionCoordinator, IAgentSession> buildSession)
     {
-        var scope = new AgentSessionDirectScope(owner, registry, promptTemplates);
+        var scope = new AgentSessionDirectScope(owner, registry, parentLink, promptTemplates);
         try
         {
-            scope.AttachSession(buildSession(parentScope, scope, scope.ChildRegistry, scope.ChildQuestions));
+            scope.AttachSession(buildSession(scope.ParentScope, scope, scope.ChildRegistry, scope.ChildQuestions));
             return scope;
         }
         catch
@@ -74,7 +78,9 @@ internal sealed class AgentSessionDirectScope : IAgentSessionScope
 
             ObjectDisposedException.ThrowIf(_shutdown is not null, this);
             ChildRegistry.ValidateOwner(session.Identity);
+            ParentScope.Validate(session.Identity);
             _session = session;
+            ParentScope.ValidateOwnerScope(this);
             GoalsState = new GoalService(session, _promptTemplates);
         }
     }

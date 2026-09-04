@@ -14,7 +14,7 @@ internal interface IAgentSessionFactory
 {
     IAgentSessionScope Create(
         AgentIdentity identity,
-        AgentSessionParentScope parentScope,
+        AgentSessionParentLink parentLink,
         ModelSelector model,
         EventBroker eventBroker,
         EventRepository eventRepository,

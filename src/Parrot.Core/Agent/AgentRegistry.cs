@@ -61,9 +61,6 @@ internal sealed class AgentRegistry(
             throw new AgentRegistryException("only the root agent scope may be registered directly");
         }
 
-        scope.ChildRegistry.ValidateOwner(scope.Session.Identity);
-        scope.ChildRegistry.ValidateOwnerScope(scope);
-
         lock (_gate)
         {
             EnsureAccepting();
@@ -191,7 +188,7 @@ internal sealed class AgentRegistry(
 
     public IAgentSessionScope CreateChildScope(
         AgentIdentity identity,
-        AgentSessionParentScope parentScope,
+        AgentSessionParentLink parentLink,
         Llm.ModelSelector model,
         IMode mode,
         Security.SecurityProfile securityProfile,
@@ -199,7 +196,7 @@ internal sealed class AgentRegistry(
         CancellationToken childLifetime) =>
         agentSessions.Create(
             identity,
-            parentScope,
+            parentLink,
             model,
             eventBroker,
             eventRepository,

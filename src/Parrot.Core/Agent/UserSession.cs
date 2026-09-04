@@ -364,7 +364,7 @@ internal sealed class UserSession : IAsyncDisposable
     {
         var scope = _agentSessions.Create(
             AgentIdentity.Main(_mainSessionId, _rootAgentName, _promptTemplates),
-            AgentSessionParentScope.Root(),
+            AgentSessionParentLink.Root(),
             _model,
             _eventBroker,
             _eventRepository,

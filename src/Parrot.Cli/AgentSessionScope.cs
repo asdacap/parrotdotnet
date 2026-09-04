@@ -17,13 +17,15 @@ internal sealed class AgentSessionScope : IAgentSessionScope
     internal AgentSessionScope(
         AgentIdentity owner,
         IAgentRegistry registry,
+        AgentSessionParentLink parentLink,
         PromptTemplateCatalog promptTemplates,
         AgentQueues queues)
     {
         _queues = queues;
         _promptTemplates = promptTemplates;
         ChildRegistry = new ChildRegistry(owner, registry, () => this);
-        ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
+        ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
+        ChildQuestions = new ChildQuestionCoordinator(ParentScope, promptTemplates);
     }
 
     public IAgentSession Session
@@ -44,6 +46,8 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
     public IChildRegistry ChildRegistry { get; }
 
+    public AgentSessionParentScope ParentScope { get; }
+
     public ChildQuestionCoordinator ChildQuestions { get; }
 
     public void AttachSession(IAgentSession session)
@@ -59,7 +63,9 @@ internal sealed class AgentSessionScope : IAgentSessionScope
 
             ObjectDisposedException.ThrowIf(_shutdown is not null, this);
             ChildRegistry.ValidateOwner(session.Identity);
+            ParentScope.Validate(session.Identity);
             _session = session;
+            ParentScope.ValidateOwnerScope(this);
             GoalsState = new GoalService(session, _promptTemplates);
         }
     }

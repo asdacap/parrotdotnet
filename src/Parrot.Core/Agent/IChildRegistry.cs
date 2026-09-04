@@ -8,15 +8,11 @@ internal interface IChildRegistry
 
     IAgentSessionScope SpawnScope(AgentLaunchRequest request);
 
-    IAgentSessionScope AuthorizeDirectChild(string childSessionId);
-
-    IAgentSession AuthorizeQuestionChild(IAgentSession child);
+    IAgentSessionScope? FindDirectChildScope(string childSessionId);
 
     ValueTask DisposeAsync();
 
     void ValidateOwner(AgentIdentity identity);
-
-    void ValidateOwnerScope(IAgentSessionScope scope);
 
     IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName);
 

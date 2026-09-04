@@ -242,7 +242,7 @@ internal static class TestModels
             identity,
             registry,
             () => throw new InvalidOperationException("The test session has no owner scope."));
-        var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
+        var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         return new AgentSessionDependencies(
             childQuestions,
             new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates),
@@ -342,7 +342,7 @@ internal static class TestModels
     {
         public IAgentSessionScope Create(
             AgentIdentity identity,
-            AgentSessionParentScope parentScope,
+            AgentSessionParentLink parentLink,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,

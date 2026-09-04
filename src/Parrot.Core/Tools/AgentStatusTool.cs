@@ -10,7 +10,7 @@ namespace Parrot.Tools;
 
 internal sealed class AgentStatusTool(
     AgentResolver resolver,
-    IAgentSessionScope ownerScope,
+    AgentSessionParentScope parentScope,
     ShellProcessOwners processes) : ITool
 {
     public string Name => "agent_status";
@@ -45,7 +45,7 @@ internal sealed class AgentStatusTool(
         try
         {
             var childScope = resolver.ResolveStatusTargetScope(sessionId);
-            _ = ownerScope.ChildRegistry.AuthorizeDirectChild(childScope.Session.SessionId);
+            _ = parentScope.AuthorizeDirectChild(childScope.Session.SessionId);
             var activity = childScope.Session.Activity.Capture();
             return Task.FromResult<ToolExecutionResult>(Format(childScope, activity));
         }

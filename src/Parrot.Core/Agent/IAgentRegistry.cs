@@ -29,7 +29,7 @@ internal interface IAgentRegistry : IAsyncDisposable, IActiveWorkSource, IAgentS
 
     IAgentSessionScope CreateChildScope(
         AgentIdentity identity,
-        AgentSessionParentScope parentScope,
+        AgentSessionParentLink parentLink,
         ModelSelector model,
         IMode mode,
         SecurityProfile securityProfile,

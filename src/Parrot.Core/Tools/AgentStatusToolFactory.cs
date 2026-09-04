@@ -5,8 +5,8 @@ namespace Parrot.Tools;
 
 internal sealed class AgentStatusToolFactory(
     AgentResolver resolver,
-    IAgentSessionScope ownerScope,
+    AgentSessionParentScope parentScope,
     ShellProcessOwners processes) : IToolFactory
 {
-    public ITool Create(IAgentSession session) => new AgentStatusTool(resolver, ownerScope, processes);
+    public ITool Create(IAgentSession session) => new AgentStatusTool(resolver, parentScope, processes);
 }

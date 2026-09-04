@@ -60,6 +60,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         registry.AttachStatus(status);
         await using var parentScope = factory.Build(
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
+            AgentSessionParentLink.Root(),
             registry,
             status,
             _repository,
@@ -78,8 +79,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         time.Advance(TimeSpan.FromSeconds(2));
         var toolExecution = child.Activity.BeginTool("wait");
         var tool = new AgentStatusTool(
-            new AgentResolver(parent.Identity, AgentSessionParentScope.Root(), TestModels.ScopeOf(parent), registry),
-            TestModels.ScopeOf(parent),
+            new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry),
+            TestModels.ScopeOf(parent).ParentScope,
             processes);
 
         var report = (await tool.Execute(
@@ -129,6 +130,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         registry.AttachStatus(status);
         await using var parentScope = factory.Build(
             AgentIdentity.Main("parent", "main", TestModels.PromptTemplates),
+            AgentSessionParentLink.Root(),
             registry,
             status,
             _repository,
@@ -137,8 +139,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
         var tool = new AgentStatusTool(
-            new AgentResolver(parent.Identity, AgentSessionParentScope.Root(), TestModels.ScopeOf(parent), registry),
-            TestModels.ScopeOf(parent),
+            new AgentResolver(parent.Identity, TestModels.ScopeOf(parent).ParentScope, TestModels.ScopeOf(parent), registry),
+            TestModels.ScopeOf(parent).ParentScope,
             processes);
 
         var blank = (await tool.Execute(
@@ -187,6 +189,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
     {
         public AgentSessionDirectScope Build(
             AgentIdentity identity,
+            AgentSessionParentLink parentLink,
             IAgentRegistry registry,
             RuntimeStatus status,
             EventRepository repository,
@@ -196,7 +199,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             var processOwner = processes.Prepare(identity.SessionId);
             processes.Register(processOwner);
             var queues = queueCatalog.Register(identity);
-            var scope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
+            var scope = AgentSessionDirectScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
                 var session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, queues, new AgentSessionActivity(timeProvider), lifetime);
@@ -209,7 +212,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
-            AgentSessionParentScope parentScope,
+            AgentSessionParentLink parentLink,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
@@ -218,6 +221,6 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             RuntimeStatus status,
             IAgentRegistry registry,
             CancellationToken lifetime) =>
-            Build(identity, registry, status, eventRepository, eventBroker, lifetime);
+            Build(identity, parentLink, registry, status, eventRepository, eventBroker, lifetime);
     }
 }

@@ -5,7 +5,7 @@ using Parrot.Config;
 namespace Parrot.Questions;
 
 internal sealed class ChildQuestionCoordinator(
-    IChildRegistry children,
+    AgentSessionParentScope ownerScope,
     PromptTemplateCatalog promptTemplates)
 {
     private readonly Lock _gate = new();
@@ -25,9 +25,9 @@ internal sealed class ChildQuestionCoordinator(
             throw new QuestionException("only child agents may ask questions");
         }
 
-        var parent = children.AuthorizeQuestionChild(askingChild);
+        var parent = ownerScope.AuthorizeQuestionChild(askingChild);
 
-        var pending = new PendingRequest(Identifier.QuestionRequestId(), askingChild, children.OwnerSessionId, copied);
+        var pending = new PendingRequest(Identifier.QuestionRequestId(), askingChild, ownerScope.OwnerSessionId, copied);
 
         while (true)
         {
@@ -93,7 +93,7 @@ internal sealed class ChildQuestionCoordinator(
     }
 
     public IReadOnlyList<PendingChildQuestionRequest> Pending(IAgentSession parent) =>
-        string.Equals(parent.SessionId, children.OwnerSessionId, StringComparison.Ordinal)
+        string.Equals(parent.SessionId, ownerScope.OwnerSessionId, StringComparison.Ordinal)
             ? Pending()
             : [];
 
@@ -126,7 +126,7 @@ internal sealed class ChildQuestionCoordinator(
 
     public ChildQuestionCompletionAttempt BeginCompletion(IAgentSession parent)
     {
-        if (!string.Equals(parent.SessionId, children.OwnerSessionId, StringComparison.Ordinal))
+        if (!string.Equals(parent.SessionId, ownerScope.OwnerSessionId, StringComparison.Ordinal))
         {
             throw new QuestionException("only the owning parent may complete child questions");
         }
@@ -138,7 +138,7 @@ internal sealed class ChildQuestionCoordinator(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(childSessionId);
         ArgumentNullException.ThrowIfNull(reply);
-        _ = children.AuthorizeDirectChild(childSessionId);
+        _ = ownerScope.AuthorizeDirectChild(childSessionId);
 
         PendingRequest pending;
         QuestionReply copied;
@@ -159,11 +159,11 @@ internal sealed class ChildQuestionCoordinator(
         pending.Complete();
     }
 
-    public void Reply(IAgentSessionScope parentScope, string childSessionId, QuestionReply reply)
+    public void Reply(AgentSessionParentScope parentScope, string childSessionId, QuestionReply reply)
     {
-        if (!string.Equals(parentScope.Session.SessionId, children.OwnerSessionId, StringComparison.Ordinal))
+        if (!string.Equals(parentScope.OwnerSessionId, ownerScope.OwnerSessionId, StringComparison.Ordinal))
         {
-            _ = parentScope.ChildRegistry.AuthorizeDirectChild(childSessionId);
+            _ = parentScope.AuthorizeDirectChild(childSessionId);
             throw new QuestionException("only the owning parent may answer a child question");
         }
 

@@ -229,8 +229,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             && message.Content.Contains($"second ({secondChild.SessionId})", StringComparison.Ordinal)
             && message.Content.Contains("answer", StringComparison.Ordinal));
 
-        ownedChildQuestions.Reply(TestModels.ScopeOf(parent), firstChild.SessionId, QuestionAnswer("first"));
-        ownedChildQuestions.Reply(TestModels.ScopeOf(parent), secondChild.SessionId, QuestionAnswer("second"));
+        ownedChildQuestions.Reply(TestModels.ScopeOf(parent).ParentScope, firstChild.SessionId, QuestionAnswer("first"));
+        ownedChildQuestions.Reply(TestModels.ScopeOf(parent).ParentScope, secondChild.SessionId, QuestionAnswer("second"));
         _ = await Task.WhenAll(firstQuestion, secondQuestion);
         parentProvider.Release();
         await parent.DisposeAsync();
@@ -647,7 +647,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         processes.Register(owner);
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
-        var rootScope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
+        var rootScope = AgentSessionDirectScope.Build(identity, AgentSessionParentLink.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
         {
             var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
             return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
@@ -677,7 +677,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             identity,
             registry,
             () => throw new InvalidOperationException("The test session has no owner scope."));
-        var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
+        var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
         var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
         queues.Attach(session);
@@ -761,7 +761,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     {
         public IAgentSessionScope Create(
             AgentIdentity identity,
-            AgentSessionParentScope parentScope,
+            AgentSessionParentLink parentLink,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
@@ -774,7 +774,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             var owner = processes.Prepare(identity.SessionId);
             processes.Register(owner);
             var queues = queueCatalog.Register(identity);
-            var scope = AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, scopedChildQuestions) =>
+            var scope = AgentSessionDirectScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, scopedChildQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
                 var session = new AgentSession(

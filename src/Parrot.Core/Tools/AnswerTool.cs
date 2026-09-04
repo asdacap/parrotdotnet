@@ -7,9 +7,9 @@ namespace Parrot.Tools;
 
 internal sealed class AnswerTool(ChildQuestionCoordinator questions) : ITool
 {
-    private readonly IAgentSessionScope? _parentScope;
+    private readonly AgentSessionParentScope? _parentScope;
 
-    public AnswerTool(ChildQuestionCoordinator questions, IAgentSessionScope parentScope)
+    public AnswerTool(ChildQuestionCoordinator questions, AgentSessionParentScope parentScope)
         : this(questions) => _parentScope = parentScope;
 
     public string Name => "answer";

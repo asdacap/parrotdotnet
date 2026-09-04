@@ -1850,7 +1850,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
         var parentScope = AgentSessionDirectScope.Build(
             identity,
-            AgentSessionParentScope.Root(),
+            AgentSessionParentLink.Root(),
             registry,
             TestModels.PromptTemplates,
             (sessionParentScope, _, children, childQuestions) => new AgentSession(identity, sessionParentScope, new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
@@ -1914,7 +1914,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         InvalidOperationException? unattachedAccess = null;
         var candidate = AgentSessionDirectScope.Build(
             identity,
-            AgentSessionParentScope.Root(),
+            AgentSessionParentLink.Root(),
             registry,
             TestModels.PromptTemplates,
             (sessionParentScope, owningScope, children, childQuestions) =>
@@ -1966,8 +1966,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var secondScope = _rootScopes[^1];
 
         _ = await Assert.That(ReferenceEquals(firstScope.ChildRegistry, secondScope.ChildRegistry)).IsFalse();
-        firstScope.ChildRegistry.ValidateOwnerScope(firstScope);
-        secondScope.ChildRegistry.ValidateOwnerScope(secondScope);
+        firstScope.ParentScope.ValidateOwnerScope(firstScope);
+        secondScope.ParentScope.ValidateOwnerScope(secondScope);
         var mismatch = await Assert.That(() => firstScope.ChildRegistry.SpawnScope(Request(secondParent)).Session)
             .Throws<AgentRegistryException>();
         var child = firstScope.ChildRegistry.SpawnScope(Request(firstParent)).Session;
@@ -2123,11 +2123,18 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var router = Router(provider);
+        var parentLink = AgentSessionParentLink.Root();
+        if (depth > 0)
+        {
+            var ancestor = Session(provider, 0, "ancestor", "ancestor-agent", registry, cancellationToken);
+            parentLink = AgentSessionParentLink.Child(TestModels.ScopeOf(ancestor), AgentCompletionDeliveryPolicy.RetainedOnly);
+        }
+
         var identity = depth == 0
             ? AgentIdentity.Main(sessionId, name, TestModels.PromptTemplates)
             : AgentIdentity.Child(sessionId, "ancestor", "ancestor-agent", name, depth, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        var scope = AgentSessionDirectScope.Build(identity, AgentSessionParentScope.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
+        var scope = AgentSessionDirectScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
             new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
         TestModels.RegisterScope(scope);
         if (depth == 0)
@@ -2149,7 +2156,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
-            AgentSessionParentScope parentScope,
+            AgentSessionParentLink parentLink,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
@@ -2159,12 +2166,11 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
-            parentScope.Validate(identity);
             _ = _entered.TrySetResult();
             release.Wait(CancellationToken.None);
             CreatedScope = sessions.Create(
                 identity,
-                parentScope,
+                parentLink,
                 model,
                 eventBroker,
                 eventRepository,
@@ -2181,7 +2187,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     {
         public IAgentSessionScope Create(
             AgentIdentity identity,
-            AgentSessionParentScope parentScope,
+            AgentSessionParentLink parentLink,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
@@ -2215,7 +2221,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         public IAgentSessionScope Create(
             AgentIdentity identity,
-            AgentSessionParentScope parentScope,
+            AgentSessionParentLink parentLink,
             ModelSelector model,
             EventBroker eventBroker,
             EventRepository eventRepository,
@@ -2225,8 +2231,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             IAgentRegistry registry,
             CancellationToken lifetime)
         {
-            parentScope.Validate(identity);
-            ParentScopes.Add(parentScope);
             _identities.Add(identity);
             _models.Add(model);
             Profiles.Add(mode);
@@ -2251,7 +2255,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             ProcessOwners.Add(processes);
             QueueCatalogs.Add(queueCatalog);
 
-            var scope = AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
+            var scope = AgentSessionDirectScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
                 var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker), SecurityProfileTestFactory.Create(securityProfile), new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System), queues, new AgentSessionActivity(TimeProvider.System), lifetime);
@@ -2259,6 +2263,11 @@ internal sealed partial class SubagentTests : IAsyncDisposable
                 return session;
             });
             Scopes.Add(scope);
+            if (parentLink.Parent is not null)
+            {
+                ParentScopes.Add(scope.ParentScope);
+            }
+
             TestModels.RegisterScope(scope);
             return scope;
         }
