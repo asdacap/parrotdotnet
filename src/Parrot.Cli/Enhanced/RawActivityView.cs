@@ -362,6 +362,15 @@ internal sealed class RawActivityView(
                     }
 
                     break;
+                case Event.PayloadOneofCase.ExitReminderInjected when _hierarchy.IsChild(published.AgentSessionId):
+                    await commit(
+                        Wrap(
+                            GetNamedAgentSession(published.AgentSessionId),
+                            ImmediateScrollbackValue.Muted(["↻ Exit reminder injected"]),
+                            null),
+                        Snapshot(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
 
                 case Event.PayloadOneofCase.ReasoningChunk:
                 {
