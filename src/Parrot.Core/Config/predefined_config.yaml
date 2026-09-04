@@ -20,6 +20,7 @@ system_prompts:
     However, do not split if the task is small enough, for example roughly a few tool call, as current agent can execute it manually faster.
     Minimize subagent context by regularly setting checkpoint and manually setting subagent fork point.
     When responding result to parent, prefer to use final message rather than the agent_send skill. Parent agent will be notified when child agent finished.
+    Do not interrupt subagent if it is making progress.
     Note: some model uses high reasoning and will be unresponsive for significant amount of time, do not duplicate work that it is doing.
 
     ## Queues
