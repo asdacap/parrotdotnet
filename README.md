@@ -319,20 +319,38 @@ Both forms enter the same strict AgentTask parser, and supplying both or neither
 is rejected. Plan-approved builds continue to use the path form so their
 invocation-time file and security checks are preserved.
 
-`run_agent_tasks` runs the graph synchronously. Fresh retained-only children do
-not inherit conversational context, but use the same workspace and normal
-user-session-scoped runtime resources. Composite tasks use one retained composite agent for distinct preparation and
+`run_agent_tasks` runs the graph synchronously. By default, every fresh AgentTask
+child session inherits the effective conversation history of its immediate owning
+agent. A root task child receives the invoking agent's history from before the
+active `run_agent_tasks` tool-call batch, so the request that is currently running
+the graph and results from sibling calls in that batch are excluded. A nested task
+child is owned by its retained composite parent and receives that parent's
+completed history at the moment it is created, including completed preparation or
+validation exchanges as applicable. Concurrent siblings independently copy the
+same completed owner history; they do not inherit each other's later exchanges.
+If the owner has been compacted, the child receives the effective compacted
+history—the current summary, associated status when present, and retained tail—not
+the pre-compaction transcript.
+
+This copies conversation context only. A child still has its own identity and
+session lifecycle, and does not inherit the owner's permissions, queues, running
+processes, or any other authority. The child continues to use the same workspace
+and normal user-session-scoped runtime resources under its own security profile.
+Copying history also consumes context-window capacity and duplicates persisted
+conversation storage for every fresh child; deep or broad graphs can therefore
+multiply context and storage cost.
+
+Composite tasks use one retained composite agent for distinct preparation and
 validation turns, and that agent owns the recursively executed nested child
 agents. A fresh instruction leaf uses one fresh `agent-task-payload` child: that
 child implements and verifies the instruction and is retained for the whole leaf
-invocation. It has no inherited
-conversation. On each retry the same retained session receives a new user prompt
-while its previous exchange remains retained; therefore its non-system message
-count grows as 1, 3, 5, ... across attempts. The leaf response is parsed
-directly, rather than producing a separate execution transcript. Internal
-completions never steer the invoking agent. A task's `model`, when present, is
-routed through normal model resolution; otherwise the selected child inherits the
-invoking turn's requested model.
+invocation. On each retry the same retained session receives a new user prompt
+while its previous exchange remains retained; no new fork occurs, and its
+non-system message count grows from its inherited baseline by 1, 3, 5, ... across
+attempts. The leaf response is parsed directly, rather than producing a separate
+execution transcript. Internal completions never steer the invoking agent. A
+task's `model`, when present, is routed through normal model resolution; otherwise
+the selected child inherits the invoking turn's requested model.
 
 Composite tasks begin with a mandatory preparation phase. It returns strict JSON
 with nonblank `context` and may omit `task_patch`; when supplied, the patch is
@@ -380,6 +398,14 @@ results. Direct dependents receive only each declared dependency's bounded
 `result` (with existing fallbacks when no result exists), preserving declaration
 order and blocking semantics. The AgentTask v1 artifact envelope and schema above
 are unchanged.
+
+`agent_tasks.fork_parent_history` is a global strict boolean and defaults to
+`true`. When `true`, fresh AgentTask sessions use the immediate-owner inheritance
+semantics above. Setting it to `false` preserves the compatibility behavior: every
+fresh AgentTask session starts with an empty conversation, while retained sessions
+continue to keep the exchanges accumulated during their own lifecycle. This option
+changes only AgentTask-internal child creation; it does not change the public
+`agent_spawn.fork` contract.
 
 `agent_tasks.maximum_attempts` is global runtime configuration enforced
 independently for every task invocation. It accepts any positive `Int32`,

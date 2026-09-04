@@ -167,8 +167,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
 
     private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)

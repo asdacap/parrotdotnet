@@ -50,7 +50,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(runtime.Sessions.Identities.All(identity => identity.ParentSessionId == runtime.Parent.SessionId)).IsTrue();
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(provider.Requests[0].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(1);
-        var prompt = provider.Requests[0].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(prompt).Contains("AgentTask role: payload executor");
         _ = await Assert.That(prompt).Contains("Inspect, implement, and verify this instruction:");
         _ = await Assert.That(prompt).Contains("Return only one strict JSON object with no prose or code fence:");
@@ -103,7 +103,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Runner(runtime, "acceptance-contract")
             .Run(artifact, cancellationToken);
 
-        var prompt = provider.Requests[0].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(prompt).Contains("AgentTask role: payload executor");
         _ = await Assert.That(prompt).Contains("Inspect, implement, and verify this instruction:");
         _ = await Assert.That(prompt).Contains("Return only one strict JSON object with no prose or code fence:");
@@ -466,9 +466,9 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Count(profile => profile == "agent-task-prepare")).IsEqualTo(1);
         _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
             .Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
-        var preparationPrompt = provider.Requests[1].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var preparationPrompt = provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(preparationPrompt).Contains("replacement parent result");
-        var childExecution = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var childExecution = provider.Requests[2].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(childExecution).DoesNotContain("replacement parent result");
         _ = await Assert.That(childExecution).DoesNotContain("\n[task/parent] parent result");
         var parentAcceptance = provider.Requests[3].Messages.Last(message => message.Role == LLMRole.User).Content;
@@ -516,7 +516,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(topComposite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(childComposite.ParentSessionId).IsEqualTo(topComposite.SessionId);
         _ = await Assert.That(leaf.ParentSessionId).IsEqualTo(childComposite.SessionId);
-        _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
+        _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(5);
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
             .Any(content => content.Contains("child preparation", StringComparison.Ordinal))).IsTrue();
         _ = await Assert.That(provider.Requests[4].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
@@ -550,7 +550,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .Run(artifact, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
-        var dependentPrompt = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var dependentPrompt = provider.Requests[2].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(dependentPrompt).Contains("[prerequisite] dependency result");
     }
 
@@ -607,7 +607,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(parentAcceptancePrompt).Contains("\"result\":\"successful child result\"");
         _ = await Assert.That(parentAcceptancePrompt).Contains("\"result\":\"failed child result\"");
 
-        var dependentPrompt = provider.Requests[8].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var dependentPrompt = provider.Requests[8].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(dependentPrompt).Contains($"[parent] {parentResult}");
         _ = await Assert.That(dependentPrompt).DoesNotContain("parent acceptance evidence");
         _ = await Assert.That(dependentPrompt).DoesNotContain("unrelated evidence");
@@ -754,7 +754,8 @@ internal sealed class AgentTaskRunnerTests : IDisposable
                 _repository,
                 runtime.Parent.SessionId,
                 originToolCallId),
-            new AgentTaskConfig(maximumAttempts, TestModels.PromptTemplates));
+            new AgentTaskConfig(maximumAttempts, true, TestModels.PromptTemplates),
+            new HistoryForkBoundary.AfterCompletedHistory());
 
     private RuntimeContext Runtime(ILLMProvider provider, CancellationToken cancellationToken)
     {

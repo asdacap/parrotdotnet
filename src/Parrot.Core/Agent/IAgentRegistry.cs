@@ -39,8 +39,7 @@ internal interface IAgentRegistry : IAsyncDisposable, IActiveWorkSource, IAgentS
     void InitializeChildHistory(
         string parentSessionId,
         string childSessionId,
-        long assistantSequence,
-        string spawnToolCallId,
+        HistoryForkBoundary boundary,
         HistoryForkSelection fork);
 
     void CleanupChildHistory(string childSessionId);

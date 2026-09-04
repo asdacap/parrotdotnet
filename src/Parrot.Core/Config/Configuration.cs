@@ -85,6 +85,7 @@ internal sealed class Configuration(string path)
 
     public AgentTaskConfig AgentTasks { get; private set; } = new(
         5,
+        true,
         new PromptTemplateCatalog(new Dictionary<string, PromptTemplate>(StringComparer.Ordinal)));
 
     public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
@@ -1183,9 +1184,10 @@ internal sealed class Configuration(string path)
             throw new InvalidDataException($"{AgentTasksKey} must be a mapping");
         }
 
-        ValidateKeys(agentTasks, AgentTasksKey, "maximum_attempts");
+        ValidateKeys(agentTasks, AgentTasksKey, "maximum_attempts", "fork_parent_history");
         return new AgentTaskConfig(
             PositiveInteger(agentTasks, "maximum_attempts", $"{AgentTasksKey}.maximum_attempts"),
+            ReadOptionalBoolean(agentTasks, "fork_parent_history", $"{AgentTasksKey}.fork_parent_history"),
             ReadPromptTemplates(root));
     }
 

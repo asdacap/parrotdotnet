@@ -11,6 +11,5 @@ internal sealed record AgentLaunchRequest(
     string RequestedName,
     string RequestedScope,
     HistoryForkSelection Fork,
-    long AssistantSequence,
-    string SpawnToolCallId,
+    HistoryForkBoundary Boundary,
     AgentCompletionDeliveryPolicy DeliveryPolicy);

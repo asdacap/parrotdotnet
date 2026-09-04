@@ -244,8 +244,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var sibling = TestModels.ScopeOf(firstParent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             firstParent,
@@ -255,8 +254,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var otherBranch = TestModels.ScopeOf(secondParent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             secondParent,
@@ -266,8 +264,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await Assert.That(first.Name).IsEqualTo("helper");
@@ -298,8 +295,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "  Planner!  ",
             "Plan the migration.",
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var worker = TestModels.ScopeOf(planner).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             planner,
@@ -309,8 +305,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var reviewer = TestModels.ScopeOf(worker).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             worker,
@@ -320,8 +315,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "reviewer",
             "Plan the migration.",
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var implementer = TestModels.ScopeOf(worker).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             worker,
@@ -331,8 +325,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "implementer",
             "Implement the migration.",
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await Assert.That(planner.Name).IsEqualTo("planner");
@@ -373,8 +366,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await Assert.That(Resolver(secondParent, registry).ResolveStatusTarget(target.SessionId)).IsSameReferenceAs(target);
@@ -407,8 +399,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "direct-child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var otherParent = Session(provider, 0, "other-parent", registry, cancellationToken);
         var canonicalTarget = TestModels.ScopeOf(otherParent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
@@ -419,8 +410,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "canonical-target",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var resolver = Resolver(owner, registry);
         registry.UnregisterRootScope(ownerScope);
@@ -461,8 +451,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "parent-name",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var caller = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -472,8 +461,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "caller",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var parentNameCollision = TestModels.ScopeOf(caller).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             caller,
@@ -483,8 +471,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent.Name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var canonicalCollision = TestModels.ScopeOf(caller).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             caller,
@@ -494,8 +481,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parentNameCollision.SessionId,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await Assert.That(Resolver(caller, registry).ResolveRecipient(parent.Name)).IsSameReferenceAs(parent);
@@ -526,8 +512,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "grandparent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var parent = TestModels.ScopeOf(grandparent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             grandparent,
@@ -537,8 +522,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "parent-agent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var sender = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -548,8 +532,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "sender",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var send = new AgentSendTool(sender.Identity, Resolver(sender, registry), sender);
 
@@ -587,8 +570,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             string.Empty,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var second = TestModels.ScopeOf(secondParent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             secondParent,
@@ -598,8 +580,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             first.Name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await Assert.That(second.Name).IsEqualTo(first.Name);
@@ -628,8 +609,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "actual-parent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var caller = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             parent,
@@ -639,8 +619,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "caller",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var namedParent = TestModels.ScopeOf(caller).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             caller,
@@ -650,8 +629,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "parent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await Assert.That(Resolver(caller, registry).ResolveRecipient("parent")).IsSameReferenceAs(parent);
@@ -683,8 +661,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "parent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await Assert.That(Resolver(root, registry).ResolveRecipient("parent")).IsSameReferenceAs(child);
@@ -758,8 +735,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly));
 
         var rootScope = TestModels.ScopeOf(root);
@@ -840,8 +816,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
 
         _ = await child.Send("do work", cancellationToken);
@@ -883,8 +858,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
 
         _ = await child.Send("do work", cancellationToken);
@@ -924,8 +898,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "internal-helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
         _ = await child.Send("do work", cancellationToken);
@@ -972,8 +945,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "intermediate",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         _ = await intermediate.Send("prepare", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -989,8 +961,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "nested",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
 
         _ = await nested.Send("inspect", cancellationToken);
@@ -1056,8 +1027,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var mode = sessions.Profiles.Single();
         var securityProfile = sessions.SecurityProfiles.Single();
@@ -1208,8 +1178,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(parent.Identity, Resolver(parent, registry), parent);
@@ -1280,8 +1249,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var send = new AgentSendTool(child.Identity, Resolver(child, registry), child);
 
@@ -1325,8 +1293,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var send = new AgentSendTool(child.Identity, Resolver(child, registry), child);
 
@@ -1367,8 +1334,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await spawned.Send("initial", cancellationToken);
 
@@ -1409,8 +1375,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await spawned.Send("initial", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1450,8 +1415,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await spawned.Send("initial", cancellationToken);
         var send = new AgentSendTool(parent.Identity, Resolver(parent, registry), parent);
@@ -1571,8 +1535,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
     }
 
@@ -1612,8 +1575,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
     }
 
@@ -1660,8 +1622,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "descendant",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session)
             .Throws<AgentRegistryException>();
         _ = await Assert.That(childRecursion?.Message)
@@ -1675,8 +1636,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
     }
 
@@ -1708,8 +1668,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
     }
 
@@ -1735,8 +1694,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "idle",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await idle.Send("become idle", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1777,8 +1735,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         _ = await spawned.Send("first", cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -1812,8 +1769,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session)
             .Throws<AgentRegistryException>();
         var rejected = (await send.Execute(
@@ -1885,8 +1841,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "blocked",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
     }
 
@@ -1981,8 +1936,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             "child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
     }
 
@@ -2043,8 +1997,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
     }
 

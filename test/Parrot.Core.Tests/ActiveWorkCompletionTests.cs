@@ -69,8 +69,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             "direct-child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
@@ -266,8 +265,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             "direct-child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
@@ -322,8 +320,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             "monitored",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         monitored.UpdateSelection(
             new ModelSelector("monitored/model"),
@@ -336,8 +333,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             "sibling",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         var grandchild = TestModels.ScopeOf(sibling).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             sibling,
@@ -347,8 +343,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             "grandchild",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
@@ -464,8 +459,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             "direct-child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
@@ -520,8 +514,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             "direct-child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
@@ -554,8 +547,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
 
     private static Parrot.Questions.QuestionDefinition Question(string id) => new(

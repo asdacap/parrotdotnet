@@ -11,7 +11,8 @@ internal sealed class AgentTaskGraphRunner(
     IAgentSessionScope ownerScope,
     AgentTurnSelection selection,
     AgentTaskProgress progress,
-    AgentTaskConfig configuration)
+    AgentTaskConfig configuration,
+    HistoryForkBoundary rootHistoryBoundary)
 {
     private const int MaxContextCharacters = 16 * 1024;
     private const int MaxSummaryCharacters = 16 * 1024;
@@ -1026,6 +1027,9 @@ internal sealed class AgentTaskGraphRunner(
             if (retainedAgentScope is null)
             {
                 var requestedName = role is "execute" or "prepare" ? taskName : $"{taskName}-{role}";
+                var historyBoundary = ReferenceEquals(owningAgentScope, ownerScope)
+                    ? rootHistoryBoundary
+                    : new HistoryForkBoundary.AfterCompletedHistory();
                 childScope = owningAgentScope.ChildRegistry.SpawnScope(new AgentLaunchRequest(
                     owningAgentScope.Session,
                     selection,
@@ -1033,9 +1037,8 @@ internal sealed class AgentTaskGraphRunner(
                     model,
                     requestedName,
                     Render("agent-task.child-scope", ("role", role), ("task_name", taskName)),
-                    HistoryForkSelection.Parse(string.Empty),
-                    0,
-                    string.Empty,
+                    HistoryForkSelection.Parse(configuration.ForkParentHistory ? "full" : string.Empty),
+                    historyBoundary,
                     AgentCompletionDeliveryPolicy.RetainedOnly));
             }
             else

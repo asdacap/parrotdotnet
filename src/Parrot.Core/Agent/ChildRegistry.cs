@@ -110,8 +110,7 @@ internal sealed class ChildRegistry(
             authority.InitializeChildHistory(
                 owner.SessionId,
                 childIdentity.SessionId,
-                request.AssistantSequence,
-                request.SpawnToolCallId,
+                request.Boundary,
                 request.Fork);
             historyInitialized = true;
             var securityProfile = childParentLink.PolicyLineage.Resolve(profile.SecurityProfile);

@@ -686,6 +686,8 @@ compaction:
 # Maximum payload execution attempts for each AgentTask invocation.
 agent_tasks:
   maximum_attempts: 5
+  # Fork the owning parent's conversation history into fresh AgentTask children.
+  fork_parent_history: true
 
 # Default foreground profile when no mode is selected explicitly.
 default_profile: build

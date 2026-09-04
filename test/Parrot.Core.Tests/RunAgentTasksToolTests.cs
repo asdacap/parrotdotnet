@@ -152,6 +152,43 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     }
 
     [Test]
+    [Arguments(true, 3)]
+    [Arguments(false, 1)]
+    public async Task Configured_history_fork_inherits_only_prior_root_history(
+        bool forkParentHistory,
+        int expectedMessageCount,
+        CancellationToken cancellationToken)
+    {
+        const string arguments =
+            "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
+        var provider = new AgentTaskQueueProvider([
+            "{\"result\":\"ready\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        AppendCompletedRootHistory(runtime, "prior user history", "prior assistant history");
+        const long assistantSequence = 3;
+        AppendCurrentToolBatch(runtime, assistantSequence, "history-call", arguments);
+        var tool = ToolWithHistoryFork(runtime, forkParentHistory);
+
+        var result = await tool.Execute(
+            new ToolInvocation("history-call", arguments, assistantSequence),
+            runtime.Selection,
+            cancellationToken);
+
+        _ = await Assert.That(result.Text).Contains("\"status\":\"succeeded\"");
+        var request = provider.Requests.Single();
+        _ = await Assert.That(request.Messages.Count(message => message.Role != LLMRole.System))
+            .IsEqualTo(expectedMessageCount);
+        _ = await Assert.That(request.Messages.Any(message => message.Content == "prior user history"))
+            .IsEqualTo(forkParentHistory);
+        _ = await Assert.That(request.Messages.Any(message => message.Content == "prior assistant history"))
+            .IsEqualTo(forkParentHistory);
+        _ = await Assert.That(request.Messages.SelectMany(message => message.ToolCalls)
+            .Any(call => call.Id == "history-call")).IsFalse();
+    }
+
+    [Test]
     public async Task Leaf_retry_task_array_uses_composite_roles_and_retains_feedback(CancellationToken cancellationToken)
     {
         const string arguments =
@@ -189,7 +226,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = await Assert.That(provider.Requests[3].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
         _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)
             .Any(content => content.Contains("composite context", StringComparison.Ordinal))).IsTrue();
-        var childPrompt = provider.Requests[2].Messages.Single(message => message.Role == LLMRole.User).Content;
+        var childPrompt = provider.Requests[2].Messages.Last(message => message.Role == LLMRole.User).Content;
         _ = await Assert.That(childPrompt).Contains("replacement result");
     }
 
@@ -334,6 +371,53 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         _ = await Assert.That(result.Text).IsEqualTo("error: schema_version is required.");
     }
 
+    private static void AppendCompletedRootHistory(
+        RuntimeContext runtime,
+        string userContent,
+        string assistantContent)
+    {
+        runtime.Repository.AppendConversation(
+            Published(runtime, "prior-user"),
+            ConversationOrigin.UserInput,
+            LLMRole.User,
+            [ConversationPart.TextPart(userContent)],
+            [],
+            string.Empty);
+        runtime.Repository.AppendConversation(
+            Published(runtime, "prior-assistant"),
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart(assistantContent)],
+            [],
+            string.Empty);
+    }
+
+    private static void AppendCurrentToolBatch(
+        RuntimeContext runtime,
+        long expectedAssistantSequence,
+        string callId,
+        string arguments)
+    {
+        runtime.Repository.AppendConversation(
+            Published(runtime, "current-batch"),
+            ConversationOrigin.Model,
+            LLMRole.Assistant,
+            [ConversationPart.TextPart(string.Empty)],
+            [new LLMToolCall(callId, "run_agent_tasks", arguments)],
+            string.Empty);
+        var assistantSequence = runtime.Repository.Conversation(runtime.Parent.SessionId)[^1].Sequence;
+        if (assistantSequence != expectedAssistantSequence)
+        {
+            throw new InvalidOperationException("The current test tool batch has an unexpected sequence.");
+        }
+    }
+
+    private static Event Published(RuntimeContext runtime, string id) => new()
+    {
+        Id = id,
+        AgentSessionId = runtime.Parent.SessionId,
+    };
+
     private static async Task<Event[]> ObserveProgress(
         EventSubscription subscription,
         EventRepository repository,
@@ -365,13 +449,19 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     private RunAgentTasksTool Tool(RuntimeContext runtime) =>
         ToolWithAttempts(runtime, 5);
 
-    private RunAgentTasksTool ToolWithAttempts(RuntimeContext runtime, int maximumAttempts) => new(
+    private RunAgentTasksTool ToolWithAttempts(RuntimeContext runtime, int maximumAttempts) =>
+        Tool(runtime, new AgentTaskConfig(maximumAttempts, false, TestModels.PromptTemplates));
+
+    private RunAgentTasksTool ToolWithHistoryFork(RuntimeContext runtime, bool forkParentHistory) =>
+        Tool(runtime, new AgentTaskConfig(5, forkParentHistory, TestModels.PromptTemplates));
+
+    private RunAgentTasksTool Tool(RuntimeContext runtime, AgentTaskConfig configuration) => new(
         new ToolWorkspace(_root),
         runtime.Router,
         runtime.ParentScope,
         _broker,
         runtime.Repository,
-        new AgentTaskConfig(maximumAttempts, TestModels.PromptTemplates));
+        configuration);
 
     private RuntimeContext Runtime(CancellationToken cancellationToken) =>
         Runtime(new AgentTaskQueueProvider([]), cancellationToken);

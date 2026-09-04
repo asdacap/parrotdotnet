@@ -250,6 +250,45 @@ internal sealed class ConfigurationTests : IDisposable
         _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
 
     [Test]
+    public async Task Agent_task_configuration_defaults_to_forking_parent_history()
+    {
+        var configuration = Load(Write(string.Empty));
+
+        _ = await Assert.That(configuration.AgentTasks.ForkParentHistory).IsTrue();
+    }
+
+    [Test]
+    [Arguments("true", true)]
+    [Arguments("false", false)]
+    public async Task Agent_task_configuration_parses_fork_parent_history(string value, bool expected)
+    {
+        var configuration = Load(Write($"agent_tasks:\n  fork_parent_history: {value}\n"));
+
+        _ = await Assert.That(configuration.AgentTasks.ForkParentHistory).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("1")]
+    [Arguments("null")]
+    [Arguments("yes")]
+    [Arguments("[]")]
+    public async Task Agent_task_configuration_requires_a_boolean_fork_parent_history(string value) =>
+        _ = await Assert.That(() => Load(Write($"agent_tasks:\n  fork_parent_history: {value}\n")))
+            .Throws<InvalidDataException>().WithMessage("agent_tasks.fork_parent_history must be true or false");
+
+    [Test]
+    public async Task Agent_task_configuration_partial_overrides_preserve_other_values()
+    {
+        var maximumAttempts = Load(Write("agent_tasks:\n  maximum_attempts: 2\n")).AgentTasks;
+        var forkParentHistory = Load(Write("agent_tasks:\n  fork_parent_history: false\n")).AgentTasks;
+
+        _ = await Assert.That(maximumAttempts.MaximumAttempts).IsEqualTo(2);
+        _ = await Assert.That(maximumAttempts.ForkParentHistory).IsTrue();
+        _ = await Assert.That(forkParentHistory.MaximumAttempts).IsEqualTo(5);
+        _ = await Assert.That(forkParentHistory.ForkParentHistory).IsFalse();
+    }
+
+    [Test]
     [Arguments("2", 2)]
     [Arguments("2147483647", int.MaxValue)]
     public async Task Agent_task_configuration_overrides_maximum_attempts(string value, int expected)

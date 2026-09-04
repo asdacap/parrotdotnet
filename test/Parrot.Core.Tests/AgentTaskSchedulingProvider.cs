@@ -29,7 +29,7 @@ internal sealed class AgentTaskSchedulingProvider : ILLMProvider
     {
         var active = Interlocked.Increment(ref _active);
         SetMaximum(active);
-        var prompt = string.Join('\n', request.Messages.Select(message => message.Content));
+        var prompt = request.Messages.Last(message => message.Role == LLMRole.User).Content;
         var acceptance = prompt.Contains("AgentTask role: acceptance reviewer", StringComparison.Ordinal);
         var preparation = !acceptance && prompt.Contains("AgentTask role: prepare", StringComparison.Ordinal);
         var combinedPayload = !acceptance

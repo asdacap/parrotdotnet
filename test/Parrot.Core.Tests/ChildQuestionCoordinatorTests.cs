@@ -422,8 +422,7 @@ internal sealed partial class SubagentTests
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
-            0,
-            string.Empty,
+            new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic);
 
     private static QuestionDefinition Question(string prompt) => new(

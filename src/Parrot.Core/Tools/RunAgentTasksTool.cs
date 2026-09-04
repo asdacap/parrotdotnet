@@ -110,7 +110,15 @@ internal sealed class RunAgentTasksTool(
                 eventRepository,
                 ownerScope.Session.SessionId,
                 invocation.CallId);
-            var runner = new AgentTaskGraphRunner(router, ownerScope, selection, progress, agentTasks);
+            HistoryForkBoundary rootHistoryBoundary =
+                new HistoryForkBoundary.BeforeToolBatch(invocation.AssistantSequence, invocation.CallId);
+            var runner = new AgentTaskGraphRunner(
+                router,
+                ownerScope,
+                selection,
+                progress,
+                agentTasks,
+                rootHistoryBoundary);
             return (await runner.Run(artifact, cancellationToken).ConfigureAwait(false)).Serialize();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

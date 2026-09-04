@@ -209,14 +209,12 @@ internal sealed class AgentRegistry(
     public void InitializeChildHistory(
         string parentSessionId,
         string childSessionId,
-        long assistantSequence,
-        string spawnToolCallId,
+        HistoryForkBoundary boundary,
         HistoryForkSelection fork) =>
         eventRepository.InitializeForkedAgentHistory(
             parentSessionId,
             childSessionId,
-            assistantSequence,
-            spawnToolCallId,
+            boundary,
             fork);
 
     public void CleanupChildHistory(string childSessionId) =>
