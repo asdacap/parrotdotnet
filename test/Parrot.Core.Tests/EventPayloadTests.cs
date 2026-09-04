@@ -35,14 +35,15 @@ internal sealed class EventPayloadTests
                 {
                     new AgentTaskProgressNode
                     {
-                        Name = "first",
+                        Name = "first-id",
+                        Description = "first description",
                         Status = AgentTaskProgressStatus.Pending,
                         Children =
                         {
-                            new AgentTaskProgressNode { Name = "child", Status = AgentTaskProgressStatus.Pending },
+                            new AgentTaskProgressNode { Name = "child-id", Description = "child description", Status = AgentTaskProgressStatus.Pending },
                         },
                     },
-                    new AgentTaskProgressNode { Name = "second", Status = AgentTaskProgressStatus.Pending },
+                    new AgentTaskProgressNode { Name = "second-id", Description = "second description", Status = AgentTaskProgressStatus.Pending },
                 },
             },
         };
@@ -52,8 +53,10 @@ internal sealed class EventPayloadTests
 
         _ = await Assert.That(roundtripped.TaskTree).IsNotNull();
         _ = await Assert.That(string.Join(',', roundtripped.TaskTree.RootNodes.Select(node => node.Name)))
-            .IsEqualTo("first,second");
-        _ = await Assert.That(roundtripped.TaskTree.RootNodes[0].Children[0].Name).IsEqualTo("child");
+            .IsEqualTo("first-id,second-id");
+        _ = await Assert.That(roundtripped.TaskTree.RootNodes[0].Description).IsEqualTo("first description");
+        _ = await Assert.That(roundtripped.TaskTree.RootNodes[0].Children[0].Name).IsEqualTo("child-id");
+        _ = await Assert.That(roundtripped.TaskTree.RootNodes[0].Children[0].Description).IsEqualTo("child description");
         _ = await Assert.That(roundtripped.TaskTree.RootNodes[0].Status).IsEqualTo(AgentTaskProgressStatus.Pending);
         _ = await Assert.That(absent.TaskTree).IsNull();
     }

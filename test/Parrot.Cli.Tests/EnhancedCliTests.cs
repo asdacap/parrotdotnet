@@ -546,7 +546,7 @@ internal sealed class EnhancedCliTests
             IScrollbackItem scrollback,
             IReadOnlyList<ILiveBufferItem> items,
             CancellationToken token) => renderer.Commit(scrollback, [.. items, .. fixedItems], token);
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([new ExecCommandToolPresenter(TimeProvider.System, [])], new GenericToolPresenter()),
@@ -631,7 +631,7 @@ internal sealed class EnhancedCliTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(Draw, Commit, Delay, Presenters(), UpdateMainAgentActivity);
+        await using var view = new RawActivityView(Draw, Commit, Delay, Presenters(), UpdateMainAgentActivity);
         using var animating = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var animation = view.Run(animating.Token);
 

@@ -317,7 +317,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         IAsyncStreamReader<Event> stream,
         CancellationToken cancellationToken)
     {
-        using var activity = new RawActivityView(
+        await using var activity = new RawActivityView(
             ReplaceBody,
             CommitBody,
             _toolPresenters,

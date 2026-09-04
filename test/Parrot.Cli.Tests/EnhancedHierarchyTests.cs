@@ -26,7 +26,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             static (_, _) => Task.CompletedTask,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -76,7 +76,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -186,7 +186,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -240,7 +240,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             static (_, token) =>
             {
                 token.ThrowIfCancellationRequested();
@@ -315,7 +315,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -380,7 +380,7 @@ internal sealed class EnhancedHierarchyTests
         async Task Delay(CancellationToken token) =>
             _ = await ticks.Reader.ReadAsync(token);
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             static (_, _, token) =>
             {
@@ -472,7 +472,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -523,7 +523,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -572,7 +572,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -628,7 +628,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -720,7 +720,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -913,7 +913,7 @@ internal sealed class EnhancedHierarchyTests
     {
         var draws = new List<string>();
         var context = new LiveBufferRenderContext(120, new TerminalPalette(false));
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             (items, token) =>
             {
                 token.ThrowIfCancellationRequested();
@@ -958,7 +958,7 @@ internal sealed class EnhancedHierarchyTests
     {
         var draws = new List<string>();
         var context = new LiveBufferRenderContext(120, new TerminalPalette(false));
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             (items, _) =>
             {
                 draws.Add(Render(items, context));
@@ -984,7 +984,7 @@ internal sealed class EnhancedHierarchyTests
         var committed = new List<string>();
         var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
         var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             (items, token) =>
             {
                 token.ThrowIfCancellationRequested();
@@ -1060,7 +1060,7 @@ internal sealed class EnhancedHierarchyTests
     {
         var drawn = new List<string>();
         var context = new LiveBufferRenderContext(120, new TerminalPalette(false));
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             (items, token) =>
             {
                 token.ThrowIfCancellationRequested();
@@ -1127,7 +1127,7 @@ internal sealed class EnhancedHierarchyTests
             return Task.CompletedTask;
         }
 
-        using var view = new RawActivityView(
+        await using var view = new RawActivityView(
             Draw,
             Commit,
             new ToolPresenterRegistry([], new GenericToolPresenter()),
@@ -1199,11 +1199,12 @@ internal sealed class EnhancedHierarchyTests
     }
 
     [Test]
-    public async Task Active_agent_task_progress_replaces_the_current_call_without_committing_snapshots(
+    public async Task Active_agent_task_progress_debounces_commits_and_preserves_live_hierarchy(
         CancellationToken cancellationToken)
     {
         var drawn = new List<string>();
         var committed = new List<string>();
+        var progressDelay = new ControlledProgressDelay();
         var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
         var scrollbackContext = new ScrollbackRenderContext(120, liveContext.Palette);
 
@@ -1223,7 +1224,213 @@ internal sealed class EnhancedHierarchyTests
         }
 
         var presenters = new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter());
-        using var view = new RawActivityView(Draw, Commit, presenters, static (_, _) => Task.CompletedTask);
+        await using var view = new RawActivityView(
+            Draw,
+            Commit,
+            static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            progressDelay.Delay,
+            presenters,
+            static (_, _) => Task.CompletedTask);
+        await StartChildAgentTask(view, "call", cancellationToken);
+
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "first")), cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("◐ first");
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 2, "higher")), cancellationToken);
+        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("◐ first");
+        _ = await Assert.That(progressDelay.Count).IsEqualTo(2);
+
+        var drawCount = drawn.Count;
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "stale")), cancellationToken);
+        await view.Render(ProgressEvent("child", TaskSnapshot("wrong", 99, "wrong")), cancellationToken);
+        _ = await Assert.That(drawn).Count().IsEqualTo(drawCount);
+        _ = await Assert.That(progressDelay.Count).IsEqualTo(2);
+
+        progressDelay.Release(1);
+        await WaitForCount(committed, 1, cancellationToken);
+        _ = await Assert.That(committed[0]).Contains("  • [worker] Agent tasks:|    [worker] ◐ higher|    [worker] └── ○ nested");
+        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
+
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 3, "newer")), cancellationToken);
+        progressDelay.Release(2);
+        await WaitForCount(committed, 2, cancellationToken);
+        _ = await Assert.That(committed[1]).Contains("◐ newer");
+
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "run_agent_tasks" },
+            },
+            cancellationToken);
+        _ = await Assert.That(committed).Count().IsEqualTo(3);
+        _ = await Assert.That(committed[2]).DoesNotContain("Agent tasks:");
+        _ = await Assert.That(drawn[^1]).DoesNotContain("Agent tasks:");
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 4, "late")), cancellationToken);
+        _ = await Assert.That(progressDelay.Count).IsEqualTo(3);
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("stale");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("wrong");
+        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("late");
+    }
+
+    [Test]
+    [Arguments(Event.PayloadOneofCase.ToolFinished)]
+    [Arguments(Event.PayloadOneofCase.ToolCancelled)]
+    [Arguments(Event.PayloadOneofCase.ToolError)]
+    public async Task Tool_terminal_flushes_pending_progress_before_terminal_output(
+        Event.PayloadOneofCase terminalCase,
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var context = new ScrollbackRenderContext(120, new TerminalPalette(false));
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = items;
+            committed.Add(string.Join('|', item.Render(context)));
+            return Task.CompletedTask;
+        }
+
+        await using var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            static (_, token) => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await StartChildAgentTask(view, "call", cancellationToken);
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "pending")), cancellationToken);
+        await view.Render(TerminalEvent(terminalCase), cancellationToken);
+
+        _ = await Assert.That(committed).Count().IsEqualTo(2);
+        _ = await Assert.That(committed[0]).Contains("Agent tasks:");
+        _ = await Assert.That(committed[0]).Contains("pending");
+        _ = await Assert.That(committed[1]).DoesNotContain("Agent tasks:");
+    }
+
+    [Test]
+    public async Task Agent_task_progress_calls_debounce_independently_and_shutdown_flushes_pending(
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var progressDelay = new ControlledProgressDelay();
+        var context = new ScrollbackRenderContext(120, new TerminalPalette(false));
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = items;
+            committed.Add(string.Join('|', item.Render(context)));
+            return Task.CompletedTask;
+        }
+
+        await using var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            progressDelay.Delay,
+            new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await StartChildAgentTask(view, "first-call", cancellationToken);
+        await StartChildAgentTask(view, "second-call", cancellationToken);
+        await view.Render(ProgressEvent("child", TaskSnapshot("first-call", 1, "first-call-tree")), cancellationToken);
+        await view.Render(ProgressEvent("child", TaskSnapshot("second-call", 1, "second-call-tree")), cancellationToken);
+
+        progressDelay.Release(0);
+        await WaitForCount(committed, 1, cancellationToken);
+        _ = await Assert.That(committed[0]).Contains("first-call-tree");
+        _ = await Assert.That(committed[0]).DoesNotContain("second-call-tree");
+
+        await view.Shutdown();
+        _ = await Assert.That(committed).Count().IsEqualTo(2);
+        _ = await Assert.That(committed[1]).Contains("second-call-tree");
+        _ = await Assert.That(progressDelay.CancelledCount).IsGreaterThanOrEqualTo(1);
+    }
+
+    [Test]
+    public async Task Background_progress_commit_failure_remains_retryable_and_is_surfaced_by_shutdown(
+        CancellationToken cancellationToken)
+    {
+        var commitAttempts = 0;
+        var successfulCommits = 0;
+        var firstAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var progressDelay = new ControlledProgressDelay();
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = item;
+            _ = items;
+            if (Interlocked.Increment(ref commitAttempts) == 1)
+            {
+                _ = firstAttempt.TrySetResult();
+                throw new InvalidOperationException("progress commit failed");
+            }
+
+            _ = Interlocked.Increment(ref successfulCommits);
+            return Task.CompletedTask;
+        }
+
+        await using var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            progressDelay.Delay,
+            new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await StartChildAgentTask(view, "call", cancellationToken);
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "pending")), cancellationToken);
+
+        progressDelay.Release(0);
+        await firstAttempt.Task.WaitAsync(cancellationToken);
+
+        _ = await Assert.That(view.Shutdown).Throws<InvalidOperationException>();
+        _ = await Assert.That(commitAttempts).IsEqualTo(2);
+        _ = await Assert.That(successfulCommits).IsEqualTo(1);
+        _ = await Assert.That(view.Shutdown).Throws<InvalidOperationException>();
+        _ = await Assert.That(commitAttempts).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Disposal_after_quiet_progress_flush_does_not_duplicate_the_commit(
+        CancellationToken cancellationToken)
+    {
+        var committed = new List<string>();
+        var progressDelay = new ControlledProgressDelay();
+
+        Task Commit(IScrollbackItem item, IReadOnlyList<ILiveBufferItem> items, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            _ = item;
+            _ = items;
+            committed.Add("committed");
+            return Task.CompletedTask;
+        }
+
+        var view = new RawActivityView(
+            static (_, _) => Task.CompletedTask,
+            Commit,
+            static token => Task.Delay(Timeout.InfiniteTimeSpan, token),
+            progressDelay.Delay,
+            new ToolPresenterRegistry([new RunAgentTasksToolPresenter()], new GenericToolPresenter()),
+            static (_, _) => Task.CompletedTask);
+        await StartChildAgentTask(view, "call", cancellationToken);
+        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "pending")), cancellationToken);
+
+        progressDelay.Release(0);
+        await WaitForCount(committed, 1, cancellationToken);
+        await view.DisposeAsync();
+        await view.DisposeAsync();
+
+        _ = await Assert.That(committed).HasSingleItem();
+    }
+
+    private static async Task StartChildAgentTask(
+        RawActivityView view,
+        string callId,
+        CancellationToken cancellationToken)
+    {
         await view.Render(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
         await view.Render(
             new Event
@@ -1233,66 +1440,51 @@ internal sealed class EnhancedHierarchyTests
             },
             cancellationToken);
         await view.Render(new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } }, cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("[worker] agent worker");
-
         await view.Render(
             new Event
             {
                 AgentSessionId = "child",
-                ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "run_agent_tasks" },
+                ToolCallChunk = new ToolCallChunk { ToolCallId = callId, ToolName = "run_agent_tasks" },
             },
             cancellationToken);
         await view.Render(
             new Event
             {
                 AgentSessionId = "child",
-                ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "run_agent_tasks" },
+                ToolStarted = new ToolStarted { ToolCallId = callId, ToolName = "run_agent_tasks" },
             },
             cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("running agent tasks");
+    }
 
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "first")), cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("◐ first");
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 2, "higher")), cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
-        _ = await Assert.That(drawn[^1]).DoesNotContain("◐ first");
+    private static Event TerminalEvent(Event.PayloadOneofCase terminalCase) => terminalCase switch
+    {
+        Event.PayloadOneofCase.ToolFinished => new Event
+        {
+            AgentSessionId = "child",
+            ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "run_agent_tasks" },
+        },
+        Event.PayloadOneofCase.ToolCancelled => new Event
+        {
+            AgentSessionId = "child",
+            ToolCancelled = new ToolCancelled { ToolCallId = "call", ToolName = "run_agent_tasks" },
+        },
+        Event.PayloadOneofCase.ToolError => new Event
+        {
+            AgentSessionId = "child",
+            ToolError = new ToolError { ToolCallId = "call", ToolName = "run_agent_tasks", Message = "failed" },
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(terminalCase)),
+    };
 
-        var drawCount = drawn.Count;
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 1, "stale")), cancellationToken);
-        await view.Render(ProgressEvent("child", TaskSnapshot("wrong", 99, "wrong")), cancellationToken);
-        _ = await Assert.That(drawn).Count().IsEqualTo(drawCount);
-
-        await view.Render(
-            new Event
-            {
-                AgentSessionId = "child",
-                ToolCallChunk = new ToolCallChunk { ToolCallId = "call", ToolName = "run_agent_tasks" },
-            },
-            cancellationToken);
-        await view.Render(
-            new Event
-            {
-                AgentSessionId = "child",
-                ToolStarted = new ToolStarted { ToolCallId = "call", ToolName = "run_agent_tasks" },
-            },
-            cancellationToken);
-        _ = await Assert.That(drawn[^1]).Contains("◐ higher");
-
-        await view.Render(
-            new Event
-            {
-                AgentSessionId = "child",
-                ToolFinished = new ToolFinished { ToolCallId = "call", ToolName = "run_agent_tasks" },
-            },
-            cancellationToken);
-        _ = await Assert.That(drawn[^1]).DoesNotContain("Agent tasks:");
-        await view.Render(ProgressEvent("child", TaskSnapshot("call", 3, "late")), cancellationToken);
-        _ = await Assert.That(drawn[^1]).DoesNotContain("Agent tasks:");
-
-        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("Agent tasks:");
-        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("◐ stale");
-        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("◐ wrong");
-        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("◐ late");
+    private static async Task WaitForCount<T>(
+        List<T> items,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        while (items.Count < count)
+        {
+            await Task.Delay(1, cancellationToken);
+        }
     }
 
     private static Event ProgressEvent(string agentSessionId, AgentTaskProgressSnapshot snapshot) =>
@@ -1339,5 +1531,33 @@ internal sealed class EnhancedHierarchyTests
         root.Children.Add(new AgentTaskProgressNode { Name = "child-b", Status = AgentTaskProgressStatus.Failed });
         snapshot.RootNodes.Add(root);
         return snapshot;
+    }
+
+    private sealed class ControlledProgressDelay
+    {
+        private readonly List<TaskCompletionSource> _releases = [];
+        private int _cancelledCount;
+
+        public int Count => _releases.Count;
+
+        public int CancelledCount => Volatile.Read(ref _cancelledCount);
+
+        public async Task Delay(TimeSpan quietPeriod, CancellationToken cancellationToken)
+        {
+            _ = quietPeriod;
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _releases.Add(release);
+            try
+            {
+                await release.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _ = Interlocked.Increment(ref _cancelledCount);
+                throw;
+            }
+        }
+
+        public void Release(int index) => _ = _releases[index].TrySetResult();
     }
 }

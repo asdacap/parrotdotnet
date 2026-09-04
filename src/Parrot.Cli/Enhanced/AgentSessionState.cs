@@ -232,6 +232,13 @@ internal sealed class AgentSessionState(string agentSessionId)
         return true;
     }
 
+    public bool IsCurrentAgentTaskProgress(string toolCallId, ulong revision) =>
+        IsToolActive(toolCallId)
+        && _toolCalls.TryGetValue(toolCallId, out var call)
+        && string.Equals(call.Name, "run_agent_tasks", StringComparison.Ordinal)
+        && _toolProgressRevisions.TryGetValue(toolCallId, out var currentRevision)
+        && currentRevision == revision;
+
     public (string ActivityId, IScrollbackItem? Scrollback, ToolCallPresentation Call, ToolTerminalPresentation Terminal) FinishTool(
         Event published,
         ToolPresenterRegistry presenters,

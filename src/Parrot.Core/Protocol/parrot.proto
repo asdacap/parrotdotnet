@@ -436,6 +436,7 @@ message AgentTaskProgressNode {
   string name = 1;
   AgentTaskProgressStatus status = 2;
   repeated AgentTaskProgressNode children = 3;
+  string description = 4;
 }
 
 message AgentTaskProgressSnapshot {

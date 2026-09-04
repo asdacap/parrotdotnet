@@ -18,6 +18,7 @@ public sealed partial class AgentTaskProgressSnapshot
         var node = new AgentTaskProgressNode
         {
             Name = task.Name,
+            Description = task.Description,
             Status = AgentTaskProgressStatus.Pending,
         };
 

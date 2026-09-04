@@ -11,7 +11,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Yielded_exec_remains_live_without_committing(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
 
         await activity.Yield("call", "sleep 20", "process", "process-1", "inventory", 1, cancellationToken);
 
@@ -22,7 +22,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Origin_tool_completion_waits_for_terminal_output(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Start("call", "rg AgentTask", cancellationToken);
         var process = Process("process-1", "build", "rg AgentTask");
         process.OriginToolCallId = "call";
@@ -45,7 +45,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Terminal_output_suppresses_later_origin_process_completion(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Start("call", "rg AgentTask", cancellationToken);
         var process = Process("process-1", "build", "rg AgentTask");
         process.OriginToolCallId = "call";
@@ -64,7 +64,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Newer_omission_commits_neutral_original_command(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
 
         await activity.Replace(Snapshot("inventory", 2), cancellationToken);
@@ -78,7 +78,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Completed_process_flushes_the_entire_multiline_command(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         var command = string.Join("\\n", Enumerable.Range(1, 12).Select(static line => $"echo line-{line}"));
         await activity.Yield("call", command, "build", "process-1", "inventory", 1, cancellationToken);
 
@@ -92,7 +92,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Snapshot_before_yielded_completion_commits_without_showing_process(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Start("call", "sleep 20", cancellationToken);
         await activity.Replace(Snapshot("inventory", 2), cancellationToken);
 
@@ -110,7 +110,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Equal_and_stale_snapshots_do_not_complete_yielded_process(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 2, cancellationToken);
 
         await activity.Replace(Snapshot("inventory", 2), cancellationToken);
@@ -123,7 +123,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Reyielded_process_retains_its_original_command(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Yield("first", "first command", "build", "process-1", "inventory", 1, cancellationToken);
         await activity.Yield("second", "replacement command", "build", "process-1", "inventory", 2, cancellationToken);
 
@@ -137,7 +137,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Reconnected_inventory_omission_completes_existing_process(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory-a", 1, cancellationToken);
 
         await activity.Replace(Snapshot("inventory-b", 1, Process("process-1", "build", "reported command")), cancellationToken);
@@ -151,7 +151,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Snapshot_origin_completion_uses_reported_owner_hierarchy(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
 
         await activity.Replace(Snapshot("inventory", 1, ChildProcess()), cancellationToken);
         await activity.Replace(Snapshot("inventory", 2), cancellationToken);
@@ -165,7 +165,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Inventory_replacement_does_not_complete_missing_old_process(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory-a", 1, cancellationToken);
 
         await activity.Replace(Snapshot("inventory-b", 1), cancellationToken);
@@ -176,7 +176,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Duplicate_omissions_commit_process_once(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Yield("call", "sleep 20", "build", "process-1", "inventory", 1, cancellationToken);
 
         await activity.Replace(Snapshot("inventory", 2), cancellationToken);
@@ -188,7 +188,7 @@ internal sealed class ShellProcessActivityTests
     [Test]
     public async Task Multiple_omissions_commit_in_process_id_order(CancellationToken cancellationToken)
     {
-        using var activity = new ProcessActivity();
+        await using var activity = new ProcessActivity();
         await activity.Yield("second", "second command", "second", "process-b", "inventory", 1, cancellationToken);
         await activity.Yield("first", "first command", "first", "process-a", "inventory", 1, cancellationToken);
 
@@ -238,7 +238,7 @@ internal sealed class ShellProcessActivityTests
         return snapshot;
     }
 
-    private sealed class ProcessActivity : IDisposable
+    private sealed class ProcessActivity : IAsyncDisposable
     {
         private readonly RawActivityView _view;
         private bool _turnStarted;
@@ -256,7 +256,7 @@ internal sealed class ShellProcessActivityTests
 
         public List<string> Commits { get; } = [];
 
-        public void Dispose() => _view.Dispose();
+        public ValueTask DisposeAsync() => _view.DisposeAsync();
 
         public async Task Yield(
             string callId,

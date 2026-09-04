@@ -217,18 +217,20 @@ replaces the displayed descendants with the current effective subtree. On
 cancellation, the final snapshot is emitted only after runner-owned children
 have been joined, and cancellation then propagates.
 
-Both CLI modes append each complete tree to permanent output and flush it; they
-do not replace or remove earlier snapshots. The persistent enhanced CLI also
-projects the newest matching snapshot into the active `run_agent_tasks` live
-row. Before progress arrives that row is neutral and exposes neither a path nor
-embedded graph content. The projection is scoped by agent session and origin
-tool-call id, accepts only increasing revisions, is sanitized and bounded to the
-live-row budget, and is removed by terminal tool lifecycle. Stale, unrelated,
-or late snapshots never replace or resurrect it. This live bound does not alter
-the complete protocol snapshot or permanent tree. A snapshot is self-contained,
-but the stream does not promise replay or resume to clients that were not
-listening. These events supplement the unchanged generic `ToolStarted` and
-`ToolFinished` lifecycle and unchanged final hierarchical JSON result.
+Progress lines display each node's description, falling back to its name for
+legacy snapshots that have no description. The basic CLI appends and flushes
+every complete tree immediately as permanent output; earlier snapshots remain.
+The persistent enhanced CLI immediately replaces the matching active
+`run_agent_tasks` live tree, then commits the latest accepted complete tree to
+permanent scrollback after a one-second quiet period or when the tool lifecycle
+requires a flush. Accepted revisions are scoped by agent session and origin
+tool-call id, and terminal cleanup removes the live projection without allowing
+stale events to resurrect it. Enhanced live trees are not capped by an
+AgentTask-row limit. Snapshots remain complete and self-contained, and this
+behavior introduces no new graph, event, or transport size limit. The stream
+does not promise replay or resume to clients that were not listening. These
+events supplement the unchanged generic `ToolStarted` and `ToolFinished`
+lifecycle and unchanged final hierarchical JSON result.
 
 ### Image attachments are session-owned structured content
 
