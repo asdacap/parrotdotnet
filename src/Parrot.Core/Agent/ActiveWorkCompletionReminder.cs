@@ -12,10 +12,19 @@ internal sealed class ActiveWorkCompletionReminder(
 {
     public string? Build()
     {
-        var activeChildren = children.ObserveActive();
+        var activeChildren = children.SnapshotDescendants()
+            .Where(session => session.IsActive()
+                && string.Equals(session.ParentSessionId, children.OwnerSessionId, StringComparison.Ordinal))
+            .Select(static session => new ActiveWorkObservation(
+                session.SessionId,
+                session.Name,
+                ActiveWorkKind.Agent,
+                ActiveWorkState.Running))
+            .OrderBy(static observation => observation.Id, StringComparer.Ordinal)
+            .ToArray();
         var ownedProcesses = processes.Active();
 
-        if (activeChildren.Count == 0 && ownedProcesses.Count == 0)
+        if (activeChildren.Length == 0 && ownedProcesses.Count == 0)
         {
             return null;
         }

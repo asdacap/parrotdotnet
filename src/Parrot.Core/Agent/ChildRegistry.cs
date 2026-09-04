@@ -1,6 +1,5 @@
 using System.Runtime.ExceptionServices;
 using System.Text;
-using Parrot.Statuses;
 
 namespace Parrot.Agent;
 
@@ -23,8 +22,6 @@ internal sealed class ChildRegistry(
     private Task? _shutdown;
 
     public string OwnerSessionId => owner.SessionId;
-
-    public IAgentSession Spawn(AgentLaunchRequest request) => SpawnScope(request).Session;
 
     public IAgentSessionScope SpawnScope(AgentLaunchRequest request)
     {
@@ -169,23 +166,6 @@ internal sealed class ChildRegistry(
         return RequireOwnerScope().Session;
     }
 
-    public IReadOnlyList<ActiveWorkObservation> ObserveActive()
-    {
-        _ = RequireOwnerScope();
-        lock (_gate)
-        {
-            return [.. _entries.Values
-                .Select(static entry => entry.Scope.Session)
-                .Where(static session => session.IsActive())
-                .Select(static session => new ActiveWorkObservation(
-                    session.SessionId,
-                    session.Name,
-                    ActiveWorkKind.Agent,
-                    ActiveWorkState.Running))
-                .OrderBy(static observation => observation.Id, StringComparer.Ordinal)];
-        }
-    }
-
     public ValueTask DisposeAsync()
     {
         lock (_gate)
@@ -240,25 +220,6 @@ internal sealed class ChildRegistry(
                 _ownerScope = null;
             }
         }
-    }
-
-    public IAgentSessionScope RequireOwnerScope()
-    {
-        if (!authority.IsAccepting)
-        {
-            throw new AgentRegistryException("the user session is shutting down");
-        }
-
-        IAgentSessionScope scope;
-        lock (_gate)
-        {
-            EnsureAccepting();
-            scope = _ownerScope ?? throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
-        }
-
-        return authority.ContainsScope(scope)
-            ? scope
-            : throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
     }
 
     public IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName)
@@ -397,6 +358,25 @@ internal sealed class ChildRegistry(
         }
 
         return sanitized.ToString().TrimEnd('-');
+    }
+
+    private IAgentSessionScope RequireOwnerScope()
+    {
+        if (!authority.IsAccepting)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        IAgentSessionScope scope;
+        lock (_gate)
+        {
+            EnsureAccepting();
+            scope = _ownerScope ?? throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
+        }
+
+        return authority.ContainsScope(scope)
+            ? scope
+            : throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
     }
 
     private string UniqueName(string requestedName, string sessionId)

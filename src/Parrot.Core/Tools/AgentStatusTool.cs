@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.Process;
+using Parrot.Statuses;
 
 namespace Parrot.Tools;
 
@@ -140,9 +141,18 @@ internal sealed class AgentStatusTool(
 
     private void AppendActive(StringBuilder report, IAgentSessionScope childScope)
     {
-        var activeChildren = childScope.ChildRegistry.ObserveActive();
+        var activeChildren = childScope.ChildRegistry.SnapshotDescendants()
+            .Where(session => session.IsActive()
+                && string.Equals(session.ParentSessionId, childScope.ChildRegistry.OwnerSessionId, StringComparison.Ordinal))
+            .Select(static session => new ActiveWorkObservation(
+                session.SessionId,
+                session.Name,
+                ActiveWorkKind.Agent,
+                ActiveWorkState.Running))
+            .OrderBy(static observation => observation.Id, StringComparer.Ordinal)
+            .ToArray();
         _ = report.Append("\nActive direct subagents:");
-        if (activeChildren.Count == 0)
+        if (activeChildren.Length == 0)
         {
             _ = report.Append(" none");
         }

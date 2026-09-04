@@ -45,7 +45,7 @@ internal sealed class AgentSpawnTool(
             var model = requestedModel.Length == 0
                 ? selection.RequestedModel
                 : router.Resolve(requestedModel).RequestedSelector;
-            var agent = ownerScope.ChildRegistry.Spawn(new AgentLaunchRequest(
+            var agent = ownerScope.ChildRegistry.SpawnScope(new AgentLaunchRequest(
                 ownerScope.Session,
                 selection,
                 requestedProfile,
@@ -55,7 +55,7 @@ internal sealed class AgentSpawnTool(
                 requestedFork,
                 invocation.AssistantSequence,
                 invocation.CallId,
-                AgentCompletionDeliveryPolicy.Automatic));
+                AgentCompletionDeliveryPolicy.Automatic)).Session;
             _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
             return new SpawnAgentResult(agent.SessionId, agent.Name, agent.Depth).Format();
         }

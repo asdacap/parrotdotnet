@@ -61,7 +61,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 4);
         await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(new AgentLaunchRequest(
+        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
@@ -71,7 +71,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             0,
             string.Empty,
-            AgentCompletionDeliveryPolicy.Automatic));
+            AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -202,8 +202,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             mode,
             lifetime.Token);
         var ownedChildQuestions = _rootScopes[^1].ChildQuestions;
-        var firstChild = TestModels.ScopeOf(parent).ChildRegistry.Spawn(QuestionChildRequest(parent, router, "first"));
-        var secondChild = TestModels.ScopeOf(parent).ChildRegistry.Spawn(QuestionChildRequest(parent, router, "second"));
+        var firstChild = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "first")).Session;
+        var secondChild = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(QuestionChildRequest(parent, router, "second")).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await parent.Send("finish", cancellationToken);
@@ -258,7 +258,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 2);
         await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(new AgentLaunchRequest(
+        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
@@ -268,7 +268,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             0,
             string.Empty,
-            AgentCompletionDeliveryPolicy.Automatic));
+            AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -314,7 +314,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             status,
             new CompletionMode(enforce: true, maxTurns: 2),
             lifetime.Token);
-        var monitored = TestModels.ScopeOf(root).ChildRegistry.Spawn(new AgentLaunchRequest(
+        var monitored = TestModels.ScopeOf(root).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             root,
             Turn(root, router),
             "worker",
@@ -324,11 +324,11 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             0,
             string.Empty,
-            AgentCompletionDeliveryPolicy.Automatic));
+            AgentCompletionDeliveryPolicy.Automatic)).Session;
         monitored.UpdateSelection(
             new ModelSelector("monitored/model"),
             new CompletionMode(enforce: true, maxTurns: 2));
-        var sibling = TestModels.ScopeOf(root).ChildRegistry.Spawn(new AgentLaunchRequest(
+        var sibling = TestModels.ScopeOf(root).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             root,
             Turn(root, router),
             "worker",
@@ -338,8 +338,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             0,
             string.Empty,
-            AgentCompletionDeliveryPolicy.Automatic));
-        var grandchild = TestModels.ScopeOf(sibling).ChildRegistry.Spawn(new AgentLaunchRequest(
+            AgentCompletionDeliveryPolicy.Automatic)).Session;
+        var grandchild = TestModels.ScopeOf(sibling).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             sibling,
             Turn(sibling, router),
             "worker",
@@ -349,7 +349,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             0,
             string.Empty,
-            AgentCompletionDeliveryPolicy.Automatic));
+            AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await sibling.Send("work", cancellationToken);
@@ -456,7 +456,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 3);
         await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(new AgentLaunchRequest(
+        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
@@ -466,7 +466,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             0,
             string.Empty,
-            AgentCompletionDeliveryPolicy.Automatic));
+            AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);
@@ -512,7 +512,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
         await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = TestModels.ScopeOf(parent).ChildRegistry.Spawn(new AgentLaunchRequest(
+        var child = TestModels.ScopeOf(parent).ChildRegistry.SpawnScope(new AgentLaunchRequest(
             parent,
             Turn(parent, router),
             "worker",
@@ -522,7 +522,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             0,
             string.Empty,
-            AgentCompletionDeliveryPolicy.Automatic));
+            AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
         _ = await child.Send("work", cancellationToken);

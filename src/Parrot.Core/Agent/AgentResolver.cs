@@ -11,7 +11,16 @@ internal sealed class AgentResolver(
     public IAgentSessionScope ResolveStatusTargetScope(string sessionIdOrName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
-        _ = ownerScope.ChildRegistry.RequireOwnerScope();
+        if (!authority.IsAccepting)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        if (!authority.ContainsScope(ownerScope))
+        {
+            throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
+        }
+
         var canonical = authority.FindScope(sessionIdOrName);
         return canonical is not null && canonical.Session.Depth > 0
             ? canonical
@@ -24,7 +33,15 @@ internal sealed class AgentResolver(
     public IAgentSession ResolveRecipient(string sessionIdOrName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionIdOrName);
-        _ = ownerScope.ChildRegistry.RequireOwnerScope();
+        if (!authority.IsAccepting)
+        {
+            throw new AgentRegistryException("the user session is shutting down");
+        }
+
+        if (!authority.ContainsScope(ownerScope))
+        {
+            throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
+        }
 
         if (sessionIdOrName.Contains('/', StringComparison.Ordinal))
         {

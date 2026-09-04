@@ -1,20 +1,14 @@
-using Parrot.Statuses;
-
 namespace Parrot.Agent;
 
 internal interface IChildRegistry
 {
     string OwnerSessionId { get; }
 
-    IAgentSession Spawn(AgentLaunchRequest request);
-
     IAgentSessionScope SpawnScope(AgentLaunchRequest request);
 
     IAgentSessionScope AuthorizeDirectChild(string childSessionId);
 
     IAgentSession AuthorizeQuestionChild(IAgentSession child);
-
-    IReadOnlyList<ActiveWorkObservation> ObserveActive();
 
     ValueTask DisposeAsync();
 
@@ -23,8 +17,6 @@ internal interface IChildRegistry
     void AttachOwnerScope(IAgentSessionScope scope);
 
     void DetachOwnerScope(IAgentSessionScope scope);
-
-    IAgentSessionScope RequireOwnerScope();
 
     IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName);
 

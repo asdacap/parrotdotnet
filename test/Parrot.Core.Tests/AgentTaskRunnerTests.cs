@@ -703,7 +703,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
         _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
         _ = await Assert.That(task.Failure).IsEqualTo("execution agent failed: role failed");
-        _ = await Assert.That(runtime.ParentScope.ChildRegistry.ObserveActive()).IsEmpty();
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants().Where(session => session.IsActive())).IsEmpty();
     }
 
     [Test]
@@ -723,7 +723,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         await canceled.CancelAsync();
         _ = await Assert.That(running).Throws<OperationCanceledException>();
 
-        _ = await Assert.That(runtime.ParentScope.ChildRegistry.ObserveActive()).IsEmpty();
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants().Where(session => session.IsActive())).IsEmpty();
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(snapshots[^1].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Canceled);
