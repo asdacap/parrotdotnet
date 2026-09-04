@@ -22,7 +22,7 @@ internal sealed class AgentSessionScope : IAgentSessionScope
     {
         _queues = queues;
         _promptTemplates = promptTemplates;
-        ChildRegistry = new ChildRegistry(owner, registry);
+        ChildRegistry = new ChildRegistry(owner, registry, () => this);
         ChildQuestions = new ChildQuestionCoordinator(ChildRegistry, promptTemplates);
     }
 

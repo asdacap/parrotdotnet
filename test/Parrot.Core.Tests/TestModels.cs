@@ -238,7 +238,10 @@ internal static class TestModels
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
         Registries.Add(registry);
-        var children = new ChildRegistry(identity, registry);
+        var children = new ChildRegistry(
+            identity,
+            registry,
+            () => throw new InvalidOperationException("The test session has no owner scope."));
         var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         return new AgentSessionDependencies(
             childQuestions,

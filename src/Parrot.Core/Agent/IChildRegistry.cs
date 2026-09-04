@@ -16,9 +16,7 @@ internal interface IChildRegistry
 
     void ValidateOwner(AgentIdentity identity);
 
-    void AttachOwnerScope(IAgentSessionScope scope);
-
-    void DetachOwnerScope(IAgentSessionScope scope);
+    void ValidateOwnerScope(IAgentSessionScope scope);
 
     IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName);
 

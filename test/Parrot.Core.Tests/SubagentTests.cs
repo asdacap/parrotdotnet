@@ -160,7 +160,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var canceled = Session(canceledProvider, 0, "canceled", canceledRegistry, cancellationToken);
         var canceledTask = canceled.SendAndWaitForResult("work", cancellationToken);
         await canceledProvider.Arrived(cancellationToken);
-        await canceled.Abort(CancellationToken.None);
+        await canceled.Interrupt(CancellationToken.None);
         var terminalCanceled = await Assert.That(canceledTask).Throws<AgentExecutionException>();
         _ = await Assert.That(terminalCanceled?.Status).IsEqualTo(AgentTaskStatus.Canceled);
         _ = await Assert.That(terminalCanceled?.Message).IsEqualTo("interrupted");
@@ -179,7 +179,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await callerProvider.Arrived(cancellationToken);
         await callerCancellation.CancelAsync();
         _ = await Assert.That(callerTask).Throws<OperationCanceledException>();
-        await caller.Abort(CancellationToken.None);
+        await caller.Interrupt(CancellationToken.None);
     }
 
     [Test]
@@ -424,7 +424,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
         var resolver = Resolver(owner, registry);
         registry.UnregisterRootScope(ownerScope);
-        ownerScope.ChildRegistry.DetachOwnerScope(ownerScope);
         var expectedMessage = $"parent agent scope not found: {owner.SessionId}";
 
         foreach (var resolution in new Func<object>[]
@@ -1849,12 +1848,12 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             cancellationToken);
         var identity = AgentIdentity.Main("parent", string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, _repository, cancellationToken);
-        var parentScope = new TrackingAgentSessionScope(AgentSessionDirectScope.Build(
+        var parentScope = AgentSessionDirectScope.Build(
             identity,
             AgentSessionParentScope.Root(),
             registry,
             TestModels.PromptTemplates,
-            (sessionParentScope, _, children, childQuestions) => new AgentSession(identity, sessionParentScope, new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken)));
+            (sessionParentScope, _, children, childQuestions) => new AgentSession(identity, sessionParentScope, new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken));
         var parent = parentScope.Session;
         registry.RegisterRootScope(parentScope);
         TestModels.RegisterScope(parentScope);
@@ -1864,7 +1863,6 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var shutdown = registry.DisposeAsync().AsTask();
 
         _ = await Assert.That(shutdown.IsCompleted).IsFalse();
-        _ = await Assert.That(parentScope.IsDisposed).IsFalse();
         releaseConstruction.Set();
         AgentRegistryException? spawnFailure = null;
         try
@@ -1878,11 +1876,11 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         _ = await Assert.That(spawnFailure).IsNotNull();
         await shutdown;
-        _ = await Assert.That(sessions.CreatedScope?.IsDisposed).IsTrue();
-        _ = await Assert.That(parentScope.IsDisposed).IsFalse();
+        _ = await Assert.That(sessions.CreatedScope).IsNotNull();
+        var createdScope = sessions.CreatedScope ?? throw new InvalidOperationException("Expected a constructed child scope.");
+        _ = await Assert.That(registry.ContainsScope(createdScope)).IsFalse();
         TestModels.UnregisterScope(parentScope);
         await parentScope.DisposeAsync();
-        _ = await Assert.That(parentScope.IsDisposed).IsTrue();
 
         AgentLaunchRequest Request() => new(
             parent,
@@ -1898,7 +1896,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Failed_duplicate_root_registration_does_not_attach_the_rejected_scope(
+    public async Task Failed_duplicate_root_registration_does_not_register_the_rejected_scope(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
@@ -1932,7 +1930,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
                 return new AgentSession(identity, sessionParentScope, new ModelSelector("stepped/model"), Router(provider), _broker, _repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(childQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, _repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
             });
-        await using var firstWrapper = new TrackingAgentSessionScope(candidate);
+        await using var candidateScope = candidate;
 
         _ = await Assert.That(unattachedAccess?.Message)
             .IsEqualTo("The agent session is not attached to its scope.");
@@ -1940,8 +1938,9 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             .Throws<InvalidOperationException>();
         _ = await Assert.That(duplicateAttachment?.Message)
             .IsEqualTo("The agent session is already attached to its scope.");
-        _ = await Assert.That(() => registry.RegisterRootScope(firstWrapper))
+        _ = await Assert.That(() => registry.RegisterRootScope(candidate))
             .Throws<AgentRegistryException>();
+        _ = await Assert.That(registry.ContainsScope(candidate)).IsFalse();
         registry.UnregisterRootScope(registeredScope);
         registry.RegisterRootScope(candidate);
 
@@ -1967,10 +1966,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var secondScope = _rootScopes[^1];
 
         _ = await Assert.That(ReferenceEquals(firstScope.ChildRegistry, secondScope.ChildRegistry)).IsFalse();
-        var ownershipMismatch = await Assert.That(() => firstScope.ChildRegistry.AttachOwnerScope(secondScope))
-            .Throws<AgentRegistryException>();
-        _ = await Assert.That(ownershipMismatch?.Message)
-            .IsEqualTo("agent scope does not match child registry owner: first-parent");
+        firstScope.ChildRegistry.ValidateOwnerScope(firstScope);
+        secondScope.ChildRegistry.ValidateOwnerScope(secondScope);
         var mismatch = await Assert.That(() => firstScope.ChildRegistry.SpawnScope(Request(secondParent)).Session)
             .Throws<AgentRegistryException>();
         var child = firstScope.ChildRegistry.SpawnScope(Request(firstParent)).Session;
@@ -1978,6 +1975,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(mismatch?.Message)
             .IsEqualTo("launch parent does not match child registry owner: expected first-parent, actual second-parent");
         _ = await Assert.That(child.ParentSessionId).IsEqualTo(firstParent.SessionId);
+        _ = await Assert.That(sessions.ParentScopes.Single().Parent).IsSameReferenceAs(firstScope);
         _ = await Assert.That(ReferenceEquals(firstScope.ChildRegistry, sessions.Scopes.Single().ChildRegistry)).IsFalse();
 
         AgentLaunchRequest Request(IAgentSession parent) => new(
@@ -2141,30 +2139,11 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         return scope.Session;
     }
 
-    private sealed class TrackingAgentSessionScope(IAgentSessionScope scope) : IAgentSessionScope
-    {
-        public IAgentSession Session => scope.Session;
-
-        public GoalService Goals => scope.Goals;
-
-        public IChildRegistry ChildRegistry => scope.ChildRegistry;
-
-        public Questions.ChildQuestionCoordinator ChildQuestions => scope.ChildQuestions;
-
-        public bool IsDisposed { get; private set; }
-
-        public async ValueTask DisposeAsync()
-        {
-            IsDisposed = true;
-            await scope.DisposeAsync();
-        }
-    }
-
     private sealed class BlockingAgentSessions(IAgentSessionFactory sessions, ManualResetEventSlim release) : IAgentSessionFactory
     {
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public TrackingAgentSessionScope? CreatedScope { get; private set; }
+        public IAgentSessionScope? CreatedScope { get; private set; }
 
         public Task WaitUntilEntered(CancellationToken cancellationToken) => _entered.Task.WaitAsync(cancellationToken);
 
@@ -2183,7 +2162,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parentScope.Validate(identity);
             _ = _entered.TrySetResult();
             release.Wait(CancellationToken.None);
-            CreatedScope = new TrackingAgentSessionScope(sessions.Create(
+            CreatedScope = sessions.Create(
                 identity,
                 parentScope,
                 model,
@@ -2193,7 +2172,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
                 securityProfile,
                 status,
                 registry,
-                CancellationToken.None));
+                CancellationToken.None);
             return CreatedScope;
         }
     }

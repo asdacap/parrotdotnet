@@ -62,6 +62,8 @@ internal sealed class AgentRegistry(
         }
 
         scope.ChildRegistry.ValidateOwner(scope.Session.Identity);
+        scope.ChildRegistry.ValidateOwnerScope(scope);
+
         lock (_gate)
         {
             EnsureAccepting();
@@ -72,16 +74,7 @@ internal sealed class AgentRegistry(
                 throw new AgentRegistryException($"agent scope identity is already registered: {sessionId}");
             }
 
-            scope.ChildRegistry.AttachOwnerScope(scope);
-            try
-            {
-                _roots.Add(sessionId, scope);
-            }
-            catch
-            {
-                scope.ChildRegistry.DetachOwnerScope(scope);
-                throw;
-            }
+            _roots.Add(sessionId, scope);
         }
     }
 

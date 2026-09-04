@@ -5,7 +5,8 @@ namespace Parrot.Agent;
 
 internal sealed class ChildRegistry(
     AgentIdentity owner,
-    IAgentRegistry authority) : IChildRegistry
+    IAgentRegistry authority,
+    Func<IAgentSessionScope> ownerScopeAccessor) : IChildRegistry
 {
     private const int MaxDepth = 4;
     private readonly Dictionary<string, ChildEntry> _entries = new(StringComparer.Ordinal);
@@ -14,8 +15,9 @@ internal sealed class ChildRegistry(
     private readonly List<Task> _rejectedScopeDisposals = [];
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(authority.ChildLifetime);
     private readonly Lock _gate = new();
+    private readonly Func<IAgentSessionScope> _ownerAccessor = ownerScopeAccessor
+        ?? throw new ArgumentNullException(nameof(ownerScopeAccessor));
 
-    private IAgentSessionScope? _ownerScope;
     private bool _accepting = true;
     private int _pendingConstructions;
     private TaskCompletionSource? _constructionsSettled;
@@ -65,7 +67,7 @@ internal sealed class ChildRegistry(
             lock (_gate)
             {
                 EnsureAccepting();
-                if (!ReferenceEquals(_ownerScope, registeredOwnerScope))
+                if (!ReferenceEquals(_ownerAccessor(), registeredOwnerScope))
                 {
                     throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
                 }
@@ -200,36 +202,13 @@ internal sealed class ChildRegistry(
         }
     }
 
-    public void AttachOwnerScope(IAgentSessionScope scope)
+    public void ValidateOwnerScope(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        if (!ReferenceEquals(scope.Session.Identity, owner)
+        if (!ReferenceEquals(_ownerAccessor(), scope)
             || !ReferenceEquals(scope.ChildRegistry, this))
         {
             throw new AgentRegistryException($"agent scope does not match child registry owner: {owner.SessionId}");
-        }
-
-        lock (_gate)
-        {
-            if (_ownerScope is not null && !ReferenceEquals(_ownerScope, scope))
-            {
-                throw new AgentRegistryException($"agent scope identity is already registered: {owner.SessionId}");
-            }
-
-            _ownerScope = scope;
-        }
-    }
-
-    public void DetachOwnerScope(IAgentSessionScope scope)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-
-        lock (_gate)
-        {
-            if (ReferenceEquals(_ownerScope, scope))
-            {
-                _ownerScope = null;
-            }
         }
     }
 
@@ -349,7 +328,7 @@ internal sealed class ChildRegistry(
         lock (_gate)
         {
             EnsureAccepting();
-            scope = _ownerScope ?? throw new AgentRegistryException($"parent agent scope not found: {owner.SessionId}");
+            scope = _ownerAccessor();
         }
 
         return authority.ContainsScope(scope)
@@ -380,7 +359,9 @@ internal sealed class ChildRegistry(
         IAgentSessionScope scope,
         RetainedAgentReservation retainedReservation)
     {
-        scope.ChildRegistry.AttachOwnerScope(scope);
+        scope.ChildRegistry.ValidateOwner(scope.Session.Identity);
+        scope.ChildRegistry.ValidateOwnerScope(scope);
+
         lock (_gate)
         {
             EnsureAccepting();

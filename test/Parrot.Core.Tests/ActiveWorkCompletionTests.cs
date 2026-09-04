@@ -673,7 +673,10 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         var queues = queueCatalog.Register(identity);
         var mode = TestModels.Profile();
-        var children = new ChildRegistry(identity, registry);
+        var children = new ChildRegistry(
+            identity,
+            registry,
+            () => throw new InvalidOperationException("The test session has no owner scope."));
         var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
         var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(mode.SecurityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
