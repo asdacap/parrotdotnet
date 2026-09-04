@@ -176,6 +176,14 @@ prompt_templates:
     template: 'Generated at: {time}'
     allowed_arguments: [time]
     required_arguments: [time]
+  status.context:
+    template: 'Context: {usage}% used ({estimated_tokens} estimated tokens / {context_limit} limit); reminders every {cadence}%; automatic compaction at {trigger}%.'
+    allowed_arguments: [usage, estimated_tokens, context_limit, cadence, trigger]
+    required_arguments: [usage, estimated_tokens, context_limit, cadence, trigger]
+  status.context-unavailable:
+    template: 'Context: unavailable ({estimated_tokens} estimated tokens / {context_limit} limit); reminders every {cadence}%; automatic compaction at {trigger}%.'
+    allowed_arguments: [estimated_tokens, context_limit, cadence, trigger]
+    required_arguments: [estimated_tokens, context_limit, cadence, trigger]
   status.runtime:
     template: 'Runtime:'
     allowed_arguments: []
@@ -226,6 +234,22 @@ prompt_templates:
       An exit reminder was set: {reminder}
     allowed_arguments: [reminder]
     required_arguments: [reminder]
+  agent-session.context-reminder:
+    template: 'Context usage entered the {percentage}% notification band ({estimated_tokens} estimated tokens / {context_limit} configured limit). Notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger}%.'
+    allowed_arguments: [percentage, estimated_tokens, context_limit, notification_interval, trigger]
+    required_arguments: [percentage, estimated_tokens, context_limit, notification_interval, trigger]
+  compact-context-tool.compacted:
+    template: 'Compacted this calling agent session. Context is now {usage}% used ({estimated_tokens} estimated tokens / {context_limit} limit); notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger}%.'
+    allowed_arguments: [usage, estimated_tokens, context_limit, notification_interval, trigger]
+    required_arguments: [usage, estimated_tokens, context_limit, notification_interval, trigger]
+  compact-context-tool.no-op:
+    template: 'No eligible context was compacted in this calling agent session. Context is {usage}% used ({estimated_tokens} estimated tokens / {context_limit} limit); notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger}%.'
+    allowed_arguments: [usage, estimated_tokens, context_limit, notification_interval, trigger]
+    required_arguments: [usage, estimated_tokens, context_limit, notification_interval, trigger]
+  compact-context-tool.unavailable:
+    template: 'Context compaction is unavailable for this calling agent session because the selected model has no positive context limit ({estimated_tokens} estimated tokens / {context_limit} limit); notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger}%.'
+    allowed_arguments: [estimated_tokens, context_limit, notification_interval, trigger]
+    required_arguments: [estimated_tokens, context_limit, notification_interval, trigger]
   goal.root-reminder:
     template: 'User set goal is {goal}. Clear exit reminder if end condition met.'
     allowed_arguments: [goal]
@@ -848,6 +872,11 @@ profiles:
 # descriptions or structural JSON Schema members while inheriting remaining entries.
 # Parameters use standard JSON Schema represented as YAML.
 tools:
+  compact_context:
+    description: Compact only this calling agent session's context without affecting its parent or children, then report the post-operation context status.
+    parameters:
+      type: object
+      additionalProperties: false
   answer:
     description: Answer the pending ordered questions from one direct child agent.
     parameters:

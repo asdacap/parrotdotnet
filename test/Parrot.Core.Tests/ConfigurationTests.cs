@@ -1300,8 +1300,11 @@ internal sealed class ConfigurationTests : IDisposable
 
         var definitions = Load(path).ToolDefinitions.Definitions;
 
-        _ = await Assert.That(definitions.Count).IsEqualTo(25);
+        _ = await Assert.That(definitions.Count).IsEqualTo(26);
         _ = await Assert.That(definitions).ContainsKey("set_exit_reminder");
+        using var compactContext = JsonDocument.Parse(definitions["compact_context"].ParametersJson);
+        _ = await Assert.That(compactContext.RootElement.GetProperty("type").GetString()).IsEqualTo("object");
+        _ = await Assert.That(compactContext.RootElement.GetProperty("additionalProperties").GetBoolean()).IsFalse();
         using var exitReminder = JsonDocument.Parse(definitions["set_exit_reminder"].ParametersJson);
         _ = await Assert.That(exitReminder.RootElement.GetProperty("additionalProperties").GetBoolean()).IsFalse();
         _ = await Assert.That(exitReminder.RootElement.GetProperty("properties").GetProperty("reminder").GetProperty("type").GetString()).IsEqualTo("string");

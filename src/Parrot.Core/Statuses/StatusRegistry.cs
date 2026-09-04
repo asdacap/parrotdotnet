@@ -27,9 +27,16 @@ internal sealed class StatusRegistry
         }
     }
 
-    public async Task<string> Observe(
+    public Task<string> Observe(
         StatusQuery query,
         IStatusProvider? profile,
+        CancellationToken cancellationToken) =>
+        ObserveWithProvider(query, profile, null, cancellationToken);
+
+    public async Task<string> ObserveWithProvider(
+        StatusQuery query,
+        IStatusProvider? profile,
+        IStatusProvider? additional,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -51,6 +58,17 @@ internal sealed class StatusRegistry
             }
 
             providers = [.. providers, new KeyValuePair<string, IStatusProvider>(profile.Key, profile)];
+        }
+
+        if (additional is not null)
+        {
+            ValidateKey(additional.Key, "additional provider");
+            if (providers.Any(item => string.Equals(item.Key, additional.Key, StringComparison.Ordinal)))
+            {
+                throw new StatusRegistryException($"status: duplicate provider '{additional.Key}'");
+            }
+
+            providers = [.. providers, new KeyValuePair<string, IStatusProvider>(additional.Key, additional)];
         }
 
         Array.Sort(providers, static (left, right) => StringComparer.Ordinal.Compare(left.Key, right.Key));

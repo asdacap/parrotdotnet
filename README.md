@@ -543,6 +543,42 @@ longer forkable. A fork copies conversation context only: it does not transfer t
 parent's session identity, security profile, permission approvals, queues, process control,
 or any other runtime authority.
 
+### Context accounting and reminders
+
+Context status is calculated for the complete request that will be sent: the
+selected instructions, profile-filtered tools, and effective history. The
+estimated-token percentage is floor-rounded as `estimatedTokens * 100 /
+contextLimit` and capped at 100%; a model with no positive context window
+reports an unavailable percentage. The configured context limit is the model's
+context window, and the configured automatic-compaction trigger is strict:
+automatic compaction runs only when estimated tokens are above that percentage,
+not when they merely equal it.
+
+Context reminders use fixed 5% notification bands. A turn that crosses several
+bands coalesces them into one reminder for the highest crossed band; initial,
+zero, same-band, model/window-change, and history-regression observations do not
+produce duplicate reminders. The acknowledged band, canonical model, context
+window, and effective-history position are persisted in SQLite with the durable
+system reminder before its payload-free lifecycle event is published. Restart
+reconstructs this checkpoint from SQLite (the JSONL history file is only a
+refreshed projection), so replaying a restart does not duplicate a reminder.
+Compaction rebases cadence only after a real persisted reduction. If adding a
+candidate reminder would exceed the model window or the strict automatic
+trigger, Parrot compacts/recomputes first or safely skips the candidate rather
+than persisting an unsafe reminder.
+
+The model-facing `compact_context` tool accepts only `{}`. It is caller-only:
+when invoked inside an active tool drain it awaits the session's in-drain
+compaction core without queueing behind that same drain, preserves the
+incomplete current assistant/tool group, and returns one of reduced, no-op, or
+unavailable results with the caller's post-operation context accounting. It
+cannot compact a parent or child and is non-parallel. A reduced result means
+eligible history was persisted as a summary; a no-op means there was no eligible
+history to reduce; and an unavailable result means the selected model has no
+positive context window. This is distinct from root-only `/compact`, an
+interactive command that waits for idle work and explicitly compacts the current
+root session without sending a model prompt.
+
 Queues are agent-owned within this boundary rather than globally shared by all
 agents in the user session. An agent resolves its own queues first and may also
 access only its direct parent's queues; a parent cannot access a child's queue,
@@ -888,7 +924,11 @@ to select a mode, `/clear` to configure a fresh session, or `/auth` to manage
 credentials. `/compact` explicitly compacts the current root session even when it
 is below the automatic threshold. It waits for active work to become idle, sends
 no model prompt, and may complete as a no-op when there is insufficient eligible
-history. Most commands ignore text after the command name because the wizard
+history. Separately, the model-facing `compact_context` tool accepts only `{}` and
+compacts only the calling agent session from inside its active tool round. It does
+not compact a parent or child session, and reports the caller's post-operation
+context estimate, percentage or unavailable window, 5% notification interval,
+and automatic trigger. Most commands ignore text after the command name because the wizard
 asks for the complete selection. `/goal <text>` is the exception: it stores a
 persistent reminder on the root session using the exact wrapped text
 `User set goal is {goal}. Clear exit reminder if end condition met.` (with `{goal}`

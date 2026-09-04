@@ -560,6 +560,24 @@ internal sealed class EventPayloadTests
     }
 
     [Test]
+    public async Task Context_reminder_injected_roundtrips_as_a_distinct_protobuf_payload()
+    {
+        var source = new Event
+        {
+            Id = "context-reminder-event",
+            AgentSessionId = "session",
+            ContextReminderInjected = new ContextReminderInjected(),
+        };
+
+        var roundtripped = Event.Parser.ParseFrom(source.ToByteArray());
+
+        _ = await Assert.That(roundtripped.Id).IsEqualTo("context-reminder-event");
+        _ = await Assert.That(roundtripped.AgentSessionId).IsEqualTo("session");
+        _ = await Assert.That(roundtripped.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.ContextReminderInjected);
+    }
+
+    [Test]
     public async Task Provider_request_limit_prompts_roundtrip_as_distinct_protobuf_payloads()
     {
         var finalRequest = Event.Parser.ParseFrom(new Event
@@ -595,6 +613,30 @@ internal sealed class EventPayloadTests
         var messages = repository.Messages("session");
         _ = await Assert.That(messages).Count().IsEqualTo(1);
         _ = await Assert.That(messages[0]).IsEqualTo("system: wait for direct active work");
+        _ = await Assert.That(repository.Replay()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Context_reminder_is_durable_and_duplicate_safe()
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var checkpoint = new ContextReminderCheckpoint("provider/model", 10_000, 25);
+        var published = new Event { Id = "context-reminder", AgentSessionId = "session" };
+
+        var inserted = repository.AppendContextReminder(published, checkpoint, "context reminder");
+        var duplicate = repository.AppendContextReminder(
+            new Event { Id = "duplicate", AgentSessionId = "session" },
+            checkpoint,
+            "duplicate reminder");
+
+        _ = await Assert.That(inserted).IsTrue();
+        _ = await Assert.That(duplicate).IsFalse();
+        _ = await Assert.That(published.PayloadCase)
+            .IsEqualTo(Event.PayloadOneofCase.ContextReminderInjected);
+        _ = await Assert.That(string.Join(" | ", repository.Messages("session")))
+            .IsEqualTo("system: context reminder");
+        _ = await Assert.That(repository.LatestContextReminder("session")).IsEqualTo(checkpoint);
         _ = await Assert.That(repository.Replay()).IsEmpty();
     }
 
@@ -668,7 +710,7 @@ internal sealed class EventPayloadTests
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, events, repository, cancellationToken);
         using var subscription = events.Subscribe();
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
 
         _ = await session.Send(
             [ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);

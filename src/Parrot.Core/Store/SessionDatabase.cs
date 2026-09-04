@@ -241,6 +241,18 @@ internal sealed class SessionDatabase : IDisposable
                     created_at    TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS context_reminder (
+                    sequence        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_session   TEXT NOT NULL,
+                    canonical_model TEXT NOT NULL,
+                    context_limit   INTEGER NOT NULL CHECK (context_limit > 0),
+                    percentage      INTEGER NOT NULL CHECK (percentage > 0),
+                    created_at      TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS context_reminder_by_session
+                    ON context_reminder (agent_session, sequence DESC);
+
                 CREATE TABLE IF NOT EXISTS session_state (
                     user_session  TEXT PRIMARY KEY,
                     agent_session TEXT NOT NULL,

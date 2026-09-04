@@ -155,6 +155,7 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.CompactionFailed or
                 Event.PayloadOneofCase.ActiveWorkReminderInjected or
                 Event.PayloadOneofCase.ExitReminderInjected or
+                Event.PayloadOneofCase.ContextReminderInjected or
                 Event.PayloadOneofCase.FinalProviderRequestPromptInjected or
                 Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected or
                 Event.PayloadOneofCase.AgentTaskProgressSnapshot)
@@ -188,6 +189,11 @@ internal sealed class BasicCli(
 
                 case Event.PayloadOneofCase.ExitReminderInjected:
                     await output.WriteLineAsync("↻ Exit reminder injected".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.ContextReminderInjected:
+                    await output.WriteLineAsync("↻ Context reminder injected".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 

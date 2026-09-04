@@ -42,18 +42,33 @@ internal sealed class Compactor(
             + 4;
     }
 
-    public bool ShouldCompact(
+    public ContextSnapshot EstimateContext(
         ProviderModel selectedModel,
         string instructions,
         IReadOnlyList<LLMToolDefinition> tools,
         IReadOnlyList<LLMMessage> history)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
-        var contextWindow = selectedModel.Model.ContextWindow;
-        return contextWindow > 0
-            && EstimateInputTokens(instructions, tools, history)
-                > PercentageBudget(contextWindow, triggerPercent);
+        ArgumentNullException.ThrowIfNull(instructions);
+        ArgumentNullException.ThrowIfNull(tools);
+        ArgumentNullException.ThrowIfNull(history);
+
+        var estimatedTokens = EstimateInputTokens(instructions, tools, history);
+        var contextLimit = selectedModel.Model.ContextWindow;
+        int? usagePercent = contextLimit > 0
+            ? estimatedTokens >= contextLimit
+                ? 100
+                : Math.Clamp((int)(estimatedTokens * 100L / contextLimit), 0, 100)
+            : null;
+        return new ContextSnapshot(estimatedTokens, contextLimit, usagePercent, triggerPercent);
     }
+
+    public bool ShouldCompact(
+        ProviderModel selectedModel,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> history) =>
+        EstimateContext(selectedModel, instructions, tools, history).ExceedsTrigger;
 
     public async Task<CompactionResult?> Compact(
         ProviderModel selectedModel,

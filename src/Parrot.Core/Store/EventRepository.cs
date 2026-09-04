@@ -1,6 +1,7 @@
 using Google.Protobuf;
 using Microsoft.Data.Sqlite;
 using Parrot.Agent;
+using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
 
@@ -370,6 +371,15 @@ internal sealed class EventRepository
     // queue at once would run them together as if they had been sent together.
     public IReadOnlyList<Promotion> PromoteNextQueue(string agentSessionId, Func<AdmittedInput, Event> compose) =>
         Promote(agentSessionId, Delivery.Queue, 1, compose);
+
+    public IReadOnlyList<AdmittedInput> InputsForNextPromotion(string agentSessionId)
+    {
+        lock (_database.Gate)
+        {
+            var steers = Pending(agentSessionId, Delivery.Steer, -1);
+            return steers.Count > 0 ? steers : Pending(agentSessionId, Delivery.Queue, 1);
+        }
+    }
 
     // Whether anything is admitted and still waiting. The interrupt path asks,
     // so that stopping a turn does not also discard what was queued behind it.
@@ -1253,6 +1263,14 @@ internal sealed class EventRepository
                 _ = association.ExecuteNonQuery();
             }
 
+            using (var reminders = _database.Connection.CreateCommand())
+            {
+                reminders.Transaction = transaction;
+                reminders.CommandText = "DELETE FROM context_reminder WHERE agent_session = $session;";
+                _ = reminders.Parameters.AddWithValue("$session", publishedStatus.AgentSessionId);
+                _ = reminders.ExecuteNonQuery();
+            }
+
             transaction.Commit();
         }
 
@@ -1556,6 +1574,83 @@ internal sealed class EventRepository
         }
 
         RefreshAgentHistory(published.AgentSessionId);
+    }
+
+    public ContextReminderCheckpoint? LatestContextReminder(string agentSessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentSessionId);
+
+        lock (_database.Gate)
+        {
+            using var read = _database.Connection.CreateCommand();
+            read.CommandText =
+                "SELECT canonical_model, context_limit, percentage FROM context_reminder "
+                + "WHERE agent_session = $session ORDER BY sequence DESC LIMIT 1;";
+            _ = read.Parameters.AddWithValue("$session", agentSessionId);
+            using var reader = read.ExecuteReader();
+            return reader.Read()
+                ? new ContextReminderCheckpoint(
+                    (string)reader["canonical_model"],
+                    Convert.ToInt32(reader["context_limit"], System.Globalization.CultureInfo.InvariantCulture),
+                    Convert.ToInt32(reader["percentage"], System.Globalization.CultureInfo.InvariantCulture))
+                : null;
+        }
+    }
+
+    public bool AppendContextReminder(
+        Event published,
+        ContextReminderCheckpoint checkpoint,
+        string content)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        ArgumentNullException.ThrowIfNull(content);
+
+        published.ContextReminderInjected = new ContextReminderInjected();
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            using (var latest = _database.Connection.CreateCommand())
+            {
+                latest.Transaction = transaction;
+                latest.CommandText =
+                    "SELECT percentage FROM context_reminder WHERE agent_session = $session "
+                    + "AND canonical_model = $model AND context_limit = $limit "
+                    + "ORDER BY sequence DESC LIMIT 1;";
+                _ = latest.Parameters.AddWithValue("$session", published.AgentSessionId);
+                _ = latest.Parameters.AddWithValue("$model", checkpoint.CanonicalModel);
+                _ = latest.Parameters.AddWithValue("$limit", checkpoint.ContextLimit);
+                var previous = latest.ExecuteScalar();
+                if (previous is not null
+                    && Convert.ToInt32(previous, System.Globalization.CultureInfo.InvariantCulture)
+                        >= checkpoint.Percentage)
+                {
+                    transaction.Commit();
+                    return false;
+                }
+            }
+
+            using (var insert = _database.Connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText =
+                    "INSERT INTO context_reminder "
+                    + "(agent_session, canonical_model, context_limit, percentage, created_at) "
+                    + "VALUES ($session, $model, $limit, $percentage, $at);";
+                _ = insert.Parameters.AddWithValue("$session", published.AgentSessionId);
+                _ = insert.Parameters.AddWithValue("$model", checkpoint.CanonicalModel);
+                _ = insert.Parameters.AddWithValue("$limit", checkpoint.ContextLimit);
+                _ = insert.Parameters.AddWithValue("$percentage", checkpoint.Percentage);
+                _ = insert.Parameters.AddWithValue("$at", Timestamp());
+                _ = insert.ExecuteNonQuery();
+            }
+
+            Project(transaction, published.AgentSessionId, "system", content);
+            transaction.Commit();
+        }
+
+        RefreshAgentHistory(published.AgentSessionId);
+        return true;
     }
 
     public void AppendFinalProviderRequestPrompt(Event published, string content)

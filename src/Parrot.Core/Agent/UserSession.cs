@@ -90,7 +90,9 @@ internal sealed class UserSession : IAsyncDisposable
             _ = _eventRepository.PrepareAgentHistory(agentSessionId);
         }
 
-        _ = InitializeMain().Wake(null);
+        var main = InitializeMain();
+        main.UseResolvedSelection(model);
+        main.Recover();
     }
 
     public string Id { get; }
@@ -175,6 +177,10 @@ internal sealed class UserSession : IAsyncDisposable
             }
 
             _main?.UpdateSelection(_model, Mode);
+            if (model is not null)
+            {
+                _main?.UseResolvedSelection(model);
+            }
         }
     }
 

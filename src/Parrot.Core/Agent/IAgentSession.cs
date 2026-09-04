@@ -1,3 +1,4 @@
+using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Queues;
@@ -23,6 +24,10 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentSelection Selection();
 
+    void UseResolvedSelection(ResolvedModelSelection selectedModel);
+
+    void Recover();
+
     void UpdateSelection(ModelSelector selectedModel, IMode mode);
 
     bool Wake(IncomingActivity? activity);
@@ -30,6 +35,34 @@ internal interface IAgentSession : IAsyncDisposable
     Task Interrupt(CancellationToken cancellationToken);
 
     Task Compact(CancellationToken cancellationToken);
+
+    ContextSnapshot EstimateContext(AgentTurnSelection selection);
+
+    IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection);
+
+    ContextSnapshot EstimateContextForTools(
+        AgentTurnSelection selection,
+        IReadOnlyList<LLMToolDefinition> tools);
+
+    ContextSnapshot EstimateContextForToolsAndHistory(
+        AgentTurnSelection selection,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> history);
+
+    ContextSnapshot EstimateContextForHistory(
+        AgentTurnSelection selection,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> history);
+
+    ContextSnapshot EstimateContextAfterToolResult(
+        AgentTurnSelection selection,
+        string toolCallId,
+        string result);
+
+    Task<ContextCompactionResult> CompactFromTool(
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken);
 
     Task Abort(CancellationToken cancellationToken);
 

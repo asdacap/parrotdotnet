@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.State;
@@ -45,7 +46,9 @@ internal sealed class StatusDrainTests : IDisposable
 
             _ = await Assert.That(Roles(provider.Requests[0])).IsEqualTo("System | User");
             _ = await Assert.That(provider.Requests[0].Instructions).IsNotEmpty();
-            var buildStatus = provider.Requests[0].Messages[0].Content;
+            var buildRequest = provider.Requests[0];
+            var buildStatus = buildRequest.Messages[0].Content;
+            await AssertContextLine(buildStatus, buildRequest, 100_000);
             _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Prompt}\n\nGenerated at: ");
             _ = await Assert.That(buildStatus).Contains("\n\nRuntime:\n- agent: main-agent (");
             _ = await Assert.That(CountOccurrences(buildStatus, session.Mode.Prompt)).IsEqualTo(1);
@@ -55,7 +58,9 @@ internal sealed class StatusDrainTests : IDisposable
 
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();
             session.UpdateSelection(TestModels.Resolve(
-                new ProviderModel(provider, new LLMModel("model-2", provider.Id))));
+                new ProviderModel(
+                    provider,
+                    new LLMModel("model-2", provider.Id) { ContextWindow = 100_000 })));
             session.UpdateMode(ModeRegistry.Build);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsFalse();
 
@@ -67,9 +72,11 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(StatusMessages(repository).Count).IsEqualTo(2);
             _ = await Assert.That(provider.Requests[1].Messages.Count(message => message.Role == LLMRole.System))
                 .IsEqualTo(2);
-            var planStatus = provider.Requests[1].Messages.Single(message =>
+            var planRequest = provider.Requests[1];
+            var planStatus = planRequest.Messages.Single(message =>
                 message.Role == LLMRole.System &&
                 message.Content.Contains("Active profile: plan", StringComparison.Ordinal));
+            await AssertContextLine(planStatus.Content, planRequest, 100_000);
             _ = await Assert.That(planStatus.Content).StartsWith("You are Parrot's plan mode.");
             _ = await Assert.That(planStatus.Content).Contains("to this exact file:");
             _ = await Assert.That(CountOccurrences(planStatus.Content, "You are Parrot's plan mode.")).IsEqualTo(1);
@@ -308,6 +315,16 @@ internal sealed class StatusDrainTests : IDisposable
     private static LLMEvent Answer(string text, params LLMToolCall[] toolCalls) =>
         LLMEvent.Completed("stop", 1, 0, 1, text, toolCalls);
 
+    private static async Task AssertContextLine(string content, LLMRequest request, int contextLimit)
+    {
+        var estimated = Compactor.EstimateInputTokens(request.Instructions, request.Tools, request.Messages);
+        var usage = estimated >= contextLimit
+            ? 100
+            : (int)(estimated * 100L / contextLimit);
+        var expected = $"Context: {usage}% used ({estimated} estimated tokens / {contextLimit} limit); reminders every 5%; automatic compaction at 90%.";
+        _ = await Assert.That(content).Contains(expected);
+    }
+
     private static async Task AssertStatusOrder(string content, string selection)
     {
         var runtime = content.IndexOf("Runtime:", StringComparison.Ordinal);
@@ -386,7 +403,7 @@ internal sealed class StatusDrainTests : IDisposable
         string model,
         bool includeStatusTool)
     {
-        var providerModel = new ProviderModel(provider, new LLMModel(model, provider.Id));
+        var providerModel = new ProviderModel(provider, new LLMModel(model, provider.Id) { ContextWindow = 100_000 });
         var router = TestModels.Route(providerModel);
         var sessions = new DirectAgentSessions();
         sessions.Use(router);

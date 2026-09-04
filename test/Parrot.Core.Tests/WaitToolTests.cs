@@ -98,6 +98,8 @@ internal sealed class WaitToolTests : IAsyncDisposable
               - queue: work (1 items, description: "queued work")
               - process: agent/process (shell, running, name: process)
               - agent: worker (child)
+
+            Context: unavailable (250 estimated tokens / 0 limit); reminders every 5%; automatic compaction at 90%.
             """);
     }
 
@@ -503,7 +505,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var childQuestions = new ChildQuestionCoordinator(children, TestModels.PromptTemplates);
         _childQuestions.Add(childQuestions);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
         queues.Attach(session);
         return session;
     }
@@ -687,7 +689,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 return AgentSessionDirectScope.Build(identity, parentScope, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
                 {
                     var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                    var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker), SecurityProfileTestFactory.Create(securityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                    var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker), SecurityProfileTestFactory.Create(securityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
                     queues.Attach(session);
                     _ = source._createdQueues.TrySetResult(queues);
                     _ = source._created.TrySetResult(session);

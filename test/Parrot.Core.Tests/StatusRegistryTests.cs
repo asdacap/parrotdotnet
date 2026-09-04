@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Context;
 using Parrot.Process;
 using Parrot.Queues;
 using Parrot.State;
@@ -38,6 +39,73 @@ internal sealed class StatusRegistryTests
         _ = await Assert.That(first).IsEqualTo("profile prompt\n\nselection 1");
         _ = await Assert.That(second).IsEqualTo("profile prompt\n\nselection 2");
         _ = await Assert.That(observedQuery).IsEqualTo(query);
+    }
+
+    [Test]
+    [Arguments(123, 1000, 12, true)]
+    [Arguments(1500, 1000, 100, true)]
+    [Arguments(123, 0, 0, false)]
+    [Arguments(123, -1, 0, false)]
+    public async Task Context_reports_available_and_unavailable_windows_exactly(long estimatedTokens, int contextLimit, int usage, bool available)
+    {
+        var observation = await new ContextStatusProvider(
+                new ContextSnapshot(estimatedTokens, contextLimit, available ? usage : null, 90),
+                TestModels.PromptTemplates)
+            .Observe(new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model"), CancellationToken.None);
+
+        _ = await Assert.That(observation.Available).IsTrue();
+        _ = await Assert.That(observation.Text).Contains($"{estimatedTokens} estimated");
+        _ = await Assert.That(observation.Text).Contains($"{contextLimit} limit");
+        _ = await Assert.That(observation.Text).Contains("every 5%");
+        _ = await Assert.That(observation.Text).Contains("automatic compaction at 90%");
+        if (available)
+        {
+            _ = await Assert.That(observation.Text).IsEqualTo($"Context: {usage}% used ({estimatedTokens} estimated tokens / {contextLimit} limit); reminders every 5%; automatic compaction at 90%.");
+        }
+        else
+        {
+            _ = await Assert.That(observation.Text).Contains("Context: unavailable");
+            _ = await Assert.That(observation.Text).DoesNotContain("% used");
+        }
+    }
+
+    [Test]
+    public async Task Additional_context_provider_preserves_order_and_runtime_exclusions()
+    {
+        using var catalog = QueueCatalog("status-order");
+        using var root = catalog.Register(AgentIdentity.Main("session", "main", TestModels.PromptTemplates));
+        var runtime = new RuntimeTreeStatusProvider(catalog, new ProcessStatusSource(), new AgentStatusSource(), TestModels.PromptTemplates);
+        var full = new StatusRegistry(new GeneratedTimeStatusProvider(TimeProvider.System, TestModels.PromptTemplates), new SelectionStatusProvider(TestModels.PromptTemplates), runtime);
+        var context = new ContextStatusProvider(new ContextSnapshot(123, 1000, 12, 90), TestModels.PromptTemplates);
+        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
+
+        var fullText = await full.ObserveWithProvider(query, new ProfileStatusProvider("profile:build", "profile prompt"), context, CancellationToken.None);
+        var runtimeText = await new StatusRegistry(runtime).ObserveWithProvider(query, null, context, CancellationToken.None);
+
+        _ = await Assert.That(fullText).StartsWith("profile prompt\n\nGenerated at: ");
+        _ = await Assert.That(fullText).Contains("\n\nRuntime:\n- agent: main (session)\n\nContext: 12% used");
+        _ = await Assert.That(fullText).EndsWith("\n\nActive profile: build\nModel: provider/model");
+        _ = await Assert.That(runtimeText).Contains("Context: 12% used");
+        _ = await Assert.That(runtimeText).DoesNotContain("profile prompt");
+        _ = await Assert.That(runtimeText).DoesNotContain("Active profile:");
+        _ = await Assert.That(runtimeText).DoesNotContain("Model:");
+    }
+
+    [Test]
+    public async Task Additional_context_snapshots_are_isolated_per_observation()
+    {
+        var registry = new StatusRegistry(Provider("runtime:value", "shared"));
+        var query = new StatusQuery("session", string.Empty, string.Empty, "build", "provider/model");
+        var first = new ContextStatusProvider(new ContextSnapshot(100, 1000, 10, 90), TestModels.PromptTemplates);
+        var second = new ContextStatusProvider(new ContextSnapshot(800, 1000, 80, 90), TestModels.PromptTemplates);
+        var observations = await Task.WhenAll(
+            registry.ObserveWithProvider(query, null, first, CancellationToken.None),
+            registry.ObserveWithProvider(query, null, second, CancellationToken.None));
+
+        _ = await Assert.That(observations[0]).Contains("10% used");
+        _ = await Assert.That(observations[0]).DoesNotContain("80% used");
+        _ = await Assert.That(observations[1]).Contains("80% used");
+        _ = await Assert.That(observations[1]).DoesNotContain("10% used");
     }
 
     [Test]

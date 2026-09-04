@@ -1,3 +1,4 @@
+using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.State;
@@ -121,11 +122,18 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
             [ConversationPart.TextPart("between")],
             [],
             string.Empty);
+        var reminder = Published("reminder");
+        _ = await Assert.That(repository.AppendContextReminder(
+            reminder,
+            new ContextReminderCheckpoint("provider/model", 10_000, 75),
+            "reminder")).IsTrue();
+        _ = await Assert.That(repository.LatestContextReminder("agent")).IsNotNull();
         var secondStatus = Published("second-status");
         _ = await Assert.That(repository.AppendCompactionStatus(
             secondStatus,
             new CompactionSnapshot("second summary", 3),
             "second status")).IsTrue();
+        _ = await Assert.That(repository.LatestContextReminder("agent")).IsNull();
         repository.AppendConversation(
             Published("after"),
             ConversationOrigin.Model,
@@ -142,7 +150,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         _ = await Assert.That(context.Snapshot.Summary).IsEqualTo("second summary");
         _ = await Assert.That(context.Status?.Parts.Single().Text).IsEqualTo("second status");
         _ = await Assert.That(string.Join(',', context.Tail.Select(item => item.Parts.Single().Text)))
-            .IsEqualTo("after");
+            .IsEqualTo("reminder,after");
         _ = await Assert.That(string.Join(',', repository.Replay().Select(published => published.Id)))
             .Contains("first-status")
             .And.Contains("second-status");

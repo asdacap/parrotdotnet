@@ -766,6 +766,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             new ToolOutputBlobStore(Path.GetTempPath()),
             TestModels.CompactionGroupBlobs(),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,
             childQuestions,
             dependencies.ExitReminder,

@@ -123,6 +123,16 @@ internal sealed class EnhancedTurnView(
 
                 break;
 
+            case Event.PayloadOneofCase.ContextReminderInjected:
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted([$"{Dim}↻ Context reminder injected{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                break;
+
             case Event.PayloadOneofCase.FinalProviderRequestPromptInjected:
                 await Commit(
                     ImmediateScrollbackValue.Trusted([$"{Dim}↻ Final provider request prompt injected{Reset}"]),

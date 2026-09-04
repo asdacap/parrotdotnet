@@ -478,6 +478,271 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Agent_session_context_reminders_coalesce_persist_restart_and_rebase_model(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new ScriptedProvider("reply");
+        var repository = new EventRepository(database);
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+
+        AgentSession Build(ProviderModel selectedModel) => new(
+            identity,
+            AgentSessionParentScope.Root(),
+            new ModelSelector(selectedModel.Selector),
+            TestModels.Route(selectedModel),
+            broker,
+            repository,
+            [],
+            TestModels.EmptyToolDefinitions,
+            TestModels.MaterializePrompt(identity, _workspace, _workspace),
+            new ToolOutputBlobStore(_workspace),
+            _compactionGroupBlobs,
+            new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new ContextCadence(),
+            TestModels.PromptTemplates,
+            dependencies.ChildQuestions,
+            dependencies.ExitReminder,
+            dependencies.Profile,
+            TestModels.CompletionCallbacks(
+                dependencies.ChildQuestions,
+                dependencies.ActiveWorkReminder,
+                dependencies.ExitReminder,
+                repository,
+                broker),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
+            dependencies.Status,
+            dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
+            cancellationToken);
+
+        var firstModel = new ProviderModel(
+            provider,
+            new LLMModel("first", provider.Id) { ContextWindow = 20_000 });
+        await using var session = Build(firstModel);
+        foreach (var prompt in new[] { "start", new string('x', 4_000), new string('y', 12_000) })
+        {
+            _ = await session.Send(
+                [ConversationPart.TextPart(prompt)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+            await session.Settled();
+        }
+
+        var firstCheckpoint = repository.LatestContextReminder("agent")
+            ?? throw new InvalidOperationException("Expected a durable context reminder.");
+        var reminderMessages = repository.ModelHistory("agent")
+            .Where(message => message.Role == LLMRole.System
+                && message.Content.StartsWith("Context usage entered", StringComparison.Ordinal))
+            .ToArray();
+        _ = await Assert.That(firstCheckpoint.CanonicalModel).IsEqualTo(firstModel.Selector);
+        _ = await Assert.That(firstCheckpoint.ContextLimit).IsEqualTo(20_000);
+        _ = await Assert.That(firstCheckpoint.Percentage % ContextCadence.NotificationInterval).IsEqualTo(0);
+        _ = await Assert.That(reminderMessages.Length).IsGreaterThanOrEqualTo(1);
+        _ = await Assert.That(reminderMessages[^1].Content)
+            .Contains($"entered the {firstCheckpoint.Percentage}% notification band")
+            .And.Contains("/ 20000 configured limit")
+            .And.Contains("every 5%")
+            .And.Contains("strictly above 99%");
+
+        var reminderCountBeforeRestart = reminderMessages.Length;
+        await using var restarted = Build(firstModel);
+        _ = await restarted.Send(
+            [ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await restarted.Settled();
+        _ = await Assert.That(repository.ModelHistory("agent").Count(message =>
+                message.Role == LLMRole.System
+                && message.Content.StartsWith("Context usage entered", StringComparison.Ordinal)))
+            .IsEqualTo(reminderCountBeforeRestart);
+
+        var secondModel = new ProviderModel(
+            provider,
+            new LLMModel("second", provider.Id) { ContextWindow = 40_000 });
+        var resolvedSecondModel = TestModels.Resolve(secondModel);
+        restarted.UpdateSelection(resolvedSecondModel.RequestedSelector, restarted.Selection().Profile);
+        restarted.UseResolvedSelection(resolvedSecondModel);
+        _ = await restarted.Send(
+            [ConversationPart.TextPart("model changed")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await restarted.Settled();
+        var remindersAfterRebase = repository.ModelHistory("agent").Count(message =>
+            message.Role == LLMRole.System
+            && message.Content.StartsWith("Context usage entered", StringComparison.Ordinal));
+        _ = await Assert.That(remindersAfterRebase).IsEqualTo(reminderCountBeforeRestart);
+
+        _ = await restarted.Send(
+            [ConversationPart.TextPart(new string('z', 12_000))],
+            Identifier.MessageId(),
+            Delivery.Steer,
+            cancellationToken);
+        await restarted.Settled();
+        var secondCheckpoint = repository.LatestContextReminder("agent")
+            ?? throw new InvalidOperationException("Expected a reminder after model rebase.");
+        _ = await Assert.That(secondCheckpoint.CanonicalModel).IsEqualTo(secondModel.Selector);
+        _ = await Assert.That(secondCheckpoint.ContextLimit).IsEqualTo(40_000);
+        _ = await Assert.That(secondCheckpoint.Percentage % ContextCadence.NotificationInterval).IsEqualTo(0);
+
+        var lastRequest = provider.Requests[^1];
+        var fittedContext = new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates).EstimateContext(
+            secondModel,
+            lastRequest.Instructions,
+            lastRequest.Tools,
+            lastRequest.Messages);
+        _ = await Assert.That(fittedContext.EstimatedTokens).IsLessThanOrEqualTo(fittedContext.ContextLimit);
+        _ = await Assert.That(fittedContext.ExceedsTrigger).IsFalse();
+    }
+
+    [Test]
+    public async Task Agent_session_discards_crossing_when_candidate_reminder_requires_compaction(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        var provider = new ScriptedProvider("reply");
+        var model = new ProviderModel(
+            provider,
+            new LLMModel("model", provider.Id) { ContextWindow = 20_000 });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        var compactor = new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates);
+        await using var session = new AgentSession(
+            identity,
+            AgentSessionParentScope.Root(),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
+            broker,
+            repository,
+            [],
+            TestModels.EmptyToolDefinitions,
+            TestModels.MaterializePrompt(identity, _workspace, _workspace),
+            new ToolOutputBlobStore(_workspace),
+            _compactionGroupBlobs,
+            compactor,
+            new ContextCadence(),
+            TestModels.PromptTemplates,
+            dependencies.ChildQuestions,
+            dependencies.ExitReminder,
+            dependencies.Profile,
+            TestModels.CompletionCallbacks(
+                dependencies.ChildQuestions,
+                dependencies.ActiveWorkReminder,
+                dependencies.ExitReminder,
+                repository,
+                broker),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
+            dependencies.Status,
+            dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
+            cancellationToken);
+
+        _ = await session.Send(
+            [ConversationPart.TextPart("baseline")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await session.Settled();
+        var instructions = provider.Requests[0].Instructions;
+        var history = repository.ModelHistory("agent");
+        var targetTokens = ((long)model.Model.ContextWindow * 99 / 100) - 10;
+        var baselineTokens = Compactor.EstimateInputTokens(
+            instructions,
+            [],
+            [.. history, LLMMessage.User(string.Empty)]);
+        var padding = new string('x', checked((int)((targetTokens - baselineTokens) * 4)));
+
+        _ = await session.Send(
+            [ConversationPart.TextPart(padding)], Identifier.MessageId(), Delivery.Steer, cancellationToken);
+        await session.Settled();
+
+        _ = await Assert.That(repository.LatestContextReminder("agent")).IsNull();
+        _ = await Assert.That(repository.Replay()).Contains(published =>
+            published.PayloadCase == Event.PayloadOneofCase.CompactionFinished);
+        var finalRequest = provider.Requests[^1];
+        var finalContext = compactor.EstimateContext(
+            model,
+            finalRequest.Instructions,
+            finalRequest.Tools,
+            finalRequest.Messages);
+        _ = await Assert.That(finalContext.EstimatedTokens).IsLessThanOrEqualTo(finalContext.ContextLimit);
+    }
+
+    [Test]
+    public async Task Agent_session_context_reminder_estimates_tool_round_and_final_request_shapes(
+        CancellationToken cancellationToken)
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        using var broker = new EventBroker();
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed(
+                "tool_calls",
+                1,
+                0,
+                1,
+                string.Empty,
+                [new LLMToolCall("call", "settled", "{}")]),
+            LLMEvent.Completed("stop", 1, 0, 1, "done", []));
+        var model = new ProviderModel(
+            provider,
+            new LLMModel("model", provider.Id) { ContextWindow = 20_000 });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var repository = new EventRepository(database);
+        using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
+        var toolFactory = new FixedToolFactory(new SettledTool(new string('r', 4_000)));
+        var profile = Profile(allowedTools: ["settled"], disabledTools: new HashSet<string>(StringComparer.Ordinal));
+        await using var session = new AgentSession(
+            identity,
+            AgentSessionParentScope.Root(),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
+            broker,
+            repository,
+            [toolFactory],
+            TestModels.DocumentTools("settled"),
+            TestModels.MaterializePrompt(identity, _workspace, _workspace),
+            new ToolOutputBlobStore(_workspace),
+            _compactionGroupBlobs,
+            new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new ContextCadence(),
+            TestModels.PromptTemplates,
+            dependencies.ChildQuestions,
+            dependencies.ExitReminder,
+            profile,
+            TestModels.CompletionCallbacks(
+                dependencies.ChildQuestions,
+                dependencies.ActiveWorkReminder,
+                dependencies.ExitReminder,
+                repository,
+                broker),
+            SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])),
+            dependencies.Status,
+            dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
+            cancellationToken);
+
+        _ = await session.Send(
+            [ConversationPart.TextPart(new string('p', 4_000))],
+            Identifier.MessageId(),
+            Delivery.Steer,
+            cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[0].Tools).Count().IsEqualTo(1);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[1].Tools).IsEmpty();
+        provider.Release();
+        await session.Settled();
+
+        var checkpoint = repository.LatestContextReminder("agent")
+            ?? throw new InvalidOperationException("Expected context reminder after tool result growth.");
+        _ = await Assert.That(checkpoint.Percentage % ContextCadence.NotificationInterval).IsEqualTo(0);
+        var finalRequest = provider.Requests[1];
+        var finalContext = new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates).EstimateContext(
+            model,
+            finalRequest.Instructions,
+            finalRequest.Tools,
+            finalRequest.Messages);
+        _ = await Assert.That(finalContext.EstimatedTokens).IsLessThanOrEqualTo(finalContext.ContextLimit);
+        _ = await Assert.That(finalContext.ExceedsTrigger).IsFalse();
+    }
+
+    [Test]
     public async Task Agent_session_compaction_preserves_the_current_history(CancellationToken cancellationToken)
     {
         using var database = SessionDatabase.Open(":memory:");
@@ -490,7 +755,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         _ = await session.Send(
             [ConversationPart.TextPart("keep this prompt")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
@@ -502,6 +767,13 @@ internal sealed class CompactorAndContextTests : IDisposable
             .DoesNotContain(message => message.Role == LLMRole.System);
         _ = await Assert.That(inferenceRequest.Messages)
             .Contains(message => message.Role == LLMRole.User && message.Content == "keep this prompt");
+        var irreducibleContext = new Compactor(0, 0, 60_000, 1024, TestModels.PromptTemplates).EstimateContext(
+            model,
+            inferenceRequest.Instructions,
+            inferenceRequest.Tools,
+            inferenceRequest.Messages);
+        _ = await Assert.That(irreducibleContext.ExceedsTrigger).IsTrue();
+        _ = await Assert.That(irreducibleContext.EstimatedTokens).IsLessThanOrEqualTo(irreducibleContext.ContextLimit);
         _ = await Assert.That(inferenceRequest.Model).IsEqualTo("model");
         _ = await Assert.That(inferenceRequest.Reasoning?.Effort).IsEqualTo("xhigh");
         _ = await Assert.That(inferenceRequest.Reasoning?.Summary).IsEqualTo("auto");
@@ -534,6 +806,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             _compactionGroupBlobs,
             new Compactor(compact ? 1 : 99, compact ? 1 : 30, 60_000, 1024, TestModels.PromptTemplates),
+            new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
@@ -557,6 +830,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             await session.Settled();
         }
 
+        await session.Compact(cancellationToken);
         var snapshot = repository.Compaction("agent")
             ?? throw new InvalidOperationException("Expected a durable compaction snapshot.");
         var lifecycle = repository.Replay()
@@ -566,20 +840,12 @@ internal sealed class CompactorAndContextTests : IDisposable
             .Select(published => published.PayloadCase)
             .ToArray();
         _ = await Assert.That(string.Join(',', lifecycle))
-            .IsEqualTo("CompactionStarted,CompactionFinished,CompactionStarted,CompactionFinished,"
-                + "CompactionStarted,CompactionFinished");
+            .IsEqualTo("CompactionStarted,CompactionFinished");
         _ = await Assert.That(snapshot.Summary).Contains("Summary of the earlier conversation:");
         _ = await Assert.That(repository.ConversationAfter("agent", snapshot.Watermark))
             .DoesNotContain(item => item.Parts.Any(part => part.Text == "old prompt"));
         var compactionContext = repository.CompactionHistory("agent")
             ?? throw new InvalidOperationException("Expected durable compaction context.");
-        var currentRequest = provider.Requests[^1];
-        _ = await Assert.That(currentRequest.Messages[0].Content).IsEqualTo(snapshot.Summary);
-        _ = await Assert.That(currentRequest.Messages[1].Content)
-            .IsEqualTo(compactionContext.Status?.Parts.Single().Text);
-        _ = await Assert.That(currentRequest.Messages.Skip(2))
-            .Contains(message => message.Role == LLMRole.User && message.Content == "latest prompt");
-
         var requestsBeforeRestart = provider.Requests.Count;
         await using var restarted = Build(compact: false);
         _ = await restarted.Send([ConversationPart.TextPart("after restart")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
@@ -620,6 +886,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             _compactionGroupBlobs,
             new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
@@ -699,6 +966,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             _compactionGroupBlobs,
             new Compactor(90, 5, 500, 100, TestModels.PromptTemplates),
+            new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
@@ -813,6 +1081,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             failedBlobs,
             new Compactor(90, 5, 500, 100, TestModels.PromptTemplates),
+            new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,
             dependencies.ExitReminder,
@@ -894,7 +1163,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         foreach (var prompt in new[] { "first", "second" })
         {
@@ -934,7 +1203,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         _ = await session.Send(
             [ConversationPart.TextPart("blocked")], Identifier.MessageId(), Delivery.Steer, cancellationToken);
@@ -969,7 +1238,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         await session.Compact(cancellationToken);
 
@@ -990,7 +1259,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         foreach (var prompt in new[] { "first", "second", "third" })
         {
@@ -1024,7 +1293,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var repository = new EventRepository(database);
         using var dependencies = TestModels.Dependencies(identity, broker, repository, cancellationToken);
-        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
+        await using var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), _compactionGroupBlobs, new Compactor(1, 1, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), cancellationToken);
 
         foreach (var prompt in new[] { "first", "second", "third" })
         {
@@ -1126,6 +1395,33 @@ internal sealed class CompactorAndContextTests : IDisposable
             CompactionModel(provider, 1_000), new string('i', 2_000), [], history)).IsTrue();
         _ = await Assert.That(compactor.ShouldCompact(
             CompactionModel(provider, 1_000), string.Empty, tools, history)).IsTrue();
+    }
+
+    [Test]
+    [Arguments(100, "", 4, 4, false)]
+    [Arguments(8, "", 4, 50, false)]
+    [Arguments(8, "x", 5, 62, true)]
+    [Arguments(3, "", 4, 100, true)]
+    [Arguments(0, "", 4, null, false)]
+    [Arguments(-10, "", 4, null, false)]
+    public async Task Context_estimate_reports_bounded_usage_and_strict_trigger(
+        int contextLimit,
+        string instructions,
+        long expectedEstimate,
+        int? expectedUsage,
+        bool expectedCompaction)
+    {
+        var provider = new ScriptedProvider("summary");
+        var compactor = new Compactor(50, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var model = CompactionModel(provider, contextLimit);
+
+        var snapshot = compactor.EstimateContext(model, instructions, [], []);
+
+        _ = await Assert.That(snapshot.EstimatedTokens).IsEqualTo(expectedEstimate);
+        _ = await Assert.That(snapshot.ContextLimit).IsEqualTo(contextLimit);
+        _ = await Assert.That(snapshot.UsagePercent).IsEqualTo(expectedUsage);
+        _ = await Assert.That(snapshot.TriggerPercent).IsEqualTo(50);
+        _ = await Assert.That(compactor.ShouldCompact(model, instructions, [], [])).IsEqualTo(expectedCompaction);
     }
 
     [Test]

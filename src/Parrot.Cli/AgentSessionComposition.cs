@@ -143,6 +143,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Security;
             })
+            .Bind<ContextCadence>().As(Lifetime.Scoped).To<ContextCadence>()
             .Bind<PermissionBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
@@ -177,6 +178,7 @@ internal partial class AgentSessionComposition
             .Bind<AgentStatusToolFactory>().As(Lifetime.Scoped).To<AgentStatusToolFactory>()
             .Bind<WaitToolFactory>().As(Lifetime.Scoped).To<WaitToolFactory>()
             .Bind<StatusToolFactory>().As(Lifetime.Scoped).To<StatusToolFactory>()
+            .Bind<CompactContextToolFactory>().As(Lifetime.Scoped).To<CompactContextToolFactory>()
             .Bind<QueueCreateToolFactory>().As(Lifetime.Scoped).To<QueueCreateToolFactory>()
             .Bind<QueueInfoToolFactory>().As(Lifetime.Scoped).To<QueueInfoToolFactory>()
             .Bind<QueueListenToolFactory>().As(Lifetime.Scoped).To<QueueListenToolFactory>()
@@ -227,6 +229,7 @@ internal partial class AgentSessionComposition
                 ctx.Inject<AgentStatusToolFactory>(out var agentStatus);
                 ctx.Inject<WaitToolFactory>(out var wait);
                 ctx.Inject<StatusToolFactory>(out var status);
+                ctx.Inject<CompactContextToolFactory>(out var compactContext);
                 ctx.Inject<QueueCreateToolFactory>(out var queueCreate);
                 ctx.Inject<QueueInfoToolFactory>(out var queueInfo);
                 ctx.Inject<QueueListenToolFactory>(out var queueListen);
@@ -254,6 +257,7 @@ internal partial class AgentSessionComposition
                     agentStatus,
                     wait,
                     status,
+                    compactContext,
                     queueCreate,
                     queueInfo,
                     queueListen,

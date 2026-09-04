@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Parrot.Config;
 using Parrot.Context;
@@ -38,6 +39,7 @@ internal sealed class AgentSession(
     ToolOutputBlobStore toolOutputBlobs,
     CompactionGroupBlobStore compactionGroupBlobs,
     Compactor compactor,
+    ContextCadence contextCadence,
     PromptTemplateCatalog promptTemplates,
     ChildQuestionCoordinator childQuestions,
     ExitReminder exitReminder,
@@ -86,9 +88,11 @@ internal sealed class AgentSession(
     private DrainState _state;
 
     private AgentSelection _selection = new(model, mode, security.Policy());
+    private ResolvedModelSelection? _resolvedSelection;
     private ToolSnapshot? _tools;
 
     private bool _epochInitialized;
+    private bool _contextCadenceRestored;
     private bool _initialStatusPending = identity.Depth > 0;
     private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private DrainCancellation? _drainCancellation;
@@ -118,6 +122,7 @@ internal sealed class AgentSession(
         ToolOutputBlobStore toolOutputBlobs,
         CompactionGroupBlobStore compactionGroupBlobs,
         Compactor compactor,
+        ContextCadence contextCadence,
         PromptTemplateCatalog promptTemplates,
         ChildQuestionCoordinator childQuestions,
         ExitReminder exitReminder,
@@ -141,6 +146,7 @@ internal sealed class AgentSession(
             toolOutputBlobs,
             compactionGroupBlobs,
             compactor,
+            contextCadence,
             promptTemplates,
             childQuestions,
             exitReminder,
@@ -172,6 +178,64 @@ internal sealed class AgentSession(
     public AgentSessionActivity Activity { get; } = activity
         ?? throw new ArgumentNullException(nameof(activity));
 
+    public ContextSnapshot EstimateContext(AgentTurnSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+
+        if (!_epochInitialized)
+        {
+            _systemPrompt.RenewEpoch();
+            _epochInitialized = true;
+        }
+
+        var tools = MaterializeTools()
+            .Without(selection.Profile.DisabledTools)
+            .Only(selection.Profile.AllowedTools);
+        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools.Definitions, [.. _history]);
+    }
+
+    public IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return MaterializeTools()
+            .Without(selection.Profile.DisabledTools)
+            .Only(selection.Profile.AllowedTools)
+            .Definitions;
+    }
+
+    public ContextSnapshot EstimateContextForTools(
+        AgentTurnSelection selection,
+        IReadOnlyList<LLMToolDefinition> tools)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(tools);
+        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools, [.. _history]);
+    }
+
+    public ContextSnapshot EstimateContextForToolsAndHistory(
+        AgentTurnSelection selection,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> history)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(tools);
+        ArgumentNullException.ThrowIfNull(history);
+        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools, history);
+    }
+
+    public ContextSnapshot EstimateContextForHistory(
+        AgentTurnSelection selection,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<LLMMessage> history)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(instructions);
+        ArgumentNullException.ThrowIfNull(tools);
+        ArgumentNullException.ThrowIfNull(history);
+        return compactor.EstimateContext(selection.ResolvedModel.CanonicalModel, instructions, tools, history);
+    }
+
     public AgentSelection Selection()
     {
         lock (_selectionGate)
@@ -187,6 +251,11 @@ internal sealed class AgentSession(
 
         lock (_selectionGate)
         {
+            if (!string.Equals(_selection.RequestedModel.Value, selectedModel.Value, StringComparison.Ordinal))
+            {
+                _resolvedSelection = null;
+            }
+
             _selection = new AgentSelection(
                 selectedModel,
                 mode,
@@ -194,9 +263,17 @@ internal sealed class AgentSession(
         }
     }
 
-    // Starts a drain, or tells the one already running that there is more to
-    // take. Coalescing rather than starting a second drain keeps one owner,
-    // however many prompts arrive.
+    public void UseResolvedSelection(ResolvedModelSelection selectedModel)
+    {
+        ArgumentNullException.ThrowIfNull(selectedModel);
+        lock (_selectionGate)
+        {
+            _resolvedSelection = selectedModel;
+        }
+    }
+
+    public void Recover() => _ = Wake(null);
+
     public bool Wake(IncomingActivity? activity) => WakeSelected(activity).FollowUp;
 
     // Stops the turn in flight and returns once the drain has unwound, so a
@@ -294,6 +371,66 @@ internal sealed class AgentSession(
         }
 
         return AwaitForcedCompaction(request);
+    }
+
+    public ContextSnapshot EstimateContextAfterToolResult(
+        AgentTurnSelection selection,
+        string toolCallId,
+        string result)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentException.ThrowIfNullOrWhiteSpace(toolCallId);
+        ArgumentNullException.ThrowIfNull(result);
+
+        var tools = MaterializeTools()
+            .Without(selection.Profile.DisabledTools)
+            .Only(selection.Profile.AllowedTools);
+        var history = RestoreHistory(eventRepository, SessionId);
+        var formattedResult = promptTemplates.Render(
+            "tool-result.text",
+            [new PromptTemplateArgument("value", result)]);
+        history.Add(LLMMessage.ToolResult(toolCallId, formattedResult));
+        return EstimateContextForHistory(
+            selection,
+            _systemPrompt.Build(selection),
+            tools.Definitions,
+            history);
+    }
+
+    public async Task<ContextCompactionResult> CompactFromTool(
+        AgentTurnSelection selection,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var tools = MaterializeTools()
+            .Without(selection.Profile.DisabledTools)
+            .Only(selection.Profile.AllowedTools);
+        if (!_epochInitialized)
+        {
+            _systemPrompt.RenewEpoch();
+            _epochInitialized = true;
+        }
+
+        var instructions = _systemPrompt.Build(selection);
+        var before = EstimateContextForHistory(selection, instructions, tools.Definitions, [.. _history]);
+        if (!before.IsAvailable)
+        {
+            return new ContextCompactionResult(before, false);
+        }
+
+        var compacted = await CompactEpoch(
+            selection,
+            tools.Definitions,
+            instructions,
+            cancellationToken).ConfigureAwait(false);
+        var after = EstimateContextForHistory(
+            selection,
+            compacted.Instructions,
+            tools.Definitions,
+            [.. _history]);
+        return new ContextCompactionResult(after, compacted.Reduced);
     }
 
     public async Task Abort(CancellationToken cancellationToken)
@@ -716,6 +853,44 @@ internal sealed class AgentSession(
         return history;
     }
 
+    private static List<LLMMessage> ReplaceFixedStatus(
+        IReadOnlyList<LLMMessage> history,
+        string content)
+    {
+        var replaced = history.ToList();
+        var index = replaced.FindIndex(1, message => message.Role == LLMRole.System);
+        if (index >= 0)
+        {
+            replaced[index] = LLMMessage.System(content);
+        }
+
+        return replaced;
+    }
+
+    private static string ReplaceContextStatus(string statusContent, string contextContent)
+    {
+        const string prefix = "Context:";
+        var start = statusContent.IndexOf(prefix, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return string.Concat(statusContent, "\n\n", contextContent);
+        }
+
+        var end = statusContent.IndexOf("\n\n", start, StringComparison.Ordinal);
+        return end < 0
+            ? string.Concat(statusContent.AsSpan(0, start), contextContent)
+            : string.Concat(statusContent.AsSpan(0, start), contextContent, statusContent.AsSpan(end));
+    }
+
+    private static void EnsureRequestFitsAfterCompaction(ContextSnapshot context)
+    {
+        if (context.IsAvailable && context.EstimatedTokens > context.ContextLimit)
+        {
+            throw new InvalidOperationException(
+                "The compacted conversation exceeds the selected model context window.");
+        }
+    }
+
     private static LLMMessage RestoreMessage(EventRepository repository, ConversationItem item) => new()
     {
         Role = item.Role,
@@ -741,10 +916,73 @@ internal sealed class AgentSession(
     private static async Task AwaitForcedCompaction(ForcedCompactionRequest request) =>
         await request.Completion.Task.WaitAsync(request.CancellationToken).ConfigureAwait(false);
 
+    private List<LLMMessage> HistoryWithNextPromotion()
+    {
+        var history = new List<LLMMessage>(_history);
+        history.AddRange(eventRepository.InputsForNextPromotion(SessionId)
+            .Select(input => LLMMessage.User(eventRepository.Materialize(input.Parts))));
+        return history;
+    }
+
+    private async Task<string> ObserveStatusForInsertion(
+        AgentTurnSelection selection,
+        IAgentProfile profile,
+        IReadOnlyList<LLMToolDefinition> tools,
+        CancellationToken cancellationToken)
+    {
+        var requestHistory = HistoryWithNextPromotion();
+        var context = EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools, requestHistory);
+        var content = await status.ObserveWithContext(
+            this,
+            selection,
+            profile,
+            context,
+            cancellationToken).ConfigureAwait(false);
+        const int maximumStatusConvergenceAttempts = 8;
+        for (var attempt = 0; attempt < maximumStatusConvergenceAttempts; attempt++)
+        {
+            var candidateHistory = new List<LLMMessage>(requestHistory) { LLMMessage.System(content) };
+            var candidateContext = EstimateContextForHistory(
+                selection,
+                _systemPrompt.Build(selection),
+                tools,
+                candidateHistory);
+            var contextContent = await status.ObserveContext(
+                this,
+                selection,
+                candidateContext,
+                cancellationToken).ConfigureAwait(false);
+            var rendered = ReplaceContextStatus(content, contextContent);
+            var renderedContext = EstimateContextForHistory(
+                selection,
+                _systemPrompt.Build(selection),
+                tools,
+                [.. requestHistory, LLMMessage.System(rendered)]);
+            content = rendered;
+            if (candidateContext == renderedContext)
+            {
+                break;
+            }
+        }
+
+        return content;
+    }
+
     private AgentSelection CaptureSelection()
     {
         var selected = ResolvePolicySelection();
         return selected with { SecurityProfile = security.Capture(selected.SecurityProfile) };
+    }
+
+    private ResolvedModelSelection ResolveModel(AgentSelection selection)
+    {
+        lock (_selectionGate)
+        {
+            return _resolvedSelection is { } resolved
+                && string.Equals(resolved.RequestedSelector.Value, selection.RequestedModel.Value, StringComparison.Ordinal)
+                    ? resolved
+                    : router.Resolve(selection.RequestedModel.Value);
+        }
     }
 
     private async Task<AgentExecution> WaitForDrainResult()
@@ -1102,7 +1340,7 @@ internal sealed class AgentSession(
                 {
                     var captured = CaptureSelection();
                     captured.Profile.Prepare();
-                    var resolved = router.Resolve(captured.RequestedModel.Value);
+                    var resolved = ResolveModel(captured);
                     activeSelection = new AgentTurnSelection(
                         resolved.RequestedSelector,
                         resolved,
@@ -1140,6 +1378,12 @@ internal sealed class AgentSession(
                         },
                     };
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
+                    if (!_epochInitialized)
+                    {
+                        _systemPrompt.RenewEpoch();
+                        _epochInitialized = true;
+                    }
+
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
                     activeTools = MaterializeTools()
                         .Without(activeSelection.Profile.DisabledTools)
@@ -1435,7 +1679,7 @@ internal sealed class AgentSession(
     private async Task ReconcileToolBatchesUsingCurrentConfiguration(CancellationToken cancellationToken)
     {
         var captured = CaptureSelection();
-        var resolved = router.Resolve(captured.RequestedModel.Value);
+        var resolved = ResolveModel(captured);
         var selection = new AgentTurnSelection(
             resolved.RequestedSelector,
             resolved,
@@ -1624,7 +1868,7 @@ internal sealed class AgentSession(
                 await ReconcileToolBatchesUsingCurrentConfiguration(operation.Token).ConfigureAwait(false);
                 var captured = CaptureSelection();
                 captured.Profile.Prepare();
-                var resolved = router.Resolve(captured.RequestedModel.Value);
+                var resolved = ResolveModel(captured);
                 var selection = new AgentTurnSelection(
                     resolved.RequestedSelector,
                     resolved,
@@ -1668,15 +1912,100 @@ internal sealed class AgentSession(
         }
 
         var instructions = _systemPrompt.Build(selection);
-        if (!compactor.ShouldCompact(selection.ResolvedModel.CanonicalModel, instructions, tools, _history))
+        var context = compactor.EstimateContext(
+            selection.ResolvedModel.CanonicalModel,
+            instructions,
+            tools,
+            _history);
+        if (context.ExceedsTrigger)
+        {
+            instructions = (await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false)).Instructions;
+            context = compactor.EstimateContext(
+                selection.ResolvedModel.CanonicalModel,
+                instructions,
+                tools,
+                _history);
+            EnsureRequestFitsAfterCompaction(context);
+        }
+
+        if (!_contextCadenceRestored)
+        {
+            contextCadence.Restore(eventRepository.LatestContextReminder(SessionId));
+            _contextCadenceRestored = true;
+        }
+
+        var crossedPercentage = contextCadence.Observe(
+            context,
+            selection.ResolvedModel.CanonicalModel.Selector,
+            _history.Count);
+        if (crossedPercentage is { } percentage)
+        {
+            instructions = await InjectContextReminder(
+                selection,
+                tools,
+                instructions,
+                context,
+                percentage,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return instructions;
+    }
+
+    private async Task<string> InjectContextReminder(
+        AgentTurnSelection selection,
+        IReadOnlyList<LLMToolDefinition> tools,
+        string instructions,
+        ContextSnapshot context,
+        int percentage,
+        CancellationToken cancellationToken)
+    {
+        var selectedModel = selection.ResolvedModel.CanonicalModel;
+        var reminder = RenderContextReminder(context, percentage);
+        LLMMessage[] candidateHistory = [.. _history, LLMMessage.System(reminder)];
+        var insertedContext = compactor.EstimateContext(selectedModel, instructions, tools, candidateHistory);
+        if (!insertedContext.IsAvailable)
         {
             return instructions;
         }
 
-        return await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false);
+        if (insertedContext.EstimatedTokens > insertedContext.ContextLimit || insertedContext.ExceedsTrigger)
+        {
+            var compacted = await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false);
+            var compactedContext = compactor.EstimateContext(selectedModel, compacted.Instructions, tools, _history);
+            EnsureRequestFitsAfterCompaction(compactedContext);
+            return compacted.Instructions;
+        }
+
+        var checkpoint = new ContextReminderCheckpoint(selectedModel.Selector, context.ContextLimit, percentage);
+        var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
+        if (!eventRepository.AppendContextReminder(published, checkpoint, reminder))
+        {
+            contextCadence.Acknowledge(insertedContext, selectedModel.Selector, _history.Count);
+            return instructions;
+        }
+
+        _history.Add(LLMMessage.System(reminder));
+        var persistedContext = compactor.EstimateContext(selectedModel, instructions, tools, _history);
+        contextCadence.Acknowledge(persistedContext, selectedModel.Selector, _history.Count);
+        await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
+        return instructions;
     }
 
-    private async Task<string> CompactEpoch(
+    private string RenderContextReminder(ContextSnapshot context, int percentage) =>
+        promptTemplates.Render("agent-session.context-reminder", [
+            new PromptTemplateArgument("percentage", percentage.ToString(CultureInfo.InvariantCulture)),
+            new PromptTemplateArgument(
+                "estimated_tokens",
+                context.EstimatedTokens.ToString(CultureInfo.InvariantCulture)),
+            new PromptTemplateArgument("context_limit", context.ContextLimit.ToString(CultureInfo.InvariantCulture)),
+            new PromptTemplateArgument(
+                "notification_interval",
+                ContextCadence.NotificationInterval.ToString(CultureInfo.InvariantCulture)),
+            new PromptTemplateArgument("trigger", context.TriggerPercent.ToString(CultureInfo.InvariantCulture)),
+        ]);
+
+    private async Task<CompactionEpochResult> CompactEpoch(
         AgentTurnSelection selection,
         IReadOnlyList<LLMToolDefinition> tools,
         string instructions,
@@ -1693,6 +2022,7 @@ internal sealed class AgentSession(
 
         try
         {
+            var reduced = false;
             _systemPrompt.RenewEpoch();
             instructions = _systemPrompt.Build(selection);
             var effective = eventRepository.EffectiveConversationGroups(SessionId);
@@ -1712,8 +2042,12 @@ internal sealed class AgentSession(
                 group.EndWatermark,
                 group.AssistantSequence > 0 && activeCheckpoints.Contains(group.AssistantSequence),
                 group.IsComplete)));
-            var statusContent = await status.Observe(this, selection, selection.Profile, cancellationToken)
-                .ConfigureAwait(false);
+            var statusContent = await status.ObserveWithContext(
+                this,
+                selection,
+                selection.Profile,
+                EstimateContextForHistory(selection, instructions, tools, [.. _history]),
+                cancellationToken).ConfigureAwait(false);
             var fixedStatus = LLMMessage.System(statusContent);
             var compacted = await compactor.Compact(
                 selectedModel,
@@ -1733,6 +2067,43 @@ internal sealed class AgentSession(
 
             if (compacted is not null && compacted.Watermark > currentWatermark)
             {
+                const int maximumStatusConvergenceAttempts = 8;
+                var compactedHistory = ReplaceFixedStatus(compacted.History, statusContent);
+                for (var attempt = 0; attempt < maximumStatusConvergenceAttempts; attempt++)
+                {
+                    var postCompactionContext = EstimateContextForHistory(
+                        selection,
+                        instructions,
+                        tools,
+                        compactedHistory);
+                    var contextContent = await status.ObserveContext(
+                        this,
+                        selection,
+                        postCompactionContext,
+                        cancellationToken).ConfigureAwait(false);
+                    var postCompactionStatus = ReplaceContextStatus(statusContent, contextContent);
+                    var postCompactionHistory = ReplaceFixedStatus(compacted.History, postCompactionStatus);
+                    var renderedContext = EstimateContextForHistory(
+                        selection,
+                        instructions,
+                        tools,
+                        postCompactionHistory);
+                    statusContent = postCompactionStatus;
+                    compactedHistory = postCompactionHistory;
+                    if (postCompactionContext == renderedContext)
+                    {
+                        break;
+                    }
+                }
+
+                compacted = compacted with { History = compactedHistory };
+                var finalContext = EstimateContextForHistory(selection, instructions, tools, compacted.History);
+                if (finalContext.IsAvailable && finalContext.EstimatedTokens > finalContext.ContextLimit)
+                {
+                    throw new InvalidOperationException(
+                        "The compacted conversation exceeds the selected model context window.");
+                }
+
                 var statusInjected = new Event
                 {
                     Id = Identifier.EventId(),
@@ -1747,8 +2118,18 @@ internal sealed class AgentSession(
                     throw new InvalidOperationException("compaction snapshot was already persisted");
                 }
 
+                reduced = true;
                 _history.Clear();
                 _history.AddRange(RestoreHistory(eventRepository, SessionId));
+                var persistedContext = compactor.EstimateContext(
+                    selectedModel,
+                    instructions,
+                    tools,
+                    _history);
+                contextCadence.Rebase(
+                    persistedContext,
+                    selectedModel.Selector,
+                    _history.Count);
                 await eventBroker.Publish(statusInjected, CancellationToken.None).ConfigureAwait(false);
             }
 
@@ -1759,7 +2140,7 @@ internal sealed class AgentSession(
                 CompactionFinished = new CompactionFinished(),
             };
             await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
-            return instructions;
+            return new CompactionEpochResult(instructions, reduced);
         }
         catch (Exception failure)
         {
@@ -1813,8 +2194,11 @@ internal sealed class AgentSession(
                 return selection;
             }
 
-            var content = await status.Observe(this, selection, selection.Profile, cancellationToken)
-                .ConfigureAwait(false);
+            var content = await ObserveStatusForInsertion(
+                selection,
+                selection.Profile,
+                AdvertisedToolDefinitions(selection),
+                cancellationToken).ConfigureAwait(false);
             var published = new Event
             {
                 Id = Identifier.EventId(),
@@ -1841,7 +2225,11 @@ internal sealed class AgentSession(
                 continue;
             }
 
-            var content = await status.Observe(this, selection, profile, cancellationToken).ConfigureAwait(false);
+            var content = await ObserveStatusForInsertion(
+                selection,
+                profile,
+                AdvertisedToolDefinitions(selection),
+                cancellationToken).ConfigureAwait(false);
             var published = new Event
             {
                 Id = Identifier.EventId(),
@@ -1867,6 +2255,8 @@ internal sealed class AgentSession(
         var selected = CaptureSelection();
         return active with
         {
+            RequestedModel = selected.RequestedModel,
+            ResolvedModel = ResolveModel(selected),
             Profile = selected.Profile,
             SecurityProfile = selected.SecurityProfile,
         };

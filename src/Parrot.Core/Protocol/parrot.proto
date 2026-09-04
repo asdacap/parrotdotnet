@@ -419,6 +419,7 @@ message Event {
     PendingChildQuestionReminderInjected pending_child_question_reminder_injected = 36;
     ExitReminderChanged exit_reminder_changed = 37;
     ExitReminderInjected exit_reminder_injected = 38;
+    ContextReminderInjected context_reminder_injected = 39;
   }
 }
 
@@ -529,6 +530,10 @@ message ExitReminderChanged {
 // Transient notification that the retained assistant response and a durable
 // system exit reminder were added to model history.
 message ExitReminderInjected {}
+
+// Transient notification that a durable context-usage reminder was added to
+// model history. Its text remains in history, not on the wire.
+message ContextReminderInjected {}
 
 // Transient notification that a durable system prompt explains that this is the
 // final provider request of the turn and tools are unavailable.
