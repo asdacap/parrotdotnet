@@ -113,6 +113,111 @@ internal sealed class EnhancedRenderingSessionTests
     }
 
     [Test]
+    public async Task Root_turn_duration_advances_and_respects_lifecycle_boundaries(
+        CancellationToken cancellationToken)
+    {
+        var stream = new ChannelStreamWriter<Event>();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        var terminal = new TestTerminal(driver.Input, output, error, 120);
+        var configuration = new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml"));
+        var presenters = new ToolPresenterRegistry([new WaitToolPresenter()], new GenericToolPresenter());
+        var time = new TestTimeProvider();
+        var pending = NewObservation();
+        await using var session = new EnhancedRenderingSession(
+            new EnhancedTurnRenderer(terminal, configuration, presenters),
+            presenters,
+            new TerminalFrameRenderer(output, terminal.GetColumns, new TerminalPalette(false), 10, 12, true),
+            new TestSlashSession("provider/model"),
+            [new PromptValue("> ", string.Empty, 0)],
+            (published, _) =>
+            {
+                pending.SetResult(published.PayloadCase);
+                return Task.CompletedTask;
+            },
+            static _ => Task.CompletedTask,
+            static _ => Task.CompletedTask,
+            static () => true,
+            static (_, _) => Task.CompletedTask,
+            false,
+            time,
+            (_, _) => Task.CompletedTask,
+            null);
+
+        var running = session.Run(stream.Reader, cancellationToken);
+        await Send(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } });
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("agent main (running 0s)");
+
+        time.Advance(TimeSpan.FromMinutes(1) + TimeSpan.FromSeconds(5));
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("agent main (running 1m 05s)");
+
+        await Send(new Event
+        {
+            AgentSessionId = "root",
+            ToolStarted = new ToolStarted { ToolCallId = "wait-call", ToolName = "wait" },
+        });
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("Working: wait (running 1m 05s)");
+
+        time.Advance(TimeSpan.FromHours(2) + TimeSpan.FromMinutes(2) - TimeSpan.FromSeconds(1));
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("Working: wait (running 2h 03m 04s)");
+
+        await Send(new Event
+        {
+            AgentSessionId = "child",
+            AgentStarted = new AgentStarted { ParentAgentSessionId = "root", Name = "worker" },
+        });
+        await Send(new Event { AgentSessionId = "child", TurnStarted = new TurnStarted { Model = "model" } });
+        await Send(new Event { AgentSessionId = "child", TurnEnded = new TurnEnded { FinishReason = "stop" } });
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("Working: wait (running 2h 03m 04s)");
+
+        await Send(new Event { AgentSessionId = "root", TurnEnded = new TurnEnded { FinishReason = "stop" } });
+        var endedAt = output.GetStringBuilder().Length;
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()[endedAt..]).DoesNotContain("running");
+
+        await Send(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } });
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("agent main (running 0s)");
+        await Send(new Event
+        {
+            AgentSessionId = "root",
+            TurnFailed = new TurnFailed { Message = "failed" },
+        });
+        var failedAt = output.GetStringBuilder().Length;
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()[failedAt..]).DoesNotContain("running");
+
+        await Send(new Event { AgentSessionId = "root", TurnStarted = new TurnStarted { Model = "model" } });
+        time.Advance(TimeSpan.FromSeconds(12));
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()).Contains("agent main (running 12s)");
+
+        await session.ResetForSession(cancellationToken);
+        var resetAt = output.GetStringBuilder().Length;
+        await session.Refresh(cancellationToken);
+        _ = await Assert.That(output.ToString()[resetAt..]).DoesNotContain("running");
+
+        stream.Complete();
+        _ = await running;
+
+        async Task Send(Event published)
+        {
+            pending = NewObservation();
+            await stream.WriteAsync(published, cancellationToken);
+            _ = await pending.Task.WaitAsync(cancellationToken);
+        }
+
+        static TaskCompletionSource<Event.PayloadOneofCase> NewObservation() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    [Test]
     public async Task Older_stream_without_live_usage_keeps_rates_out_of_the_modeline(
         CancellationToken cancellationToken)
     {
