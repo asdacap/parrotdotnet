@@ -92,7 +92,7 @@ internal sealed class EnhancedTurnRendererTests
                 new Event
                 {
                     Id = "agent-finished",
-                    AgentFinished = new AgentFinished { Name = "explorer\u001b[31m" },
+                    AgentFinished = new AgentFinished { Name = "explorer\u001b[31m", ElapsedMs = 7_000 },
                 },
                 new Event
                 {
@@ -138,7 +138,7 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(output).Contains("  - read[2J cancelled");
         _ = await Assert.That(output).Contains("  ! write[31m: denied[2J");
         _ = await Assert.That(output).Contains("  * agent explorer[31m started");
-        _ = await Assert.That(output).Contains("  + agent explorer[31m finished");
+        _ = await Assert.That(output).Contains("  + agent explorer[31m finished (7s)");
         _ = await Assert.That(output).Contains("  ! agent reviewer[31m: boom[2J");
         _ = await Assert.That(output).Contains("  * compaction started");
         _ = await Assert.That(output).Contains("  + compaction finished");

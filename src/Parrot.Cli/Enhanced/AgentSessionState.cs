@@ -162,7 +162,7 @@ internal sealed class AgentSessionState(string agentSessionId)
         var response = DrainResponse();
         var status = failed
             ? $"! agent: {TerminalText.Sanitize(published.AgentFailed.Message)}"
-            : "+ agent finished";
+            : $"+ agent finished ({AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)})";
         return (AgentActivity, response, status);
     }
 

@@ -91,6 +91,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(lifecycle[0].AgentStarted.Name).IsEqualTo("child-helper");
         _ = await Assert.That(lifecycle[1].AgentFinished.ParentAgentSessionId).IsEqualTo("agent");
         _ = await Assert.That(lifecycle[1].AgentFinished.Name).IsEqualTo("child-helper");
+        _ = await Assert.That(lifecycle[1].AgentFinished.HasElapsedMs).IsTrue();
+        _ = await Assert.That(lifecycle[1].AgentFinished.ElapsedMs >= 0).IsTrue();
 
         var systemPrompt = provider.Requests[0].Instructions;
         _ = await Assert.That(provider.Requests[0].Messages)

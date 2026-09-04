@@ -245,8 +245,9 @@ internal sealed class BasicCli(
 
                 case Event.PayloadOneofCase.AgentFinished:
                     await output.WriteLineAsync(
-                        $"  agent finished: {published.AgentFinished.Name}".AsMemory(), cancellationToken)
-                        .ConfigureAwait(false);
+                        ($"  agent finished: {published.AgentFinished.Name} " +
+                         $"({AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)})").AsMemory(),
+                        cancellationToken).ConfigureAwait(false);
                     break;
 
                 case Event.PayloadOneofCase.AgentFailed:

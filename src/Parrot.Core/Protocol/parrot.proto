@@ -500,6 +500,7 @@ message AgentStarted {
 message AgentFinished {
   string parent_agent_session_id = 1;
   string name                    = 2;
+  optional int64 elapsed_ms      = 3;
 }
 
 message AgentFailed {

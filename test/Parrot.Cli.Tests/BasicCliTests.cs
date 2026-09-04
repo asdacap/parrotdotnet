@@ -170,7 +170,7 @@ internal sealed class BasicCliTests
         await stream.WriteAsync(
             new Event { AgentStarted = new AgentStarted { Name = "explorer" } }, cancellationToken);
         await stream.WriteAsync(
-            new Event { AgentFinished = new AgentFinished { Name = "explorer" } }, cancellationToken);
+            new Event { AgentFinished = new AgentFinished { Name = "explorer", ElapsedMs = 65_000 } }, cancellationToken);
         await stream.WriteAsync(
             new Event { AgentFailed = new AgentFailed { Name = "reviewer", Message = "boom" } }, cancellationToken);
         await stream.WriteAsync(new Event { CompactionStarted = new CompactionStarted() }, cancellationToken);
@@ -190,7 +190,7 @@ internal sealed class BasicCliTests
             $"  tool cancelled: write{Environment.NewLine}" +
             $"  tool error: shell: denied{Environment.NewLine}" +
             $"  agent started: explorer{Environment.NewLine}" +
-            $"  agent finished: explorer{Environment.NewLine}" +
+            $"  agent finished: explorer (1m 05s){Environment.NewLine}" +
             $"  agent failed: reviewer: boom{Environment.NewLine}" +
             $"  compaction started{Environment.NewLine}" +
             $"  compaction finished{Environment.NewLine}" +

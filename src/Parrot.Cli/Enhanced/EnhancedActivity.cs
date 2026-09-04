@@ -68,7 +68,8 @@ internal sealed class EnhancedActivity(ToolPresenterRegistry presenters)
         Event.PayloadOneofCase.AgentStarted =>
             $"* agent {TerminalText.Sanitize(published.AgentStarted.Name)} started",
         Event.PayloadOneofCase.AgentFinished =>
-            $"+ agent {TerminalText.Sanitize(published.AgentFinished.Name)} finished",
+            $"+ agent {TerminalText.Sanitize(published.AgentFinished.Name)} finished " +
+            $"({AgentDurationFormatter.Format(published.AgentFinished.ElapsedMs)})",
         Event.PayloadOneofCase.AgentFailed =>
             $"! agent {TerminalText.Sanitize(published.AgentFailed.Name)}: " +
             TerminalText.Sanitize(published.AgentFailed.Message),

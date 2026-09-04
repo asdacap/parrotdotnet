@@ -1122,6 +1122,7 @@ internal sealed class AgentSession(
 
         using (terminalCompletionAttempt)
         {
+            var elapsedMilliseconds = (long)(Activity.Capture().RequestSessionDuration ?? TimeSpan.Zero).TotalMilliseconds;
             var terminal = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
             if (completed.Status == AgentExecutionStatus.Succeeded)
             {
@@ -1129,6 +1130,7 @@ internal sealed class AgentSession(
                 {
                     ParentAgentSessionId = identity.ParentSessionId,
                     Name = Name,
+                    ElapsedMs = elapsedMilliseconds,
                 };
             }
             else
