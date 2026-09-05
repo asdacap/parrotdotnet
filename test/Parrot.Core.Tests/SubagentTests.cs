@@ -227,8 +227,9 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     public async Task Friendly_names_are_scoped_to_direct_siblings(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
+        var sessions = new TestAgentSessions(Router(provider));
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(Router(provider)),
+            sessions,
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -270,6 +271,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(first.Name).IsEqualTo("helper");
         _ = await Assert.That(sibling.Name).IsEqualTo("helper-2");
         _ = await Assert.That(otherBranch.Name).IsEqualTo("helper");
+        _ = await Assert.That(string.Join(',', sessions.Identities.Select(identity => identity.Name)))
+            .IsEqualTo("helper,helper,helper-2,helper");
         _ = await Assert.That(Resolver(firstParent, registry).ResolveStatusTarget("helper")).IsSameReferenceAs(first);
         _ = await Assert.That(Resolver(secondParent, registry).ResolveStatusTarget("helper")).IsSameReferenceAs(otherBranch);
     }
@@ -2037,6 +2040,66 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly);
+    }
+
+    [Test]
+    public async Task Child_registry_rejects_duplicate_names_without_removing_the_original(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        var sessions = new TestAgentSessions(Router(provider));
+        await using var registry = TestModels.Registry(
+            sessions,
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            cancellationToken);
+        await using var parent = Session(provider, 0, "parent", "parent", registry, cancellationToken);
+        var parentScope = TestModels.ScopeOf(parent);
+        var mode = Profile("worker", false, []);
+        var first = sessions.Create(
+            ChildIdentity("first-child"),
+            AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly),
+            new ModelSelector("stepped/model"),
+            _broker,
+            _repository,
+            mode,
+            mode.SecurityProfile,
+            registry.RequireStatus(),
+            registry,
+            cancellationToken);
+        var second = sessions.Create(
+            ChildIdentity("second-child"),
+            AgentSessionParentLink.Child(parentScope, AgentCompletionDeliveryPolicy.RetainedOnly),
+            new ModelSelector("stepped/model"),
+            _broker,
+            _repository,
+            mode,
+            mode.SecurityProfile,
+            registry.RequireStatus(),
+            registry,
+            cancellationToken);
+        await using var rejected = second;
+
+        _ = await Assert.That(parentScope.ChildRegistry.TryAdd(first)).IsTrue();
+        _ = await Assert.That(() => parentScope.ChildRegistry.TryAdd(second)).Throws<ChildNameConflictException>();
+        _ = await Assert.That(parentScope.ChildRegistry.ResolveDirectChildScope(first.Session.SessionId))
+            .IsSameReferenceAs(first);
+        _ = await Assert.That(parentScope.ChildRegistry.ResolveNamedChildScope("duplicate"))
+            .IsSameReferenceAs(first);
+        _ = await Assert.That(parentScope.ChildRegistry.FindDirectChildScope(second.Session.SessionId)).IsNull();
+        _ = await Assert.That(parentScope.ChildRegistry.SnapshotDescendants()).HasSingleItem()
+            .And.Contains(first.Session);
+
+        AgentIdentity ChildIdentity(string sessionId) => AgentIdentity.Child(
+            sessionId,
+            parent.SessionId,
+            parent.Name,
+            "duplicate",
+            1,
+            AgentScope.Empty(TestModels.PromptTemplates),
+            TestModels.PromptTemplates);
     }
 
     private static NoopMode Profile(

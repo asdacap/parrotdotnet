@@ -289,12 +289,12 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         _ = await Assert.That(task.GetProperty("evidence").GetString()).IsEqualTo("parent done");
         _ = await Assert.That(task.GetProperty("tasks")[0].GetProperty("evidence").GetString()).IsEqualTo("child done");
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
-        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-prepare")).IsEqualTo(1);
+        _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-prepare")).IsEqualTo(2);
         _ = await Assert.That(runtime.Sessions.ProfileIds.Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
         var identities = runtime.Sessions.Identities;
-        _ = await Assert.That(identities).Count().IsEqualTo(3);
+        _ = await Assert.That(identities).Count().IsEqualTo(4);
         var composite = identities.Zip(runtime.Sessions.ProfileIds)
-            .Single(agent => agent.Second == "agent-task-prepare").First;
+            .Last(agent => agent.Second == "agent-task-prepare").First;
         var child = identities.Single(identity => identity.Name == "child");
         _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(child.ParentSessionId).IsEqualTo(composite.SessionId);

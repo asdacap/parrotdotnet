@@ -502,16 +502,16 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Tasks.Single().Tasks?.Single().Result).IsEqualTo("retry child result");
         _ = await Assert.That(result.Tasks.Single().RetryFeedback?.Single()).IsEqualTo("split it");
         var identities = runtime.Sessions.Identities;
-        _ = await Assert.That(identities).Count().IsEqualTo(3);
+        _ = await Assert.That(identities).Count().IsEqualTo(4);
         var composite = identities.Zip(runtime.Sessions.ProfileIds)
-            .Single(agent => agent.Second == "agent-task-prepare").First;
+            .Last(agent => agent.Second == "agent-task-prepare").First;
         var replacementChild = identities.Single(identity => identity.Name == "retry-child");
         _ = await Assert.That(composite.Name).DoesNotContain("prepare");
         _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(replacementChild.ParentSessionId).IsEqualTo(composite.SessionId);
         _ = await Assert.That(provider.Requests[^1].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
         _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
-            .Count(profile => profile == "agent-task-prepare")).IsEqualTo(1);
+            .Count(profile => profile == "agent-task-prepare")).IsEqualTo(2);
         _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
             .Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
         var preparationPrompt = provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content;

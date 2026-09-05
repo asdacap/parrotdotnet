@@ -22,7 +22,5 @@ internal interface IChildRegistry
 
     IAgentSessionScope ResolveNamedChildScope(string name);
 
-    bool ContainsName(string name);
-
-    void Add(IAgentSessionScope scope);
+    bool TryAdd(IAgentSessionScope scope);
 }
