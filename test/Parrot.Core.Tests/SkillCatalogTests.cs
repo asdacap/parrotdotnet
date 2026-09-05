@@ -129,7 +129,7 @@ internal sealed class SkillCatalogTests : IDisposable
             new SkillRoot(secondRoot.FullName, SkillScope.User, true),
         };
 
-        var snapshot = SkillDiscovery.Discover(roots, configuration, Permissive());
+        var snapshot = SkillDiscovery.Discover(roots, configuration);
         var selected = SkillSelection.Select(snapshot.Skills, SkillMentionParser.Parse("$same $disabled"));
 
         _ = await Assert.That(snapshot.Skills.Count).IsEqualTo(3);
@@ -159,8 +159,7 @@ internal sealed class SkillCatalogTests : IDisposable
 
         var snapshot = SkillDiscovery.Discover(
             [new(root.FullName, SkillScope.User, true)],
-            SkillConfiguration.Default,
-            Permissive());
+            SkillConfiguration.Default);
 
         _ = await Assert.That(snapshot.Skills.Any(skill => skill.Name == "valid")).IsTrue();
         _ = await Assert.That(snapshot.Skills.Any(skill => skill.Name == "hidden")).IsFalse();
@@ -188,8 +187,7 @@ internal sealed class SkillCatalogTests : IDisposable
 
         var snapshot = SkillDiscovery.Discover(
             [new(root.FullName, SkillScope.User, true)],
-            SkillConfiguration.Default,
-            Permissive());
+            SkillConfiguration.Default);
 
         _ = await Assert.That(snapshot.Skills.Count).IsEqualTo(1);
         _ = await Assert.That(snapshot.Skills[0].Path).IsEqualTo(SecurityWriteTarget.Resolve(canonical).Path);
@@ -213,72 +211,14 @@ internal sealed class SkillCatalogTests : IDisposable
 
         var childSnapshot = SkillDiscovery.Discover(
             [new(root.FullName, SkillScope.System, false)],
-            SkillConfiguration.Default,
-            Permissive());
+            SkillConfiguration.Default);
         var rootSnapshot = SkillDiscovery.Discover(
             [new(linkedRoot, SkillScope.System, false)],
-            SkillConfiguration.Default,
-            Permissive());
+            SkillConfiguration.Default);
 
         _ = await Assert.That(childSnapshot.Skills).IsEmpty();
         _ = await Assert.That(rootSnapshot.Skills).IsEmpty();
         _ = await Assert.That(rootSnapshot.Errors.Count).IsEqualTo(1);
-    }
-
-    [Test]
-    public async Task Discovery_resolves_all_ancestor_links_before_permission_checks(CancellationToken cancellationToken)
-    {
-        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
-        {
-            return;
-        }
-
-        var allowed = Directory.CreateDirectory(Path.Combine(_root, "allowed"));
-        var deniedTarget = Directory.CreateDirectory(Path.Combine(_root, "denied-tree"));
-        var physicalRoot = Directory.CreateDirectory(Path.Combine(deniedTarget.FullName, "skills"));
-        _ = await WriteSkill(physicalRoot.FullName, "denied", "denied", cancellationToken);
-        _ = Directory.CreateSymbolicLink(Path.Combine(allowed.FullName, "link"), deniedTarget.FullName);
-        var lexicalRoot = Path.Combine(allowed.FullName, "link", "skills");
-        var security = SecurityProfile.Compose(
-            readOnly: true,
-            [new SandboxRule(deniedTarget.FullName, SandboxRuleAction.DenyRead)],
-            [],
-            []);
-
-        var snapshot = SkillDiscovery.Discover(
-            [new(lexicalRoot, SkillScope.User, true)],
-            SkillConfiguration.Default,
-            security);
-
-        _ = await Assert.That(snapshot.Skills).IsEmpty();
-        _ = await Assert.That(snapshot.Errors.Count).IsEqualTo(1);
-    }
-
-    [Test]
-    public async Task Discovery_requires_lexical_and_physical_read_access(CancellationToken cancellationToken)
-    {
-        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
-        {
-            return;
-        }
-
-        var root = Directory.CreateDirectory(Path.Combine(_root, "skills"));
-        var target = Directory.CreateDirectory(Path.Combine(_root, "denied-target"));
-        _ = await WriteSkill(target.FullName, "denied", "denied", cancellationToken);
-        _ = Directory.CreateSymbolicLink(Path.Combine(root.FullName, "alias"), target.FullName);
-        var denied = SecurityProfile.Compose(
-            readOnly: true,
-            [new SandboxRule(target.FullName, SandboxRuleAction.DenyRead)],
-            [],
-            []);
-
-        var snapshot = SkillDiscovery.Discover(
-            [new(root.FullName, SkillScope.User, true)],
-            SkillConfiguration.Default,
-            denied);
-
-        _ = await Assert.That(snapshot.Skills).IsEmpty();
-        _ = await Assert.That(snapshot.Errors.Count).IsEqualTo(1);
     }
 
     [Test]
@@ -298,12 +238,10 @@ internal sealed class SkillCatalogTests : IDisposable
 
         var directorySnapshot = SkillDiscovery.Discover(
             [new(directoryRoot.FullName, SkillScope.User, true)],
-            SkillConfiguration.Default,
-            Permissive());
+            SkillConfiguration.Default);
         var entrySnapshot = SkillDiscovery.Discover(
             [new(entryRoot.FullName, SkillScope.User, true)],
-            SkillConfiguration.Default,
-            Permissive());
+            SkillConfiguration.Default);
 
         _ = await Assert.That(directorySnapshot.Errors.Count).IsEqualTo(1);
         _ = await Assert.That(directorySnapshot.Errors[0].Message).Contains("2000 directories");
@@ -328,8 +266,7 @@ internal sealed class SkillCatalogTests : IDisposable
 
         var snapshot = SkillDiscovery.Discover(
             [new(root.FullName, SkillScope.User, true)],
-            SkillConfiguration.Default,
-            Permissive());
+            SkillConfiguration.Default);
 
         _ = await Assert.That(snapshot.Skills).IsEmpty();
         _ = await Assert.That(snapshot.Errors.Count).IsEqualTo(2);
@@ -345,8 +282,7 @@ internal sealed class SkillCatalogTests : IDisposable
 
         var snapshot = SkillDiscovery.Discover(
             [new(root.FullName, SkillScope.User, true)],
-            new SkillConfiguration(false, []),
-            Permissive());
+            new SkillConfiguration(false, []));
         var selected = SkillSelection.Select(snapshot.Skills, SkillMentionParser.Parse("$skill"));
 
         _ = await Assert.That(snapshot.Skills.Count).IsEqualTo(1);
@@ -356,8 +292,7 @@ internal sealed class SkillCatalogTests : IDisposable
     }
 
     [Test]
-    public async Task Prompt_products_share_one_catalog_and_apply_each_effective_security_profile(
-        CancellationToken cancellationToken)
+    public async Task Prompt_products_share_one_catalog(CancellationToken cancellationToken)
     {
         var root = Directory.CreateDirectory(Path.Combine(_root, "prompt-skills"));
         _ = await WriteSkill(root.FullName, "skill", "skill", cancellationToken);
@@ -369,29 +304,17 @@ internal sealed class SkillCatalogTests : IDisposable
         var second = provider.Materialize(AgentIdentity.Main("second", "second", TestModels.PromptTemplates));
         var modelProvider = new UnusedProvider();
         var model = new ProviderModel(modelProvider, new LLMModel("model", modelProvider.Id));
-        var allowed = new AgentTurnSelection(
+        var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
             TestModels.Resolve(model),
             TestModels.Profile(),
-            Permissive());
-        var denied = allowed with
-        {
-            SecurityProfile = SecurityProfile.Compose(
-                readOnly: true,
-                [new SandboxRule(root.FullName, SandboxRuleAction.DenyRead)],
-                [],
-                []),
-        };
+            TestModels.Profile().SecurityProfile);
 
-        var allowedPrompt = first.Build(allowed);
-        var restrictedPrompt = first.Build(denied);
-        var deniedPrompt = second.Build(denied);
-        var restoredPrompt = second.Build(allowed);
+        var firstPrompt = first.Build(selection);
+        var secondPrompt = second.Build(selection);
 
-        _ = await Assert.That(allowedPrompt).Contains("$skill");
-        _ = await Assert.That(restrictedPrompt).IsEmpty();
-        _ = await Assert.That(deniedPrompt).IsEmpty();
-        _ = await Assert.That(restoredPrompt).IsEqualTo(allowedPrompt);
+        _ = await Assert.That(firstPrompt).Contains("$skill");
+        _ = await Assert.That(secondPrompt).IsEqualTo(firstPrompt);
     }
 
     [Test]
@@ -403,21 +326,16 @@ internal sealed class SkillCatalogTests : IDisposable
         var catalog = new SkillCatalog(
             [new(root.FullName, SkillScope.User, true)],
             () => (enabled, 0L));
-        var security = Permissive();
-
-        var first = catalog.Capture(security);
+        var first = catalog.Capture();
         enabled = new(false, [new(path, false)]);
-        var stable = catalog.Capture(security);
+        var stable = catalog.Capture();
         catalog.Invalidate();
-        var refreshed = catalog.Capture(security);
+        var refreshed = catalog.Capture();
 
         _ = await Assert.That(ReferenceEquals(first, stable)).IsTrue();
         _ = await Assert.That(refreshed.Skills.Count).IsEqualTo(1);
         _ = await Assert.That(refreshed.Skills[0].Enabled).IsFalse();
     }
-
-    private static SecurityProfile Permissive() =>
-        SecurityProfile.Compose(readOnly: true, [], [], []);
 
     private static string SkillContent(string name) => $"---\nname: {name}\ndescription: description\n---\nbody";
 

@@ -276,7 +276,7 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
-    public async Task Unknown_disabled_and_denied_skills_do_not_inject_bodies(CancellationToken cancellationToken)
+    public async Task Harness_loads_selected_skills_independently_of_agent_security(CancellationToken cancellationToken)
     {
         var skillRoot = Directory.CreateDirectory(Path.Combine(_blobDirectory, "unavailable-skills"));
         var enabledDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "enabled"));
@@ -322,11 +322,12 @@ internal sealed class DrainTests : IDisposable
 
         var request = provider.Requests.Single();
         _ = await Assert.That(request.Messages)
-            .DoesNotContain(message => message.Content.Contains("BODY", StringComparison.Ordinal));
+            .Contains(message => message.Content.Contains("ENABLED BODY", StringComparison.Ordinal))
+            .And.DoesNotContain(message => message.Content.Contains("DISABLED BODY", StringComparison.Ordinal));
         _ = await Assert.That(repository.ModelHistory("agent"))
             .DoesNotContain(message => message.Content.Contains("BODY", StringComparison.Ordinal));
-        _ = await Assert.That(repository.Replay())
-            .DoesNotContain(published => published.PayloadCase == Event.PayloadOneofCase.SkillLoaded);
+        _ = await Assert.That(repository.Replay().Count(
+            published => published.PayloadCase == Event.PayloadOneofCase.SkillLoaded)).IsEqualTo(1);
     }
 
     [Test]

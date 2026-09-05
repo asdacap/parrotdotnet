@@ -12,6 +12,6 @@ internal sealed class SkillPrompt(AgentSkills skills) : ISystemPrompt
     public string Build(AgentTurnSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return skills.BuildCatalog(selection.SecurityProfile);
+        return skills.BuildCatalog();
     }
 }

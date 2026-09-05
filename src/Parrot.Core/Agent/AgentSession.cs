@@ -1461,7 +1461,7 @@ internal sealed class AgentSession(
                     }
 
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
-                    _skills.BeginTurn(activeSelection.SecurityProfile);
+                    _skills.BeginTurn();
                     activeTools = MaterializeTools()
                         .Without(activeSelection.Profile.DisabledTools)
                         .Only(activeSelection.Profile.AllowedTools);
@@ -1470,7 +1470,7 @@ internal sealed class AgentSession(
 
                 // Status is committed before promotion, so sequenced history is
                 // epoch baseline, status, then the user input it describes.
-                _ = await Promote(activeSelection?.SecurityProfile, cancellationToken).ConfigureAwait(false);
+                _ = await Promote(cancellationToken).ConfigureAwait(false);
 
                 if (activeSelection is null || activeTools is null)
                 {
@@ -1498,7 +1498,7 @@ internal sealed class AgentSession(
                     snapshot.Definitions,
                     cancellationToken).ConfigureAwait(false);
                 var messages = new List<LLMMessage>(_history);
-                var loadedSkillPaths = _skills.AppendTo(messages, activeSelection.SecurityProfile);
+                var loadedSkillPaths = _skills.AppendTo(messages);
                 foreach (var loadedSkillPath in loadedSkillPaths)
                 {
                     var loaded = new Event
@@ -1708,9 +1708,7 @@ internal sealed class AgentSession(
     // Steers first, all of them: they join the turn already running. A queued
     // prompt is taken only when nothing else is owed an answer, which is what
     // makes it a turn of its own rather than a second voice in this one.
-    private async Task<int> Promote(
-        Parrot.Security.SecurityProfile? securityProfile,
-        CancellationToken cancellationToken)
+    private async Task<int> Promote(CancellationToken cancellationToken)
     {
         var promoted = eventRepository.PromoteSteers(
             SessionId,
@@ -1735,11 +1733,7 @@ internal sealed class AgentSession(
 
         foreach (var promotion in promoted)
         {
-            if (securityProfile is not null)
-            {
-                _skills.Select(promotion.Input.Parts, securityProfile);
-            }
-
+            _skills.Select(promotion.Input.Parts);
             _history.Add(LLMMessage.User(eventRepository.Materialize(promotion.Input.Parts)));
             await eventBroker.Publish(promotion.Published, cancellationToken).ConfigureAwait(false);
         }
@@ -2015,7 +2009,7 @@ internal sealed class AgentSession(
             selection.ResolvedModel.CanonicalModel,
             instructions,
             tools,
-            _skills.HasSelection ? _skills.Augment(_history, selection.SecurityProfile) : _history);
+            _skills.HasSelection ? _skills.Augment(_history) : _history);
         if (context.ExceedsTrigger)
         {
             instructions = (await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false)).Instructions;
@@ -2023,7 +2017,7 @@ internal sealed class AgentSession(
                 selection.ResolvedModel.CanonicalModel,
                 instructions,
                 tools,
-                _skills.HasSelection ? _skills.Augment(_history, selection.SecurityProfile) : _history);
+                _skills.HasSelection ? _skills.Augment(_history) : _history);
             EnsureRequestFitsAfterCompaction(context);
         }
 
@@ -2054,7 +2048,7 @@ internal sealed class AgentSession(
                 selection.ResolvedModel.CanonicalModel,
                 instructions,
                 tools,
-                _skills.Augment(_history, selection.SecurityProfile));
+                _skills.Augment(_history));
             EnsureRequestFitsAfterCompaction(requestContext);
         }
 

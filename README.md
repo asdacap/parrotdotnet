@@ -954,10 +954,10 @@ Discovery looks for the exact case-sensitive filename `SKILL.md`, skips hidden
 directories, and is bounded to depth 6, 2,000 directories, and 20,000 entries
 per root. Repository and user roots may follow directory symlinks with cycle
 protection; packaged roots do not. Symlinked `SKILL.md` files are ignored.
-Reads must pass the active agent's security policy for both their discovery and
-resolved physical paths. A skill file must be valid UTF-8 and no larger than
-1 MiB. Discovery errors are isolated and shown by `/skills`, so one malformed
-skill does not hide valid siblings.
+Skill discovery and loading are harness operations and are not limited by an
+agent's execution security profile. A skill file must be valid UTF-8 and no
+larger than 1 MiB. Discovery errors are isolated and shown by `/skills`, so one
+malformed skill does not hide valid siblings.
 
 A `SKILL.md` starts with YAML frontmatter:
 
@@ -1012,16 +1012,14 @@ context are each bounded to 1 MiB. The available-skills catalogue is bounded
 to 64 KiB and uses only names, descriptions, and paths. Unknown and disabled
 `$name` references inject nothing.
 
-Skills are instructions and data, not authority. They do not bypass sandbox
-rules, read/write policy, permission requests, or network restrictions.
 Packaged scripts, references, images, and licenses are copied verbatim from the
 current Codex sample skill tree, but Parrot does not execute or install them
-automatically; an agent can use them only through its ordinary authorized
-tools. This local subsystem does not implement Codex plugins, dependency or MCP
-installation, marketplaces, remote/executor/orchestrator skill providers,
-implicit shell invocation, or an installer API. Codex-specific scripts such as
-the bundled `skill-installer` remain inert assets and retain their upstream
-behavior if a user explicitly authorizes an agent to run them.
+automatically. An agent acts on them through its ordinary tools. This local
+subsystem does not implement Codex plugins, dependency or MCP installation,
+marketplaces, remote/executor/orchestrator skill providers, implicit shell
+invocation, or an installer API. Codex-specific scripts such as the bundled
+`skill-installer` remain inert assets and retain their upstream behavior when an
+agent runs them.
 
 ## Build And Run
 

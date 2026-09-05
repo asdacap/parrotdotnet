@@ -7,7 +7,6 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Queues;
-using Parrot.Security;
 using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -144,8 +143,6 @@ internal sealed class UserSession : IAsyncDisposable
     internal PermissionBroker Permissions { get; }
 
     internal SkillCatalog SkillCatalog { get; }
-
-    internal SecurityProfile SkillSecurityProfile => Mode.SecurityProfile;
 
     // Assigned, never rebuilt. The main session holds the conversation, the
     // input admitted against it and the drain that may be running: replacing it

@@ -1,5 +1,4 @@
 using Parrot.Config;
-using Parrot.Security;
 using Parrot.Tools;
 
 namespace Parrot.Skills;
@@ -13,19 +12,17 @@ internal sealed class SkillDiscovery
 
     public static SkillSnapshot Discover(
         IReadOnlyList<SkillRoot> roots,
-        SkillConfiguration configuration,
-        SecurityProfile security)
+        SkillConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(configuration);
-        ArgumentNullException.ThrowIfNull(security);
 
         var discovered = new List<SkillMetadata>();
         var errors = new List<SkillLoadError>();
         var canonicalPaths = new HashSet<string>(PathComparer());
         foreach (var root in roots)
         {
-            DiscoverRoot(root, configuration, security, discovered, errors, canonicalPaths);
+            DiscoverRoot(root, configuration, discovered, errors, canonicalPaths);
         }
 
         return new SkillSnapshot([.. discovered], [.. errors]);
@@ -93,7 +90,6 @@ internal sealed class SkillDiscovery
 
     private static SkillDisplayMetadata ReadDisplayMetadata(
         DirectoryVisit skillDirectory,
-        SecurityProfile security,
         List<SkillLoadError> errors)
     {
         var logicalPath = Path.Combine(skillDirectory.LogicalPath, "agents", "openai.yaml");
@@ -105,7 +101,7 @@ internal sealed class SkillDiscovery
         try
         {
             var physicalPath = ResolvePhysicalPath(logicalPath);
-            return SkillDisplayMetadataParser.Parse(SkillFileReader.Read(logicalPath, physicalPath, security));
+            return SkillDisplayMetadataParser.Parse(SkillFileReader.Read(logicalPath, physicalPath));
         }
         catch (Exception failure) when (failure is IOException
             or UnauthorizedAccessException
@@ -119,7 +115,6 @@ internal sealed class SkillDiscovery
 
     private static void InspectDirectoryLink(
         SkillRoot root,
-        SecurityProfile security,
         DirectoryVisit parent,
         string entry,
         List<SkillLoadError> errors,
@@ -140,14 +135,7 @@ internal sealed class SkillDiscovery
             }
 
             var physical = Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(targetDirectory.FullName));
-            if (ToolWorkspace.AllowsRead((entry, physical), security))
-            {
-                pending.Enqueue(new(entry, physical, parent.Depth + 1));
-            }
-            else
-            {
-                AddError(errors, entry, "Read access denied.");
-            }
+            pending.Enqueue(new(entry, physical, parent.Depth + 1));
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
@@ -158,7 +146,6 @@ internal sealed class SkillDiscovery
     private static void LoadSkill(
         SkillRoot root,
         SkillConfiguration configuration,
-        SecurityProfile security,
         DirectoryVisit parent,
         string discoveryPath,
         List<SkillMetadata> discovered,
@@ -173,9 +160,9 @@ internal sealed class SkillDiscovery
 
         try
         {
-            var content = SkillFileReader.Read(discoveryPath, canonicalPath, security);
+            var content = SkillFileReader.Read(discoveryPath, canonicalPath);
             var parsed = SkillFrontmatterParser.Parse(canonicalPath, content, root.Scope);
-            var display = ReadDisplayMetadata(parent, security, errors);
+            var display = ReadDisplayMetadata(parent, errors);
             _ = canonicalPaths.Add(canonicalPath);
             discovered.Add(parsed with
             {
@@ -198,7 +185,6 @@ internal sealed class SkillDiscovery
     private static void InspectEntry(
         SkillRoot root,
         SkillConfiguration configuration,
-        SecurityProfile security,
         DirectoryVisit parent,
         string entry,
         List<SkillMetadata> discovered,
@@ -219,7 +205,7 @@ internal sealed class SkillDiscovery
 
         if (kind == FileMutationEntryKind.SymbolicLink)
         {
-            InspectDirectoryLink(root, security, parent, entry, errors, pending);
+            InspectDirectoryLink(root, parent, entry, errors, pending);
             return;
         }
 
@@ -228,14 +214,7 @@ internal sealed class SkillDiscovery
             if (parent.Depth < MaximumDepth && !IsHiddenDirectory(entry))
             {
                 var physical = Path.Combine(parent.PhysicalPath, Path.GetFileName(entry));
-                if (ToolWorkspace.AllowsRead((entry, physical), security))
-                {
-                    pending.Enqueue(new(entry, physical, parent.Depth + 1));
-                }
-                else
-                {
-                    AddError(errors, entry, "Read access denied.");
-                }
+                pending.Enqueue(new(entry, physical, parent.Depth + 1));
             }
 
             return;
@@ -244,14 +223,13 @@ internal sealed class SkillDiscovery
         if (kind == FileMutationEntryKind.Regular
             && string.Equals(Path.GetFileName(entry), "SKILL.md", StringComparison.Ordinal))
         {
-            LoadSkill(root, configuration, security, parent, entry, discovered, errors, canonicalPaths);
+            LoadSkill(root, configuration, parent, entry, discovered, errors, canonicalPaths);
         }
     }
 
     private static void DiscoverRoot(
         SkillRoot root,
         SkillConfiguration configuration,
-        SecurityProfile security,
         List<SkillMetadata> discovered,
         List<SkillLoadError> errors,
         HashSet<string> canonicalPaths)
@@ -276,12 +254,6 @@ internal sealed class SkillDiscovery
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
             AddError(errors, logicalRoot, failure.Message);
-            return;
-        }
-
-        if (!ToolWorkspace.AllowsRead((logicalRoot, physicalRoot), security))
-        {
-            AddError(errors, logicalRoot, "Read access denied.");
             return;
         }
 
@@ -326,7 +298,7 @@ internal sealed class SkillDiscovery
                     return;
                 }
 
-                InspectEntry(root, configuration, security, current, entry, discovered, errors, canonicalPaths, pending);
+                InspectEntry(root, configuration, current, entry, discovered, errors, canonicalPaths, pending);
             }
         }
     }

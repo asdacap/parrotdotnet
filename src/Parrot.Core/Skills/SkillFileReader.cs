@@ -1,5 +1,4 @@
 using System.Text;
-using Parrot.Security;
 using Parrot.Tools;
 
 namespace Parrot.Skills;
@@ -9,26 +8,26 @@ internal sealed class SkillFileReader
     private const int MaximumBytes = 1024 * 1024;
     private static readonly UTF8Encoding Utf8 = new(false, true);
 
-    public static string Read(string lexicalPath, string physicalPath, SecurityProfile security)
+    public static string Read(string lexicalPath, string physicalPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(lexicalPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(physicalPath);
-        ArgumentNullException.ThrowIfNull(security);
 
         var lexical = Path.GetFullPath(lexicalPath);
         var physical = PlatformPath.Normalize(physicalPath);
-        if (!ToolWorkspace.AllowsRead((lexical, physical), security))
-        {
-            throw new UnauthorizedAccessException($"Read access denied for '{lexicalPath}'.");
-        }
-
         if (FileMutation.Inspect(physical) != FileMutationEntryKind.Regular)
         {
             throw new InvalidOperationException($"Skill source '{lexicalPath}' is not a regular file.");
         }
 
-        using var stream = Open(physical);
-        ValidateOpenedTarget(stream, lexical, physical, security);
+        using var stream = new FileStream(
+            physical,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            4096,
+            FileOptions.SequentialScan);
+        ValidateOpenedTarget(stream, lexical, physical);
         if (stream.Length > MaximumBytes)
         {
             throw new InvalidDataException($"Skill source '{lexicalPath}' exceeds the 1 MiB limit.");
@@ -47,29 +46,7 @@ internal sealed class SkillFileReader
         }
     }
 
-    private static FileStream Open(string path)
-    {
-        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
-        {
-            return new FileStream(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                4096,
-                FileOptions.SequentialScan);
-        }
-
-        var workspace = new ToolWorkspace(Path.GetPathRoot(path)
-            ?? throw new InvalidOperationException($"Skill source '{path}' has no filesystem root."));
-        return workspace.OpenRegularReadWithoutLinks(path, SecurityProfile.Compose(readOnly: true, [], [], []));
-    }
-
-    private static void ValidateOpenedTarget(
-        FileStream stream,
-        string lexical,
-        string physical,
-        SecurityProfile security)
+    private static void ValidateOpenedTarget(FileStream stream, string lexical, string physical)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -85,10 +62,9 @@ internal sealed class SkillFileReader
         var target = new FileInfo($"/proc/self/fd/{descriptor}").ResolveLinkTarget(returnFinalTarget: true)
             ?? throw new IOException($"Cannot resolve opened skill source '{lexical}'.");
         var openedPhysical = Path.GetFullPath(target.FullName);
-        if (!string.Equals(physical, openedPhysical, StringComparison.Ordinal)
-            || !ToolWorkspace.AllowsRead((lexical, openedPhysical), security))
+        if (!string.Equals(physical, openedPhysical, StringComparison.Ordinal))
         {
-            throw new UnauthorizedAccessException($"Read access denied for '{lexical}'.");
+            throw new IOException($"Skill source '{lexical}' changed while it was being opened.");
         }
     }
 }

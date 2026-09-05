@@ -1,7 +1,6 @@
 using System.Text;
 using Parrot.Config;
 using Parrot.Llm;
-using Parrot.Security;
 using Parrot.Store;
 
 namespace Parrot.Skills;
@@ -17,31 +16,29 @@ internal sealed class AgentSkills(
     private readonly HashSet<string> _selectedPaths = new(PathComparer());
     private readonly HashSet<string> _reportedPaths = new(PathComparer());
     private SkillSnapshot _snapshot = SkillSnapshot.Empty;
-    private SecurityProfile? _turnSecurity;
+    private bool _turnActive;
 
     public bool HasSelection => _selected.Count > 0;
 
-    public void BeginTurn(SecurityProfile security)
+    public void BeginTurn()
     {
-        ArgumentNullException.ThrowIfNull(security);
-        _turnSecurity = security;
-        _snapshot = catalog.Capture(security);
+        _turnActive = true;
+        _snapshot = catalog.Capture();
         _selected.Clear();
         _selectedPaths.Clear();
         _reportedPaths.Clear();
     }
 
-    public string BuildCatalog(SecurityProfile security)
+    public string BuildCatalog()
     {
-        ArgumentNullException.ThrowIfNull(security);
-        var snapshot = _turnSecurity is null ? catalog.Capture(security) : SnapshotForTurn(security);
+        var snapshot = _turnActive ? _snapshot : catalog.Capture();
         return AgentSkillPromptProvider.Render(snapshot.Skills, promptTemplates);
     }
 
-    public void Select(IReadOnlyList<ConversationPart> parts, SecurityProfile security)
+    public void Select(IReadOnlyList<ConversationPart> parts)
     {
         ArgumentNullException.ThrowIfNull(parts);
-        EnsureEpoch(security);
+        EnsureTurn();
         var positionOffset = 0;
         var mentions = new List<SkillMention>();
         foreach (var part in parts)
@@ -72,16 +69,16 @@ internal sealed class AgentSkills(
         }
     }
 
-    public IReadOnlyList<string> AppendTo(List<LLMMessage> messages, SecurityProfile security)
+    public IReadOnlyList<string> AppendTo(List<LLMMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        EnsureEpoch(security);
+        EnsureTurn();
         if (_selected.Count == 0)
         {
             return [];
         }
 
-        var rendering = RenderSelection(security);
+        var rendering = RenderSelection();
         if (rendering.Content.Length > 0)
         {
             messages.Add(LLMMessage.User(rendering.Content));
@@ -90,19 +87,17 @@ internal sealed class AgentSkills(
         return [.. rendering.LoadedPaths.Where(_reportedPaths.Add)];
     }
 
-    public IReadOnlyList<LLMMessage> Augment(
-        IReadOnlyList<LLMMessage> history,
-        SecurityProfile security)
+    public IReadOnlyList<LLMMessage> Augment(IReadOnlyList<LLMMessage> history)
     {
         ArgumentNullException.ThrowIfNull(history);
-        EnsureEpoch(security);
+        EnsureTurn();
         var augmented = new List<LLMMessage>(history);
         if (_selected.Count == 0)
         {
             return augmented;
         }
 
-        var rendering = RenderSelection(security);
+        var rendering = RenderSelection();
         if (rendering.Content.Length > 0)
         {
             augmented.Add(LLMMessage.User(rendering.Content));
@@ -116,7 +111,7 @@ internal sealed class AgentSkills(
         _selected.Clear();
         _selectedPaths.Clear();
         _reportedPaths.Clear();
-        _turnSecurity = null;
+        _turnActive = false;
         _snapshot = SkillSnapshot.Empty;
     }
 
@@ -155,23 +150,15 @@ internal sealed class AgentSkills(
         _ = rendered.Append(content);
     }
 
-    private void EnsureEpoch(SecurityProfile security)
+    private void EnsureTurn()
     {
-        ArgumentNullException.ThrowIfNull(security);
-        if (_turnSecurity is null)
+        if (!_turnActive)
         {
-            BeginTurn(security);
-            return;
+            BeginTurn();
         }
-
-        _ = SnapshotForTurn(security);
     }
 
-    private SkillSnapshot SnapshotForTurn(SecurityProfile security) => ReferenceEquals(_turnSecurity, security)
-        ? _snapshot
-        : throw new InvalidOperationException("The active skill snapshot belongs to a different security profile.");
-
-    private SkillRendering RenderSelection(SecurityProfile security)
+    private SkillRendering RenderSelection()
     {
         var rendered = new StringBuilder();
         var loadedPaths = new List<string>();
@@ -193,8 +180,7 @@ internal sealed class AgentSkills(
             {
                 content = SkillFileReader.Read(
                     selection.Skill.DiscoveryPath,
-                    selection.Skill.Path,
-                    security);
+                    selection.Skill.Path);
             }
             catch (Exception failure) when (failure is IOException
                 or UnauthorizedAccessException

@@ -152,7 +152,7 @@ internal sealed class ParrotService(
         ArgumentNullException.ThrowIfNull(context);
         context.CancellationToken.ThrowIfCancellationRequested();
         var session = Find(request.UserSessionId);
-        var snapshot = session.SkillCatalog.Refresh(session.SkillSecurityProfile);
+        var snapshot = session.SkillCatalog.Refresh();
         var response = new ListSkillsResponse();
         response.Skills.AddRange(snapshot.Skills.Select(ToProtocol));
         response.Errors.AddRange(snapshot.Errors.Select(error => new global::Parrot.Protocol.SkillLoadError
@@ -176,13 +176,13 @@ internal sealed class ParrotService(
         }
 
         var session = Find(request.UserSessionId);
-        var snapshot = session.SkillCatalog.Refresh(session.SkillSecurityProfile);
+        var snapshot = session.SkillCatalog.Refresh();
         var skill = snapshot.Skills.FirstOrDefault(candidate => PathsEqual(candidate.Path, request.Path))
             ?? throw new RpcException(new Status(StatusCode.NotFound, "skill path is not present in this session catalog"));
         try
         {
             session.SkillCatalog.Configure(skill.Path, request.Enabled);
-            var refreshed = session.SkillCatalog.Refresh(session.SkillSecurityProfile);
+            var refreshed = session.SkillCatalog.Refresh();
             var configured = refreshed.Skills.FirstOrDefault(candidate => PathsEqual(candidate.Path, skill.Path))
                 ?? throw new RpcException(new Status(
                     StatusCode.NotFound,
