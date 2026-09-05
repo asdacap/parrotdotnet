@@ -8,8 +8,6 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
     private bool _accepting = true;
     private Task? _shutdown;
 
-    public string OwnerSessionId => owner.SessionId;
-
     public bool IsAccepting
     {
         get
@@ -105,15 +103,6 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
 
         _ = completion.TrySetException(failure);
         await shutdown.ConfigureAwait(false);
-    }
-
-    public void ValidateOwner(AgentIdentity identity)
-    {
-        if (!ReferenceEquals(identity, owner))
-        {
-            throw new AgentRegistryException(
-                $"child registry owner does not match agent identity: expected {owner.SessionId}, actual {identity.SessionId}");
-        }
     }
 
     public IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName)

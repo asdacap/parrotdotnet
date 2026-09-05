@@ -83,7 +83,6 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
             }
 
             ObjectDisposedException.ThrowIf(_shutdown is not null, this);
-            ChildRegistry.ValidateOwner(session.Identity);
             ParentScope.Validate(session.Identity);
             _session = session;
             ParentScope.ValidateOwnerScope(this);

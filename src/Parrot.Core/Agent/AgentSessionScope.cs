@@ -14,7 +14,6 @@ internal sealed class AgentSessionScope : IAgentSessionScope
         _composition = new AgentSessionComposition(arguments, this);
         try
         {
-            ChildRegistry.ValidateOwner(Session.Identity);
             ParentScope.Validate(Session.Identity);
             ParentScope.ValidateOwnerScope(this);
         }

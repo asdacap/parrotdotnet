@@ -143,7 +143,7 @@ internal sealed class AgentStatusTool(
     {
         var activeChildren = childScope.ChildRegistry.SnapshotDescendants()
             .Where(session => session.IsActive()
-                && string.Equals(session.ParentSessionId, childScope.ChildRegistry.OwnerSessionId, StringComparison.Ordinal))
+                && string.Equals(session.ParentSessionId, childScope.Session.SessionId, StringComparison.Ordinal))
             .Select(static session => new ActiveWorkObservation(
                 session.SessionId,
                 session.Name,

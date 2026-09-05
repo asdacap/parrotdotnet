@@ -2,15 +2,11 @@ namespace Parrot.Agent;
 
 internal interface IChildRegistry
 {
-    string OwnerSessionId { get; }
-
     bool IsAccepting { get; }
 
     IAgentSessionScope? FindDirectChildScope(string childSessionId);
 
     IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope);
-
-    void ValidateOwner(AgentIdentity identity);
 
     IAgentSessionScope ResolveDirectChildScope(string sessionIdOrName);
 

@@ -16,7 +16,7 @@ internal sealed class ActiveWorkCompletionReminder(
     {
         var activeChildren = children.SnapshotDescendants()
             .Where(session => session.IsActive()
-                && string.Equals(session.ParentSessionId, children.OwnerSessionId, StringComparison.Ordinal))
+                && string.Equals(session.ParentSessionId, processes.SessionId, StringComparison.Ordinal))
             .Select(static session => new ActiveWorkObservation(
                 session.SessionId,
                 session.Name,
