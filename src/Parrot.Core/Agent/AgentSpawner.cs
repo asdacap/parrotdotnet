@@ -13,7 +13,6 @@ internal sealed class AgentSpawner : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, int> _pendingProfiles = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _pendingNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RetainedAgentReservation> _retainedAgents = new(StringComparer.Ordinal);
     private readonly List<Task> _rejectedScopeDisposals = [];
     private bool _accepting = true;
@@ -36,115 +35,17 @@ internal sealed class AgentSpawner : IAsyncDisposable
 
     public IAgentSessionScope SpawnScope(AgentLaunchRequest request)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(request.Parent);
-        ArgumentNullException.ThrowIfNull(request.Selection);
-        ArgumentNullException.ThrowIfNull(request.RequestedScope);
-
-        if (!ReferenceEquals(request.Parent.Identity, _owner))
+        var conflictingNames = 0;
+        while (true)
         {
-            throw new AgentRegistryException(
-                $"launch parent does not match child registry owner: expected {_owner.SessionId}, actual {request.Parent.SessionId}");
-        }
-
-        var depth = _owner.Depth + 1;
-        if (depth > MaxDepth)
-        {
-            throw new AgentRegistryException("subagent depth limit reached");
-        }
-
-        var registeredOwnerScope = _parentSessionScope.RequireOwnerScope();
-        var profile = _authority.ResolveChildProfile(request.RequestedProfile);
-        var status = _authority.RequireStatus();
-        var retainedReservation = _authority.ReserveRetainedAgent();
-        AgentIdentity childIdentity;
-        AgentSessionParentLink childParentLink;
-
-        try
-        {
-            lock (_gate)
+            try
             {
-                EnsureAccepting();
-                childParentLink = new AgentSessionParentLink(registeredOwnerScope, request.DeliveryPolicy);
-                if (childParentLink.PolicyLineage.CountProfile(profile.Id)
-                    + _pendingProfiles.GetValueOrDefault(profile.Id)
-                    >= profile.RecursionLimit)
-                {
-                    throw new AgentRegistryException("subagent profile recursion limit reached");
-                }
-
-                var sessionId = Identifier.AgentSession();
-                var name = SelectUniqueName(request.RequestedName, sessionId);
-                _ = _pendingNames.Add(name);
-                var scope = _owner.Scope.DeriveChild(name, depth, request.RequestedScope);
-                childIdentity = AgentIdentity.ChildWithPolicyLineage(
-                    sessionId,
-                    _owner.SessionId,
-                    _owner.Name,
-                    name,
-                    depth,
-                    scope,
-                    childParentLink.PolicyLineage,
-                    _owner.PromptTemplates);
-                _pendingConstructions++;
-                _pendingProfiles[profile.Id] = _pendingProfiles.GetValueOrDefault(profile.Id) + 1;
+                return SpawnScopeCandidate(request, conflictingNames);
             }
-        }
-        catch
-        {
-            retainedReservation.Rollback();
-            throw;
-        }
-
-        var historyInitialized = false;
-        IAgentSessionScope? constructedScope = null;
-        try
-        {
-            _authority.InitializeChildHistory(
-                _owner.SessionId,
-                childIdentity.SessionId,
-                request.Boundary,
-                request.Fork);
-            historyInitialized = true;
-            var securityProfile = childParentLink.PolicyLineage.Resolve(profile.SecurityProfile);
-            constructedScope = _authority.CreateChildScope(
-                childIdentity,
-                childParentLink,
-                request.Model,
-                new NoopMode(profile, securityProfile),
-                securityProfile,
-                status,
-                _lifetime.Token);
-            Retain(childIdentity.SessionId, retainedReservation);
-            if (!_children.TryAdd(constructedScope))
+            catch (ChildNameConflictException)
             {
-                throw new AgentRegistryException("the user session is shutting down");
+                conflictingNames++;
             }
-
-            return constructedScope;
-        }
-        catch
-        {
-            Reject(childIdentity.SessionId, retainedReservation);
-            if (constructedScope is not null)
-            {
-                var rejectedScopeDisposal = constructedScope.DisposeAsync().AsTask();
-                lock (_gate)
-                {
-                    _rejectedScopeDisposals.Add(rejectedScopeDisposal);
-                }
-            }
-
-            if (historyInitialized)
-            {
-                _authority.CleanupChildHistory(childIdentity.SessionId);
-            }
-
-            throw;
-        }
-        finally
-        {
-            CompleteConstruction(childIdentity, profile.Id);
         }
     }
 
@@ -208,23 +109,114 @@ internal sealed class AgentSpawner : IAsyncDisposable
         return sanitized.ToString().TrimEnd('-');
     }
 
-    private string SelectUniqueName(string requestedName, string sessionId)
+    private static string SelectName(string requestedName, string sessionId, int conflictingNames)
     {
         var basis = Sanitize(requestedName);
         if (basis.Length == 0)
         {
-            basis = $"agent-{sessionId[^6..]}";
+            return $"agent-{sessionId[^6..]}";
         }
 
-        var candidate = basis;
-        var suffix = 2;
-        while (_children.ContainsName(candidate) || _pendingNames.Contains(candidate))
+        return conflictingNames == 0 ? basis : $"{basis}-{conflictingNames + 1}";
+    }
+
+    private IAgentSessionScope SpawnScopeCandidate(AgentLaunchRequest request, int conflictingNames)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Parent);
+        ArgumentNullException.ThrowIfNull(request.Selection);
+        ArgumentNullException.ThrowIfNull(request.RequestedScope);
+
+        if (!ReferenceEquals(request.Parent.Identity, _owner))
         {
-            candidate = $"{basis}-{suffix}";
-            suffix++;
+            throw new AgentRegistryException(
+                $"launch parent does not match child registry owner: expected {_owner.SessionId}, actual {request.Parent.SessionId}");
         }
 
-        return candidate;
+        var depth = _owner.Depth + 1;
+        if (depth > MaxDepth)
+        {
+            throw new AgentRegistryException("subagent depth limit reached");
+        }
+
+        var registeredOwnerScope = _parentSessionScope.RequireOwnerScope();
+        var profile = _authority.ResolveChildProfile(request.RequestedProfile);
+        var status = _authority.RequireStatus();
+        var retainedReservation = _authority.ReserveRetainedAgent();
+        AgentIdentity childIdentity;
+        AgentSessionParentLink childParentLink;
+
+        try
+        {
+            lock (_gate)
+            {
+                EnsureAccepting();
+                childParentLink = new AgentSessionParentLink(registeredOwnerScope, request.DeliveryPolicy);
+                if (childParentLink.PolicyLineage.CountProfile(profile.Id)
+                    + _pendingProfiles.GetValueOrDefault(profile.Id)
+                    >= profile.RecursionLimit)
+                {
+                    throw new AgentRegistryException("subagent profile recursion limit reached");
+                }
+
+                var sessionId = Identifier.AgentSession();
+                var name = SelectName(request.RequestedName, sessionId, conflictingNames);
+                var scope = _owner.Scope.DeriveChild(name, depth, request.RequestedScope);
+                childIdentity = AgentIdentity.ChildWithPolicyLineage(
+                    sessionId,
+                    _owner.SessionId,
+                    _owner.Name,
+                    name,
+                    depth,
+                    scope,
+                    childParentLink.PolicyLineage,
+                    _owner.PromptTemplates);
+                _pendingConstructions++;
+                _pendingProfiles[profile.Id] = _pendingProfiles.GetValueOrDefault(profile.Id) + 1;
+            }
+        }
+        catch
+        {
+            retainedReservation.Rollback();
+            throw;
+        }
+
+        var historyInitialized = false;
+        IAgentSessionScope? constructedScope = null;
+        try
+        {
+            _authority.InitializeChildHistory(
+                _owner.SessionId,
+                childIdentity.SessionId,
+                request.Boundary,
+                request.Fork);
+            historyInitialized = true;
+            var securityProfile = childParentLink.PolicyLineage.Resolve(profile.SecurityProfile);
+            constructedScope = _authority.CreateChildScope(
+                childIdentity,
+                childParentLink,
+                request.Model,
+                new NoopMode(profile, securityProfile),
+                securityProfile,
+                status,
+                _lifetime.Token);
+            Retain(childIdentity.SessionId, retainedReservation);
+            if (!_children.TryAdd(constructedScope))
+            {
+                throw new AgentRegistryException("the user session is shutting down");
+            }
+
+            return constructedScope;
+        }
+        catch
+        {
+            RejectConstruction(childIdentity.SessionId, retainedReservation, constructedScope, historyInitialized);
+            throw;
+        }
+        finally
+        {
+            CompleteConstruction(profile.Id);
+        }
     }
 
     private void Retain(string sessionId, RetainedAgentReservation reservation)
@@ -255,7 +247,29 @@ internal sealed class AgentSpawner : IAsyncDisposable
         }
     }
 
-    private void CompleteConstruction(AgentIdentity childIdentity, string profileId)
+    private void RejectConstruction(
+        string sessionId,
+        RetainedAgentReservation reservation,
+        IAgentSessionScope? constructedScope,
+        bool historyInitialized)
+    {
+        Reject(sessionId, reservation);
+        if (constructedScope is not null)
+        {
+            var rejectedScopeDisposal = constructedScope.DisposeAsync().AsTask();
+            lock (_gate)
+            {
+                _rejectedScopeDisposals.Add(rejectedScopeDisposal);
+            }
+        }
+
+        if (historyInitialized)
+        {
+            _authority.CleanupChildHistory(sessionId);
+        }
+    }
+
+    private void CompleteConstruction(string profileId)
     {
         TaskCompletionSource? settled = null;
         lock (_gate)
@@ -270,7 +284,6 @@ internal sealed class AgentSpawner : IAsyncDisposable
                 _pendingProfiles[profileId]--;
             }
 
-            _ = _pendingNames.Remove(childIdentity.Name);
             if (_pendingConstructions == 0)
             {
                 settled = _constructionsSettled;

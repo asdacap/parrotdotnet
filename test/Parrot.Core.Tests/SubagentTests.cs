@@ -227,8 +227,9 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     public async Task Friendly_names_are_scoped_to_direct_siblings(CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
+        var sessions = new TestAgentSessions(Router(provider));
         await using var registry = TestModels.Registry(
-            new TestAgentSessions(Router(provider)),
+            sessions,
             _broker,
             _repository,
             TestModels.ProfileRegistry(),
@@ -270,6 +271,8 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(first.Name).IsEqualTo("helper");
         _ = await Assert.That(sibling.Name).IsEqualTo("helper-2");
         _ = await Assert.That(otherBranch.Name).IsEqualTo("helper");
+        _ = await Assert.That(string.Join(',', sessions.Identities.Select(identity => identity.Name)))
+            .IsEqualTo("helper,helper,helper-2,helper");
         _ = await Assert.That(Resolver(firstParent, registry).ResolveStatusTarget("helper")).IsSameReferenceAs(first);
         _ = await Assert.That(Resolver(secondParent, registry).ResolveStatusTarget("helper")).IsSameReferenceAs(otherBranch);
     }
@@ -2080,7 +2083,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var rejected = second;
 
         _ = await Assert.That(parentScope.ChildRegistry.TryAdd(first)).IsTrue();
-        _ = await Assert.That(() => parentScope.ChildRegistry.TryAdd(second)).Throws<ArgumentException>();
+        _ = await Assert.That(() => parentScope.ChildRegistry.TryAdd(second)).Throws<ChildNameConflictException>();
         _ = await Assert.That(parentScope.ChildRegistry.ResolveDirectChildScope(first.Session.SessionId))
             .IsSameReferenceAs(first);
         _ = await Assert.That(parentScope.ChildRegistry.ResolveNamedChildScope("duplicate"))

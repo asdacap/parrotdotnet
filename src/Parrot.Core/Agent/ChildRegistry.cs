@@ -190,14 +190,6 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
         throw new AgentRegistryException($"child agent not found: {name}");
     }
 
-    public bool ContainsName(string name)
-    {
-        lock (_gate)
-        {
-            return _names.ContainsKey(name);
-        }
-    }
-
     public bool TryAdd(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
@@ -217,7 +209,11 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
             _entries.Add(scope.Session.SessionId, scope);
             try
             {
-                _names.Add(scope.Session.Name, scope.Session.SessionId);
+                if (!_names.TryAdd(scope.Session.Name, scope.Session.SessionId))
+                {
+                    throw new ChildNameConflictException(
+                        $"child agent name is already registered: {scope.Session.Name}");
+                }
             }
             catch
             {
