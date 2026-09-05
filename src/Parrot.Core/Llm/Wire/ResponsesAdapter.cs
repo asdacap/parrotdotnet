@@ -152,6 +152,22 @@ internal static class ResponsesAdapter
         }
 
         var type = ReadString(root, "type");
+        state.ValidateLifecycle(root, type);
+        if (type == "response.metadata"
+            && root.TryGetProperty("headers", out var headers)
+            && headers.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var header in headers.EnumerateObject())
+            {
+                if (header.Name.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase)
+                    && header.Value.ValueKind == JsonValueKind.String
+                    && header.Value.GetString() is { Length: > 0 } turnState)
+                {
+                    state.CaptureTurnState(turnState);
+                    break;
+                }
+            }
+        }
 
         switch (type)
         {
@@ -380,7 +396,10 @@ internal static class ResponsesAdapter
 
         public byte[] EncodeHttp() => JsonSerializer.SerializeToUtf8Bytes(Body, WireJsonContext.Default.ResponsesBody);
 
-        public byte[] EncodeWebSocket(string previousResponseId, IReadOnlyList<InputItem> input) =>
+        public byte[] EncodeWebSocket(
+            string previousResponseId,
+            IReadOnlyList<InputItem> input,
+            string turnState) =>
             JsonSerializer.SerializeToUtf8Bytes(
                 new WebSocketRequest
                 {
@@ -394,6 +413,12 @@ internal static class ResponsesAdapter
                     Reasoning = Body.Reasoning,
                     Provider = Body.Provider,
                     MaxOutputTokens = Body.MaxOutputTokens,
+                    ClientMetadata = turnState.Length > 0
+                        ? new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            ["x-codex-turn-state"] = turnState,
+                        }
+                        : null,
                 },
                 WireJsonContext.Default.ResponsesWebSocketRequest);
     }
@@ -432,6 +457,9 @@ internal static class ResponsesAdapter
 
         [JsonPropertyName("max_output_tokens")]
         public int? MaxOutputTokens { get; init; }
+
+        [JsonPropertyName("client_metadata")]
+        public IReadOnlyDictionary<string, string>? ClientMetadata { get; init; }
     }
 
     internal sealed class Body
@@ -547,7 +575,12 @@ internal static class ResponsesAdapter
     {
         private readonly Dictionary<string, ToolAccumulator> _tools = [];
         private readonly Dictionary<string, string> _aliases = [];
+        private readonly List<ToolAccumulator> _toolOrder = [];
         private readonly List<InputItem> _output = [];
+        private string _createdResponseId = string.Empty;
+        private long? _sequenceNumber;
+
+        public Action<string> CaptureTurnState { get; init; } = static _ => { };
 
         public bool Done { get; set; }
 
@@ -602,6 +635,15 @@ internal static class ResponsesAdapter
 
             if (item is null)
             {
+                if (key.Length == 0)
+                {
+                    key = "missing";
+                    while (_tools.ContainsKey(key))
+                    {
+                        key += ":";
+                    }
+                }
+
                 item = new ToolAccumulator
                 {
                     Key = key,
@@ -611,6 +653,7 @@ internal static class ResponsesAdapter
                     Arguments = arguments,
                 };
                 _tools[key] = item;
+                _toolOrder.Add(item);
             }
             else
             {
@@ -674,9 +717,7 @@ internal static class ResponsesAdapter
         }
 
         public IEnumerable<LLMEvent> ToolCallEvents() =>
-            _tools.Keys.OrderBy(key => key, StringComparer.Ordinal)
-                .Select(key => _tools[key])
-                .Select(call => LLMEvent.ToolCallDelta(call.ToolId(), call.Name, call.Arguments));
+            _toolOrder.Select(call => LLMEvent.ToolCallDelta(call.ToolId(), call.Name, call.Arguments));
 
         public LLMEvent Complete() =>
             LLMEvent.Completed(
@@ -685,11 +726,50 @@ internal static class ResponsesAdapter
                 CachedInputTokens,
                 OutputTokens,
                 AssistantText.ToString(),
-                [
-                    .. _tools.Keys.OrderBy(key => key, StringComparer.Ordinal)
-                        .Select(key => _tools[key])
-                        .Select(call => new LLMToolCall(call.ToolId(), call.Name, call.Arguments)),
-                ]);
+                [.. _toolOrder.Select(call => new LLMToolCall(call.ToolId(), call.Name, call.Arguments))]);
+
+        public void ValidateLifecycle(JsonElement root, string type)
+        {
+            if (root.TryGetProperty("sequence_number", out var sequence)
+                && sequence.ValueKind == JsonValueKind.Number)
+            {
+                if (!sequence.TryGetInt64(out var suppliedSequence))
+                {
+                    throw new WireProtocolException("responses: sequence_number must be an integer");
+                }
+
+                if (_sequenceNumber is { } previousSequence && suppliedSequence <= previousSequence)
+                {
+                    throw new WireProtocolException("responses: sequence_number must be strictly increasing");
+                }
+
+                _sequenceNumber = suppliedSequence;
+            }
+
+            if (type == "response.created")
+            {
+                _createdResponseId = ReadNestedResponseId(root);
+                return;
+            }
+
+            if (type is not ("response.completed" or "response.incomplete" or "response.failed"))
+            {
+                return;
+            }
+
+            var terminalResponseId = ReadNestedResponseId(root);
+            if (_createdResponseId.Length > 0
+                && terminalResponseId.Length > 0
+                && !terminalResponseId.Equals(_createdResponseId, StringComparison.Ordinal))
+            {
+                throw new WireProtocolException("responses: terminal response id does not match response.created");
+            }
+        }
+
+        private static string ReadNestedResponseId(JsonElement root) =>
+            root.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object
+                ? ReadString(response, "id")
+                : string.Empty;
 
         private static List<ContentPart> ReadContent(JsonElement item)
         {

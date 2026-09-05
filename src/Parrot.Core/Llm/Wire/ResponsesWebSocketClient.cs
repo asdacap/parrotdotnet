@@ -33,9 +33,9 @@ internal sealed class ResponsesWebSocketClient(
 
         try
         {
-            var socket = await connector.Connect(
+            var (socket, responseHeaders) = await connector.Connect(
                 Endpoint(endpoint), websocketHeaders, connectTimeout, cancellationToken).ConfigureAwait(false);
-            return new ResponsesWebSocket(socket, idleTimeout);
+            return new ResponsesWebSocket(socket, responseHeaders, idleTimeout);
         }
         catch (WebSocketException failure) when (failure.WebSocketErrorCode == WebSocketError.NotAWebSocket)
         {

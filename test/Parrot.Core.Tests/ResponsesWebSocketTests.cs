@@ -56,7 +56,10 @@ internal sealed class ResponsesWebSocketTests
             Frame(split[17..], WebSocketMessageType.Text, true),
             Frame(Encoding.UTF8.GetBytes(completed), WebSocketMessageType.Text, true),
         ]);
-        await using var connection = new ResponsesWebSocket(socket, TimeSpan.FromSeconds(1));
+        await using var connection = new ResponsesWebSocket(
+            socket,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(1));
         var request = ResponsesAdapter.Prepare(new LLMRequest
         {
             Model = "model",
@@ -66,7 +69,7 @@ internal sealed class ResponsesWebSocketTests
         var events = new List<LLMEvent>();
 
         await foreach (var published in connection.Send(
-            request.EncodeWebSocket(string.Empty, request.Input), state, cancellationToken))
+            request.EncodeWebSocket(string.Empty, request.Input, string.Empty), state, cancellationToken))
         {
             events.Add(published);
         }
@@ -91,7 +94,10 @@ internal sealed class ResponsesWebSocketTests
         CancellationToken cancellationToken)
     {
         using var socket = new ScriptedWebSocket([Frame([], messageType, true)]);
-        await using var connection = new ResponsesWebSocket(socket, TimeSpan.FromSeconds(1));
+        await using var connection = new ResponsesWebSocket(
+            socket,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(1));
         var state = new ResponsesAdapter.ParseState();
 
         async Task Consume()
@@ -110,7 +116,10 @@ internal sealed class ResponsesWebSocketTests
     public async Task Cancellation_aborts_a_pending_receive(CancellationToken cancellationToken)
     {
         using var socket = new ScriptedWebSocket([]);
-        await using var connection = new ResponsesWebSocket(socket, TimeSpan.FromMinutes(1));
+        await using var connection = new ResponsesWebSocket(
+            socket,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            TimeSpan.FromMinutes(1));
         var state = new ResponsesAdapter.ParseState();
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cancelled.CancelAfter(TimeSpan.FromMilliseconds(10));
@@ -138,7 +147,7 @@ internal sealed class ResponsesWebSocketTests
 
         public TimeSpan Timeout { get; private set; }
 
-        public Task<WebSocket> Connect(
+        public Task<(WebSocket Socket, IReadOnlyDictionary<string, string> ResponseHeaders)> Connect(
             Uri endpoint,
             IReadOnlyDictionary<string, string> headers,
             TimeSpan timeout,
@@ -147,7 +156,7 @@ internal sealed class ResponsesWebSocketTests
             Endpoint = endpoint;
             Headers = headers;
             Timeout = timeout;
-            return Task.FromResult(socket);
+            return Task.FromResult((socket, (IReadOnlyDictionary<string, string>)new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)));
         }
     }
 

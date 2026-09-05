@@ -55,7 +55,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         var sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         return new OpenAICompatibleProviderSession(
             static request => request with { MaxTokens = 0 },
-            Call,
+            CallHttp,
             cancellationToken => AuthHeadersForSession(sessionId, cancellationToken),
             _disableWebSocket,
             new ResponsesWebSocketClient(
@@ -81,32 +81,8 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         return ModelCatalogue.Merge(DecodeModels(body), _declared, _defaults);
     }
 
-    public async IAsyncEnumerable<LLMEvent> Call(
-        LLMRequest request,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);
-        RequireToken(access);
-
-        // ChatGPT does not support the max_output_tokens parameter.
-        var body = ResponsesAdapter.Encode(request with { MaxTokens = 0 });
-        var headers = Headers(access);
-        headers["session-id"] = _sessionId;
-
-        var stream = await HttpStreaming
-            .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, cancellationToken)
-            .ConfigureAwait(false);
-
-        await using (stream.ConfigureAwait(false))
-        {
-            await foreach (var published in
-                ResponsesAdapter.Parse(stream, HttpStreaming.MaxEventBytes, cancellationToken).ConfigureAwait(false))
-            {
-                yield return published;
-            }
-        }
-    }
+    public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
+        CallHttp(request, string.Empty, static _ => { }, cancellationToken);
 
     public async Task<SubscriptionUsage> Usage(CancellationToken cancellationToken)
     {
@@ -253,6 +229,47 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         }
 
         return headers;
+    }
+
+    private async IAsyncEnumerable<LLMEvent> CallHttp(
+        LLMRequest request,
+        string turnState,
+        Action<string> captureTurnState,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);
+        RequireToken(access);
+
+        // ChatGPT does not support the max_output_tokens parameter.
+        var body = ResponsesAdapter.Encode(request with { MaxTokens = 0 });
+        var headers = Headers(access);
+        headers["session-id"] = _sessionId;
+        if (turnState.Length > 0)
+        {
+            headers["x-codex-turn-state"] = turnState;
+        }
+
+        var response = await HttpStreaming
+            .OpenStream(_client, _endpoint, body, headers, HeaderTimeout, cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var header in response.Headers)
+        {
+            if (header.Key.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase))
+            {
+                captureTurnState(header.Value);
+                break;
+            }
+        }
+
+        await using (response.ConfigureAwait(false))
+        {
+            await foreach (var published in
+                ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, cancellationToken).ConfigureAwait(false))
+            {
+                yield return published;
+            }
+        }
     }
 
     private async Task<IReadOnlyDictionary<string, string>> AuthHeadersForSession(

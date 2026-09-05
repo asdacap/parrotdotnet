@@ -104,10 +104,26 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     }
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-        CallHttp(request, cancellationToken);
+        CallHttp(request, string.Empty, static _ => { }, cancellationToken);
+
+    private static void CaptureTurnState(
+        IReadOnlyDictionary<string, string> headers,
+        Action<string> captureTurnState)
+    {
+        foreach (var header in headers)
+        {
+            if (header.Key.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase))
+            {
+                captureTurnState(header.Value);
+                break;
+            }
+        }
+    }
 
     private async IAsyncEnumerable<LLMEvent> CallHttp(
         LLMRequest request,
+        string turnState,
+        Action<string> captureTurnState,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -117,15 +133,22 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             ? ResponsesAdapter.Encode(prepared)
             : ChatCompletionsAdapter.Encode(prepared);
 
-        var stream = await HttpStreaming
-            .OpenStream(_client, _endpoint, body, await AuthHeaders(cancellationToken).ConfigureAwait(false), _headerTimeout, cancellationToken)
-            .ConfigureAwait(false);
+        var headers = await AuthHeaders(cancellationToken).ConfigureAwait(false);
+        if (turnState.Length > 0)
+        {
+            headers["x-codex-turn-state"] = turnState;
+        }
 
-        await using (stream.ConfigureAwait(false))
+        var response = await HttpStreaming
+            .OpenStream(_client, _endpoint, body, headers, _headerTimeout, cancellationToken)
+            .ConfigureAwait(false);
+        CaptureTurnState(response.Headers, captureTurnState);
+
+        await using (response.ConfigureAwait(false))
         {
             var events = _protocol == CompatibleProtocol.Responses
-                ? ResponsesAdapter.Parse(stream, HttpStreaming.MaxEventBytes, cancellationToken)
-                : ChatCompletionsAdapter.Parse(stream, HttpStreaming.MaxEventBytes, cancellationToken);
+                ? ResponsesAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, cancellationToken)
+                : ChatCompletionsAdapter.Parse(response.Content, HttpStreaming.MaxEventBytes, cancellationToken);
 
             await foreach (var published in events.ConfigureAwait(false))
             {

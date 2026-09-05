@@ -1424,6 +1424,7 @@ internal sealed class AgentSession(
                         captured.SecurityProfile);
                     providerRequests = 0;
                     turnOpen = true;
+                    _providerSessions.BeginTurn();
                     var aliasIcon = resolved.Alias?.Icon;
                     var started = new Event
                     {

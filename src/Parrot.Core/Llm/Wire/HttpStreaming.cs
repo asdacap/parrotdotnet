@@ -92,7 +92,7 @@ internal static class HttpStreaming
 
     // Opens a streaming POST. The header timeout bounds only time-to-headers;
     // the body read is unbounded in time (SSE stays open) and bounded in size.
-    public static async Task<Stream> OpenStream(
+    public static async Task<StreamingHttpResponse> OpenStream(
         HttpClient client,
         Uri endpoint,
         byte[] body,
@@ -150,9 +150,12 @@ internal static class HttpStreaming
             }
 
             var raw = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            var bounded = new BoundedStream(raw, MaxStreamBytes, response);
+            var responseHeaders = response.Headers.ToDictionary(
+                header => header.Key,
+                header => string.Join(", ", header.Value),
+                StringComparer.OrdinalIgnoreCase);
             transferred = true;
-            return bounded;
+            return new StreamingHttpResponse(raw, MaxStreamBytes, response, responseHeaders);
         }
         finally
         {

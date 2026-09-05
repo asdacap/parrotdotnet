@@ -155,7 +155,7 @@ internal sealed class ChatGptProviderWebSocketTests
 
         public int Calls { get; private set; }
 
-        public Task<WebSocket> Connect(
+        public Task<(WebSocket Socket, IReadOnlyDictionary<string, string> ResponseHeaders)> Connect(
             Uri endpoint,
             IReadOnlyDictionary<string, string> headers,
             TimeSpan timeout,
@@ -167,8 +167,8 @@ internal sealed class ChatGptProviderWebSocketTests
             HeadersByCall.Add(headers);
             return _outcomes.Dequeue() switch
             {
-                WebSocket socket => Task.FromResult(socket),
-                Exception failure => Task.FromException<WebSocket>(failure),
+                WebSocket socket => Task.FromResult((socket, (IReadOnlyDictionary<string, string>)new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))),
+                Exception failure => Task.FromException<(WebSocket Socket, IReadOnlyDictionary<string, string> ResponseHeaders)>(failure),
                 _ => throw new InvalidOperationException("Unknown WebSocket outcome."),
             };
         }

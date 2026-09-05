@@ -6,7 +6,7 @@ namespace Parrot.Llm;
 
 internal sealed class OpenAICompatibleProviderSession(
     Func<LLMRequest, LLMRequest> prepare,
-    Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> callHttp,
+    Func<LLMRequest, string, Action<string>, CancellationToken, IAsyncEnumerable<LLMEvent>> callHttp,
     Func<CancellationToken, Task<IReadOnlyDictionary<string, string>>> authHeaders,
     bool disableWebSocket,
     ResponsesWebSocketClient websocketClient) : ILLMProviderSession, IProviderSessionFallback
@@ -14,6 +14,7 @@ internal sealed class OpenAICompatibleProviderSession(
     private readonly SemaphoreSlim _exclusive = new(1, 1);
     private ResponsesWebSocket? _connection;
     private CompletedResponse? _completedResponse;
+    private string? _turnState;
     private bool _httpOnly = disableWebSocket;
     private bool _disposed;
 
@@ -23,6 +24,8 @@ internal sealed class OpenAICompatibleProviderSession(
         Full,
         Http,
     }
+
+    public void BeginTurn() => _turnState = null;
 
     public async IAsyncEnumerable<LLMEvent> Call(
         LLMRequest request,
@@ -36,7 +39,7 @@ internal sealed class OpenAICompatibleProviderSession(
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_httpOnly)
             {
-                await foreach (var published in callHttp(request, cancellationToken).ConfigureAwait(false))
+                await foreach (var published in callHttp(request, _turnState ?? string.Empty, CaptureTurnState, cancellationToken).ConfigureAwait(false))
                 {
                     yield return published;
                 }
@@ -68,7 +71,7 @@ internal sealed class OpenAICompatibleProviderSession(
                 if (step.Recovery == Recovery.Http)
                 {
                     await SelectHttp().ConfigureAwait(false);
-                    await foreach (var httpEvent in callHttp(request, cancellationToken).ConfigureAwait(false))
+                    await foreach (var httpEvent in callHttp(request, _turnState ?? string.Empty, CaptureTurnState, cancellationToken).ConfigureAwait(false))
                     {
                         yield return httpEvent;
                     }
@@ -146,7 +149,7 @@ internal sealed class OpenAICompatibleProviderSession(
     private WebSocketAttempt Begin(
         ResponsesAdapter.PreparedRequest prepared,
         IncrementalRequest request) =>
-        new(prepared, request, GetConnection);
+        new(prepared, request, GetTurnState, GetConnection, CaptureTurnState);
 
     private async Task<AttemptStep> Step(
         WebSocketAttempt attempt,
@@ -223,9 +226,27 @@ internal sealed class OpenAICompatibleProviderSession(
             await Poison().ConfigureAwait(false);
             _connection = await websocketClient.Connect(
                 await authHeaders(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            foreach (var header in _connection.ResponseHeaders)
+            {
+                if (header.Key.Equals("x-codex-turn-state", StringComparison.OrdinalIgnoreCase))
+                {
+                    CaptureTurnState(header.Value);
+                    break;
+                }
+            }
         }
 
         return _connection;
+    }
+
+    private string GetTurnState() => _turnState ?? string.Empty;
+
+    private void CaptureTurnState(string turnState)
+    {
+        if (_turnState is null && turnState.Length > 0)
+        {
+            _turnState = turnState;
+        }
     }
 
     private async ValueTask Poison()
@@ -249,13 +270,15 @@ internal sealed class OpenAICompatibleProviderSession(
     private sealed class WebSocketAttempt(
         ResponsesAdapter.PreparedRequest prepared,
         IncrementalRequest request,
-        Func<CancellationToken, Task<ResponsesWebSocket>> getConnection) : IAsyncDisposable
+        Func<string> getTurnState,
+        Func<CancellationToken, Task<ResponsesWebSocket>> getConnection,
+        Action<string> captureTurnState) : IAsyncDisposable
     {
         private IAsyncEnumerator<LLMEvent>? _enumerator;
 
         public ResponsesAdapter.PreparedRequest Prepared { get; } = prepared;
 
-        public ResponsesAdapter.ParseState Response { get; } = new();
+        public ResponsesAdapter.ParseState Response { get; } = new() { CaptureTurnState = captureTurnState };
 
         public bool Visible { get; set; }
 
@@ -268,7 +291,7 @@ internal sealed class OpenAICompatibleProviderSession(
             {
                 var connection = await getConnection(cancellationToken).ConfigureAwait(false);
                 _enumerator = connection.Send(
-                    Prepared.EncodeWebSocket(request.PreviousResponseId, request.Input),
+                    Prepared.EncodeWebSocket(request.PreviousResponseId, request.Input, getTurnState()),
                     Response,
                     cancellationToken).GetAsyncEnumerator(cancellationToken);
             }

@@ -80,6 +80,26 @@ internal sealed class ProviderSessionsTests
     }
 
     [Test]
+    public async Task Begin_turn_notifies_existing_and_lazy_sessions(CancellationToken cancellationToken)
+    {
+        var firstProvider = new SessionProvider();
+        var secondProvider = new SessionProvider();
+        var sessions = new ProviderSessions();
+        var existing = sessions.Get(firstProvider);
+
+        sessions.BeginTurn();
+        var lazy = sessions.Get(secondProvider);
+        sessions.BeginTurn();
+        await sessions.Close();
+
+        _ = await Assert.That(((SessionProviderSession)existing).BeginTurnCalls).IsEqualTo(2);
+        _ = await Assert.That(((SessionProviderSession)lazy).BeginTurnCalls).IsEqualTo(2);
+        _ = await Assert.That(firstProvider.Opened).IsEqualTo(1);
+        _ = await Assert.That(secondProvider.Opened).IsEqualTo(1);
+        _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
+    }
+
+    [Test]
     public async Task Retrying_provider_opens_and_disposes_one_inner_session(CancellationToken cancellationToken)
     {
         var provider = new SessionProvider();
@@ -139,6 +159,10 @@ internal sealed class ProviderSessionsTests
 
         public int DisposeCalls { get; private set; }
 
+        public int BeginTurnCalls { get; private set; }
+
+        public void BeginTurn() => BeginTurnCalls++;
+
         public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Calls are not expected.");
 
@@ -194,7 +218,11 @@ internal sealed class ProviderSessionsTests
 
         public int DisposeCalls { get; private set; }
 
+        public int BeginTurnCalls { get; private set; }
+
         public bool Disposed => DisposeCalls > 0;
+
+        public void BeginTurn() => BeginTurnCalls++;
 
         public async IAsyncEnumerable<LLMEvent> Call(
             LLMRequest request,

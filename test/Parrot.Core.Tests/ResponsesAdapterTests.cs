@@ -230,6 +230,56 @@ internal sealed class ResponsesAdapterTests
     }
 
     [Test]
+    [Arguments("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-2\"}}\n\n", "terminal response id")]
+    [Arguments("data: {\"type\":\"response.created\",\"sequence_number\":2,\"response\":{}}\n\ndata: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{}}\n\n", "sequence_number")]
+    public async Task Lifecycle_validation_rejects_inconsistent_supplied_fields(
+        string stream,
+        string expectedMessage,
+        CancellationToken cancellationToken)
+    {
+        _ = await Assert.That(async () => await Drain(stream, cancellationToken))
+            .Throws<WireProtocolException>()
+            .WithMessageContaining(expectedMessage);
+    }
+
+    [Test]
+    public async Task Lifecycle_validation_accepts_optional_fields_when_omitted(CancellationToken cancellationToken)
+    {
+        const string stream = """
+            data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}
+
+            """;
+
+        var events = await Drain(stream, cancellationToken);
+
+        _ = await Assert.That(events[^1].Kind).IsEqualTo(LLMEventKind.Completed);
+    }
+
+    [Test]
+    public async Task Function_calls_keep_their_first_seen_output_order(CancellationToken cancellationToken)
+    {
+        const string stream = """
+            data: {"type":"response.output_item.added","item":{"id":"item-z","type":"function_call","call_id":"call-z","name":"first"}}
+
+            data: {"type":"response.output_item.added","item":{"id":"item-a","type":"function_call","call_id":"call-a","name":"second"}}
+
+            data: {"type":"response.function_call_arguments.delta","item_id":"item-z","call_id":"call-z","delta":"{}"}
+
+            data: {"type":"response.function_call_arguments.delta","item_id":"item-a","call_id":"call-a","delta":"{}"}
+
+            data: {"type":"response.completed","response":{"status":"completed"}}
+
+            """;
+
+        var events = await Drain(stream, cancellationToken);
+        var toolEvents = events.Where(item => item.Kind == LLMEventKind.ToolCallDelta).ToArray();
+        var completed = events[^1];
+
+        _ = await Assert.That(string.Join(",", toolEvents.Select(item => item.ToolCallId))).IsEqualTo("call-z,call-a");
+        _ = await Assert.That(string.Join(",", completed.ToolCalls.Select(item => item.Id))).IsEqualTo("call-z,call-a");
+    }
+
+    [Test]
     public async Task An_incomplete_response_reports_the_budget_reason(CancellationToken cancellationToken)
     {
         const string stream = """

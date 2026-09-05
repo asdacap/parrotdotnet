@@ -7,7 +7,21 @@ internal sealed class ProviderSessions
         new(ReferenceEqualityComparer.Instance);
 
     private bool _disposing;
+    private bool _turnOpen;
     private Task? _closeTask;
+
+    public void BeginTurn()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposing, this);
+            _turnOpen = true;
+            foreach (var session in _sessions.Values)
+            {
+                session.BeginTurn();
+            }
+        }
+    }
 
     public ILLMProviderSession Get(ILLMProvider provider)
     {
@@ -23,6 +37,11 @@ internal sealed class ProviderSessions
 
             session = provider.OpenSession()
                 ?? throw new InvalidOperationException($"Provider \"{provider.Id}\" returned no session.");
+            if (_turnOpen)
+            {
+                session.BeginTurn();
+            }
+
             _sessions.Add(provider, session);
             return session;
         }

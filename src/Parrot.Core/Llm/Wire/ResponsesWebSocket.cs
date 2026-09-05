@@ -7,9 +7,12 @@ namespace Parrot.Llm.Wire;
 
 internal sealed class ResponsesWebSocket(
     WebSocket socket,
+    IReadOnlyDictionary<string, string> responseHeaders,
     TimeSpan idleTimeout) : IAsyncDisposable
 {
     public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromMinutes(5);
+
+    public IReadOnlyDictionary<string, string> ResponseHeaders { get; } = responseHeaders;
 
     public WebSocketState State => socket.State;
 

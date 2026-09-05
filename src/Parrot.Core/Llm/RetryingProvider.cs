@@ -233,6 +233,8 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         private readonly IProviderSessionFallback? _fallback =
             innerSession is IProviderSessionFallback fallback ? fallback : null;
 
+        public void BeginTurn() => _innerSession.BeginTurn();
+
         public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
             RetrySession(request, cancellationToken);
 

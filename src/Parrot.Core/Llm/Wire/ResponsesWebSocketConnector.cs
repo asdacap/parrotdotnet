@@ -24,7 +24,7 @@ internal sealed class ResponsesWebSocketConnector : IResponsesWebSocketConnector
         }
     }
 
-    public async Task<WebSocket> Connect(
+    public async Task<(WebSocket Socket, IReadOnlyDictionary<string, string> ResponseHeaders)> Connect(
         Uri endpoint,
         IReadOnlyDictionary<string, string> headers,
         TimeSpan timeout,
@@ -52,7 +52,12 @@ internal sealed class ResponsesWebSocketConnector : IResponsesWebSocketConnector
         try
         {
             await socket.ConnectAsync(endpoint, timeoutSource.Token).ConfigureAwait(false);
-            return socket;
+            var responseHeaders = socket.HttpResponseHeaders?.ToDictionary(
+                pair => pair.Key,
+                pair => string.Join(", ", pair.Value),
+                StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return (socket, responseHeaders);
         }
         catch (OperationCanceledException failure) when (!cancellationToken.IsCancellationRequested && timeout > TimeSpan.Zero)
         {
