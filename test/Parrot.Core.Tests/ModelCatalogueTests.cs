@@ -18,6 +18,106 @@ internal sealed class ModelCatalogueTests
     }
 
     [Test]
+    public async Task Standard_decoder_reads_rich_metadata_without_claiming_invalid_fields()
+    {
+        var models = StandardModelDecoder.Instance.Decode(
+            "p",
+            """{"data":[{"id":"rich","name":"Rich","max_input_tokens":0,"max_output_tokens":42,"input_cost_per_token":0,"cache_read_input_token_cost":0.00025,"output_cost_per_token":0.002,"supports_function_calling":false,"supports_reasoning":true,"supported_output_modalities":[],"reasoning_effort_levels":["low","high"],"default_reasoning_effort":"high"},{"id":"invalid","max_input_tokens":-1,"input_cost_per_token":-1,"supports_reasoning":"yes","supported_output_modalities":"text","supported_reasoning_efforts":"high"}]}""");
+        var rich = models[0];
+        var invalid = models[1];
+
+        _ = await Assert.That(rich.Name).IsEqualTo("Rich");
+        _ = await Assert.That(rich.ContextWindow).IsEqualTo(0);
+        _ = await Assert.That(rich.MaxOutputTokens).IsEqualTo(42);
+        _ = await Assert.That(rich.InputPrice).IsEqualTo(0);
+        _ = await Assert.That(rich.CachedInputPrice).IsEqualTo(0.00025);
+        _ = await Assert.That(rich.OutputPrice).IsEqualTo(0.002);
+        _ = await Assert.That(rich.Capabilities.Tools).IsFalse();
+        _ = await Assert.That(rich.Capabilities.Reasoning).IsTrue();
+        _ = await Assert.That(rich.Capabilities.Output).IsEmpty();
+        _ = await Assert.That(string.Join(",", rich.Capabilities.Variants.Select(variant => variant.Name)))
+            .IsEqualTo("high,low");
+        _ = await Assert.That(rich.Fields).IsEqualTo(
+            ModelMetadataFields.Name
+                | ModelMetadataFields.ContextWindow
+                | ModelMetadataFields.MaxOutputTokens
+                | ModelMetadataFields.InputPrice
+                | ModelMetadataFields.CachedInputPrice
+                | ModelMetadataFields.OutputPrice
+                | ModelMetadataFields.Tools
+                | ModelMetadataFields.Reasoning
+                | ModelMetadataFields.Output
+                | ModelMetadataFields.Variants);
+        _ = await Assert.That(invalid.Fields).IsEqualTo(ModelMetadataFields.None);
+    }
+
+    [Test]
+    public async Task Litellm_decoder_tolerates_malformed_entries_and_conservatively_combines_deployments()
+    {
+        var models = LiteLlmModelInfoDecoder.Instance.Decode(
+            "p",
+            """{"data":[null,"bad",7,[],{"model_name":"served","model_info":{"name":"Served","max_input_tokens":128,"max_output_tokens":32,"input_cost_per_token":0.001,"cache_read_input_token_cost":0.0001,"output_cost_per_token":0.002,"supports_function_calling":true,"supports_reasoning":true,"supported_output_modalities":["text","image"],"supported_reasoning_efforts":["none","medium","xhigh","low","bogus","","low",null],"default_reasoning_effort":"medium"}},{"model_name":"served","model_info":{"max_input_tokens":64,"max_output_tokens":64,"input_cost_per_token":0.003,"cache_read_input_token_cost":0.0001,"output_cost_per_token":0.004,"supports_function_calling":false,"supports_reasoning":true,"supported_output_modalities":["text"],"reasoning_effort_levels":["minimal","low","medium","high","max","bogus"]}},{"model_name":"filtered","model_info":{"reasoning_effort_levels":["bogus","",null,"bogus"]}},{"model_name":"missing-info"},{"model_info":{"max_input_tokens":1}}]}""");
+        var model = models.Single(candidate => candidate.Id == "served");
+        var filtered = models.Single(candidate => candidate.Id == "filtered");
+
+        _ = await Assert.That(models.Count).IsEqualTo(2);
+        _ = await Assert.That(model.Name).IsEqualTo("served");
+        _ = await Assert.That(model.Fields.HasFlag(ModelMetadataFields.Name)).IsFalse();
+        _ = await Assert.That(model.ContextWindow).IsEqualTo(64);
+        _ = await Assert.That(model.MaxOutputTokens).IsEqualTo(32);
+        _ = await Assert.That(model.Fields.HasFlag(ModelMetadataFields.InputPrice)).IsFalse();
+        _ = await Assert.That(model.InputPrice).IsEqualTo(0);
+        _ = await Assert.That(model.Fields.HasFlag(ModelMetadataFields.CachedInputPrice)).IsTrue();
+        _ = await Assert.That(model.CachedInputPrice).IsEqualTo(0.0001);
+        _ = await Assert.That(model.Fields.HasFlag(ModelMetadataFields.OutputPrice)).IsFalse();
+        _ = await Assert.That(model.OutputPrice).IsEqualTo(0);
+        _ = await Assert.That(model.Capabilities.Tools).IsFalse();
+        _ = await Assert.That(model.Capabilities.Reasoning).IsTrue();
+        _ = await Assert.That(string.Join(",", model.Capabilities.Output)).IsEqualTo("text");
+        _ = await Assert.That(string.Join(",", model.Capabilities.Variants.Select(variant => variant.Name)))
+            .IsEqualTo("medium,low");
+        _ = await Assert.That(filtered.Fields.HasFlag(ModelMetadataFields.Variants)).IsTrue();
+        _ = await Assert.That(filtered.Capabilities.Variants).IsEmpty();
+    }
+
+    [Test]
+    public async Task Supplement_preserves_primary_membership_and_field_precedence_before_configuration()
+    {
+        var primary = StandardModelDecoder.Instance.Decode(
+            "p",
+            """{"data":[{"id":"served","max_output_tokens":0,"supports_function_calling":false},{"id":"primary-only","supports_reasoning":false}]}""");
+        var supplemental = LiteLlmModelInfoDecoder.Instance.Decode(
+            "p",
+            """{"data":[{"model_name":"served","model_info":{"max_input_tokens":512,"max_output_tokens":64,"supports_function_calling":true,"supports_reasoning":true,"reasoning_effort_levels":["low","high"]}},{"model_name":"info-only","model_info":{"max_input_tokens":999}},{"model_name":"served","model_info":{"max_input_tokens":1024}}]}""");
+        var configured = new LLMModel("served", "p")
+        {
+            ContextWindow = 256,
+            InputPrice = 0.01,
+            Capabilities = new ModelCapabilities(true, false, ["image"], []),
+            Fields = ModelMetadataFields.ContextWindow
+                | ModelMetadataFields.InputPrice
+                | ModelMetadataFields.Tools
+                | ModelMetadataFields.Reasoning
+                | ModelMetadataFields.Output,
+        };
+
+        var supplemented = ModelCatalogue.Supplement(primary, supplemental);
+        var merged = ModelCatalogue.Merge(supplemented, [configured], []);
+        var served = merged.Single(model => model.Id == "served");
+
+        _ = await Assert.That(string.Join(",", merged.Select(model => model.Id)))
+            .IsEqualTo("primary-only,served");
+        _ = await Assert.That(served.ContextWindow).IsEqualTo(512);
+        _ = await Assert.That(served.MaxOutputTokens).IsEqualTo(0);
+        _ = await Assert.That(served.InputPrice).IsEqualTo(0.01);
+        _ = await Assert.That(served.Capabilities.Tools).IsFalse();
+        _ = await Assert.That(served.Capabilities.Reasoning).IsTrue();
+        _ = await Assert.That(string.Join(",", served.Capabilities.Output)).IsEqualTo("image");
+        _ = await Assert.That(string.Join(",", served.Capabilities.Variants.Select(variant => variant.Name)))
+            .IsEqualTo("low,high");
+    }
+
+    [Test]
     public async Task Openrouter_decoder_reads_pricing_and_reasoning_variants()
     {
         var models = OpenRouterModelDecoder.Instance.Decode(
@@ -73,6 +173,24 @@ internal sealed class ModelCatalogueTests
 
         _ = await Assert.That(merged.InputPrice).IsEqualTo(0.01);
         _ = await Assert.That(merged.CachedInputPrice).IsEqualTo(0.005);
+    }
+
+    [Test]
+    public async Task Explicit_endpoint_non_reasoning_suppresses_configured_variants()
+    {
+        var configured = new LLMModel("m", "p")
+        {
+            Capabilities = new ModelCapabilities(false, true, ["text"], [new ModelVariant("high", "high")]),
+            Fields = ModelMetadataFields.Reasoning | ModelMetadataFields.Variants,
+        };
+        var fetched = StandardModelDecoder.Instance.Decode(
+            "p", """{"data":[{"id":"m","supports_reasoning":false}]}""");
+
+        var merged = ModelCatalogue.Merge(fetched, [configured], []).Single();
+
+        _ = await Assert.That(merged.Capabilities.Reasoning).IsFalse();
+        _ = await Assert.That(merged.Capabilities.Variants).IsEmpty();
+        _ = await Assert.That(merged.Fields.HasFlag(ModelMetadataFields.Variants)).IsTrue();
     }
 
     [Test]

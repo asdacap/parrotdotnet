@@ -10,6 +10,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
 {
     private readonly Uri _endpoint;
     private readonly Uri _modelsEndpoint;
+    private readonly Uri _modelInfoEndpoint;
     private readonly CompatibleProtocol _protocol;
     private readonly IApiKeySource _apiKeySource;
     private readonly IReadOnlyDictionary<string, string> _headers;
@@ -61,6 +62,8 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             options.BaseUrl, endpointName, options.AllowInsecureLocalhost, options.AllowInsecureRemote);
         _modelsEndpoint = HttpStreaming.EndpointUrl(
             options.BaseUrl, "models", options.AllowInsecureLocalhost, options.AllowInsecureRemote);
+        _modelInfoEndpoint = HttpStreaming.EndpointUrl(
+            options.BaseUrl, "model/info", options.AllowInsecureLocalhost, options.AllowInsecureRemote);
         _headers = HttpStreaming.ValidateHeaders(options.Headers);
         _declared = options.Models;
         _defaults = options.ModelDefaults;
@@ -96,11 +99,18 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
 
     public async Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken)
     {
+        var headers = await AuthHeaders(cancellationToken).ConfigureAwait(false);
         var body = await HttpStreaming
-            .Get(_client, _modelsEndpoint, await AuthHeaders(cancellationToken).ConfigureAwait(false), HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
+            .Get(_client, _modelsEndpoint, headers, HttpStreaming.ModelsRefreshTimeout, 16 << 20, cancellationToken)
             .ConfigureAwait(false);
+        var models = _decoder.Decode(Id, body);
 
-        return ModelCatalogue.Merge(_decoder.Decode(Id, body), _declared, _defaults);
+        if (LiteLlmModelInfoDecoder.NeedsSupplement(models))
+        {
+            models = await SupplementModels(models, headers, cancellationToken).ConfigureAwait(false);
+        }
+
+        return ModelCatalogue.Merge(models, _declared, _defaults);
     }
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
@@ -117,6 +127,34 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
                 captureTurnState(header.Value);
                 break;
             }
+        }
+    }
+
+    private static bool IsSupplementFailure(Exception failure) =>
+        failure is LLMProviderException or ProviderHttpException or HeaderTimeoutException or WireProtocolException
+            or System.Text.Json.JsonException or HttpRequestException or IOException;
+
+    private async Task<IReadOnlyList<LLMModel>> SupplementModels(
+        IReadOnlyList<LLMModel> models,
+        IReadOnlyDictionary<string, string> headers,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var body = await HttpStreaming
+                .Get(
+                    _client,
+                    _modelInfoEndpoint,
+                    headers,
+                    HttpStreaming.ModelsRefreshTimeout,
+                    16 << 20,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return ModelCatalogue.Supplement(models, LiteLlmModelInfoDecoder.Instance.Decode(Id, body));
+        }
+        catch (Exception failure) when (!cancellationToken.IsCancellationRequested && IsSupplementFailure(failure))
+        {
+            return models;
         }
     }
 

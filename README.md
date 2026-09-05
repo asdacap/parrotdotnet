@@ -39,12 +39,15 @@ assembly should have a clear architectural reason.
 A model selection is either a configured model alias or a canonical
 `provider/model[/effort-variant]` selector. The provider is the first path
 segment, and the model may itself contain slashes. The refreshed provider
-catalog supplies autocomplete and model metadata. Endpoint-provided metadata
-has priority; configured `models` and `model_defaults` fill only fields the
-endpoint omits. Declared `models` are always selectable, even when an endpoint
-does not list them. Offline `model_defaults` catalogues seed model names and
-descriptions, but a successful endpoint refresh drops entries that the endpoint
-omits. An
+catalog supplies autocomplete and model metadata. `/models` controls endpoint
+catalog membership. When an OpenAI-compatible `/models` entry omits metadata
+Parrot can represent, Parrot conditionally and best-effort queries LiteLLM's
+sibling `/model/info` endpoint; an unavailable or malformed supplemental
+response does not fail an otherwise successful refresh. Field precedence is
+`/models`, then `/model/info`, then configured `models`, then `model_defaults`.
+Declared `models` are always selectable, even when an endpoint does not list
+them. Offline `model_defaults` catalogues seed model names and descriptions, but
+a successful endpoint refresh drops entries that the endpoint omits. An
 undeclared model ID is still passed to the provider and can fail when called.
 The optional final segment is treated as an effort variant only when the
 complete remainder is not an exact catalog model ID. This makes selectors

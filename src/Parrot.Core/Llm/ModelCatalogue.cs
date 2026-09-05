@@ -69,6 +69,25 @@ internal static class ModelCatalogue
         return result;
     }
 
+    public static IReadOnlyList<LLMModel> Supplement(
+        IReadOnlyList<LLMModel> primary,
+        IReadOnlyList<LLMModel> supplemental)
+    {
+        var supplementalById = new Dictionary<string, LLMModel>(StringComparer.Ordinal);
+
+        foreach (var item in supplemental)
+        {
+            _ = supplementalById.TryAdd(item.Id, item);
+        }
+
+        return
+        [
+            .. primary.Select(model => supplementalById.TryGetValue(model.Id, out var fallback)
+                ? Overlay(fallback, model)
+                : model),
+        ];
+    }
+
     private static LLMModel Overlay(LLMModel fallback, LLMModel preferred)
     {
         var fallbackCapabilities = fallback.Capabilities;
