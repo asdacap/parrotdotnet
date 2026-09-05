@@ -97,18 +97,6 @@ internal sealed class AgentSessionParentScope(
             ?? throw new AgentRegistryException($"child agent not found: {childSessionId}");
     }
 
-    internal IAgentSession AuthorizeQuestionChild(IAgentSession child)
-    {
-        ArgumentNullException.ThrowIfNull(child);
-        var registeredChild = AuthorizeDirectChild(child.SessionId);
-        if (!ReferenceEquals(registeredChild.Session, child))
-        {
-            throw new AgentRegistryException($"parent agent not found: {child.ParentSessionId}");
-        }
-
-        return RequireOwnerScope().Session;
-    }
-
     internal IAgentSessionScope RequireOwnerScope()
     {
         var authority = registry

@@ -25,7 +25,8 @@ internal sealed class ChildQuestionCoordinator(
             throw new QuestionException("only child agents may ask questions");
         }
 
-        var parent = ownerScope.AuthorizeQuestionChild(askingChild);
+        _ = ownerScope.AuthorizeDirectChild(askingChild.SessionId);
+        var parent = ownerScope.RequireOwnerScope().Session;
 
         var pending = new PendingRequest(Identifier.QuestionRequestId(), askingChild, ownerScope.OwnerSessionId, copied);
 
