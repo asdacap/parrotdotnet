@@ -1431,7 +1431,7 @@ tools:
           - acceptance_criteria
           additionalProperties: false
   wait:
-    description: Wait for incoming activity. Returns early for a new message, direct child-agent completion, AgentTask graph completion, unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen. A timeout reports an agent tree containing queues and active processes.
+    description: Wait for incoming activity. Returns early for a new message, direct child-agent completion, AgentTask graph completion, unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen. A timeout reports an agent tree containing queues and active processes. Use this rather than `sleep` cli.
     parameters:
       type: object
       properties:
