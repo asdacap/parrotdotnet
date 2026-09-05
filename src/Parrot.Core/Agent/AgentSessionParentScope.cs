@@ -109,22 +109,7 @@ internal sealed class AgentSessionParentScope(
         return RequireOwnerScope().Session;
     }
 
-    internal void ValidateOwnerScope(IAgentSessionScope scope)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-        var ownerScope = ownerScopeAccessor?.Invoke()
-            ?? throw new InvalidOperationException("The parent scope is not bound to an agent scope.");
-        if (!ReferenceEquals(ownerScope, scope)
-            || !ReferenceEquals(scope.ChildRegistry, childRegistry))
-        {
-            throw new AgentRegistryException($"agent scope does not match child registry owner: {OwnerSessionId}");
-        }
-    }
-
-    private IChildRegistry RequireChildRegistry() =>
-        childRegistry ?? throw new InvalidOperationException("The parent scope is not bound to an agent scope.");
-
-    private IAgentSessionScope RequireOwnerScope()
+    internal IAgentSessionScope RequireOwnerScope()
     {
         var authority = registry
             ?? throw new InvalidOperationException("The parent scope is not bound to an agent scope.");
@@ -145,4 +130,19 @@ internal sealed class AgentSessionParentScope(
             ? ownerScope
             : throw new AgentRegistryException($"parent agent scope not found: {OwnerSessionId}");
     }
+
+    internal void ValidateOwnerScope(IAgentSessionScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        var ownerScope = ownerScopeAccessor?.Invoke()
+            ?? throw new InvalidOperationException("The parent scope is not bound to an agent scope.");
+        if (!ReferenceEquals(ownerScope, scope)
+            || !ReferenceEquals(scope.ChildRegistry, childRegistry))
+        {
+            throw new AgentRegistryException($"agent scope does not match child registry owner: {OwnerSessionId}");
+        }
+    }
+
+    private IChildRegistry RequireChildRegistry() =>
+        childRegistry ?? throw new InvalidOperationException("The parent scope is not bound to an agent scope.");
 }
