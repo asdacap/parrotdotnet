@@ -12,7 +12,7 @@ internal sealed class UserSessionResources
 
         Id = id;
         Workspace = workspace;
-        SessionsDirectory = Path.GetFullPath(Path.Combine(paths.State, "sessions"));
+        SessionsDirectory = PlatformPath.Normalize(Path.Combine(paths.State, "sessions"));
         Root = RequireContained(SessionsDirectory, Path.Combine(SessionsDirectory, id.Value));
         MetadataPath = RequireContained(Root, Path.Combine(Root, "meta.json"));
         DatabasePath = RequireContained(Root, Path.Combine(Root, "session.db"));

@@ -66,9 +66,11 @@ internal sealed class SkillCatalogTests : IDisposable
 
         var roots = Factory(user.FullName, packaged.FullName).ResolveRoots(workspace);
 
-        _ = await Assert.That(workspace.RepositoryRoot).IsEqualTo(repository.FullName);
-        _ = await Assert.That(roots[0].Path).IsEqualTo(Path.Combine(nested.FullName, ".agents", "skills"));
-        _ = await Assert.That(roots[1].Path).IsEqualTo(Path.Combine(repository.FullName, ".agents", "skills"));
+        _ = await Assert.That(workspace.RepositoryRoot).IsEqualTo(SecurityWriteTarget.Resolve(repository.FullName).Path);
+        _ = await Assert.That(roots[0].Path).IsEqualTo(
+            Path.Combine(SecurityWriteTarget.Resolve(nested.FullName).Path, ".agents", "skills"));
+        _ = await Assert.That(roots[1].Path).IsEqualTo(
+            Path.Combine(SecurityWriteTarget.Resolve(repository.FullName).Path, ".agents", "skills"));
     }
 
     [Test]
@@ -132,8 +134,10 @@ internal sealed class SkillCatalogTests : IDisposable
 
         _ = await Assert.That(snapshot.Skills.Count).IsEqualTo(3);
         _ = await Assert.That(snapshot.Skills.Count(skill => skill.Name == "same")).IsEqualTo(2);
-        _ = await Assert.That(snapshot.Skills.Single(skill => skill.Path == disabledPath).Enabled).IsFalse();
-        _ = await Assert.That(string.Join(',', selected.Select(skill => skill.Path))).IsEqualTo(firstPath);
+        _ = await Assert.That(snapshot.Skills.Single(
+            skill => skill.Path == SecurityWriteTarget.Resolve(disabledPath).Path).Enabled).IsFalse();
+        _ = await Assert.That(string.Join(',', selected.Select(skill => skill.Path)))
+            .IsEqualTo(SecurityWriteTarget.Resolve(firstPath).Path);
     }
 
     [Test]
@@ -188,7 +192,7 @@ internal sealed class SkillCatalogTests : IDisposable
             Permissive());
 
         _ = await Assert.That(snapshot.Skills.Count).IsEqualTo(1);
-        _ = await Assert.That(snapshot.Skills[0].Path).IsEqualTo(canonical);
+        _ = await Assert.That(snapshot.Skills[0].Path).IsEqualTo(SecurityWriteTarget.Resolve(canonical).Path);
         _ = await Assert.That(snapshot.Skills[0].DiscoveryPath).IsEqualTo(Path.Combine(alias, "linked", "SKILL.md"));
     }
 
@@ -346,7 +350,7 @@ internal sealed class SkillCatalogTests : IDisposable
         var selected = SkillSelection.Select(snapshot.Skills, SkillMentionParser.Parse("$skill"));
 
         _ = await Assert.That(snapshot.Skills.Count).IsEqualTo(1);
-        _ = await Assert.That(snapshot.Skills[0].Path).IsEqualTo(path);
+        _ = await Assert.That(snapshot.Skills[0].Path).IsEqualTo(SecurityWriteTarget.Resolve(path).Path);
         _ = await Assert.That(snapshot.Skills[0].Enabled).IsFalse();
         _ = await Assert.That(selected).IsEmpty();
     }

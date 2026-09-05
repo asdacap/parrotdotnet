@@ -13,8 +13,9 @@ internal sealed record SkillConfiguration(bool Enabled, IReadOnlyList<SkillConfi
         }
 
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var normalized = PlatformPath.Normalize(canonicalPath);
         var match = Entries.LastOrDefault(entry =>
-            string.Equals(entry.Path, canonicalPath, comparison));
+            string.Equals(PlatformPath.Normalize(entry.Path), normalized, comparison));
         return match is null || match.Enabled;
     }
 }

@@ -61,7 +61,7 @@ internal sealed class SkillCatalogFactory(Configuration configuration, string us
 
     private static bool Contains(string root, string path)
     {
-        var relative = Path.GetRelativePath(root, path);
+        var relative = Path.GetRelativePath(PlatformPath.Normalize(root), PlatformPath.Normalize(path));
         return relative == "." || (!Path.IsPathRooted(relative)
             && relative != ".."
             && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
@@ -70,8 +70,8 @@ internal sealed class SkillCatalogFactory(Configuration configuration, string us
 
     private static bool PathsEqual(string left, string right) =>
         PathComparer().Equals(
-            Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
-            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)));
+            Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(left)),
+            Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(right)));
 
     private static StringComparer PathComparer() =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;

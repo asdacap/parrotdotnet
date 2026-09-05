@@ -60,14 +60,20 @@ internal static partial class FileMutation
         }
 
         RequireRegularFileOrMissing(path);
+        var options = new FileStreamOptions
+        {
+            Access = FileAccess.Write,
+            Mode = FileMode.OpenOrCreate,
+            Options = FileOptions.Asynchronous,
+        };
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = (UnixFileMode)PrivateFileMode;
+        }
+
         await using var stream = OperatingSystem.IsLinux()
             ? OpenLinux(path, createParents)
-            : new FileStream(path, new FileStreamOptions
-            {
-                Access = FileAccess.Write,
-                Mode = FileMode.OpenOrCreate,
-                Options = FileOptions.Asynchronous,
-            });
+            : new FileStream(path, options);
         RequireRegularFile(stream);
         stream.SetLength(0);
         await stream.WriteAsync(data, cancellationToken).ConfigureAwait(false);

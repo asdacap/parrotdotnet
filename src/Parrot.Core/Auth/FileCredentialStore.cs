@@ -128,12 +128,9 @@ internal sealed class FileCredentialStore(string path) : ICredentialStore, IDisp
 
         if (!string.IsNullOrEmpty(directory))
         {
-            _ = Directory.CreateDirectory(directory);
-
-            if (!OperatingSystem.IsWindows())
-            {
-                File.SetUnixFileMode(directory, DirectoryPermissions);
-            }
+            _ = OperatingSystem.IsWindows()
+                ? Directory.CreateDirectory(directory)
+                : Directory.CreateDirectory(directory, DirectoryPermissions);
         }
 
         var file = new CredentialStoreFile { Version = Credential.CurrentVersion, Credentials = values };

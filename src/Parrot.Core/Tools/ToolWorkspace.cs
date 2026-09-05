@@ -1,9 +1,17 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
 using Parrot.Security;
 
 namespace Parrot.Tools;
 
-internal sealed class ToolWorkspace(string workingDirectory)
+internal sealed partial class ToolWorkspace(string workingDirectory)
 {
+    private const int DarwinPathLength = 1024;
+    private const int DarwinVnodePathOffset = 176;
+    private const int DarwinVnodePathInfoLength = DarwinVnodePathOffset + DarwinPathLength;
+    private const int DarwinVnodePathInfo = 2;
+
     public string Root { get; } = Canonicalize(workingDirectory);
 
     public static bool AllowsRead((string Lexical, string Physical) path, SecurityProfile security) =>
@@ -30,11 +38,7 @@ internal sealed class ToolWorkspace(string workingDirectory)
 
         try
         {
-            var descriptor = stream.SafeFileHandle.DangerousGetHandle().ToInt64();
-            var descriptorPath = $"/proc/self/fd/{descriptor}";
-            var target = new FileInfo(descriptorPath).ResolveLinkTarget(returnFinalTarget: true)
-                ?? throw new IOException($"Cannot resolve opened source '{path}'.");
-            var physical = Path.GetFullPath(target.FullName);
+            var physical = ResolveDescriptorPath(stream, path);
             ValidateRegularReadWithoutLinks(lexical, path);
             if (!string.Equals(lexical, physical, StringComparison.Ordinal))
             {
@@ -57,9 +61,7 @@ internal sealed class ToolWorkspace(string workingDirectory)
 
     public ToolMutationPath ResolveMutation(string path, bool create, SecurityProfile security)
     {
-        var lexical = Path.IsPathFullyQualified(path)
-            ? Path.GetFullPath(path)
-            : Path.GetFullPath(Path.Combine(Root, path));
+        var lexical = ResolveLexical(path);
         var physical = ResolveMutationPath(lexical, path, create);
 
         if (!security.AllowsWrite(lexical) || !security.AllowsWrite(physical))
@@ -134,6 +136,48 @@ internal sealed class ToolWorkspace(string workingDirectory)
         return full;
     }
 
+    private static string ResolveDescriptorPath(FileStream stream, string requested)
+    {
+        if (OperatingSystem.IsMacOS())
+        {
+            return ResolveDarwinDescriptorPath(stream);
+        }
+
+        var descriptor = stream.SafeFileHandle.DangerousGetHandle().ToInt64();
+        var descriptorPath = $"/proc/self/fd/{descriptor}";
+        var target = new FileInfo(descriptorPath).ResolveLinkTarget(returnFinalTarget: true)
+            ?? throw new IOException($"Cannot resolve opened source '{requested}'.");
+        return Path.GetFullPath(target.FullName);
+    }
+
+    private static unsafe string ResolveDarwinDescriptorPath(FileStream stream)
+    {
+        var buffer = stackalloc byte[DarwinVnodePathInfoLength];
+        if (ProcPidFdInfo(
+            Environment.ProcessId,
+            stream.SafeFileHandle.DangerousGetHandle().ToInt32(),
+            DarwinVnodePathInfo,
+            buffer,
+            DarwinVnodePathInfoLength) != DarwinVnodePathInfoLength)
+        {
+            throw new IOException(new Win32Exception(Marshal.GetLastPInvokeError()).Message);
+        }
+
+        var bytes = new ReadOnlySpan<byte>(buffer + DarwinVnodePathOffset, DarwinPathLength);
+        var length = bytes.IndexOf((byte)0);
+        if (length == 0)
+        {
+            throw new IOException("Cannot resolve the opened source path on macOS.");
+        }
+
+        if (length < 0)
+        {
+            throw new IOException("The opened source path exceeds the macOS path limit.");
+        }
+
+        return PlatformPath.Normalize(Encoding.UTF8.GetString(bytes[..length]));
+    }
+
     private static void RequireWritableMissingParents(string path, string requested, SecurityProfile security)
     {
         for (var parent = Path.GetDirectoryName(path); parent is not null && !Directory.Exists(parent); parent = Path.GetDirectoryName(parent))
@@ -145,12 +189,8 @@ internal sealed class ToolWorkspace(string workingDirectory)
         }
     }
 
-    private static string Canonicalize(string path)
-    {
-        var info = new DirectoryInfo(Path.GetFullPath(path));
-        var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
-        return Path.TrimEndingDirectorySeparator((resolved ?? info).FullName);
-    }
+    private static string Canonicalize(string path) =>
+        Path.TrimEndingDirectorySeparator(ResolveLinks(PlatformPath.Normalize(path)));
 
     private static string ResolveLinks(string full)
     {
@@ -182,9 +222,17 @@ internal sealed class ToolWorkspace(string workingDirectory)
         return current;
     }
 
-    private string ResolveLexical(string path) => Path.IsPathFullyQualified(path)
-        ? Path.GetFullPath(path)
-        : Path.GetFullPath(Path.Combine(Root, path));
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
+    [LibraryImport("libproc", EntryPoint = "proc_pidfdinfo", SetLastError = true)]
+    private static unsafe partial int ProcPidFdInfo(
+        int processId,
+        int descriptor,
+        int flavor,
+        byte* buffer,
+        int bufferSize);
+
+    private string ResolveLexical(string path) => PlatformPath.Normalize(
+        Path.IsPathFullyQualified(path) ? path : Path.Combine(Root, path));
 
     private string DisplayPath(string physical) => Path.GetRelativePath(Root, physical);
 }

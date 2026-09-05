@@ -16,7 +16,7 @@ internal sealed class SkillFileReader
         ArgumentNullException.ThrowIfNull(security);
 
         var lexical = Path.GetFullPath(lexicalPath);
-        var physical = Path.GetFullPath(physicalPath);
+        var physical = PlatformPath.Normalize(physicalPath);
         if (!ToolWorkspace.AllowsRead((lexical, physical), security))
         {
             throw new UnauthorizedAccessException($"Read access denied for '{lexicalPath}'.");
@@ -49,7 +49,7 @@ internal sealed class SkillFileReader
 
     private static FileStream Open(string path)
     {
-        if (!OperatingSystem.IsLinux())
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
         {
             return new FileStream(
                 path,

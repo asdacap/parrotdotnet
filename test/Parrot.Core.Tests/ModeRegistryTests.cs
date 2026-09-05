@@ -268,8 +268,9 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(emitted.Markdown).IsEqualTo("# Plan\n\n- change code");
         _ = await Assert.That(emitted.Dialog.Prompt).IsEqualTo("Plan complete: ");
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Mode).IsEqualTo(ModeRegistry.Build);
+        var canonicalArtifact = SecurityWriteTarget.Resolve(artifact).Path;
         _ = await Assert.That(emitted.Dialog.Choices[0].Action.Prompt)
-            .IsEqualTo($"Implement the approved Markdown plan at {artifact}. Call run_agent_tasks with the approved task JSON path {TaskArtifactFor(artifact)}.");
+            .IsEqualTo($"Implement the approved Markdown plan at {canonicalArtifact}. Call run_agent_tasks with the approved task JSON path {TaskArtifactFor(canonicalArtifact)}.");
         _ = await Assert.That(emitted.Dialog.EmptyMessage).IsEqualTo("enter yes, no, or feedback");
     }
 

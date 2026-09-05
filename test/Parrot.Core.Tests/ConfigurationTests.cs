@@ -1491,7 +1491,7 @@ internal sealed class ConfigurationTests : IDisposable
     public async Task Skills_configuration_is_path_only_and_last_canonical_duplicate_wins()
     {
         var firstPath = Path.Combine(_directory, "skills", "..", "skill", "SKILL.md");
-        var canonicalPath = Path.GetFullPath(Path.Combine(_directory, "skill", "SKILL.md"));
+        var canonicalPath = PlatformPath.Normalize(Path.Combine(_directory, "skill", "SKILL.md"));
         var configuration = Load(Write($"""
             skills:
               enabled: true

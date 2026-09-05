@@ -154,7 +154,7 @@ internal sealed partial class CompactionGroupBlobStore
         Func<uint, uint> returnedStatusMask)
     {
         _scratch = scratch ?? throw new ArgumentNullException(nameof(scratch));
-        _blobDirectory = Path.GetFullPath(scratch.BlobDirectory);
+        _blobDirectory = PlatformPath.Normalize(scratch.BlobDirectory);
         _nextName = nextName ?? throw new ArgumentNullException(nameof(nextName));
         _afterBlobDirectoryOpened = afterBlobDirectoryOpened
             ?? throw new ArgumentNullException(nameof(afterBlobDirectoryOpened));
@@ -353,6 +353,11 @@ internal sealed partial class CompactionGroupBlobStore
         try
         {
             handle = new SafeFileHandle((nint)descriptor, ownsHandle: true);
+            if (FChmod(handle, PrivateFileMode) != 0)
+            {
+                throw NativeFailure("secure a compaction group artifact");
+            }
+
             var stream = new FileStream(handle, FileAccess.Write, 4096, isAsync: false);
             handle = null;
             return stream;
@@ -665,6 +670,10 @@ internal sealed partial class CompactionGroupBlobStore
         out LinuxStatx status);
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
+    [LibraryImport("libc", EntryPoint = "fchmod", SetLastError = true)]
+    private static partial int FChmod(SafeFileHandle descriptor, uint mode);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32 | DllImportSearchPath.SafeDirectories)]
     [LibraryImport("libc", EntryPoint = "fstat", SetLastError = true)]
     private static partial int FStat(SafeFileHandle descriptor, out DarwinStat status);
 
@@ -846,7 +855,7 @@ internal sealed partial class CompactionGroupBlobStore
 
     private string Confine(string name)
     {
-        var path = Path.GetFullPath(Path.Combine(_blobDirectory, name));
+        var path = PlatformPath.Normalize(Path.Combine(_blobDirectory, name));
         if (!_scratch.Contains(path)
             || !string.Equals(Path.GetDirectoryName(path), _blobDirectory, StringComparison.Ordinal))
         {
@@ -859,7 +868,7 @@ internal sealed partial class CompactionGroupBlobStore
     private void ValidateBlobDirectoryPath()
     {
         if (!_scratch.Contains(_blobDirectory)
-            || !string.Equals(Path.GetFullPath(_scratch.BlobDirectory), _blobDirectory, StringComparison.Ordinal))
+            || !string.Equals(PlatformPath.Normalize(_scratch.BlobDirectory), _blobDirectory, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("The compaction group blob directory escaped the agent scratch directory.");
         }

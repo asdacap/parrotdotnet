@@ -54,7 +54,7 @@ internal sealed class SkillDiscovery
 
     private static string ResolvePhysicalPath(string path)
     {
-        var full = Path.GetFullPath(path);
+        var full = PlatformPath.Normalize(path);
         var root = Path.GetPathRoot(full) ?? throw new IOException("The skill path has no filesystem root.");
         var current = Path.TrimEndingDirectorySeparator(root);
         foreach (var part in Path.GetRelativePath(root, full)
@@ -74,7 +74,7 @@ internal sealed class SkillDiscovery
                 .FullName;
         }
 
-        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(current));
+        return Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(current));
     }
 
     private static StringComparer PathComparer() =>
@@ -139,7 +139,7 @@ internal sealed class SkillDiscovery
                 return;
             }
 
-            var physical = Path.TrimEndingDirectorySeparator(Path.GetFullPath(targetDirectory.FullName));
+            var physical = Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(targetDirectory.FullName));
             if (ToolWorkspace.AllowsRead((entry, physical), security))
             {
                 pending.Enqueue(new(entry, physical, parent.Depth + 1));
@@ -165,7 +165,7 @@ internal sealed class SkillDiscovery
         List<SkillLoadError> errors,
         HashSet<string> canonicalPaths)
     {
-        var canonicalPath = Path.GetFullPath(Path.Combine(parent.PhysicalPath, "SKILL.md"));
+        var canonicalPath = PlatformPath.Normalize(Path.Combine(parent.PhysicalPath, "SKILL.md"));
         if (canonicalPaths.Contains(canonicalPath))
         {
             return;

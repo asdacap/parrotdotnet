@@ -82,7 +82,7 @@ internal sealed class ParrotServiceTests : IDisposable
             cancellationToken: cancellationToken);
         var skill = listed.Skills.Single(item => item.Name == "demo");
 
-        _ = await Assert.That(skill.Path).IsEqualTo(Path.GetFullPath(skillPath));
+        _ = await Assert.That(skill.Path).IsEqualTo(SecurityWriteTarget.Resolve(skillPath).Path);
         _ = await Assert.That(skill.Enabled).IsTrue();
         _ = await Assert.That(skill.ToString()).DoesNotContain("secret body");
 
@@ -519,7 +519,7 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(pending.Targets[0].Kind).IsEqualTo(PermissionTargetKind.Directory);
         _ = await Assert.That(pending.Targets[0].Scope).IsEqualTo(PermissionTargetScope.Write);
         _ = await Assert.That(pending.Targets[1].Kind).IsEqualTo(PermissionTargetKind.File);
-        _ = await Assert.That(pending.Targets[1].Path).IsEqualTo(Path.GetFullPath(file));
+        _ = await Assert.That(pending.Targets[1].Path).IsEqualTo(SecurityWriteTarget.Resolve(file).Path);
         _ = await Assert.That(pending.Choices.Single(choice => choice.Value == "grant").Action)
             .IsEqualTo(PermissionAction.Allow);
         _ = await Assert.That(pending.Choices.Single(choice => choice.Value == "reject").Action)

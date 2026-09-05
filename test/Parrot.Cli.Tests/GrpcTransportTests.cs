@@ -146,7 +146,10 @@ internal sealed class GrpcTransportTests
     }
 
     private static string TemporaryRoot() =>
-        Path.Combine(Path.GetTempPath(), "pt", Guid.NewGuid().ToString("n", System.Globalization.CultureInfo.InvariantCulture));
+        Path.Combine(
+            OperatingSystem.IsMacOS() ? "/tmp" : Path.GetTempPath(),
+            "pt",
+            Guid.NewGuid().ToString("n", System.Globalization.CultureInfo.InvariantCulture));
 
     private static void Delete(string root)
     {

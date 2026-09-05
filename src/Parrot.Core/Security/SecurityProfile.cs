@@ -127,7 +127,7 @@ internal sealed class SecurityProfile
     {
         try
         {
-            canonical = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            canonical = Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(path));
             return path.Length > 0;
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)

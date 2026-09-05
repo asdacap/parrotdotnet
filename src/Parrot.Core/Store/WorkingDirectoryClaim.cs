@@ -31,9 +31,9 @@ internal sealed partial class WorkingDirectoryClaim
     public static string Canonicalize(string workingDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        var info = new DirectoryInfo(Path.GetFullPath(workingDirectory));
+        var info = new DirectoryInfo(PlatformPath.Normalize(workingDirectory));
         var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
-        return Path.TrimEndingDirectorySeparator((resolved ?? info).FullName);
+        return Path.TrimEndingDirectorySeparator(PlatformPath.Normalize((resolved ?? info).FullName));
     }
 
     public static OwnerRecord? Current(string ownerDirectory)

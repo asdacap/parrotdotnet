@@ -48,6 +48,10 @@ internal sealed partial class MacSeatbeltSandbox : IProcessSandbox
         }
 
         scratch.Provision();
+        _ = Directory.CreateDirectory(resources.QueueDirectory);
+        File.SetUnixFileMode(
+            resources.QueueDirectory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         var profilePath = Path.Combine(resources.QueueDirectory, $"seatbelt-{Guid.NewGuid():n}.sb");
         WriteProfile(profilePath, CompilePolicy(securityProfile));
         var startInfo = CreateStartInfo(_seatbeltPath, profilePath, command, environment, resources);

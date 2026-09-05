@@ -113,7 +113,7 @@ internal sealed class AgentSkills(
 
         try
         {
-            return PathComparer().Equals(Path.GetFullPath(left), Path.GetFullPath(right));
+            return PathComparer().Equals(PlatformPath.Normalize(left), PlatformPath.Normalize(right));
         }
         catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
         {

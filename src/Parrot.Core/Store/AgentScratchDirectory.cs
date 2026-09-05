@@ -7,7 +7,7 @@ internal sealed class AgentScratchDirectory
 
     public AgentScratchDirectory(string root)
     {
-        Root = Path.GetFullPath(root);
+        Root = PlatformPath.Normalize(root);
         HistoryPath = Contain("history.jsonl");
         BlobDirectory = Contain("blobs");
         PlanDirectory = Contain("plan");
@@ -24,7 +24,7 @@ internal sealed class AgentScratchDirectory
 
     public bool Contains(string path)
     {
-        var relative = Path.GetRelativePath(Root, Path.GetFullPath(path));
+        var relative = Path.GetRelativePath(Root, PlatformPath.Normalize(path));
         return relative == "." || (!Path.IsPathRooted(relative) && relative != ".."
             && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
             && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
@@ -40,7 +40,7 @@ internal sealed class AgentScratchDirectory
 
     private string Contain(string name)
     {
-        var path = Path.GetFullPath(Path.Combine(Root, name));
+        var path = PlatformPath.Normalize(Path.Combine(Root, name));
         if (!Contains(path))
         {
             throw new InvalidOperationException("An agent scratch resource escaped its root.");

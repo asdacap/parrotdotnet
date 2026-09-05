@@ -1,3 +1,4 @@
+using Parrot.Security;
 using Parrot.State;
 using Parrot.Store;
 
@@ -48,7 +49,7 @@ internal sealed class IdentityStorageTests : IDisposable
         var workspace = ProjectWorkspace.FromLaunchDirectory(launch);
 
         _ = await Assert.That(workspace.LaunchDirectory).IsEqualTo(launch);
-        _ = await Assert.That(workspace.PhysicalIdentity).IsEqualTo(Path.TrimEndingDirectorySeparator(physical));
+        _ = await Assert.That(workspace.PhysicalIdentity).IsEqualTo(SecurityWriteTarget.Resolve(physical).Path);
     }
 
     [Test]

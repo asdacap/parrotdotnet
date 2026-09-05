@@ -106,7 +106,7 @@ internal sealed partial class Configuration
 
         try
         {
-            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(value));
+            return Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(value));
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {

@@ -142,7 +142,7 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
 
     private static string ResolvePhysicalIdentity(string launchDirectory)
     {
-        var full = Path.GetFullPath(launchDirectory);
+        var full = PlatformPath.Normalize(launchDirectory);
         var root = Path.GetPathRoot(full)
             ?? throw new ArgumentException("The project launch directory must have a root.", nameof(launchDirectory));
         var relative = Path.GetRelativePath(root, full);
@@ -163,7 +163,7 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
                 .FullName;
         }
 
-        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(current));
+        return Path.TrimEndingDirectorySeparator(PlatformPath.Normalize(current));
     }
 
     private sealed record GitRepository(bool IsRepository, string? RepositoryRoot, string? WritableRoot);

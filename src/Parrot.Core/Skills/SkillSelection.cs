@@ -34,7 +34,7 @@ internal sealed class SkillSelection
         try
         {
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            return string.Equals(Path.GetFullPath(candidate), Path.GetFullPath(requested), comparison);
+            return string.Equals(PlatformPath.Normalize(candidate), PlatformPath.Normalize(requested), comparison);
         }
         catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
         {

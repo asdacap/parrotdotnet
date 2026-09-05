@@ -1537,7 +1537,9 @@ internal sealed class CompactorAndContextTests : IDisposable
             new([LLMMessage.User("retained tail")], 3, true, true),
         };
         var blobDirectory = Path.Combine(_temporaryDirectory, "compaction-scratch", "blobs");
-        var filesBefore = Directory.GetFiles(blobDirectory, "*.json").ToHashSet(StringComparer.Ordinal);
+        var filesBefore = Directory.GetFiles(blobDirectory, "*.json")
+            .Select(PlatformPath.Normalize)
+            .ToHashSet(StringComparer.Ordinal);
 
         var result = await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
             CompactionModel(provider, 10_000),
@@ -1550,6 +1552,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             cancellationToken)
             ?? throw new InvalidOperationException("Expected compaction.");
         var files = Directory.GetFiles(blobDirectory, "*.json")
+            .Select(PlatformPath.Normalize)
             .Where(path => !filesBefore.Contains(path))
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -1566,7 +1569,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         {
             var expected = TestModels.PromptTemplates.Render(
                 "compaction.oversized-tool-group-notice",
-                [new Parrot.Config.PromptTemplateArgument("path", file)]);
+                [new Parrot.Config.PromptTemplateArgument("path", SecurityWriteTarget.Resolve(file).Path)]);
             _ = await Assert.That(notices).Contains(message => message.Content == expected);
         }
 
@@ -1596,7 +1599,9 @@ internal sealed class CompactorAndContextTests : IDisposable
             new([LLMMessage.User("tail")], 3, false, true),
         };
         var blobDirectory = Path.Combine(_temporaryDirectory, "compaction-scratch", "blobs");
-        var filesBefore = Directory.GetFiles(blobDirectory, "*.json").ToHashSet(StringComparer.Ordinal);
+        var filesBefore = Directory.GetFiles(blobDirectory, "*.json")
+            .Select(PlatformPath.Normalize)
+            .ToHashSet(StringComparer.Ordinal);
 
         _ = await new Compactor(90, 5, 500, 100, TestModels.PromptTemplates).Compact(
             CompactionModel(provider, 10_000),
@@ -1607,10 +1612,12 @@ internal sealed class CompactorAndContextTests : IDisposable
             LLMMessage.User("fixed"),
             _compactionGroupBlobs,
             cancellationToken);
-        var file = Directory.GetFiles(blobDirectory, "*.json").Single(path => !filesBefore.Contains(path));
+        var file = Directory.GetFiles(blobDirectory, "*.json")
+            .Select(PlatformPath.Normalize)
+            .Single(path => !filesBefore.Contains(path));
         var notice = TestModels.PromptTemplates.Render(
             "compaction.oversized-tool-group-notice",
-            [new Parrot.Config.PromptTemplateArgument("path", file)]);
+            [new Parrot.Config.PromptTemplateArgument("path", SecurityWriteTarget.Resolve(file).Path)]);
 
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
         _ = await Assert.That(provider.Requests[0].Messages).Contains(message => message.Content == groups[0].Messages[0].Content);
@@ -1624,7 +1631,9 @@ internal sealed class CompactorAndContextTests : IDisposable
     public async Task Compaction_does_not_spill_ineligible_or_retained_groups(CancellationToken cancellationToken)
     {
         var blobDirectory = Path.Combine(_temporaryDirectory, "compaction-scratch", "blobs");
-        var filesBefore = Directory.GetFiles(blobDirectory, "*.json").ToHashSet(StringComparer.Ordinal);
+        var filesBefore = Directory.GetFiles(blobDirectory, "*.json")
+            .Select(PlatformPath.Normalize)
+            .ToHashSet(StringComparer.Ordinal);
         var ordinaryProvider = new ScriptedProvider("summary");
         var ordinary = new List<CompactionGroup>
         {
@@ -1683,7 +1692,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(incompleteResult).IsNull();
         _ = await Assert.That(incompleteProvider.Requests).IsEmpty();
         _ = await Assert.That(retainedResult.History).Contains(message => message.ToolCalls.Any(call => call.Id == "retained"));
-        _ = await Assert.That(Directory.GetFiles(blobDirectory, "*.json").All(filesBefore.Contains)).IsTrue();
+        _ = await Assert.That(Directory.GetFiles(blobDirectory, "*.json")
+            .Select(PlatformPath.Normalize)
+            .All(filesBefore.Contains)).IsTrue();
     }
 
     [Test]
