@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Text;
 using Parrot.Agent;
 using Parrot.Config;
@@ -20,6 +21,7 @@ internal sealed class AgentTaskGraphRunner(
 
     private readonly Lock _gate = new();
     private readonly HashSet<IAgentSession> _activeChildren = [];
+    private readonly Dictionary<IAgentSessionScope, IAgentSessionScope> _ownedScopes = [];
     private bool _stopping;
 
     internal static string ResolveRoleProfile(string role) => role switch
@@ -36,7 +38,7 @@ internal sealed class AgentTaskGraphRunner(
     {
         ArgumentNullException.ThrowIfNull(artifact);
 
-        var handles = progress.Initialize(artifact.Tasks, cancellationToken);
+        var handles = progress.EnsureInitialized(artifact.Tasks, cancellationToken);
         try
         {
             var tasks = await RunSiblings(
@@ -65,7 +67,12 @@ internal sealed class AgentTaskGraphRunner(
         {
             BeginStopping();
             await StopChildren().ConfigureAwait(false);
+            progress.MarkRemainingFailed(CancellationToken.None);
             throw;
+        }
+        finally
+        {
+            await RetireOwnedScopes().ConfigureAwait(false);
         }
     }
 
@@ -1040,6 +1047,7 @@ internal sealed class AgentTaskGraphRunner(
                     HistoryForkSelection.Parse(configuration.ForkParentHistory ? "full" : string.Empty),
                     historyBoundary,
                     AgentCompletionDeliveryPolicy.RetainedOnly));
+                _ownedScopes.Add(childScope, owningAgentScope);
             }
             else
             {
@@ -1089,6 +1097,39 @@ internal sealed class AgentTaskGraphRunner(
             await child.Interrupt(CancellationToken.None).ConfigureAwait(false);
             _ = await child.Wait(0, CancellationToken.None).ConfigureAwait(false);
         })).ConfigureAwait(false);
+    }
+
+    private async Task RetireOwnedScopes()
+    {
+        KeyValuePair<IAgentSessionScope, IAgentSessionScope>[] owned;
+        lock (_gate)
+        {
+            owned = [.. _ownedScopes];
+            _ownedScopes.Clear();
+        }
+
+        Exception? failure = null;
+        foreach (var entry in owned.Reverse())
+        {
+            if (owned.Any(candidate => ReferenceEquals(candidate.Key, entry.Value)))
+            {
+                continue;
+            }
+
+            try
+            {
+                await entry.Value.ChildRegistry.RetireDirectChildScope(entry.Key).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+        }
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
     }
 
     private void BeginStopping()

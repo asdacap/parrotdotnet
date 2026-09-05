@@ -1540,6 +1540,42 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
+    public async Task Retiring_a_direct_child_releases_its_name_and_retained_budget(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider();
+        var sessions = new TestAgentSessions(Router(provider));
+        await using var registry = TestModels.RegistryWithBudget(
+            sessions,
+            _broker,
+            _repository,
+            TestModels.ProfileRegistry(),
+            TestModels.PromptTemplates,
+            new RetainedAgentBudget(1),
+            cancellationToken);
+        await using var root = Session(provider, 0, "root", registry, cancellationToken);
+        var rootScope = TestModels.ScopeOf(root);
+        var first = rootScope.ChildRegistry.SpawnScope(Request("worker"));
+
+        await rootScope.ChildRegistry.RetireDirectChildScope(first);
+        var replacement = rootScope.ChildRegistry.SpawnScope(Request("worker"));
+
+        _ = await Assert.That(rootScope.ChildRegistry.SnapshotDescendants()).HasSingleItem();
+        _ = await Assert.That(replacement.Session.Name).IsEqualTo("worker");
+
+        AgentLaunchRequest Request(string name) => new(
+            root,
+            Turn(root, Router(provider)),
+            "worker",
+            root.Selection().RequestedModel,
+            name,
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            AgentCompletionDeliveryPolicy.RetainedOnly);
+    }
+
+    [Test]
     public async Task Registry_counts_a_pending_spawn_toward_the_session_wide_retained_limit(
         CancellationToken cancellationToken)
     {
@@ -2205,7 +2241,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker), SecurityProfileTestFactory.Create(securityProfile), new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System), queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker), SecurityProfileTestFactory.Create(securityProfile), new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System), queues, new AgentSessionActivity(TimeProvider.System), lifetime);
                 queues.Attach(session);
                 return session;
             });

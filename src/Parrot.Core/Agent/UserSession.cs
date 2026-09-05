@@ -1,3 +1,4 @@
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
@@ -24,6 +25,7 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly IAgentSessionFactory _agentSessions;
     private readonly SessionResourceLease _resources;
     private readonly Lock _mainGate = new();
+    private readonly Lock _disposalGate = new();
     private readonly UserSessionModes _modes;
     private readonly PromptTemplateCatalog _promptTemplates;
 
@@ -39,6 +41,7 @@ internal sealed class UserSession : IAsyncDisposable
     private readonly string _rootAgentName;
     private ModelSelector _model;
     private IAgentSessionScope? _main;
+    private Task? _disposal;
 
     public UserSession(
         string id,
@@ -80,10 +83,11 @@ internal sealed class UserSession : IAsyncDisposable
             TimeProvider);
         QueueCatalog = agentSessionFactories.CreateQueueCatalog(this);
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
+        AgentTaskRuns = new AgentTaskRunCatalog(_lifetime.Token);
         _agentSessions = agentSessionFactories.Create(this);
         var retainedAgents = new RetainedAgentBudget(1024);
         Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, _lifetime.Token);
-        Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry, _promptTemplates, TimeProvider);
+        Status = new RuntimeStatus(QueueCatalog, ShellProcesses, Registry, _promptTemplates, TimeProvider, AgentTaskRuns);
         Registry.AttachStatus(Status);
         foreach (var agentSessionId in _eventRepository.AgentHistorySessionIds())
         {
@@ -124,6 +128,8 @@ internal sealed class UserSession : IAsyncDisposable
     internal AgentQueueCatalog QueueCatalog { get; }
 
     internal ShellProcessOwners ShellProcesses { get; }
+
+    internal AgentTaskRunCatalog AgentTaskRuns { get; }
 
     internal AgentRegistry Registry { get; }
 
@@ -308,39 +314,17 @@ internal sealed class UserSession : IAsyncDisposable
     // close the database under a drain still unwinding into it, which is a
     // crash rather than a shutdown -- and a separate Stop the caller has to
     // remember would be the same crash whenever anyone forgot.
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        Questions.Dispose();
-        Permissions.Dispose();
-        var registryShutdown = Registry.BeginShutdown();
-        await _lifetime.CancelAsync().ConfigureAwait(false);
-        await ShellProcesses.Settle().ConfigureAwait(false);
-
-        if (_main is not null)
+        lock (_disposalGate)
         {
-            Registry.UnregisterRootScope(_main);
-            await _main.DisposeAsync().ConfigureAwait(false);
+            _disposal ??= DisposeResources();
+            return new ValueTask(_disposal);
         }
-
-        foreach (var agent in _agents.Where(agent => !ReferenceEquals(agent, _main)))
-        {
-            Registry.UnregisterRootScope(agent);
-            await agent.DisposeAsync().ConfigureAwait(false);
-        }
-
-        await registryShutdown.ConfigureAwait(false);
-
-        // Ends every subscription on this session's stream. A listener blocked
-        // on MoveNext returns false rather than waiting forever.
-        _lifetime.Dispose();
-        _eventBroker.Dispose();
-        ShellProcesses.Dispose();
-        QueueCatalog.Dispose();
-        _agents.Clear();
-        await _resources.DisposeAsync().ConfigureAwait(false);
     }
 
-    internal IReadOnlyList<ActiveWorkObservation> ActiveWork() => [.. ShellProcesses.Active(), .. Registry.Active()];
+    internal IReadOnlyList<ActiveWorkObservation> ActiveWork() =>
+        [.. ShellProcesses.Active(), .. Registry.Active(), .. AgentTaskRuns.Active()];
 
     internal Task SetGoal(string goal, CancellationToken cancellationToken) =>
         MainScope().Goals.SetGoal(goal, cancellationToken);
@@ -349,6 +333,107 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal Task Compact(CancellationToken cancellationToken) =>
         Main().Compact(cancellationToken);
+
+    private async Task DisposeResources()
+    {
+        Exception? failure = null;
+
+        try
+        {
+            await AgentTaskRuns.Settle().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+
+        Questions.Dispose();
+        Permissions.Dispose();
+        ValueTask registryShutdown;
+        try
+        {
+            registryShutdown = Registry.BeginShutdown();
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+            registryShutdown = ValueTask.CompletedTask;
+        }
+
+        try
+        {
+            await _lifetime.CancelAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        try
+        {
+            await ShellProcesses.Settle().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        if (_main is not null)
+        {
+            Registry.UnregisterRootScope(_main);
+            try
+            {
+                await _main.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+        }
+
+        foreach (var agent in _agents.Where(agent => !ReferenceEquals(agent, _main)))
+        {
+            Registry.UnregisterRootScope(agent);
+            try
+            {
+                await agent.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+        }
+
+        try
+        {
+            await registryShutdown.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        // Ends every subscription on this session's stream. A listener blocked
+        // on MoveNext returns false rather than waiting forever.
+        _lifetime.Dispose();
+        _eventBroker.Dispose();
+        ShellProcesses.Dispose();
+        QueueCatalog.Dispose();
+        _agents.Clear();
+        try
+        {
+            await _resources.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        if (failure is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
 
     // Built once after owner initialization. The lock also protects concurrent
     // access from RPC handlers throughout the session lifetime.

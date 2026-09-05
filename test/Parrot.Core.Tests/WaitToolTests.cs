@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -158,6 +159,82 @@ internal sealed class WaitToolTests : IAsyncDisposable
 
         _ = await Assert.That((await waiting).Text)
             .IsEqualTo("wait interrupted due to researcher completion");
+    }
+
+    [Test]
+    public async Task AgentTask_completion_identifies_the_graph_that_interrupted_wait(CancellationToken cancellationToken)
+    {
+        var provider = new UnusedProvider();
+        var repository = new EventRepository(_database);
+        using var queueCatalog = QueueCatalog("agent-task-completion-queues");
+        using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
+        await using var session = Session(provider, [], repository, queueCatalog, queues);
+        var tool = new WaitTool(
+            new RuntimeStatus(queueCatalog, new UnobservedProcessStatusSource(), new UnobservedAgentStatusSource(), TestModels.PromptTemplates, TimeProvider.System),
+            session,
+            TimeProvider.System);
+        var waiting = tool.Execute(new ToolInvocation("test-call", "{}"), Selection(provider), cancellationToken);
+        await WaitUntil(session.IsWaitingForIncomingInput, cancellationToken);
+
+        await session.ReceiveAgentTaskCompletion(
+            "graph-call",
+            "completed",
+            Identifier.MessageId(),
+            cancellationToken);
+
+        _ = await Assert.That((await waiting).Text)
+            .IsEqualTo("wait interrupted due to AgentTask graph graph-call completion");
+        var admitted = repository.Replay().Single(published =>
+            published.AgentSessionId == session.SessionId
+            && published.PayloadCase == Event.PayloadOneofCase.InputAdmitted);
+        _ = await Assert.That(admitted.InputAdmitted.MessageId).IsNotEmpty();
+        _ = await Assert.That(admitted.InputAdmitted.Content).IsEqualTo("completed");
+    }
+
+    [Test]
+    public async Task AgentTask_completion_spills_oversized_results_and_errors(CancellationToken cancellationToken)
+    {
+        var provider = new UnusedProvider();
+        var repository = new EventRepository(_database);
+        using var queueCatalog = QueueCatalog("agent-task-oversized-completion-queues");
+        using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
+        await using var session = Session(provider, [], repository, queueCatalog, queues);
+        var blobDirectory = Path.Combine(_root, "agent-task-blobs");
+        var completion = new AgentTaskRunCompletion(
+            session,
+            new ToolOutputBlobStore(blobDirectory),
+            TestModels.PromptTemplates);
+
+        foreach (var terminal in new[]
+        {
+            new AgentTaskRunTerminal(
+                "result-call",
+                "result-message",
+                AgentTaskExecutionStatus.Succeeded,
+                new string('r', ToolOutputBlobStore.MaximumInlineBytes + 1),
+                string.Empty),
+            new AgentTaskRunTerminal(
+                "error-call",
+                "error-message",
+                AgentTaskExecutionStatus.Failed,
+                string.Empty,
+                new string('e', ToolOutputBlobStore.MaximumInlineBytes + 1)),
+        })
+        {
+            await completion.Deliver(terminal, cancellationToken);
+            var input = repository.Replay().Single(published =>
+                published.AgentSessionId == session.SessionId
+                && published.PayloadCase == Event.PayloadOneofCase.InputAdmitted
+                && published.InputAdmitted.MessageId == terminal.CompletionMessageId).InputAdmitted;
+            _ = await Assert.That(input.Content).Contains("Tool output exceeded 64 KiB and was saved to ");
+            var notice = input.Content.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Single(line => line.StartsWith("Tool output exceeded", StringComparison.Ordinal));
+            var path = notice[(notice.IndexOf("saved to ", StringComparison.Ordinal) + "saved to ".Length)..]
+                .TrimEnd('.');
+            _ = await Assert.That(File.Exists(path)).IsTrue();
+            _ = await Assert.That((await File.ReadAllTextAsync(path, cancellationToken)).Length)
+                .IsEqualTo(ToolOutputBlobStore.MaximumInlineBytes + 1);
+        }
     }
 
     [Test]
@@ -514,7 +591,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         _childQuestions.Add(childQuestions);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        var session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, TestModels.Profile(), TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates, null), exitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), status, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
         queues.Attach(session);
         return session;
     }
@@ -698,7 +775,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 return TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
                 {
                     var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                    var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates), exitReminder, eventRepository, eventBroker), SecurityProfileTestFactory.Create(securityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                    var session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], TestModels.DocumentTools("wait"), TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, TestModels.CompletionCallbacks(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker), SecurityProfileTestFactory.Create(securityProfile), status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
                     queues.Attach(session);
                     _ = source._createdQueues.TrySetResult(queues);
                     _ = source._created.TrySetResult(session);

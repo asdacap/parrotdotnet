@@ -61,6 +61,7 @@ internal sealed class AgentSessionFactory(
                 _images,
                 webFetcher,
                 agentTasks,
+                owner.AgentTaskRuns,
                 toolDefinitions,
                 readOnlyExecCommandPrefixes,
                 owner.ShellProcesses,

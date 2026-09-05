@@ -4,5 +4,6 @@ internal enum IncomingActivityKind
 {
     Input,
     AgentCompletion,
+    AgentTaskCompletion,
     ProcessCompletion,
 }

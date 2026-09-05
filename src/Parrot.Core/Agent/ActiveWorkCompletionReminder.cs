@@ -1,4 +1,5 @@
 using System.Text;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Process;
 using Parrot.Statuses;
@@ -8,7 +9,8 @@ namespace Parrot.Agent;
 internal sealed class ActiveWorkCompletionReminder(
     IChildRegistry children,
     ShellProcessOwner processes,
-    PromptTemplateCatalog promptTemplates)
+    PromptTemplateCatalog promptTemplates,
+    AgentTaskRunOwner? agentTasks)
 {
     public string? Build()
     {
@@ -23,13 +25,18 @@ internal sealed class ActiveWorkCompletionReminder(
             .OrderBy(static observation => observation.Id, StringComparer.Ordinal)
             .ToArray();
         var ownedProcesses = processes.Active();
+        var ownedAgentTasks = agentTasks?.Active() ?? [];
 
-        if (activeChildren.Length == 0 && ownedProcesses.Count == 0)
+        if (activeChildren.Length == 0 && ownedProcesses.Count == 0 && ownedAgentTasks.Count == 0)
         {
             return null;
         }
 
-        var activeWork = FormatActiveWork(activeChildren, ownedProcesses);
+        var activeWork = FormatActiveWork(
+            activeChildren,
+            ownedProcesses,
+            ownedAgentTasks,
+            promptTemplates.Render("agent-session.active-work-agent-tasks-heading", []));
         return promptTemplates.Render(
             "agent-session.active-work-reminder",
             [new PromptTemplateArgument("active_work", activeWork)]);
@@ -37,11 +44,14 @@ internal sealed class ActiveWorkCompletionReminder(
 
     private static string FormatActiveWork(
         IReadOnlyList<ActiveWorkObservation> children,
-        IReadOnlyList<ActiveWorkObservation> ownedProcesses)
+        IReadOnlyList<ActiveWorkObservation> ownedProcesses,
+        IReadOnlyList<ActiveWorkObservation> ownedAgentTasks,
+        string agentTasksHeading)
     {
         var work = new StringBuilder();
         Append(work, "Running direct subagents", children);
         Append(work, "Running processes", ownedProcesses);
+        Append(work, agentTasksHeading, ownedAgentTasks);
         return work.ToString();
     }
 

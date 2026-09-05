@@ -202,6 +202,14 @@ prompt_templates:
     template: '{indent}  - process: {id} (shell, {state}, name: {name})'
     allowed_arguments: [indent, id, state, name]
     required_arguments: [indent, id, state, name]
+  status.runtime.agent-task:
+    template: '- AgentTask graph: {run_id} (name: {display_name}, owner: {owner_session_id}, revision: {revision})'
+    allowed_arguments: [run_id, display_name, owner_session_id, revision]
+    required_arguments: [run_id, display_name, owner_session_id, revision]
+  status.runtime.agent-task-node:
+    template: '{indent}- task: {name} ({status}, description: {description})'
+    allowed_arguments: [indent, name, status, description]
+    required_arguments: [indent, name, status, description]
   agent-session.child-completion:
     template: |-
       Child agent {agent_name} completed.
@@ -223,10 +231,30 @@ prompt_templates:
     required_arguments: [children]
   agent-session.active-work-reminder:
     template: |-
-      This turn must not exit while direct subagents or processes are still running.{active_work}
-      Use the wait tool until no direct subagent or process remains. To interrupt a direct subagent, use agent_send to instruct it to complete. To interrupt a process, use interrupt_process. Do not finish this turn until all listed work has completed or been interrupted.
+      This turn must not exit while direct subagents, AgentTask graphs, or processes are still running.{active_work}
+      Use the wait tool until no direct subagent, AgentTask graph, or process remains. To interrupt a direct subagent, use agent_send to instruct it to complete. To interrupt a process, use interrupt_process. Do not finish this turn until all listed work has completed or been interrupted.
     allowed_arguments: [active_work]
     required_arguments: [active_work]
+  agent-session.active-work-agent-tasks-heading:
+    template: 'Running AgentTask graphs'
+    allowed_arguments: []
+    required_arguments: []
+  agent-task-run.started:
+    template: |-
+      AgentTask graph {run_id} started in the background (name: {display_name}).
+      Completion will be delivered automatically.
+    allowed_arguments: [run_id, display_name]
+    required_arguments: [run_id, display_name]
+  agent-task-run.completion:
+    template: |-
+      AgentTask graph completion
+      Graph: {run_id}
+      Status: {status}
+
+      Result:
+      {outcome}
+    allowed_arguments: [run_id, status, outcome]
+    required_arguments: [run_id, status, outcome]
   agent-session.exit-reminder:
     template: |-
       An exit reminder was set: {reminder}
@@ -1287,7 +1315,7 @@ tools:
       type: object
       additionalProperties: false
   run_agent_tasks:
-    description: Execute an approved AgentTask v1 artifact with exactly one top-level root synchronously through fresh retained-only children; instruction leaves use agent-task-payload for implementation and verification with strict result JSON, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then return hierarchical JSON evidence. Put multiple work items in nested sibling payloads beneath the single root so one retained composite agent prepares and validates the entire flow.
+    description: Start an approved AgentTask v1 artifact with exactly one top-level root in the background through fresh retained-only children; instruction leaves use agent-task-payload for implementation and verification with strict result JSON, while composites use distinct preparation and validation turns on one retained composite agent that owns nested child agents, then deliver hierarchical JSON evidence automatically on completion. Put multiple work items in nested sibling payloads beneath the single root so one retained composite agent prepares and validates the entire flow.
     parameters:
       type: object
       properties:
@@ -1370,7 +1398,7 @@ tools:
           - acceptance_criteria
           additionalProperties: false
   wait:
-    description: Wait for incoming activity. Returns early for a new message, direct child-agent completion, unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen. A timeout reports an agent tree containing queues and active processes.
+    description: Wait for incoming activity. Returns early for a new message, direct child-agent completion, AgentTask graph completion, unclaimed yielded-shell completion, or an item from a queue enabled with queue_listen. A timeout reports an agent tree containing queues and active processes.
     parameters:
       type: object
       properties:

@@ -698,6 +698,44 @@ internal sealed class AgentSession(
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task ReceiveAgentTaskCompletion(
+        string runId,
+        string message,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(runId);
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+
+        _ = await AdmitPartsAndWake(
+            [ConversationPart.TextPart(message)],
+            messageId,
+            Delivery.Steer,
+            new IncomingActivity(IncomingActivityKind.AgentTaskCompletion, runId),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task RecordAgentTaskCompletion(
+        string message,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+
+        var admission = eventRepository.Admit(
+            SessionId,
+            messageId,
+            [ConversationPart.TextPart(message)],
+            Delivery.Steer,
+            CreateInputAdmittedEvent);
+        if (admission.Published is not null)
+        {
+            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async Task<WaitAgentResult> Wait(
         int yieldAfterMilliseconds,
         CancellationToken cancellationToken)
@@ -1187,23 +1225,7 @@ internal sealed class AgentSession(
             messageId,
             parts,
             delivery,
-            input =>
-            {
-                var admitted = new InputAdmitted
-                {
-                    InputId = input.Id,
-                    MessageId = input.MessageId,
-                    Content = input.Content,
-                    Delivery = input.Delivery,
-                };
-                admitted.Parts.AddRange(input.Parts.Select(ToProtocol));
-                return new Event
-                {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = SessionId,
-                    InputAdmitted = admitted,
-                };
-            });
+            CreateInputAdmittedEvent);
 
         // Only a real admission has an event; a re-send of one already taken
         // has nothing new to publish, but still wakes, because the sender
@@ -1216,6 +1238,24 @@ internal sealed class AgentSession(
         var incoming = admission.Created || eventRepository.HasPendingInputs(SessionId) ? activity : null;
         var (followUp, selectedDrain) = WakeSelected(incoming);
         return (admission, followUp, selectedDrain);
+    }
+
+    private Event CreateInputAdmittedEvent(AdmittedInput input)
+    {
+        var admitted = new InputAdmitted
+        {
+            InputId = input.Id,
+            MessageId = input.MessageId,
+            Content = input.Content,
+            Delivery = input.Delivery,
+        };
+        admitted.Parts.AddRange(input.Parts.Select(ToProtocol));
+        return new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = SessionId,
+            InputAdmitted = admitted,
+        };
     }
 
     private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected(IncomingActivity? activity)

@@ -48,6 +48,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(runtime.Sessions.Identities.Single().Name).IsEqualTo("leaf");
         _ = await Assert.That(string.Join(",", runtime.Sessions.ProfileIds)).IsEqualTo("agent-task-payload");
         _ = await Assert.That(runtime.Sessions.Identities.All(identity => identity.ParentSessionId == runtime.Parent.SessionId)).IsTrue();
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(provider.Requests[0].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(1);
         var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
@@ -73,6 +74,53 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             .IsEqualTo(AgentTaskProgressStatus.Running);
         _ = await Assert.That(snapshots[2].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Succeeded);
+    }
+
+    [Test]
+    public async Task Unexpected_graph_failure_leaves_a_fully_terminal_progress_tree()
+    {
+        var progress = new AgentTaskProgress(_broker, _repository, "owner", "failure-call");
+        var artifact = AgentTaskParser.ParseArtifact(
+            """
+            {"schema_version":1,"tasks":[{"name":"root","description":"Root","payload":[{"name":"running","description":"Running","payload":"work","acceptance_criteria":"Done"},{"name":"pending","dependencies":["running"],"description":"Pending","payload":"work","acceptance_criteria":"Done"}],"acceptance_criteria":"Done"}]}
+            """);
+        var handles = progress.Initialize(artifact.Tasks, CancellationToken.None);
+        progress.MarkRunning(handles[0], CancellationToken.None);
+
+        progress.MarkRemainingFailed(CancellationToken.None);
+
+        var root = progress.CurrentSnapshot().RootNodes.Single();
+        _ = await Assert.That(root.Status).IsEqualTo(AgentTaskProgressStatus.Failed);
+        _ = await Assert.That(root.Children.All(child => child.Status == AgentTaskProgressStatus.Blocked)).IsTrue();
+    }
+
+    [Test]
+    public async Task Current_snapshot_is_an_independent_full_tree_with_current_revision()
+    {
+        var progress = new AgentTaskProgress(_broker, _repository, "owner", "snapshot-call");
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"root","description":"Root task","payload":[{"name":"child","description":"Child task","payload":"work","acceptance_criteria":"Done"}],"acceptance_criteria":"Root done"}]}
+            """);
+
+        var handles = progress.Initialize(artifact.Tasks, CancellationToken.None);
+        var captured = progress.CurrentSnapshot();
+        captured.RootNodes[0].Name = "mutated";
+        captured.RootNodes[0].Children[0].Status = AgentTaskProgressStatus.Failed;
+        captured.RootNodes.Add(new AgentTaskProgressNode { Name = "unexpected" });
+
+        var current = progress.CurrentSnapshot();
+        _ = await Assert.That(current.OriginToolCallId).IsEqualTo("snapshot-call");
+        _ = await Assert.That(current.Revision).IsEqualTo(1UL);
+        _ = await Assert.That(current.RootNodes).HasSingleItem();
+        _ = await Assert.That(current.RootNodes[0].Name).IsEqualTo("root");
+        _ = await Assert.That(current.RootNodes[0].Children[0].Status)
+            .IsEqualTo(AgentTaskProgressStatus.Pending);
+
+        progress.MarkRunning(handles.Single(), CancellationToken.None);
+        var running = progress.CurrentSnapshot();
+        _ = await Assert.That(running.Revision).IsEqualTo(2UL);
+        _ = await Assert.That(running.RootNodes[0].Status)
+            .IsEqualTo(AgentTaskProgressStatus.Running);
     }
 
     [Test]
@@ -707,6 +755,28 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Nested_graph_retires_the_created_scope_tree(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "{\"context\":\"prepared\"}",
+            "{\"result\":\"child evidence\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "{\"verdict\":\"accept\",\"evidence\":\"validated\"}",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"root","description":"Root task","payload":[{"name":"child","description":"Child task","payload":"work","acceptance_criteria":"Child done"}],"acceptance_criteria":"Root done"}]}
+            """);
+
+        var result = await Runner(runtime, "nested-cleanup")
+            .Run(artifact, cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(2);
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
+    }
+
+    [Test]
     public async Task Cancellation_interrupts_and_joins_active_internal_child(CancellationToken cancellationToken)
     {
         using var provider = new AgentTaskBlockingProvider();
@@ -723,7 +793,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         await canceled.CancelAsync();
         _ = await Assert.That(running).Throws<OperationCanceledException>();
 
-        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants().Where(session => session.IsActive())).IsEmpty();
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(snapshots[^1].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Canceled);

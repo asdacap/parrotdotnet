@@ -1487,12 +1487,14 @@ internal sealed class EnhancedHierarchyTests
             cancellationToken);
         _ = await Assert.That(committed).Count().IsEqualTo(3);
         _ = await Assert.That(committed[2]).DoesNotContain("Agent tasks:");
-        _ = await Assert.That(drawn[^1]).DoesNotContain("Agent tasks:");
+        _ = await Assert.That(drawn[^1]).Contains("Agent tasks:");
         await view.Render(ProgressEvent("child", TaskSnapshot("call", 4, "late")), cancellationToken);
-        _ = await Assert.That(progressDelay.Count).IsEqualTo(3);
+        _ = await Assert.That(progressDelay.Count).IsEqualTo(4);
+        progressDelay.Release(3);
+        await WaitForCount(committed, 4, cancellationToken);
+        _ = await Assert.That(committed[^1]).Contains("late");
         _ = await Assert.That(string.Join('|', committed)).DoesNotContain("stale");
         _ = await Assert.That(string.Join('|', committed)).DoesNotContain("wrong");
-        _ = await Assert.That(string.Join('|', committed)).DoesNotContain("late");
     }
 
     [Test]

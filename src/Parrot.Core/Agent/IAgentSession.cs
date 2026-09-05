@@ -111,6 +111,17 @@ internal interface IAgentSession : IAsyncDisposable
         string messageId,
         CancellationToken cancellationToken);
 
+    Task ReceiveAgentTaskCompletion(
+        string runId,
+        string message,
+        string messageId,
+        CancellationToken cancellationToken);
+
+    Task RecordAgentTaskCompletion(
+        string message,
+        string messageId,
+        CancellationToken cancellationToken);
+
     Task<WaitAgentResult> Wait(
         int yieldAfterMilliseconds,
         CancellationToken cancellationToken);

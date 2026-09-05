@@ -35,34 +35,42 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
     public async Task RetireDirectChildScope(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        if (scope is not AgentSessionScope)
-        {
-            throw new AgentRegistryException($"child agent scope not found: {scope.Session.SessionId}");
-        }
-
+        Task? shutdown = null;
         lock (_gate)
         {
-            if (!_entries.TryGetValue(scope.Session.SessionId, out var registered)
-                || !ReferenceEquals(registered, scope))
+            if (_entries.TryGetValue(scope.Session.SessionId, out var registered)
+                && ReferenceEquals(registered, scope))
+            {
+                _ = _entries.Remove(scope.Session.SessionId);
+                if (_names.GetValueOrDefault(scope.Session.Name) == scope.Session.SessionId)
+                {
+                    _ = _names.Remove(scope.Session.Name);
+                }
+            }
+            else if (!_accepting && _shutdown is not null)
+            {
+                shutdown = _shutdown;
+            }
+            else
             {
                 throw new AgentRegistryException($"child agent scope not found: {scope.Session.SessionId}");
             }
-
-            _ = _entries.Remove(scope.Session.SessionId);
-            if (_names.GetValueOrDefault(scope.Session.Name) == scope.Session.SessionId)
-            {
-                _ = _names.Remove(scope.Session.Name);
-            }
         }
 
+        if (shutdown is not null)
+        {
+            await shutdown.ConfigureAwait(false);
+            return;
+        }
+
+        var parent = scope.ParentScope.Parent
+            ?? throw new AgentRegistryException("child agent identity requires a parent scope");
         try
         {
             await scope.DisposeAsync().ConfigureAwait(false);
         }
         finally
         {
-            var parent = scope.ParentScope.Parent
-                ?? throw new AgentRegistryException("child agent identity requires a parent scope");
             parent.AgentSpawner.ReleaseRetainedAgent(scope.Session.SessionId);
         }
     }

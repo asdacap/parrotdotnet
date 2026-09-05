@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using Parrot.Agent;
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Events;
 using Parrot.Llm;
@@ -9,7 +11,7 @@ using Parrot.Tools;
 
 namespace Parrot.Core.Tests;
 
-internal sealed class RunAgentTasksToolTests : IDisposable
+internal sealed class RunAgentTasksToolTests : IAsyncDisposable
 {
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "parrot-run-agent-tasks-tool-tests", Guid.NewGuid().ToString("N"));
@@ -18,10 +20,17 @@ internal sealed class RunAgentTasksToolTests : IDisposable
 
     private readonly EventBroker _broker = new();
 
+    private readonly List<AgentTaskRunCatalog> _catalogs = [];
+
     public RunAgentTasksToolTests() => Directory.CreateDirectory(_root);
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        foreach (var catalog in _catalogs)
+        {
+            await catalog.DisposeAsync().ConfigureAwait(false);
+        }
+
         _broker.Dispose();
         _database.Dispose();
         if (Directory.Exists(_root))
@@ -109,6 +118,34 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     }
 
     [Test]
+    public async Task Returns_after_admission_while_execution_uses_catalog_lifetime(CancellationToken cancellationToken)
+    {
+        const string arguments =
+            "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"leaf\",\"description\":\"Leaf\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
+        using var provider = new AgentTaskBlockingProvider();
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var tool = Tool(runtime);
+        using var invocation = new CancellationTokenSource();
+
+        var result = await tool.Execute(new ToolInvocation("background-call", arguments), runtime.Selection, invocation.Token);
+        await provider.WaitUntilArrived(cancellationToken);
+        await invocation.CancelAsync();
+
+        _ = await Assert.That(result.Text).Contains("background-call started in the background (name: leaf)");
+        var admittedSnapshot = runtime.Runs.Snapshot().Single();
+        _ = await Assert.That(admittedSnapshot.DisplayName).IsEqualTo("leaf");
+        _ = await Assert.That(admittedSnapshot.Progress.Revision).IsGreaterThanOrEqualTo(1UL);
+        _ = await Assert.That(admittedSnapshot.Progress.RootNodes.Single().Name).IsEqualTo("leaf");
+        _ = await Assert.That(runtime.Completion.IsCompleted("background-call")).IsFalse();
+
+        await runtime.Catalog.Settle();
+        var terminal = await runtime.Completion.Wait("background-call", cancellationToken);
+        _ = await Assert.That(terminal.Status).IsEqualTo(AgentTaskExecutionStatus.Canceled);
+        _ = await Assert.That(runtime.Runs.Snapshot()).IsEmpty();
+    }
+
+    [Test]
     public async Task Configured_attempt_budget_limits_embedded_artifact_execution(CancellationToken cancellationToken)
     {
         const string arguments =
@@ -122,8 +159,10 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var tool = ToolWithAttempts(runtime, 2);
 
         var result = await tool.Execute(new ToolInvocation("retry-call", arguments), runtime.Selection, cancellationToken);
+        var terminal = await runtime.Completion.Wait("retry-call", cancellationToken);
 
-        using var document = System.Text.Json.JsonDocument.Parse(result.Text);
+        _ = await Assert.That(result.Text).Contains("retry-call started in the background");
+        using var document = System.Text.Json.JsonDocument.Parse(terminal.Result);
         var task = document.RootElement.GetProperty("tasks")[0];
         _ = await Assert.That(task.GetProperty("attempt_count").GetInt32()).IsEqualTo(2);
         _ = await Assert.That(task.GetProperty("result").GetString()).IsEqualTo("ready");
@@ -175,8 +214,10 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             new ToolInvocation("history-call", arguments, assistantSequence),
             runtime.Selection,
             cancellationToken);
+        var terminal = await runtime.Completion.Wait("history-call", cancellationToken);
 
-        _ = await Assert.That(result.Text).Contains("\"status\":\"succeeded\"");
+        _ = await Assert.That(result.Text).Contains("history-call started in the background");
+        _ = await Assert.That(terminal.Result).Contains("\"status\":\"succeeded\"");
         var request = provider.Requests.Single();
         _ = await Assert.That(request.Messages.Count(message => message.Role != LLMRole.System))
             .IsEqualTo(expectedMessageCount);
@@ -204,8 +245,10 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         var tool = Tool(runtime);
 
         var result = await tool.Execute(new ToolInvocation("transition-call", arguments), runtime.Selection, cancellationToken);
+        var terminal = await runtime.Completion.Wait("transition-call", cancellationToken);
 
-        using var document = System.Text.Json.JsonDocument.Parse(result.Text);
+        _ = await Assert.That(result.Text).Contains("transition-call started in the background");
+        using var document = System.Text.Json.JsonDocument.Parse(terminal.Result);
         var task = document.RootElement.GetProperty("tasks")[0];
         _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
         _ = await Assert.That(task.GetProperty("attempt_count").GetInt32()).IsEqualTo(2);
@@ -247,8 +290,10 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         };
 
         var result = await tool.Execute(new ToolInvocation("embedded-call", arguments), denied, cancellationToken);
+        var terminal = await runtime.Completion.Wait("embedded-call", cancellationToken);
 
-        using var document = System.Text.Json.JsonDocument.Parse(result.Text);
+        _ = await Assert.That(result.Text).Contains("embedded-call started in the background");
+        using var document = System.Text.Json.JsonDocument.Parse(terminal.Result);
         _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
         var task = document.RootElement.GetProperty("tasks")[0];
         _ = await Assert.That(task.GetProperty("result").GetString()).IsEqualTo("ready");
@@ -338,8 +383,13 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             3,
             cancellationToken);
         var result = await running;
+        var terminal = await runtime.Completion.Wait("distinctive-call", cancellationToken);
 
-        using var document = System.Text.Json.JsonDocument.Parse(result.Text);
+        _ = await Assert.That(brokered[0].AgentTaskProgressSnapshot.Revision).IsEqualTo(1UL);
+        _ = await Assert.That(brokered[0].AgentTaskProgressSnapshot.RootNodes.Single().Status)
+            .IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(result.Text).Contains("distinctive-call started in the background");
+        using var document = System.Text.Json.JsonDocument.Parse(terminal.Result);
         _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
         _ = await Assert.That(document.RootElement.GetProperty("tasks")[0].GetProperty("name").GetString())
             .IsEqualTo("leaf");
@@ -459,6 +509,8 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         new ToolWorkspace(_root),
         runtime.Router,
         runtime.ParentScope,
+        runtime.Runs,
+        runtime.Completion,
         _broker,
         runtime.Repository,
         configuration);
@@ -466,7 +518,7 @@ internal sealed class RunAgentTasksToolTests : IDisposable
     private RuntimeContext Runtime(CancellationToken cancellationToken) =>
         Runtime(new AgentTaskQueueProvider([]), cancellationToken);
 
-    private RuntimeContext Runtime(AgentTaskQueueProvider provider, CancellationToken cancellationToken)
+    private RuntimeContext Runtime(ILLMProvider provider, CancellationToken cancellationToken)
     {
         var model = new LLMModel("model", provider.Id);
         var providers = new ProviderRegistry(
@@ -510,6 +562,8 @@ internal sealed class RunAgentTasksToolTests : IDisposable
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
         var selected = parent.Selection();
+        var catalog = new AgentTaskRunCatalog(cancellationToken);
+        _catalogs.Add(catalog);
         return new RuntimeContext(
             router,
             sessions,
@@ -517,6 +571,9 @@ internal sealed class RunAgentTasksToolTests : IDisposable
             parentScope,
             parent,
             repository,
+            catalog,
+            catalog.Prepare(parent.SessionId),
+            new Completion(),
             new AgentTurnSelection(
                 selected.RequestedModel,
                 router.Resolve(selected.RequestedModel.Value),
@@ -524,12 +581,75 @@ internal sealed class RunAgentTasksToolTests : IDisposable
                 selected.SecurityProfile));
     }
 
-    private sealed record RuntimeContext(
-        ModelRouter Router,
-        AgentTaskTestSessionFactory Sessions,
-        AgentRegistry Registry,
-        IAgentSessionScope ParentScope,
-        IAgentSession Parent,
-        EventRepository Repository,
-        AgentTurnSelection Selection);
+    private sealed class RuntimeContext
+    {
+        internal RuntimeContext(
+            ModelRouter router,
+            AgentTaskTestSessionFactory sessions,
+            AgentRegistry registry,
+            IAgentSessionScope parentScope,
+            IAgentSession parent,
+            EventRepository repository,
+            AgentTaskRunCatalog catalog,
+            AgentTaskRunOwner runs,
+            Completion completion,
+            AgentTurnSelection selection)
+        {
+            Router = router;
+            Sessions = sessions;
+            Registry = registry;
+            ParentScope = parentScope;
+            Parent = parent;
+            Repository = repository;
+            Catalog = catalog;
+            Runs = runs;
+            Completion = completion;
+            Selection = selection;
+        }
+
+        internal ModelRouter Router { get; }
+
+        internal AgentTaskTestSessionFactory Sessions { get; }
+
+        internal AgentRegistry Registry { get; }
+
+        internal IAgentSessionScope ParentScope { get; }
+
+        internal IAgentSession Parent { get; }
+
+        internal EventRepository Repository { get; }
+
+        internal AgentTaskRunCatalog Catalog { get; }
+
+        internal AgentTaskRunOwner Runs { get; }
+
+        internal Completion Completion { get; }
+
+        internal AgentTurnSelection Selection { get; }
+    }
+
+    private sealed class Completion : IAgentTaskRunCompletion
+    {
+        private readonly ConcurrentDictionary<string, TaskCompletionSource<AgentTaskRunTerminal>> _deliveries = [];
+
+        public Task Deliver(AgentTaskRunTerminal terminal, CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            _ = Delivery(terminal.RunId).TrySetResult(terminal);
+            return Task.CompletedTask;
+        }
+
+        public Task DeliverDuringShutdown(AgentTaskRunTerminal terminal, CancellationToken cancellationToken) =>
+            Deliver(terminal, cancellationToken);
+
+        internal bool IsCompleted(string runId) => Delivery(runId).Task.IsCompleted;
+
+        internal Task<AgentTaskRunTerminal> Wait(string runId, CancellationToken cancellationToken) =>
+            Delivery(runId).Task.WaitAsync(cancellationToken);
+
+        private TaskCompletionSource<AgentTaskRunTerminal> Delivery(string runId) =>
+            _deliveries.GetOrAdd(
+                runId,
+                static _ => new TaskCompletionSource<AgentTaskRunTerminal>(TaskCreationOptions.RunContinuationsAsynchronously));
+    }
 }

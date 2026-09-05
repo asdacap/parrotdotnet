@@ -152,7 +152,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
     public void ReleaseRetainedAgent(string sessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        RetainedAgentReservation reservation;
+        RetainedAgentReservation? reservation;
         lock (_gate)
         {
             if (!_retainedAgents.Remove(sessionId, out reservation))

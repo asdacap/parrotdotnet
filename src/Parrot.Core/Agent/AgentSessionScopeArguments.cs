@@ -1,3 +1,4 @@
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
@@ -24,6 +25,7 @@ internal sealed record AgentSessionScopeArguments(
     ImageArtifactRepository Images,
     WebFetcher WebFetcher,
     AgentTaskConfig AgentTasks,
+    AgentTaskRunCatalog AgentTaskRuns,
     ToolDefinitionCatalog ToolDefinitions,
     IReadOnlyList<string> ReadOnlyExecCommandPrefixes,
     ShellProcessOwners ShellProcesses,

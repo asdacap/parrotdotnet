@@ -1,3 +1,4 @@
+using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
@@ -112,6 +113,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.AgentTasks;
+            })
+            .Bind<AgentTaskRunOwner>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.AgentTaskRuns.Prepare(arguments.Identity.SessionId);
             })
             .Bind<IReadOnlyList<string>>().To(ctx =>
             {
@@ -295,11 +301,13 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 ctx.Inject<ShellProcessOwner>(out var processes);
+                ctx.Inject<AgentTaskRunOwner>(out var agentTasks);
                 ctx.Inject<IChildRegistry>(out var children);
                 return new ActiveWorkCompletionReminder(
                     children,
                     processes,
-                    arguments.PromptTemplates);
+                    arguments.PromptTemplates,
+                    agentTasks);
             })
             .Bind().As(Lifetime.Scoped).To(ctx =>
             {
@@ -323,6 +331,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             .Root<IAgentSession>("Session")
             .Root<GoalService>("Goals")
             .Root<AgentSpawner>("AgentSpawner")
+            .Root<AgentTaskRunOwner>("AgentTaskRuns")
             .Root<ChildRegistry>("ChildRegistry")
             .Root<AgentSessionParentScope>("ParentScope")
             .Root<ChildQuestionCoordinator>("ChildQuestions")

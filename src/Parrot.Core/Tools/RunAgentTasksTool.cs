@@ -13,6 +13,8 @@ internal sealed class RunAgentTasksTool(
     ToolWorkspace workspace,
     ModelRouter router,
     IAgentSessionScope ownerScope,
+    AgentTaskRunOwner runs,
+    IAgentTaskRunCompletion completion,
     EventBroker eventBroker,
     EventRepository eventRepository,
     AgentTaskConfig agentTasks) : ITool
@@ -112,20 +114,32 @@ internal sealed class RunAgentTasksTool(
                 invocation.CallId);
             HistoryForkBoundary rootHistoryBoundary =
                 new HistoryForkBoundary.BeforeToolBatch(invocation.AssistantSequence, invocation.CallId);
-            var runner = new AgentTaskGraphRunner(
-                router,
-                ownerScope,
-                selection,
-                progress,
-                agentTasks,
-                rootHistoryBoundary);
-            return (await runner.Run(artifact, cancellationToken).ConfigureAwait(false)).Serialize();
+            var displayName = artifact.Tasks.Single().Name;
+            runs.Start(
+                new AgentTaskRunRequest(
+                    invocation.CallId,
+                    displayName,
+                    artifact,
+                    router,
+                    ownerScope,
+                    selection,
+                    progress,
+                    agentTasks,
+                    rootHistoryBoundary,
+                    completion),
+                cancellationToken);
+            return agentTasks.PromptTemplates.Render(
+                "agent-task-run.started",
+                [
+                    new PromptTemplateArgument("run_id", invocation.CallId),
+                    new PromptTemplateArgument("display_name", displayName),
+                ]);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception failure) when (failure is AgentRegistryException or LLMProviderException or ArgumentException)
+        catch (Exception failure) when (failure is AgentRegistryException or LLMProviderException or ArgumentException or InvalidOperationException)
         {
             return ToolResultFormatter.Error(invocation, failure.Message);
         }

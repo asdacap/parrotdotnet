@@ -35,6 +35,33 @@ internal sealed class AgentTaskProgress(
         }
     }
 
+    internal AgentTaskProgressSnapshot CurrentSnapshot()
+    {
+        lock (_gate)
+        {
+            return BuildSnapshot(_revision);
+        }
+    }
+
+    internal IReadOnlyList<NodeHandle> EnsureInitialized(
+        IReadOnlyList<AgentTask> tasks,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(tasks);
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_initialized)
+            {
+                _roots.AddRange(tasks.Select(BuildNode));
+                _initialized = true;
+                PublishSnapshot();
+            }
+
+            return Handles(_roots);
+        }
+    }
+
     internal IReadOnlyList<NodeHandle> GetChildren(NodeHandle handle)
     {
         lock (_gate)
@@ -155,6 +182,18 @@ internal sealed class AgentTaskProgress(
         }
     }
 
+    internal void MarkRemainingFailed(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (FailRemaining(_roots))
+            {
+                PublishSnapshot();
+            }
+        }
+    }
+
     private static System.Collections.ObjectModel.ReadOnlyCollection<NodeHandle> Handles(
         IReadOnlyList<ProgressNode> nodes) =>
         Array.AsReadOnly(nodes.Select(node => node.Handle).ToArray());
@@ -199,6 +238,28 @@ internal sealed class AgentTaskProgress(
             }
 
             changed = CancelRemaining(node.Children) || changed;
+        }
+
+        return changed;
+    }
+
+    private static bool FailRemaining(IEnumerable<ProgressNode> nodes)
+    {
+        var changed = false;
+        foreach (var node in nodes)
+        {
+            if (node.Status == AgentTaskProgressStatus.Running)
+            {
+                node.Status = AgentTaskProgressStatus.Failed;
+                changed = true;
+            }
+            else if (node.Status == AgentTaskProgressStatus.Pending)
+            {
+                node.Status = AgentTaskProgressStatus.Blocked;
+                changed = true;
+            }
+
+            changed = FailRemaining(node.Children) || changed;
         }
 
         return changed;
@@ -252,12 +313,7 @@ internal sealed class AgentTaskProgress(
 
     private void PublishSnapshot()
     {
-        var snapshot = new AgentTaskProgressSnapshot
-        {
-            OriginToolCallId = originToolCallId,
-            Revision = checked(++_revision),
-        };
-        snapshot.RootNodes.Add(_roots.Select(BuildSnapshotNode));
+        var snapshot = BuildSnapshot(checked(++_revision));
         var published = new Event
         {
             Id = Identifier.EventId(),
@@ -266,6 +322,17 @@ internal sealed class AgentTaskProgress(
         };
         _ = eventRepository.Append(published, null, null);
         eventBroker.Publish(published);
+    }
+
+    private AgentTaskProgressSnapshot BuildSnapshot(ulong revision)
+    {
+        var snapshot = new AgentTaskProgressSnapshot
+        {
+            OriginToolCallId = originToolCallId,
+            Revision = revision,
+        };
+        snapshot.RootNodes.Add(_roots.Select(BuildSnapshotNode));
+        return snapshot;
     }
 
     internal sealed class NodeHandle;

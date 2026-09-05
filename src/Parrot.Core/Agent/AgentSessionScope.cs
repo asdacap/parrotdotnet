@@ -1,3 +1,4 @@
+using Parrot.AgentTasks;
 using Parrot.Process;
 using Parrot.Questions;
 
@@ -35,6 +36,8 @@ internal sealed class AgentSessionScope : IAgentSessionScope
     public AgentSessionParentScope ParentScope => _composition.ParentScope;
 
     public ChildQuestionCoordinator ChildQuestions => _composition.ChildQuestions;
+
+    internal AgentTaskRunOwner AgentTaskRuns => _composition.AgentTaskRuns;
 
     internal ShellProcessOwner Processes => _composition.Processes;
 

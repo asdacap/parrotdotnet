@@ -319,11 +319,18 @@ Both forms enter the same strict AgentTask parser, and supplying both or neither
 is rejected. Plan-approved builds continue to use the path form so their
 invocation-time file and security checks are preserved.
 
-`run_agent_tasks` runs the graph synchronously. By default, every fresh AgentTask
-child session inherits the effective conversation history of its immediate owning
-agent. A root task child receives the invoking agent's history from before the
-active `run_agent_tasks` tool-call batch, so the request that is currently running
-the graph and results from sibling calls in that batch are excluded. A nested task
+`run_agent_tasks` validates and admits the graph synchronously, then returns a
+background-start acknowledgement containing its stable graph id and root-task
+display name. The graph remains owned by the invoking agent and user session;
+multiple admitted graphs can overlap, appear in runtime status and active-work
+enforcement, and are canceled and joined when the user session shuts down. Its
+terminal hierarchical JSON is later admitted durably as an automatic completion
+message to the invoking agent rather than returned by the completed tool call.
+By default, every fresh AgentTask child session inherits the effective conversation
+history of its immediate owning agent. A root task child receives the invoking
+agent's history from before the original `run_agent_tasks` tool-call batch, so the
+request that admitted the graph and results from sibling calls in that batch are
+excluded. A nested task
 child is owned by its retained composite parent and receives that parent's
 completed history at the moment it is created, including completed preparation or
 validation exchanges as applicable. Concurrent siblings independently copy the
@@ -348,8 +355,9 @@ invocation. On each retry the same retained session receives a new user prompt
 while its previous exchange remains retained; no new fork occurs, and its
 non-system message count grows from its inherited baseline by 1, 3, 5, ... across
 attempts. The leaf response is parsed directly, rather than producing a separate
-execution transcript. Internal completions never steer the invoking agent. A
-task's `model`, when present, is routed through normal model resolution; otherwise
+execution transcript. Internal role-agent completions do not steer the invoking
+agent; only the owning graph's terminal completion does. A task's `model`, when
+present, is routed through normal model resolution; otherwise
 the selected child inherits the invoking turn's requested model.
 
 Composite tasks begin with a mandatory preparation phase. It returns strict JSON
@@ -442,17 +450,16 @@ Progress lines display each node's description, falling back to its name for
 legacy snapshots that have no description. The basic CLI appends and flushes
 every complete snapshot immediately as permanent output; that history is not
 replaced or removed. The persistent enhanced CLI immediately projects the latest
-snapshot into the matching active `run_agent_tasks` live tree, then commits the
-latest accepted complete tree to permanent scrollback after a one-second quiet
-period or when the tool lifecycle requires a flush. Each accepted revision is
-scoped to its agent session and origin tool-call id, and terminal cleanup removes
-its live projection without allowing stale events to resurrect it. Enhanced live
-trees are not capped by an AgentTask-row limit, and the complete snapshots remain
-self-contained. This progress behavior introduces no new graph, event, or
-transport size limit. The stream provides no replay or resume guarantee for a
-client that was not listening. The ordinary `ToolStarted`/`ToolFinished`
-lifecycle and final hierarchical JSON result are unchanged; progress snapshots
-supplement them.
+snapshot into the matching active or detached `run_agent_tasks` live tree, then
+commits the latest accepted complete tree to permanent scrollback after a
+one-second quiet period or when the tool lifecycle requires a flush. A successful
+`ToolFinished` records the background-start acknowledgement; later progress
+revisions remain attached by agent session and origin tool-call id until the full
+tree is terminal. Terminal cleanup removes its live projection without allowing
+stale events to resurrect it. Enhanced live trees are not capped by an AgentTask-row
+limit, and the complete snapshots remain self-contained. This progress behavior
+introduces no new graph, event, or transport size limit. The stream provides no
+replay or resume guarantee for a client that was not listening.
 
 ## Image attachments
 

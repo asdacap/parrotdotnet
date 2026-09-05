@@ -577,7 +577,8 @@ internal sealed class RawActivityView(
         try
         {
             foreach (var entry in _pendingProgress.OrderBy(static entry => entry.Key.AgentSessionId, StringComparer.Ordinal)
-                         .ThenBy(static entry => entry.Key.ToolCallId, StringComparer.Ordinal))
+                         .ThenBy(static entry => entry.Key.ToolCallId, StringComparer.Ordinal)
+                         .ToArray())
             {
                 try
                 {
@@ -674,6 +675,11 @@ internal sealed class RawActivityView(
             Snapshot(),
             cancellationToken).ConfigureAwait(false);
         pending.FlushedRevision = pending.Snapshot.Revision;
+        if (state.RetireDetachedAgentTaskProgress(key.ToolCallId, pending.Snapshot.Revision))
+        {
+            _ = _pendingProgress.Remove(key);
+            await replace(Snapshot(), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private void TrackProgressTask(Task task)
@@ -777,6 +783,8 @@ internal sealed class RawActivityView(
         var ownerIds = activities.Select(static activity => activity.State.AgentSessionId)
             .Concat(processes.Select(static process => process.Process.OwnerAgentSessionId))
             .Concat(_queues.Keys.Select(static key => key.OwnerAgentSessionId))
+            .Concat(_agentSessions.Values.Where(static state => state.DetachedAgentTaskProgressIds().Count > 0)
+                .Select(static state => state.AgentSessionId))
             .Where(static ownerId => ownerId.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
         foreach (var state in _agentSessions.Values)
@@ -792,6 +800,19 @@ internal sealed class RawActivityView(
 
         var order = _hierarchy.GetPostOrder(ownerIds);
         var rows = new List<(string OwnerId, int Kind, string Id, ILiveBufferItem Item)>();
+        rows.AddRange(
+            _agentSessions.Values.SelectMany(state => state.DetachedAgentTaskProgressIds().Select(toolCallId =>
+            (
+                state.AgentSessionId,
+                0,
+                "task:" + toolCallId,
+                (ILiveBufferItem)new HierarchicalLiveValue(
+                    state.CreateDetachedAgentTaskProgressItem(toolCallId),
+                    _hierarchy.GetDepth(state.AgentSessionId),
+                    _hierarchy.GetLabel(state.AgentSessionId),
+                    state.Name,
+                    "⚙",
+                    null)))));
         rows.AddRange(activities.Select(activity => (
             activity.State.AgentSessionId,
             activity.State.IsAgentActivity(activity.ActivityId) ? 3 : 0,

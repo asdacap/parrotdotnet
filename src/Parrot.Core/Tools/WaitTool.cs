@@ -61,6 +61,7 @@ internal sealed class WaitTool(
             return activity.Kind switch
             {
                 IncomingActivityKind.AgentCompletion => $"wait interrupted due to {activity.Name} completion",
+                IncomingActivityKind.AgentTaskCompletion => $"wait interrupted due to AgentTask graph {activity.Name} completion",
                 IncomingActivityKind.ProcessCompletion => $"wait interrupted due to process {activity.Name} completion",
                 IncomingActivityKind.Input => "wait interrupted",
                 _ => throw new InvalidOperationException($"Unknown incoming activity '{activity.Kind}'."),
