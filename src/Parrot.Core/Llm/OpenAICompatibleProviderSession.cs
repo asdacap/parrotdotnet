@@ -8,12 +8,13 @@ internal sealed class OpenAICompatibleProviderSession(
     Func<LLMRequest, LLMRequest> prepare,
     Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> callHttp,
     Func<CancellationToken, Task<IReadOnlyDictionary<string, string>>> authHeaders,
+    bool disableWebSocket,
     ResponsesWebSocketClient websocketClient) : ILLMProviderSession, IProviderSessionFallback
 {
     private readonly SemaphoreSlim _exclusive = new(1, 1);
     private ResponsesWebSocket? _connection;
     private CompletedResponse? _completedResponse;
-    private bool _httpOnly;
+    private bool _httpOnly = disableWebSocket;
     private bool _disposed;
 
     private enum Recovery

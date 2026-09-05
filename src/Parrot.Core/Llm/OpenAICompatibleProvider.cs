@@ -20,6 +20,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly TimeSpan _headerTimeout;
     private readonly string _providerPreferences;
     private readonly IResponsesWebSocketConnector _websocketConnector;
+    private readonly bool _disableWebSocket;
 
     public OpenAICompatibleProvider(OpenAICompatibleOptions options, HttpClient client)
         : this(options, client, new ResponsesWebSocketConnector())
@@ -66,6 +67,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         _headerTimeout = options.HeaderTimeout;
         _providerPreferences = options.ProviderPreferences;
         _websocketConnector = websocketConnector;
+        _disableWebSocket = options.DisableWebSocket;
     }
 
     public string Id { get; }
@@ -79,6 +81,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
                 Prepare,
                 CallHttp,
                 AuthHeadersForSession,
+                _disableWebSocket,
                 new ResponsesWebSocketClient(
                     _websocketConnector,
                     _endpoint,

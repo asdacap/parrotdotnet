@@ -72,6 +72,23 @@ internal sealed class ChatGptProviderWebSocketTests
     }
 
     [Test]
+    public async Task Disabled_websocket_uses_http_without_connecting(
+        CancellationToken cancellationToken)
+    {
+        var connector = new RecordingConnector([]);
+        using var handler = new ResponsesHandler();
+        using var client = new HttpClient(handler, disposeHandler: false);
+        var provider = ProviderWithSetting(client, connector, true);
+        await using var session = provider.OpenSession();
+
+        _ = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
+        _ = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+
+        _ = await Assert.That(connector.Calls).IsEqualTo(0);
+        _ = await Assert.That(handler.Calls).IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Sessions_have_independent_connections_and_session_headers(CancellationToken cancellationToken)
     {
         using var firstSocket = new ScriptedWebSocket([Completed]);
@@ -95,7 +112,13 @@ internal sealed class ChatGptProviderWebSocketTests
     }
 
     private static ChatGptProvider Provider(HttpClient client, IResponsesWebSocketConnector connector) =>
-        new(new FixedOAuthTokenSource(), client, [], [], connector);
+        ProviderWithSetting(client, connector, false);
+
+    private static ChatGptProvider ProviderWithSetting(
+        HttpClient client,
+        IResponsesWebSocketConnector connector,
+        bool disableWebSocket) =>
+        new(new FixedOAuthTokenSource(), client, [], [], disableWebSocket, connector);
 
     private static LLMRequest Request(IReadOnlyList<LLMMessage> messages) =>
         new() { Model = "gpt-5.6-sol", MaxTokens = 4096, Messages = messages };

@@ -16,6 +16,8 @@ internal sealed record OpenAICompatibleOptions
 
     public bool AllowInsecureLocalhost { get; init; }
 
+    public bool DisableWebSocket { get; init; } = true;
+
     // Declared by the user; always selectable, even when the endpoint does not
     // list them.
     public IReadOnlyList<LLMModel> Models { get; init; } = [];

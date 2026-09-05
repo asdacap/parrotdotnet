@@ -288,6 +288,7 @@ internal sealed class ProviderRegistryTests
                     Fields = ModelMetadataFields.InputPrice,
                 },
             ],
+            false,
             new ResponsesWebSocketConnector());
 
         var seed = provider.SeedModels();
@@ -303,7 +304,7 @@ internal sealed class ProviderRegistryTests
     {
         using var handler = new ChatGptCallHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], [], new ResponsesWebSocketConnector());
+        var provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], [], false, new ResponsesWebSocketConnector());
         var request = new LLMRequest
         {
             Model = "gpt-5.6-sol",

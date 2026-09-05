@@ -41,15 +41,41 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
-    public async Task Predefined_openai_provider_has_standard_responses_defaults()
+    public async Task Predefined_responses_providers_have_standard_defaults()
     {
-        var provider = Load(Write(string.Empty)).Providers["openai"];
+        var providers = Load(Write(string.Empty)).Providers;
+        var provider = providers["openai"];
 
         _ = await Assert.That(provider.Type).IsEqualTo("openai-compatible");
         _ = await Assert.That(provider.Protocol).IsEqualTo("responses");
         _ = await Assert.That(provider.BaseUrl).IsEqualTo("https://api.openai.com/v1");
         _ = await Assert.That(provider.ApiKeyEnv).IsEqualTo("OPENAI_API_KEY");
+        _ = await Assert.That(provider.DisableWebSocket).IsTrue();
+        _ = await Assert.That(providers["chatgpt"].DisableWebSocket).IsTrue();
         _ = await Assert.That(provider.ModelDefaults.Keys).Contains("gpt-5.4");
+    }
+
+    [Test]
+    [Arguments("true", true)]
+    [Arguments("false", false)]
+    public async Task Provider_disable_websocket_is_parsed_as_a_boolean(string value, bool expected)
+    {
+        var provider = Load(Write($"providers:\n  custom:\n    disable_websocket: {value}\n")).Providers["custom"];
+
+        _ = await Assert.That(provider.DisableWebSocket).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("not-a-boolean")]
+    [Arguments("null")]
+    [Arguments("[true]")]
+    public async Task Provider_disable_websocket_rejects_invalid_values(string value)
+    {
+        var exception = Assert.Throws<InvalidDataException>(
+            () => Load(Write($"providers:\n  custom:\n    disable_websocket: {value}\n")));
+
+        _ = await Assert.That(exception.Message)
+            .IsEqualTo("providers.custom.disable_websocket must be true or false");
     }
 
     [Test]

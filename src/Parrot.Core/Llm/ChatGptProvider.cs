@@ -26,12 +26,14 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
     private readonly Uri _endpoint = new(StreamEndpoint);
     private readonly string _sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
     private readonly IResponsesWebSocketConnector _websocketConnector;
+    private readonly bool _disableWebSocket;
 
     public ChatGptProvider(
         IOAuthTokenSource tokens,
         HttpClient client,
         IReadOnlyList<LLMModel> declared,
         IReadOnlyList<LLMModel> defaults,
+        bool disableWebSocket,
         IResponsesWebSocketConnector websocketConnector)
     {
         ArgumentNullException.ThrowIfNull(tokens);
@@ -40,6 +42,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         _client = client;
         _declared = declared;
         _defaults = defaults;
+        _disableWebSocket = disableWebSocket;
         _websocketConnector = websocketConnector;
     }
 
@@ -54,6 +57,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
             static request => request with { MaxTokens = 0 },
             Call,
             cancellationToken => AuthHeadersForSession(sessionId, cancellationToken),
+            _disableWebSocket,
             new ResponsesWebSocketClient(
                 _websocketConnector,
                 _endpoint,

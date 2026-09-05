@@ -17,6 +17,8 @@ internal sealed record ProviderConfig
 
     public bool AllowInsecureLocalhost { get; init; }
 
+    public bool DisableWebSocket { get; init; } = true;
+
     public int? HeaderTimeoutMs { get; init; }
 
     // Opaque JSON object forwarded as the request body's "provider" field.

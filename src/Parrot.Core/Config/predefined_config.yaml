@@ -1813,14 +1813,16 @@ providers:
 #   provider:
 #     # Provider adapter type: 'compatible' or 'openai-compatible'.
 #     type: openai-compatible
-#     # API protocol: 'responses' or 'chat-completions'. Responses providers try
-#     # the OpenAI Responses WebSocket v2 transport first and fall back to the
-#     # HTTP/SSE Responses transport for the current agent session when the
-#     # upgrade is unsupported or exhausted.
+#     # API protocol: 'responses' or 'chat-completions'. Responses providers use
+#     # HTTP/SSE by default. Set disable_websocket to false to try the OpenAI
+#     # Responses WebSocket v2 transport first and fall back to HTTP/SSE for the
+#     # current agent session when the upgrade is unsupported or exhausted.
 #     protocol: responses
 #     # Provider base URL, e.g. https://api.example.test/v1. A secure base URL
 #     # derives its WebSocket endpoint by replacing https with wss.
 #     base_url: https://api.example.test/v1
+#     # Disable Responses WebSocket transport and use HTTP/SSE directly.
+#     disable_websocket: true
 #     # Environment variable holding the API key.
 #     api_key_env: PROVIDER_API_KEY
 #     # Extra headers to send. Do not store secrets here.

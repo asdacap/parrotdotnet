@@ -1534,6 +1534,8 @@ internal sealed partial class Configuration(string path)
                 BaseUrl = Scalar(item, "base_url"),
                 ApiKeyEnv = Scalar(item, "api_key_env"),
                 AllowInsecureLocalhost = Scalar(item, "allow_insecure_localhost") == "true",
+                DisableWebSocket = !Child(item, "disable_websocket", out var disableWebSocket) ||
+                    ParseBoolean(disableWebSocket, $"providers.{id}.disable_websocket"),
                 HeaderTimeoutMs = Integer(item, "header_timeout_ms"),
                 Headers = StringMap(item, "headers"),
                 ProviderPreferences = RawJson(item, "provider_preferences"),

@@ -50,6 +50,7 @@ internal static class ProviderImplementations
                 context.HttpClient,
                 ProviderModels.ReadDeclared(context.Id, context.Config.Models),
                 ProviderModels.ReadDefaults(context.Id, context.Config.ModelDefaults),
+                context.Config.DisableWebSocket,
                 new ResponsesWebSocketConnector());
             return new(provider, provider.SeedModels());
         }
@@ -86,6 +87,7 @@ internal static class ProviderImplementations
                 ApiKeySource = new StoredApiKeySource(context.Id, config.ApiKeyEnv, context.CredentialStore),
                 Headers = config.Headers,
                 AllowInsecureLocalhost = config.AllowInsecureLocalhost,
+                DisableWebSocket = config.DisableWebSocket,
                 Models = ProviderModels.ReadDeclared(context.Id, config.Models),
                 ModelDefaults = ProviderModels.ReadDefaults(context.Id, config.ModelDefaults),
                 Decoder = decoder,

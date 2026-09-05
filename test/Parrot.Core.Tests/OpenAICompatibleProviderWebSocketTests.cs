@@ -122,6 +122,23 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     }
 
     [Test]
+    public async Task Websocket_is_disabled_by_default(
+        CancellationToken cancellationToken)
+    {
+        var connector = new ScriptedConnector([]);
+        using var handler = new ResponsesHandler(2);
+        using var client = new HttpClient(handler, disposeHandler: false);
+        var provider = ProviderWithDefaults(client, connector);
+        await using var session = provider.OpenSession();
+
+        _ = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
+        _ = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+
+        _ = await Assert.That(connector.Calls).IsEqualTo(0);
+        _ = await Assert.That(handler.Calls).IsEqualTo(2);
+    }
+
+    [Test]
     [Timeout(10_000)]
     public async Task Exhausted_transport_retries_fall_back_once_and_remain_isolated(
         CancellationToken cancellationToken)
@@ -252,6 +269,11 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
     }
 
     private static OpenAICompatibleProvider Provider(HttpClient client, IResponsesWebSocketConnector connector) =>
+        ProviderWithSetting(client, connector, false);
+
+    private static OpenAICompatibleProvider ProviderWithDefaults(
+        HttpClient client,
+        IResponsesWebSocketConnector connector) =>
         new(
             new OpenAICompatibleOptions
             {
@@ -259,6 +281,22 @@ internal sealed class OpenAICompatibleProviderWebSocketTests
                 BaseUrl = "https://example.test/v1",
                 Protocol = CompatibleProtocol.Responses,
                 ApiKeySource = new FixedApiKeySource(),
+            },
+            client,
+            connector);
+
+    private static OpenAICompatibleProvider ProviderWithSetting(
+        HttpClient client,
+        IResponsesWebSocketConnector connector,
+        bool disableWebSocket) =>
+        new(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = "https://example.test/v1",
+                Protocol = CompatibleProtocol.Responses,
+                ApiKeySource = new FixedApiKeySource(),
+                DisableWebSocket = disableWebSocket,
             },
             client,
             connector);
