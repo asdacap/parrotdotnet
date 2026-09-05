@@ -26,10 +26,11 @@ internal static class ChatCompletionsAdapter
 
         foreach (var message in request.Messages)
         {
+            var isNonLeadingSystemMessage = message.Role == LLMRole.System && messages.Count > 0;
             messages.Add(new Message
             {
-                Role = RoleName(message.Role),
-                Content = Content(message),
+                Role = isNonLeadingSystemMessage ? "user" : RoleName(message.Role),
+                Content = isNonLeadingSystemMessage ? WrapSystemUpdate(message) : Content(message),
                 ToolCallId = message.ToolCallId.Length == 0 ? null : message.ToolCallId,
                 ToolCalls = message.ToolCalls.Count == 0
                     ? null
@@ -230,6 +231,11 @@ internal static class ChatCompletionsAdapter
 
     private static string DataUrl(LLMContent content) =>
         $"data:{content.MediaType};base64,{Convert.ToBase64String(content.Image)}";
+
+    private static JsonElement WrapSystemUpdate(LLMMessage message) =>
+        JsonSerializer.SerializeToElement(
+            $"<system-update>\n{System.Security.SecurityElement.Escape(message.Content)}\n</system-update>",
+            WireJsonContext.Default.String);
 
     private static JsonElement ParseSchema(string schema)
     {

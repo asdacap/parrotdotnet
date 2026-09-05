@@ -135,16 +135,21 @@ internal sealed class OpenAICompatibleProviderTests
     }
 
     [Test]
-    [Arguments("Follow the repository instructions.", 3)]
-    [Arguments("", 2)]
-    public async Task Encode_prepends_nonempty_instructions_as_a_system_message(
+    [Arguments("Follow the repository instructions.", 4)]
+    [Arguments("", 3)]
+    public async Task Encode_keeps_only_the_first_system_message_and_marks_later_ones(
         string instructions, int messageCount, CancellationToken cancellationToken)
     {
         var request = new LLMRequest
         {
             Model = "vendor/model",
             Instructions = instructions,
-            Messages = [LLMMessage.System("history guidance"), LLMMessage.User("hello")],
+            Messages =
+            [
+                LLMMessage.System("history guidance"),
+                LLMMessage.User("hello"),
+                LLMMessage.System("turn <reminder>"),
+            ],
         };
         using var document = JsonDocument.Parse(ChatCompletionsAdapter.Encode(request));
         var root = document.RootElement;
@@ -152,21 +157,29 @@ internal sealed class OpenAICompatibleProviderTests
 
         _ = await Assert.That(root.TryGetProperty("instructions", out _)).IsFalse();
         _ = await Assert.That(messages.GetArrayLength()).IsEqualTo(messageCount);
+        _ = await Assert.That(messages.EnumerateArray().Count(message =>
+            message.GetProperty("role").GetString() == "system")).IsEqualTo(1);
+        _ = await Assert.That(messages[0].GetProperty("role").GetString()).IsEqualTo("system");
 
         var historyIndex = 0;
-
         if (instructions.Length > 0)
         {
-            _ = await Assert.That(messages[0].GetProperty("role").GetString()).IsEqualTo("system");
             _ = await Assert.That(messages[0].GetProperty("content").GetString()).IsEqualTo(instructions);
+            _ = await Assert.That(messages[1].GetProperty("role").GetString()).IsEqualTo("user");
+            _ = await Assert.That(messages[1].GetProperty("content").GetString())
+                .IsEqualTo("<system-update>\nhistory guidance\n</system-update>");
             historyIndex = 1;
         }
+        else
+        {
+            _ = await Assert.That(messages[0].GetProperty("content").GetString()).IsEqualTo("history guidance");
+        }
 
-        _ = await Assert.That(messages[historyIndex].GetProperty("role").GetString()).IsEqualTo("system");
-        _ = await Assert.That(messages[historyIndex].GetProperty("content").GetString())
-            .IsEqualTo("history guidance");
         _ = await Assert.That(messages[historyIndex + 1].GetProperty("role").GetString()).IsEqualTo("user");
         _ = await Assert.That(messages[historyIndex + 1].GetProperty("content").GetString()).IsEqualTo("hello");
+        _ = await Assert.That(messages[historyIndex + 2].GetProperty("role").GetString()).IsEqualTo("user");
+        _ = await Assert.That(messages[historyIndex + 2].GetProperty("content").GetString())
+            .IsEqualTo("<system-update>\nturn &lt;reminder&gt;\n</system-update>");
         _ = await Assert.That(cancellationToken.IsCancellationRequested).IsFalse();
     }
 
