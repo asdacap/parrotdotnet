@@ -170,6 +170,7 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 return arguments.Security;
             })
             .Bind<ContextCadence>().As(Lifetime.Scoped).To<ContextCadence>()
+            .Bind<ProviderSessions>().As(Lifetime.Scoped).To<ProviderSessions>()
             .Bind<PermissionBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);

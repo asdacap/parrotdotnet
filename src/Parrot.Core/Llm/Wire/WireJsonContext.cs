@@ -8,6 +8,10 @@ namespace Parrot.Llm.Wire;
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ChatCompletionsAdapter.Body), TypeInfoPropertyName = "ChatCompletionsBody")]
 [JsonSerializable(typeof(ResponsesAdapter.Body), TypeInfoPropertyName = "ResponsesBody")]
+[JsonSerializable(typeof(ResponsesAdapter.WebSocketRequest), TypeInfoPropertyName = "ResponsesWebSocketRequest")]
+[JsonSerializable(typeof(ResponsesAdapter.InputItem), TypeInfoPropertyName = "ResponsesInputItem")]
+[JsonSerializable(typeof(IReadOnlyList<ResponsesAdapter.FunctionTool>), TypeInfoPropertyName = "ResponsesFunctionTools")]
+[JsonSerializable(typeof(ResponsesAdapter.Reasoning), TypeInfoPropertyName = "ResponsesReasoning")]
 [JsonSerializable(typeof(string), TypeInfoPropertyName = "String")]
 [JsonSerializable(typeof(List<ChatCompletionsAdapter.ChatContentPart>), TypeInfoPropertyName = "ChatContentParts")]
 internal sealed partial class WireJsonContext : JsonSerializerContext;

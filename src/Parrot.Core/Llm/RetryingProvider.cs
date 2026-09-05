@@ -25,23 +25,32 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
     public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
         inner.ListModels(cancellationToken);
 
-    public async IAsyncEnumerable<LLMEvent> Call(
+    public ILLMProviderSession OpenSession() => new RetryingProviderSession(inner.OpenSession());
+
+    public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
+        Retry(inner.Call, request, cancellationToken);
+
+    private static IAsyncEnumerable<LLMEvent> Retry(
+        Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> call,
+        LLMRequest request,
+        CancellationToken cancellationToken) =>
+        RetryWithoutFallback(call, request, cancellationToken);
+
+    private static async IAsyncEnumerable<LLMEvent> RetryWithoutFallback(
+        Func<LLMRequest, CancellationToken, IAsyncEnumerable<LLMEvent>> call,
         LLMRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var state = new RetryState();
-
         while (true)
         {
             Advance retry;
-            var enumerator = inner.Call(request, cancellationToken).GetAsyncEnumerator(cancellationToken);
-
+            var enumerator = call(request, cancellationToken).GetAsyncEnumerator(cancellationToken);
             try
             {
                 while (true)
                 {
                     var step = await Step(enumerator, state, cancellationToken).ConfigureAwait(false);
-
                     if (step.Retry)
                     {
                         retry = step;
@@ -69,8 +78,11 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                 await enumerator.DisposeAsync().ConfigureAwait(false);
             }
 
-            // A retry notice is surfaced only for overload retries, matching
-            // upstream; header-timeout and reconnect retries wait silently.
+            if (retry.FallBackToHttp)
+            {
+                throw new InvalidOperationException("A stateless provider cannot select HTTP fallback.");
+            }
+
             if (retry.Reason.Length > 0)
             {
                 yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
@@ -156,6 +168,19 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
                 throw failure;
 
+            case ResponsesWebSocketUpgradeException upgrade:
+                if (RetryableStatus(upgrade.StatusCode) && state.TakeStream(out var upgradeAttempt))
+                {
+                    return Advance.Retrying(StreamDelay(upgradeAttempt), upgradeAttempt, string.Empty);
+                }
+
+                if (RetryableStatus(upgrade.StatusCode) && state.StreamExhausted)
+                {
+                    return Advance.FallingBack();
+                }
+
+                throw failure;
+
             // A missing key or bad configuration is not transient; retrying it
             // only delays the inevitable.
             case LLMProviderException:
@@ -166,6 +191,12 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                 if (state.TakeStream(out var streamAttempt))
                 {
                     return Advance.Retrying(StreamDelay(streamAttempt), streamAttempt, string.Empty);
+                }
+
+                if (failure is ResponsesWebSocketTransportException
+                    && state.StreamExhausted)
+                {
+                    return Advance.FallingBack();
                 }
 
                 throw failure;
@@ -196,6 +227,78 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         return delay > maximum ? maximum : delay;
     }
 
+    private sealed class RetryingProviderSession(ILLMProviderSession innerSession) : ILLMProviderSession
+    {
+        private readonly ILLMProviderSession _innerSession = innerSession;
+        private readonly IProviderSessionFallback? _fallback =
+            innerSession is IProviderSessionFallback fallback ? fallback : null;
+
+        public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
+            RetrySession(request, cancellationToken);
+
+        public ValueTask DisposeAsync() => _innerSession.DisposeAsync();
+
+        private async IAsyncEnumerable<LLMEvent> RetrySession(
+            LLMRequest request,
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            var state = new RetryState();
+            while (true)
+            {
+                Advance retry;
+                var enumerator = _innerSession.Call(request, cancellationToken)
+                    .GetAsyncEnumerator(cancellationToken);
+                try
+                {
+                    while (true)
+                    {
+                        var step = await Step(enumerator, state, cancellationToken).ConfigureAwait(false);
+                        if (step.Retry)
+                        {
+                            retry = step;
+                            break;
+                        }
+
+                        if (step.End)
+                        {
+                            yield break;
+                        }
+
+                        foreach (var published in step.Emit ?? [])
+                        {
+                            if (IsVisible(published))
+                            {
+                                state.OutputEmitted = true;
+                            }
+
+                            yield return published;
+                        }
+                    }
+                }
+                finally
+                {
+                    await enumerator.DisposeAsync().ConfigureAwait(false);
+                }
+
+                if (retry.FallBackToHttp)
+                {
+                    await (_fallback
+                        ?? throw new InvalidOperationException(
+                            "A provider call requested HTTP fallback without supporting it."))
+                        .FallBackToHttp().ConfigureAwait(false);
+                    state.ResetStream();
+                }
+
+                if (retry.Reason.Length > 0)
+                {
+                    yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
+                }
+
+                await Task.Delay(retry.Delay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
     private sealed class RetryState
     {
         private int _overloadAttempts;
@@ -205,6 +308,8 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         public bool OutputEmitted { get; set; }
 
         public int TimeoutAttempt { get; set; }
+
+        public bool StreamExhausted => _streamRemaining == 0;
 
         public bool TakeOverload(out int attempt)
         {
@@ -217,6 +322,12 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
             _overloadAttempts++;
             attempt = _overloadAttempts;
             return true;
+        }
+
+        public void ResetStream()
+        {
+            _streamRemaining = StreamMaxRetries;
+            _streamAttempt = 0;
         }
 
         public bool TakeStream(out int attempt)
@@ -250,9 +361,13 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
         public string Reason { get; init; } = string.Empty;
 
+        public bool FallBackToHttp { get; init; }
+
         public static Advance Emitting(IReadOnlyList<LLMEvent> emit) => new() { Emit = emit };
 
         public static Advance Retrying(TimeSpan delay, int attempt, string reason) =>
             new() { Retry = true, Delay = delay, Attempt = attempt, Reason = reason };
+
+        public static Advance FallingBack() => new() { Retry = true, FallBackToHttp = true };
     }
 }
