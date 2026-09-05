@@ -55,7 +55,8 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         var sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         return new OpenAICompatibleProviderSession(
             static request => request with { MaxTokens = 0 },
-            CallHttp,
+            (request, turnState, captureTurnState, cancellationToken) =>
+                CallHttp(sessionId, request, turnState, captureTurnState, cancellationToken),
             cancellationToken => AuthHeadersForSession(sessionId, cancellationToken),
             _disableWebSocket,
             new ResponsesWebSocketClient(
@@ -82,7 +83,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
     }
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-        CallHttp(request, string.Empty, static _ => { }, cancellationToken);
+        CallHttp(_sessionId, request, string.Empty, static _ => { }, cancellationToken);
 
     public async Task<SubscriptionUsage> Usage(CancellationToken cancellationToken)
     {
@@ -232,6 +233,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
     }
 
     private async IAsyncEnumerable<LLMEvent> CallHttp(
+        string sessionId,
         LLMRequest request,
         string turnState,
         Action<string> captureTurnState,
@@ -244,7 +246,7 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
         // ChatGPT does not support the max_output_tokens parameter.
         var body = ResponsesAdapter.Encode(request with { MaxTokens = 0 });
         var headers = Headers(access);
-        headers["session-id"] = _sessionId;
+        headers["session-id"] = sessionId;
         if (turnState.Length > 0)
         {
             headers["x-codex-turn-state"] = turnState;

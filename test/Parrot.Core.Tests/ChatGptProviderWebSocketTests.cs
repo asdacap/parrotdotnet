@@ -72,20 +72,25 @@ internal sealed class ChatGptProviderWebSocketTests
     }
 
     [Test]
-    public async Task Disabled_websocket_uses_http_without_connecting(
+    public async Task Disabled_websocket_uses_isolated_stable_http_sessions(
         CancellationToken cancellationToken)
     {
         var connector = new RecordingConnector([]);
         using var handler = new ResponsesHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
         var provider = ProviderWithSetting(client, connector, true);
-        await using var session = provider.OpenSession();
+        await using var first = provider.OpenSession();
+        await using var second = provider.OpenSession();
 
-        _ = await Drain(session.Call(Request([LLMMessage.User("one")]), cancellationToken));
-        _ = await Drain(session.Call(Request([LLMMessage.User("two")]), cancellationToken));
+        _ = await Drain(first.Call(Request([LLMMessage.User("one")]), cancellationToken));
+        _ = await Drain(first.Call(Request([LLMMessage.User("two")]), cancellationToken));
+        _ = await Drain(second.Call(Request([LLMMessage.User("three")]), cancellationToken));
 
         _ = await Assert.That(connector.Calls).IsEqualTo(0);
-        _ = await Assert.That(handler.Calls).IsEqualTo(2);
+        _ = await Assert.That(handler.SessionIds).Count().IsEqualTo(3);
+        _ = await Assert.That(handler.SessionIds[0].Length).IsGreaterThan(0);
+        _ = await Assert.That(handler.SessionIds[1]).IsEqualTo(handler.SessionIds[0]);
+        _ = await Assert.That(handler.SessionIds[2]).IsNotEqualTo(handler.SessionIds[0]);
     }
 
     [Test]
@@ -247,13 +252,15 @@ internal sealed class ChatGptProviderWebSocketTests
 
     private sealed class ResponsesHandler : HttpMessageHandler
     {
-        public int Calls { get; private set; }
+        public List<string> SessionIds { get; } = [];
+
+        public int Calls => SessionIds.Count;
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            Calls++;
+            SessionIds.Add(string.Join(',', request.Headers.GetValues("session-id")));
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
