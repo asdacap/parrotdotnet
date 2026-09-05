@@ -81,29 +81,48 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Rejects_multi_root_embedded_artifacts_before_execution(CancellationToken cancellationToken)
+    public async Task Executes_multi_root_embedded_artifacts_without_an_artificial_parent(CancellationToken cancellationToken)
     {
         const string arguments =
             "{\"artifact\":{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"},{\"name\":\"second\",\"description\":\"Second\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}}";
-        var provider = new AgentTaskQueueProvider([]);
+        var provider = new AgentTaskQueueProvider([
+            "{\"result\":\"first result\",\"verdict\":\"accept\",\"evidence\":\"first done\"}",
+            "{\"result\":\"second result\",\"verdict\":\"accept\",\"evidence\":\"second done\"}",
+        ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         var tool = Tool(runtime);
 
         var result = await tool.Execute(new ToolInvocation("multi-root-call", arguments), runtime.Selection, cancellationToken);
+        var terminal = await runtime.Completion.Wait("multi-root-call", cancellationToken);
 
-        _ = await Assert.That(result.Text).IsEqualTo("error: tasks must contain exactly one root task.");
-        _ = await Assert.That(provider.Requests).IsEmpty();
+        _ = await Assert.That(result.Text).Contains("name: 2 top-level tasks");
+        using var document = System.Text.Json.JsonDocument.Parse(terminal.Result);
+        _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
+        _ = await Assert.That(string.Join(',', document.RootElement.GetProperty("tasks").EnumerateArray().Select(task => task.GetProperty("name").GetString())))
+            .IsEqualTo("first,second");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+        var progress = runtime.Repository.Replay()
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot)
+            .Where(published => published.AgentTaskProgressSnapshot.OriginToolCallId == "multi-root-call")
+            .Select(published => published.AgentTaskProgressSnapshot)
+            .ToArray();
+        _ = await Assert.That(progress).IsNotEmpty();
+        _ = await Assert.That(progress.All(snapshot => string.Join(',', snapshot.RootNodes.Select(node => node.Name)) == "first,second"))
+            .IsTrue();
     }
 
     [Test]
-    public async Task Rejects_multi_root_path_artifacts_before_execution(CancellationToken cancellationToken)
+    public async Task Executes_multi_root_path_artifacts_without_an_artificial_parent(CancellationToken cancellationToken)
     {
         await File.WriteAllTextAsync(
             Path.Combine(_root, "multi-root.json"),
             "{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"},{\"name\":\"second\",\"description\":\"Second\",\"payload\":\"work\",\"acceptance_criteria\":\"Done\"}]}",
             cancellationToken);
-        var provider = new AgentTaskQueueProvider([]);
+        var provider = new AgentTaskQueueProvider([
+            "{\"result\":\"first result\",\"verdict\":\"accept\",\"evidence\":\"first done\"}",
+            "{\"result\":\"second result\",\"verdict\":\"accept\",\"evidence\":\"second done\"}",
+        ]);
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
         var tool = Tool(runtime);
@@ -112,9 +131,22 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             new ToolInvocation("multi-root-path-call", "{\"path\":\"multi-root.json\"}"),
             runtime.Selection,
             cancellationToken);
+        var terminal = await runtime.Completion.Wait("multi-root-path-call", cancellationToken);
 
-        _ = await Assert.That(result.Text).IsEqualTo("error: tasks must contain exactly one root task.");
-        _ = await Assert.That(provider.Requests).IsEmpty();
+        _ = await Assert.That(result.Text).Contains("name: 2 top-level tasks");
+        using var document = System.Text.Json.JsonDocument.Parse(terminal.Result);
+        _ = await Assert.That(document.RootElement.GetProperty("status").GetString()).IsEqualTo("succeeded");
+        _ = await Assert.That(string.Join(',', document.RootElement.GetProperty("tasks").EnumerateArray().Select(task => task.GetProperty("name").GetString())))
+            .IsEqualTo("first,second");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+        var progress = runtime.Repository.Replay()
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.AgentTaskProgressSnapshot)
+            .Where(published => published.AgentTaskProgressSnapshot.OriginToolCallId == "multi-root-path-call")
+            .Select(published => published.AgentTaskProgressSnapshot)
+            .ToArray();
+        _ = await Assert.That(progress).IsNotEmpty();
+        _ = await Assert.That(progress.All(snapshot => string.Join(',', snapshot.RootNodes.Select(node => node.Name)) == "first,second"))
+            .IsTrue();
     }
 
     [Test]

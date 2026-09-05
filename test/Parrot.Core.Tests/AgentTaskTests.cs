@@ -6,24 +6,24 @@ namespace Parrot.Core.Tests;
 internal sealed class AgentTaskTests
 {
     [Test]
-    public async Task Artifact_parses_nested_sibling_graphs_and_preserves_order()
+    public async Task Artifact_parses_nested_and_top_level_sibling_graphs_and_preserves_order()
     {
         var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[
-              {"name":"root","description":"root description","payload":[
-                {"name":"first","description":"first description","payload":"do it","acceptance_criteria":"prove it"},
-                {"name":"parent","dependencies":["first"],"description":"parent description","payload":[{"name":"child","description":"child description","payload":"child work","acceptance_criteria":"child proof"}],"acceptance_criteria":"parent proof","model":"high_llm"}
-              ],"acceptance_criteria":"root proof"}
+              {"name":"first","description":"first description","payload":"do it","acceptance_criteria":"prove it"},
+              {"name":"parent","dependencies":["first"],"description":"parent description","payload":[{"name":"child","description":"child description","payload":"child work","acceptance_criteria":"child proof"}],"acceptance_criteria":"parent proof","model":"high_llm"}
             ]}
             """);
 
         _ = await Assert.That(artifact.SchemaVersion).IsEqualTo(1);
-        _ = await Assert.That(artifact.Tasks).Count().IsEqualTo(1);
-        var root = artifact.Tasks[0];
-        _ = await Assert.That(string.Join(",", root.Payload.Tasks?.Select(task => task.Name) ?? [])).IsEqualTo("first,parent");
-        _ = await Assert.That(string.Join(",", root.Payload.Tasks?[1].Dependencies ?? [])).IsEqualTo("first");
-        _ = await Assert.That(root.Payload.Tasks?[1].Payload.Tasks?[0].Name).IsEqualTo("child");
-        _ = await Assert.That(root.Payload.Tasks?[1].Model).IsEqualTo("high_llm");
+        _ = await Assert.That(artifact.Tasks).Count().IsEqualTo(2);
+        _ = await Assert.That(string.Join(",", artifact.Tasks.Select(task => task.Name))).IsEqualTo("first,parent");
+        _ = await Assert.That(string.Join(",", artifact.Tasks[1].Dependencies)).IsEqualTo("first");
+        _ = await Assert.That(artifact.Tasks[1].Payload.Tasks?[0].Name).IsEqualTo("child");
+        _ = await Assert.That(artifact.Tasks[1].Model).IsEqualTo("high_llm");
+        _ = await Assert.That(artifact.DisplayName).IsEqualTo("2 top-level tasks");
+        _ = await Assert.That(AgentTaskParser.ParseArtifact("""{"schema_version":1,"tasks":[{"name":"single","description":"d","payload":"p","acceptance_criteria":"a"}]}""").DisplayName)
+            .IsEqualTo("single");
     }
 
     [Test]
@@ -33,16 +33,6 @@ internal sealed class AgentTaskTests
     [Arguments("{\"schema_version\":1,\"tasks\":[{\"name\":\"x\",\"description\":\"d\",\"payload\":null,\"acceptance_criteria\":\"a\"}]}")]
     public async Task Artifact_rejects_invalid_envelopes_and_payload_unions(string json) =>
         _ = await Assert.That(() => AgentTaskParser.ParseArtifact(json)).Throws<ArgumentException>();
-
-    [Test]
-    [Arguments("{\"schema_version\":1,\"tasks\":[]}")]
-    [Arguments("{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"},{\"name\":\"second\",\"description\":\"d\",\"payload\":\"p\",\"acceptance_criteria\":\"a\"}]}")]
-    public async Task Artifact_requires_exactly_one_root_task(string json)
-    {
-        var exception = Assert.Throws<ArgumentException>(() => AgentTaskParser.ParseArtifact(json));
-
-        _ = await Assert.That(exception.Message).IsEqualTo("tasks must contain exactly one root task.");
-    }
 
     [Test]
     [Arguments("a,a", "")]

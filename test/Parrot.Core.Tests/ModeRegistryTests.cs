@@ -282,7 +282,7 @@ internal sealed class ModeRegistryTests : IDisposable
         await File.WriteAllTextAsync(artifact, "# Plan");
         await File.WriteAllTextAsync(
             TaskArtifactFor(artifact),
-            "{\"schema_version\":1,\"tasks\":[{\"name\":\"root\",\"description\":\"Root\",\"payload\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":[{\"name\":\"child-first\",\"description\":\"Child first\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"},{\"name\":\"child-second\",\"description\":\"Child second\",\"payload\":[{\"name\":\"grandchild\",\"description\":\"Grandchild\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"},{\"name\":\"second\",\"dependencies\":[\"first\"],\"description\":\"Second\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"}]}");
+            "{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":[{\"name\":\"child-first\",\"description\":\"Child first\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"},{\"name\":\"child-second\",\"description\":\"Child second\",\"payload\":[{\"name\":\"grandchild\",\"description\":\"Grandchild\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"}],\"acceptance_criteria\":\"Pass\"},{\"name\":\"second\",\"dependencies\":[\"first\"],\"description\":\"Second\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}]}");
 
         var completed = profile.Complete("session", "message").Completion
             ?? throw new InvalidOperationException("plan completion was not emitted");
@@ -290,24 +290,17 @@ internal sealed class ModeRegistryTests : IDisposable
 
         _ = await Assert.That(tree.OriginToolCallId).IsEmpty();
         _ = await Assert.That(tree.Revision).IsEqualTo(0UL);
-        _ = await Assert.That(tree.RootNodes).HasSingleItem();
-        _ = await Assert.That(tree.RootNodes[0].Name).IsEqualTo("root");
-        _ = await Assert.That(tree.RootNodes[0].Status).IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(string.Join(',', tree.RootNodes.Select(node => node.Name))).IsEqualTo("first,second");
+        _ = await Assert.That(string.Join(',', tree.RootNodes.Select(node => node.Status)))
+            .IsEqualTo("Pending,Pending");
         _ = await Assert.That(string.Join(',', tree.RootNodes[0].Children.Select(node => node.Name)))
-            .IsEqualTo("first,second");
-        _ = await Assert.That(string.Join(',', tree.RootNodes[0].Children[0].Children.Select(node => node.Name)))
             .IsEqualTo("child-first,child-second");
-        _ = await Assert.That(tree.RootNodes[0].Children[0].Children[1].Children[0].Name).IsEqualTo("grandchild");
-        _ = await Assert.That(tree.RootNodes[0].Children[0].Children[1].Children[0].Status).IsEqualTo(AgentTaskProgressStatus.Pending);
+        _ = await Assert.That(tree.RootNodes[0].Children[1].Children[0].Name).IsEqualTo("grandchild");
+        _ = await Assert.That(tree.RootNodes[0].Children[1].Children[0].Status).IsEqualTo(AgentTaskProgressStatus.Pending);
 
-        _ = await Assert.That(completed.TaskDeclarations).HasSingleItem();
-        var rootDeclaration = completed.TaskDeclarations[0];
-        _ = await Assert.That(rootDeclaration.Name).IsEqualTo("root");
-        _ = await Assert.That(rootDeclaration.PayloadCase)
-            .IsEqualTo(PlanTaskDeclaration.PayloadOneofCase.Children);
-        _ = await Assert.That(string.Join(',', rootDeclaration.Children.Tasks.Select(task => task.Name)))
+        _ = await Assert.That(string.Join(',', completed.TaskDeclarations.Select(task => task.Name)))
             .IsEqualTo("first,second");
-        var firstDeclaration = rootDeclaration.Children.Tasks[0];
+        var firstDeclaration = completed.TaskDeclarations[0];
         _ = await Assert.That(firstDeclaration.Description).IsEqualTo("First");
         _ = await Assert.That(firstDeclaration.AcceptanceCriteria).IsEqualTo("Pass");
         _ = await Assert.That(firstDeclaration.PayloadCase)
@@ -317,27 +310,29 @@ internal sealed class ModeRegistryTests : IDisposable
         _ = await Assert.That(firstDeclaration.Children.Tasks[0].Instruction).IsEqualTo("Do it");
         _ = await Assert.That(firstDeclaration.Children.Tasks[1].Children.Tasks[0].Instruction)
             .IsEqualTo("Do it");
-        _ = await Assert.That(rootDeclaration.Children.Tasks[1].Dependencies.Single()).IsEqualTo("first");
-        _ = await Assert.That(rootDeclaration.Children.Tasks[1].PayloadCase)
+        _ = await Assert.That(completed.TaskDeclarations[1].Dependencies.Single()).IsEqualTo("first");
+        _ = await Assert.That(completed.TaskDeclarations[1].PayloadCase)
             .IsEqualTo(PlanTaskDeclaration.PayloadOneofCase.Instruction);
     }
 
     [Test]
-    public async Task Plan_completion_repairs_multi_root_artifact_with_shared_diagnostic()
+    public async Task Plan_completion_accepts_multi_root_artifact()
     {
-        var profile = OwnerModes("multi-root-repair").Resolve(ModeRegistry.Plan);
+        var profile = OwnerModes("multi-root").Resolve(ModeRegistry.Plan);
         profile.Prepare();
-        var artifact = PlanArtifact("multi-root-repair");
+        var artifact = PlanArtifact("multi-root");
         await File.WriteAllTextAsync(artifact, "# Plan");
         await File.WriteAllTextAsync(
             TaskArtifactFor(artifact),
             "{\"schema_version\":1,\"tasks\":[{\"name\":\"first\",\"description\":\"First\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"},{\"name\":\"second\",\"description\":\"Second\",\"payload\":\"Do it\",\"acceptance_criteria\":\"Pass\"}]}");
 
-        var outcome = profile.Complete("session", "message");
+        var completed = profile.Complete("session", "message").Completion
+            ?? throw new InvalidOperationException("plan completion was not emitted");
+        var tree = completed.TaskTree ?? throw new InvalidOperationException("task tree was not emitted");
 
-        _ = await Assert.That(outcome.Completion).IsNull();
-        _ = await Assert.That(outcome.RepairDiagnostic).IsEqualTo(
-            $"The AgentTask JSON artifact at '{TaskArtifactFor(artifact)}' is invalid: tasks must contain exactly one root task. Repair that exact file, then finish again.");
+        _ = await Assert.That(string.Join(',', tree.RootNodes.Select(node => node.Name))).IsEqualTo("first,second");
+        _ = await Assert.That(string.Join(',', completed.TaskDeclarations.Select(task => task.Name)))
+            .IsEqualTo("first,second");
     }
 
     [Test]

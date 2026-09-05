@@ -114,7 +114,7 @@ internal sealed class RunAgentTasksTool(
                 invocation.CallId);
             HistoryForkBoundary rootHistoryBoundary =
                 new HistoryForkBoundary.BeforeToolBatch(invocation.AssistantSequence, invocation.CallId);
-            var displayName = artifact.Tasks.Single().Name;
+            var displayName = artifact.DisplayName;
             runs.Start(
                 new AgentTaskRunRequest(
                     invocation.CallId,

@@ -705,11 +705,9 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         await using var registry = runtime.Registry;
         var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[
-              {"name":"root","description":"Root","payload":[
-                {"name":"fast","description":"Fast","payload":"fast work","acceptance_criteria":"Done"},
-                {"name":"slow","description":"Slow","payload":"slow work","acceptance_criteria":"Done"},
-                {"name":"dependent","dependencies":["fast"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Done"}
-              ],"acceptance_criteria":"Root done"}
+              {"name":"fast","description":"Fast","payload":"fast work","acceptance_criteria":"Done"},
+              {"name":"slow","description":"Slow","payload":"slow work","acceptance_criteria":"Done"},
+              {"name":"dependent","dependencies":["fast"],"description":"Dependent","payload":"dependent work","acceptance_criteria":"Done"}
             ]}
             """);
 
@@ -719,18 +717,15 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         _ = await Assert.That(provider.MaximumActive >= 2).IsTrue();
         _ = await Assert.That(provider.DependentStartedBeforeSlowFinished).IsTrue();
-        _ = await Assert.That(result.Tasks).HasSingleItem();
-        var scheduledTasks = result.Tasks[0].Tasks
-            ?? throw new InvalidOperationException("Root composite tasks were not produced.");
-        _ = await Assert.That(string.Join(",", scheduledTasks.Select(task => task.Name))).IsEqualTo("fast,slow,dependent");
+        _ = await Assert.That(string.Join(",", result.Tasks.Select(task => task.Name))).IsEqualTo("fast,slow,dependent");
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(snapshots.All(snapshot =>
-            snapshot.RootNodes.Count == 1 && string.Join(',', snapshot.RootNodes[0].Children.Select(node => node.Name)) == "fast,slow,dependent"))
+            string.Join(',', snapshot.RootNodes.Select(node => node.Name)) == "fast,slow,dependent"))
             .IsTrue();
         var fastSucceeded = snapshots.ToList().FindIndex(snapshot =>
-            snapshot.RootNodes[0].Children[0].Status == AgentTaskProgressStatus.Succeeded);
+            snapshot.RootNodes[0].Status == AgentTaskProgressStatus.Succeeded);
         var dependentRunning = snapshots.ToList().FindIndex(snapshot =>
-            snapshot.RootNodes[0].Children[2].Status == AgentTaskProgressStatus.Running);
+            snapshot.RootNodes[2].Status == AgentTaskProgressStatus.Running);
         _ = await Assert.That(dependentRunning > fastSucceeded).IsTrue();
     }
 

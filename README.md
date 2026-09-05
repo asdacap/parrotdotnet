@@ -280,18 +280,16 @@ The v1 artifact has this strict envelope:
 }
 ```
 
-`schema_version` must be `1`, and the artifact `tasks` array must contain exactly
-one top-level root task. Every task requires nonblank `name`, `description`,
-`payload`, and `acceptance_criteria`; `model` and `dependencies` are optional. A
-payload is either a nonblank instruction or a nonempty recursive sibling task
-array; nested sibling arrays may contain multiple tasks. Unknown fields and
-null required values are rejected. Names and dependencies are case-sensitive.
-Dependencies are distinct, must name another task in the same sibling list, and
-may not be self-references or cycles; a task cannot depend on a nested task or a
-task in another branch. This is a compatibility change from earlier artifacts:
-wrap prior multiple roots in one composite parent, placing them in its nested
-payload, so one retained composite agent can prepare and validate the entire
-flow.
+`schema_version` must be `1`, and the artifact `tasks` array must be nonempty.
+Each top-level entry is a sibling task. Every task requires nonblank `name`,
+`description`, `payload`, and `acceptance_criteria`; `model` and `dependencies`
+are optional. A payload is either a nonblank instruction or a nonempty recursive
+sibling task array. Unknown fields and null required values are rejected. Names
+and dependencies are case-sensitive. Dependencies are distinct, must name
+another task in the same sibling list, and may not be self-references or cycles;
+a task cannot depend on a nested task or a task in another branch. Top-level
+siblings follow these same local dependency and ordering rules, so independent
+roots may run concurrently without requiring an artificial composite parent.
 
 `run_agent_tasks` requires exactly one graph source. A `path` names a readable
 regular non-symbolic-link artifact and is checked against the invoking security
@@ -320,14 +318,16 @@ is rejected. Plan-approved builds continue to use the path form so their
 invocation-time file and security checks are preserved.
 
 `run_agent_tasks` validates and admits the graph synchronously, then returns a
-background-start acknowledgement containing its stable graph id and root-task
-display name. The graph remains owned by the invoking agent and user session;
-multiple admitted graphs can overlap, appear in runtime status and active-work
-enforcement, and are canceled and joined when the user session shuts down. Its
+background-start acknowledgement containing its stable graph id and display
+name. A single-root graph uses that task's name; a graph with multiple roots is
+labelled `N top-level tasks`. The graph remains owned by the invoking agent and
+user session; multiple admitted graphs can overlap, appear in runtime status and
+active-work enforcement, and are canceled and joined when the user session shuts
+down. Its
 terminal hierarchical JSON is later admitted durably as an automatic completion
 message to the invoking agent rather than returned by the completed tool call.
 By default, every fresh AgentTask child session inherits the effective conversation
-history of its immediate owning agent. A root task child receives the invoking
+history of its immediate owning agent. A top-level task child receives the invoking
 agent's history from before the original `run_agent_tasks` tool-call batch, so the
 request that admitted the graph and results from sibling calls in that batch are
 excluded. A nested task
