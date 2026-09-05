@@ -12,7 +12,6 @@ internal sealed class AgentSpawner : IAsyncDisposable
     private readonly IChildRegistry _children;
     private readonly CancellationTokenSource _lifetime;
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, int> _pendingProfiles = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RetainedAgentReservation> _retainedAgents = new(StringComparer.Ordinal);
     private readonly List<Task> _rejectedScopeDisposals = [];
     private bool _accepting = true;
@@ -152,9 +151,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
             {
                 EnsureAccepting();
                 childParentLink = new AgentSessionParentLink(registeredOwnerScope, request.DeliveryPolicy);
-                if (childParentLink.PolicyLineage.CountProfile(profile.Id)
-                    + _pendingProfiles.GetValueOrDefault(profile.Id)
-                    >= profile.RecursionLimit)
+                if (childParentLink.PolicyLineage.CountProfile(profile.Id) >= profile.RecursionLimit)
                 {
                     throw new AgentRegistryException("subagent profile recursion limit reached");
                 }
@@ -172,7 +169,6 @@ internal sealed class AgentSpawner : IAsyncDisposable
                     childParentLink.PolicyLineage,
                     _owner.PromptTemplates);
                 _pendingConstructions++;
-                _pendingProfiles[profile.Id] = _pendingProfiles.GetValueOrDefault(profile.Id) + 1;
             }
         }
         catch
@@ -215,7 +211,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
         }
         finally
         {
-            CompleteConstruction(profile.Id);
+            CompleteConstruction();
         }
     }
 
@@ -269,21 +265,12 @@ internal sealed class AgentSpawner : IAsyncDisposable
         }
     }
 
-    private void CompleteConstruction(string profileId)
+    private void CompleteConstruction()
     {
         TaskCompletionSource? settled = null;
         lock (_gate)
         {
             _pendingConstructions--;
-            if (_pendingProfiles.GetValueOrDefault(profileId) == 1)
-            {
-                _ = _pendingProfiles.Remove(profileId);
-            }
-            else
-            {
-                _pendingProfiles[profileId]--;
-            }
-
             if (_pendingConstructions == 0)
             {
                 settled = _constructionsSettled;

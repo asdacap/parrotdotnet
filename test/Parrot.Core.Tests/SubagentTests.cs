@@ -1622,7 +1622,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Registry_counts_pending_profile_recursion_and_live_security_ancestry(
+    public async Task Registry_counts_live_security_ancestry(
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
@@ -1647,14 +1647,10 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var spawning = Task.Run(() => TestModels.ScopeOf(root).AgentSpawner.SpawnScope(Request("pending")).Session, cancellationToken);
         await sessions.WaitUntilEntered(cancellationToken);
 
-        var pendingRecursion = await Assert.That(() => TestModels.ScopeOf(root).AgentSpawner.SpawnScope(Request("rejected")).Session)
-            .Throws<AgentRegistryException>();
         releaseConstruction.Set();
         var child = await spawning;
         root.UpdateSelection(root.Selection().RequestedModel, Profile("root", readOnly: true, []));
 
-        _ = await Assert.That(pendingRecursion?.Message)
-            .IsEqualTo("subagent profile recursion limit reached");
         _ = await Assert.That(child.ResolvePolicySelection().SecurityProfile.ReadOnly).IsTrue();
         var childRecursion = await Assert.That(() => TestModels.ScopeOf(child).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             child,
