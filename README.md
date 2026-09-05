@@ -836,6 +836,16 @@ Implementation-specific provider adapters and model-list decoders remain in
 code, as does the ChatGPT OAuth transport; the YAML contains only their
 serializable defaults and catalog metadata.
 
+The API-key `openai` provider uses the standard Responses API defaults and tries
+Responses WebSocket v2 first for each agent session. Its socket endpoint is
+derived from `base_url` (`https` becomes `wss`; opted-in loopback `http` becomes
+`ws`). If the upgrade is unsupported or transient WebSocket attempts are
+exhausted, that agent session falls back to the existing HTTP/SSE Responses
+transport; another agent session can still try WebSocket. Other configured
+`protocol: responses` providers use the same behavior. `chatgpt` is separate:
+it uses the OAuth-backed ChatGPT subscription transport and is not the API-key
+`openai` provider.
+
 OpenRouter provider-routing criteria are configured as an open-ended mapping at
 `providers.openrouter.provider_preferences`. The predefined policy enables
 fallbacks, requires every selected endpoint to support all request parameters,

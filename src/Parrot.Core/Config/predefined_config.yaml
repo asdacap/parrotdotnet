@@ -1573,6 +1573,10 @@ providers:
           high: { reasoning_effort: high }
           xhigh: { reasoning_effort: xhigh }
   openai:
+    type: openai-compatible
+    protocol: responses
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
     header_timeout_ms: 10000
     model_defaults:
       gpt-5.4:
@@ -1780,9 +1784,13 @@ providers:
 #   provider:
 #     # Provider adapter type: 'compatible' or 'openai-compatible'.
 #     type: openai-compatible
-#     # API protocol: 'responses' or 'chat-completions'.
+#     # API protocol: 'responses' or 'chat-completions'. Responses providers try
+#     # the OpenAI Responses WebSocket v2 transport first and fall back to the
+#     # HTTP/SSE Responses transport for the current agent session when the
+#     # upgrade is unsupported or exhausted.
 #     protocol: responses
-#     # Provider base URL, e.g. https://api.example.test/v1.
+#     # Provider base URL, e.g. https://api.example.test/v1. A secure base URL
+#     # derives its WebSocket endpoint by replacing https with wss.
 #     base_url: https://api.example.test/v1
 #     # Environment variable holding the API key.
 #     api_key_env: PROVIDER_API_KEY

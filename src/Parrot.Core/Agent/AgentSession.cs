@@ -39,6 +39,7 @@ internal sealed class AgentSession(
     ToolOutputBlobStore toolOutputBlobs,
     CompactionGroupBlobStore compactionGroupBlobs,
     Compactor compactor,
+    ProviderSessions providerSessions,
     ContextCadence contextCadence,
     PromptTemplateCatalog promptTemplates,
     ChildQuestionCoordinator childQuestions,
@@ -82,6 +83,8 @@ internal sealed class AgentSession(
     private readonly ISystemPrompt _systemPrompt = systemPrompt
         ?? throw new ArgumentNullException(nameof(systemPrompt));
 
+    private readonly ProviderSessions _providerSessions = providerSessions;
+
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
         ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);
 
@@ -108,57 +111,6 @@ internal sealed class AgentSession(
     // disposed source, so it hands that duty over for the one case where the
     // two overlap.
     private bool _stopping;
-
-    internal AgentSession(
-        AgentIdentity identity,
-        AgentSessionParentScope parentScope,
-        ModelSelector model,
-        ModelRouter router,
-        EventBroker eventBroker,
-        EventRepository eventRepository,
-        IReadOnlyList<IToolFactory> toolFactories,
-        ToolDefinitionCatalog toolDefinitions,
-        ISystemPrompt systemPrompt,
-        ToolOutputBlobStore toolOutputBlobs,
-        CompactionGroupBlobStore compactionGroupBlobs,
-        Compactor compactor,
-        ContextCadence contextCadence,
-        PromptTemplateCatalog promptTemplates,
-        ChildQuestionCoordinator childQuestions,
-        ExitReminder exitReminder,
-        IMode mode,
-        IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
-        AgentSessionSecurity security,
-        RuntimeStatus status,
-        AgentQueues queues,
-        AgentSessionActivity activity,
-        AgentSessionScopeArguments arguments)
-        : this(
-            identity,
-            parentScope,
-            model,
-            router,
-            eventBroker,
-            eventRepository,
-            toolFactories,
-            toolDefinitions,
-            systemPrompt,
-            toolOutputBlobs,
-            compactionGroupBlobs,
-            compactor,
-            contextCadence,
-            promptTemplates,
-            childQuestions,
-            exitReminder,
-            mode,
-            turnCompletionCallbacks,
-            security,
-            status,
-            queues,
-            activity,
-            arguments.Lifetime)
-    {
-    }
 
     public string SessionId => identity.SessionId;
 
@@ -350,6 +302,7 @@ internal sealed class AgentSession(
         }
 
         await Interrupt(CancellationToken.None).ConfigureAwait(false);
+        await _providerSessions.Close().ConfigureAwait(false);
     }
 
     public Task Compact(CancellationToken cancellationToken)
@@ -2113,7 +2066,7 @@ internal sealed class AgentSession(
                 EstimateContextForHistory(selection, instructions, tools, [.. _history]),
                 cancellationToken).ConfigureAwait(false);
             var fixedStatus = LLMMessage.System(statusContent);
-            var compacted = await compactor.Compact(
+            var compacted = await compactor.CompactWithProviderSessions(
                 selectedModel,
                 instructions,
                 tools,
@@ -2121,6 +2074,7 @@ internal sealed class AgentSession(
                 effective.Snapshot?.Watermark ?? 0,
                 fixedStatus,
                 compactionGroupBlobs,
+                _providerSessions,
                 cancellationToken).ConfigureAwait(false);
             var currentWatermark = effective.Snapshot?.Watermark ?? 0;
             if ((compacted is null || compacted.Watermark <= currentWatermark)
@@ -2352,7 +2306,7 @@ internal sealed class AgentSession(
         try
         {
             Activity.BeginProviderRequest();
-            await foreach (var llmEvent in selectedModel.Provider
+            await foreach (var llmEvent in _providerSessions.Get(selectedModel.Provider)
                 .Call(request, cancellationToken).ConfigureAwait(false))
             {
                 if (llmEvent.Kind == LLMEventKind.Completed)

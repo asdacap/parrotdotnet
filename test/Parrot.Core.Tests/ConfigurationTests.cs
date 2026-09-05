@@ -41,6 +41,31 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Predefined_openai_provider_has_standard_responses_defaults()
+    {
+        var provider = Load(Write(string.Empty)).Providers["openai"];
+
+        _ = await Assert.That(provider.Type).IsEqualTo("openai-compatible");
+        _ = await Assert.That(provider.Protocol).IsEqualTo("responses");
+        _ = await Assert.That(provider.BaseUrl).IsEqualTo("https://api.openai.com/v1");
+        _ = await Assert.That(provider.ApiKeyEnv).IsEqualTo("OPENAI_API_KEY");
+        _ = await Assert.That(provider.ModelDefaults.Keys).Contains("gpt-5.4");
+    }
+
+    [Test]
+    public async Task Openai_provider_defaults_can_be_partially_overridden()
+    {
+        var provider = Load(Write("providers:\n  openai:\n    header_timeout_ms: 2500\n")).Providers["openai"];
+
+        _ = await Assert.That(provider.HeaderTimeoutMs).IsEqualTo(2500);
+        _ = await Assert.That(provider.Type).IsEqualTo("openai-compatible");
+        _ = await Assert.That(provider.Protocol).IsEqualTo("responses");
+        _ = await Assert.That(provider.BaseUrl).IsEqualTo("https://api.openai.com/v1");
+        _ = await Assert.That(provider.ApiKeyEnv).IsEqualTo("OPENAI_API_KEY");
+        _ = await Assert.That(provider.ModelDefaults.Keys).Contains("gpt-5.4");
+    }
+
+    [Test]
     public async Task Provider_model_defaults_are_separate_from_declared_models()
     {
         var configuration = Load(Write("""

@@ -93,15 +93,24 @@ internal sealed class Compactor(
                 false,
                 IsComplete(messages)))
             .ToList();
-        return await Compact(
-            selectedModel,
-            instructions,
-            tools,
-            groups,
-            0,
-            fixedMessage,
-            groupBlobs,
-            cancellationToken).ConfigureAwait(false);
+        var providerSessions = new ProviderSessions();
+        try
+        {
+            return await CompactCore(
+                selectedModel,
+                instructions,
+                tools,
+                groups,
+                0,
+                fixedMessage,
+                groupBlobs,
+                providerSessions,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await providerSessions.Close().ConfigureAwait(false);
+        }
     }
 
     public async Task<CompactionResult?> Compact(
@@ -114,12 +123,134 @@ internal sealed class Compactor(
         CompactionGroupBlobStore groupBlobs,
         CancellationToken cancellationToken)
     {
+        var providerSessions = new ProviderSessions();
+        try
+        {
+            return await CompactCore(
+                selectedModel,
+                instructions,
+                tools,
+                groups,
+                baseWatermark,
+                fixedMessage,
+                groupBlobs,
+                providerSessions,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await providerSessions.Close().ConfigureAwait(false);
+        }
+    }
+
+    internal Task<CompactionResult?> CompactWithProviderSessions(
+        ProviderModel selectedModel,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<CompactionGroup> groups,
+        long baseWatermark,
+        LLMMessage fixedMessage,
+        CompactionGroupBlobStore groupBlobs,
+        ProviderSessions providerSessions,
+        CancellationToken cancellationToken) =>
+        CompactCore(
+            selectedModel,
+            instructions,
+            tools,
+            groups,
+            baseWatermark,
+            fixedMessage,
+            groupBlobs,
+            providerSessions,
+            cancellationToken);
+
+    private static bool IsComplete(IReadOnlyList<LLMMessage> messages)
+    {
+        var toolCalls = messages.SelectMany(message => message.ToolCalls).ToArray();
+        return toolCalls.Length == 0 || toolCalls.All(call => messages.Any(message =>
+            message.Role == LLMRole.Tool
+            && string.Equals(message.ToolCallId, call.Id, StringComparison.Ordinal)));
+    }
+
+    private static bool IsEligibleForSpill(CompactionGroup group) =>
+        group.IsComplete
+        && group.Messages.Count > 0
+        && group.Messages[0].Role == LLMRole.Assistant
+        && group.Messages[0].ToolCalls.Count > 0;
+
+    private static long EstimateTokens(LLMMessage message) =>
+        message.Contents.Sum(content => content.Kind switch
+        {
+            LLMContentKind.Text => EstimateStringTokens(content.Text),
+            LLMContentKind.Image => EstimateImageTokens(content.Image.Length),
+            _ => throw new InvalidOperationException($"unsupported LLM content kind {content.Kind}"),
+        })
+        + message.ToolCalls.Sum(call => EstimateStringTokens(call.Id) + EstimateStringTokens(call.Name)
+            + EstimateStringTokens(call.ArgumentsJson))
+        + EstimateStringTokens(message.ToolCallId)
+        + 8;
+
+    private static IEnumerable<IReadOnlyList<LLMMessage>> Groups(IReadOnlyList<LLMMessage> messages)
+    {
+        for (var index = 0; index < messages.Count; index++)
+        {
+            var group = new List<LLMMessage> { messages[index] };
+            if (messages[index].Role == LLMRole.Assistant && messages[index].ToolCalls.Any())
+            {
+                while (index + 1 < messages.Count && messages[index + 1].Role == LLMRole.Tool)
+                {
+                    group.Add(messages[++index]);
+                }
+            }
+
+            yield return group;
+        }
+    }
+
+    private static string BoundSummary(string summary, int maximumOutputTokens)
+    {
+        if (EstimateStringTokens(summary) <= maximumOutputTokens)
+        {
+            return summary;
+        }
+
+        var maximumCharacters = checked(maximumOutputTokens * 4);
+        return summary[..Math.Min(summary.Length, maximumCharacters)];
+    }
+
+    private static long EstimateStringTokens(string value) => (value.Length + 3L) / 4L;
+
+    private static long EstimateImageTokens(int byteLength) =>
+        Math.Max(1024L, (byteLength + 2L) / 3L);
+
+    private static long PercentageBudget(int contextWindow, int percentage)
+    {
+        if (contextWindow <= 0)
+        {
+            throw new InvalidOperationException("The selected model must provide a positive context window.");
+        }
+
+        return ((long)contextWindow * percentage) / 100;
+    }
+
+    private async Task<CompactionResult?> CompactCore(
+        ProviderModel selectedModel,
+        string instructions,
+        IReadOnlyList<LLMToolDefinition> tools,
+        IReadOnlyList<CompactionGroup> groups,
+        long baseWatermark,
+        LLMMessage fixedMessage,
+        CompactionGroupBlobStore groupBlobs,
+        ProviderSessions providerSessions,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(selectedModel);
         ArgumentNullException.ThrowIfNull(instructions);
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(groups);
         ArgumentNullException.ThrowIfNull(fixedMessage);
         ArgumentNullException.ThrowIfNull(groupBlobs);
+        ArgumentNullException.ThrowIfNull(providerSessions);
         if (groups.Count < 2)
         {
             return null;
@@ -234,6 +365,7 @@ internal sealed class Compactor(
                     summary,
                     chunk,
                     summaryTokens,
+                    providerSessions,
                     cancellationToken).ConfigureAwait(false);
                 chunk.Clear();
             }
@@ -265,6 +397,7 @@ internal sealed class Compactor(
             summary,
             chunk,
             summaryTokens,
+            providerSessions,
             cancellationToken).ConfigureAwait(false);
         var summaryMessage = LLMMessage.System($"{_summaryPrefix}{summary}");
         IReadOnlyList<LLMMessage> compacted = [summaryMessage, fixedMessage, .. retained];
@@ -281,75 +414,6 @@ internal sealed class Compactor(
 
         var watermark = keepGroupFrom == 0 ? baseWatermark : groups[keepGroupFrom - 1].EndWatermark;
         return new CompactionResult(compacted, summaryMessage, retained.Count, watermark);
-    }
-
-    private static bool IsComplete(IReadOnlyList<LLMMessage> messages)
-    {
-        var toolCalls = messages.SelectMany(message => message.ToolCalls).ToArray();
-        return toolCalls.Length == 0 || toolCalls.All(call => messages.Any(message =>
-            message.Role == LLMRole.Tool
-            && string.Equals(message.ToolCallId, call.Id, StringComparison.Ordinal)));
-    }
-
-    private static bool IsEligibleForSpill(CompactionGroup group) =>
-        group.IsComplete
-        && group.Messages.Count > 0
-        && group.Messages[0].Role == LLMRole.Assistant
-        && group.Messages[0].ToolCalls.Count > 0;
-
-    private static long EstimateTokens(LLMMessage message) =>
-        message.Contents.Sum(content => content.Kind switch
-        {
-            LLMContentKind.Text => EstimateStringTokens(content.Text),
-            LLMContentKind.Image => EstimateImageTokens(content.Image.Length),
-            _ => throw new InvalidOperationException($"unsupported LLM content kind {content.Kind}"),
-        })
-        + message.ToolCalls.Sum(call => EstimateStringTokens(call.Id) + EstimateStringTokens(call.Name)
-            + EstimateStringTokens(call.ArgumentsJson))
-        + EstimateStringTokens(message.ToolCallId)
-        + 8;
-
-    private static IEnumerable<IReadOnlyList<LLMMessage>> Groups(IReadOnlyList<LLMMessage> messages)
-    {
-        for (var index = 0; index < messages.Count; index++)
-        {
-            var group = new List<LLMMessage> { messages[index] };
-            if (messages[index].Role == LLMRole.Assistant && messages[index].ToolCalls.Any())
-            {
-                while (index + 1 < messages.Count && messages[index + 1].Role == LLMRole.Tool)
-                {
-                    group.Add(messages[++index]);
-                }
-            }
-
-            yield return group;
-        }
-    }
-
-    private static string BoundSummary(string summary, int maximumOutputTokens)
-    {
-        if (EstimateStringTokens(summary) <= maximumOutputTokens)
-        {
-            return summary;
-        }
-
-        var maximumCharacters = checked(maximumOutputTokens * 4);
-        return summary[..Math.Min(summary.Length, maximumCharacters)];
-    }
-
-    private static long EstimateStringTokens(string value) => (value.Length + 3L) / 4L;
-
-    private static long EstimateImageTokens(int byteLength) =>
-        Math.Max(1024L, (byteLength + 2L) / 3L);
-
-    private static long PercentageBudget(int contextWindow, int percentage)
-    {
-        if (contextWindow <= 0)
-        {
-            throw new InvalidOperationException("The selected model must provide a positive context window.");
-        }
-
-        return ((long)contextWindow * percentage) / 100;
     }
 
     private long EstimateWithSummary(
@@ -392,6 +456,7 @@ internal sealed class Compactor(
         string precedingSummary,
         IReadOnlyList<LLMMessage> chunk,
         int maximumOutputTokens,
+        ProviderSessions providerSessions,
         CancellationToken cancellationToken)
     {
         var request = new LLMRequest
@@ -403,7 +468,8 @@ internal sealed class Compactor(
         };
 
         string? summary = null;
-        await foreach (var llmEvent in selectedModel.Provider.Call(request, cancellationToken).ConfigureAwait(false))
+        await foreach (var llmEvent in providerSessions.Get(selectedModel.Provider)
+            .Call(request, cancellationToken).ConfigureAwait(false))
         {
             if (summary is not null)
             {

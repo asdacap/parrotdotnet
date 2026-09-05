@@ -182,6 +182,7 @@ internal sealed class CompactContextToolTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             _compactionGroupBlobs,
             new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new ProviderSessions(),
             new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,

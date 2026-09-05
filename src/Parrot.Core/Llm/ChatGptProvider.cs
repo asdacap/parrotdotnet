@@ -43,6 +43,8 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
 
     public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults);
 
+    public ILLMProviderSession OpenSession() => new StatelessProviderSession(this);
+
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
         _tokens.HasCredential(cancellationToken);
 

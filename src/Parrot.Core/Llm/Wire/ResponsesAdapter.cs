@@ -10,59 +10,16 @@ namespace Parrot.Llm.Wire;
 // assembled assistant text and tool calls.
 internal static class ResponsesAdapter
 {
-    public static byte[] Encode(LLMRequest request)
+    public static byte[] Encode(LLMRequest request) => Prepare(request).EncodeHttp();
+
+    public static PreparedRequest Prepare(LLMRequest request)
     {
+        ArgumentNullException.ThrowIfNull(request);
         var input = new List<InputItem>();
 
         foreach (var message in request.Messages)
         {
-            // A tool result is its own input item, not a message.
-            if (message.Role == LLMRole.Tool)
-            {
-                input.Add(new InputItem
-                {
-                    Type = "function_call_output",
-                    CallId = message.ToolCallId,
-                    Output = message.Content,
-                });
-                continue;
-            }
-
-            var role = message.Role == LLMRole.System ? "developer" : RoleName(message.Role);
-            var content = new List<ContentPart>();
-
-            foreach (var part in message.Contents)
-            {
-                if (part.Kind == LLMContentKind.Image)
-                {
-                    content.Add(new ContentPart
-                    {
-                        Type = "input_image",
-                        ImageUrl = DataUrl(part),
-                    });
-                }
-                else if (part.Text.Length > 0)
-                {
-                    var partType = message.Role == LLMRole.Assistant ? "output_text" : "input_text";
-                    content.Add(new ContentPart { Type = partType, Text = part.Text });
-                }
-            }
-
-            if (content.Count > 0 || message.ToolCalls.Count == 0)
-            {
-                input.Add(new InputItem { Type = "message", Role = role, Content = content });
-            }
-
-            foreach (var call in message.ToolCalls)
-            {
-                input.Add(new InputItem
-                {
-                    Type = "function_call",
-                    CallId = call.Id,
-                    Name = call.Name,
-                    Arguments = call.ArgumentsJson,
-                });
-            }
+            AddMessageInput(message, input);
         }
 
         var tools = request.Tools.Count == 0
@@ -87,7 +44,7 @@ internal static class ResponsesAdapter
             };
         }
 
-        var body = new Body
+        return new PreparedRequest(new Body
         {
             Model = request.Model,
             Instructions = request.Instructions.Length > 0 ? request.Instructions : null,
@@ -98,9 +55,7 @@ internal static class ResponsesAdapter
             Reasoning = reasoning,
             Provider = WirePreferences.Normalize(request.ProviderPreferences),
             MaxOutputTokens = request.MaxTokens > 0 ? request.MaxTokens : null,
-        };
-
-        return JsonSerializer.SerializeToUtf8Bytes(body, WireJsonContext.Default.ResponsesBody);
+        });
     }
 
     public static async IAsyncEnumerable<LLMEvent> Parse(
@@ -117,24 +72,73 @@ internal static class ResponsesAdapter
                 throw new WireProtocolException("responses: provider stream completed without a terminal event");
             }
 
-            foreach (var published in Consume(record.Data, state))
+            foreach (var published in state.Consume(record.Data))
             {
                 yield return published;
             }
 
             if (state.Done)
             {
-                foreach (var toolCall in state.ToolCallEvents())
+                foreach (var published in state.CompleteEvents())
                 {
-                    yield return toolCall;
+                    yield return published;
                 }
 
-                yield return state.Complete();
                 yield break;
             }
         }
 
         throw new WireProtocolException("responses: unexpected provider EOF (stream ended without a terminal event)");
+    }
+
+    private static void AddMessageInput(LLMMessage message, List<InputItem> input)
+    {
+        if (message.Role == LLMRole.Tool)
+        {
+            input.Add(new InputItem
+            {
+                Type = "function_call_output",
+                CallId = message.ToolCallId,
+                Output = message.Content,
+            });
+            return;
+        }
+
+        var role = message.Role == LLMRole.System ? "developer" : RoleName(message.Role);
+        var content = new List<ContentPart>();
+
+        foreach (var part in message.Contents)
+        {
+            if (part.Kind == LLMContentKind.Image)
+            {
+                content.Add(new ContentPart
+                {
+                    Type = "input_image",
+                    ImageUrl = DataUrl(part),
+                });
+            }
+            else if (part.Text.Length > 0)
+            {
+                var partType = message.Role == LLMRole.Assistant ? "output_text" : "input_text";
+                content.Add(new ContentPart { Type = partType, Text = part.Text });
+            }
+        }
+
+        if (content.Count > 0 || message.ToolCalls.Count == 0)
+        {
+            input.Add(new InputItem { Type = "message", Role = role, Content = content });
+        }
+
+        foreach (var call in message.ToolCalls)
+        {
+            input.Add(new InputItem
+            {
+                Type = "function_call",
+                CallId = call.Id,
+                Name = call.Name,
+                Arguments = call.ArgumentsJson,
+            });
+        }
     }
 
     private static IEnumerable<LLMEvent> Consume(string data, ParseState state)
@@ -370,6 +374,66 @@ internal static class ResponsesAdapter
 
     private readonly record struct ItemFields(string Id, string Type, string CallId, string Name, string Arguments);
 
+    internal sealed record PreparedRequest(Body Body)
+    {
+        public IReadOnlyList<InputItem> Input => Body.Input;
+
+        public byte[] EncodeHttp() => JsonSerializer.SerializeToUtf8Bytes(Body, WireJsonContext.Default.ResponsesBody);
+
+        public byte[] EncodeWebSocket(string previousResponseId, IReadOnlyList<InputItem> input) =>
+            JsonSerializer.SerializeToUtf8Bytes(
+                new WebSocketRequest
+                {
+                    Model = Body.Model,
+                    Instructions = Body.Instructions,
+                    PreviousResponseId = previousResponseId.Length > 0 ? previousResponseId : null,
+                    Input = input,
+                    Tools = Body.Tools,
+                    Stream = Body.Stream,
+                    Store = Body.Store,
+                    Reasoning = Body.Reasoning,
+                    Provider = Body.Provider,
+                    MaxOutputTokens = Body.MaxOutputTokens,
+                },
+                WireJsonContext.Default.ResponsesWebSocketRequest);
+    }
+
+    internal sealed class WebSocketRequest
+    {
+        [JsonPropertyName("type")]
+        public string Type { get; init; } = "response.create";
+
+        [JsonPropertyName("model")]
+        public required string Model { get; init; }
+
+        [JsonPropertyName("instructions")]
+        public string? Instructions { get; init; }
+
+        [JsonPropertyName("previous_response_id")]
+        public string? PreviousResponseId { get; init; }
+
+        [JsonPropertyName("input")]
+        public required IReadOnlyList<InputItem> Input { get; init; }
+
+        [JsonPropertyName("tools")]
+        public IReadOnlyList<FunctionTool>? Tools { get; init; }
+
+        [JsonPropertyName("stream")]
+        public bool Stream { get; init; }
+
+        [JsonPropertyName("store")]
+        public bool Store { get; init; }
+
+        [JsonPropertyName("reasoning")]
+        public Reasoning? Reasoning { get; init; }
+
+        [JsonPropertyName("provider")]
+        public JsonElement? Provider { get; init; }
+
+        [JsonPropertyName("max_output_tokens")]
+        public int? MaxOutputTokens { get; init; }
+    }
+
     internal sealed class Body
     {
         [JsonPropertyName("model")]
@@ -483,8 +547,13 @@ internal static class ResponsesAdapter
     {
         private readonly Dictionary<string, ToolAccumulator> _tools = [];
         private readonly Dictionary<string, string> _aliases = [];
+        private readonly List<InputItem> _output = [];
 
         public bool Done { get; set; }
+
+        public string ResponseId { get; private set; } = string.Empty;
+
+        public IReadOnlyList<InputItem> Output => _output;
 
         public bool HasTools => _tools.Count > 0;
 
@@ -497,6 +566,34 @@ internal static class ResponsesAdapter
         public int OutputTokens { get; set; }
 
         public StringBuilder AssistantText { get; } = new();
+
+        public IEnumerable<LLMEvent> Consume(string data)
+        {
+            if (Done)
+            {
+                throw new WireProtocolException("responses: event arrived after the terminal event");
+            }
+
+            foreach (var published in ResponsesAdapter.Consume(data, this))
+            {
+                yield return published;
+            }
+
+            if (Done)
+            {
+                CaptureCompletion(data);
+            }
+        }
+
+        public IEnumerable<LLMEvent> CompleteEvents()
+        {
+            foreach (var toolCall in ToolCallEvents())
+            {
+                yield return toolCall;
+            }
+
+            yield return Complete();
+        }
 
         public ToolAccumulator AddTool(string itemId, string callId, string name, string arguments)
         {
@@ -593,5 +690,61 @@ internal static class ResponsesAdapter
                         .Select(key => _tools[key])
                         .Select(call => new LLMToolCall(call.ToolId(), call.Name, call.Arguments)),
                 ]);
+
+        private static List<ContentPart> ReadContent(JsonElement item)
+        {
+            var content = new List<ContentPart>();
+            if (item.TryGetProperty("content", out var parts) && parts.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var part in parts.EnumerateArray())
+                {
+                    content.Add(new ContentPart
+                    {
+                        Type = ReadString(part, "type"),
+                        Text = ReadString(part, "text"),
+                    });
+                }
+            }
+
+            return content;
+        }
+
+        private void CaptureCompletion(string data)
+        {
+            using var document = JsonDocument.Parse(data);
+            if (!document.RootElement.TryGetProperty("response", out var response)
+                || response.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            ResponseId = ReadString(response, "id");
+            if (response.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in output.EnumerateArray())
+                {
+                    var type = ReadString(item, "type");
+                    if (type == "function_call")
+                    {
+                        _output.Add(new InputItem
+                        {
+                            Type = type,
+                            CallId = ReadString(item, "call_id"),
+                            Name = ReadString(item, "name"),
+                            Arguments = ReadString(item, "arguments"),
+                        });
+                    }
+                    else if (type == "message")
+                    {
+                        _output.Add(new InputItem
+                        {
+                            Type = type,
+                            Role = ReadString(item, "role"),
+                            Content = ReadContent(item),
+                        });
+                    }
+                }
+            }
+        }
     }
 }

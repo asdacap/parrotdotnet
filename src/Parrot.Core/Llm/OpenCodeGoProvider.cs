@@ -33,6 +33,8 @@ internal sealed class OpenCodeGoProvider : ILLMProvider, IUsageReporter
 
     public IReadOnlyList<LLMModel> SeedModels() => _inner.SeedModels();
 
+    public ILLMProviderSession OpenSession() => _inner.OpenSession();
+
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
         _inner.Call(request, cancellationToken);
 

@@ -167,6 +167,37 @@ internal sealed class ProviderRegistryTests
     }
 
     [Test]
+    public async Task Build_activates_predefined_openai_with_a_seeded_model_catalogue(
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-openai-provider", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+
+        try
+        {
+            await File.WriteAllTextAsync(path, string.Empty, cancellationToken);
+            var store = new InMemoryCredentialStore();
+            await store.Set("openai", Credential.ForApiKey("placeholder"), cancellationToken);
+            using var handler = new OpenAiModelsHandler();
+            using var client = new HttpClient(handler, disposeHandler: false);
+            var registry = await new ProviderRegistryBuilder(
+                Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
+                store,
+                client,
+                new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
+
+            _ = await Assert.That(registry.List().Select(provider => provider.Id)).Contains("openai");
+            _ = await Assert.That(registry.Models("openai").Select(model => model.Id)).Contains("gpt-5.4");
+            _ = await Assert.That(handler.Requests).IsGreaterThanOrEqualTo(1);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Build_refreshes_catalogues_without_validating_the_configured_model(
         CancellationToken cancellationToken)
     {
@@ -455,6 +486,21 @@ internal sealed class ProviderRegistryTests
                     Encoding.UTF8,
                     "text/event-stream"),
             };
+        }
+    }
+
+    private sealed class OpenAiModelsHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            {
+                Content = new StringContent("temporarily unavailable", Encoding.UTF8, "text/plain"),
+            });
         }
     }
 

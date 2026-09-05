@@ -19,10 +19,20 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly HttpClient _client;
     private readonly TimeSpan _headerTimeout;
     private readonly string _providerPreferences;
+    private readonly IResponsesWebSocketConnector _websocketConnector;
 
     public OpenAICompatibleProvider(OpenAICompatibleOptions options, HttpClient client)
+        : this(options, client, new ResponsesWebSocketConnector())
+    {
+    }
+
+    internal OpenAICompatibleProvider(
+        OpenAICompatibleOptions options,
+        HttpClient client,
+        IResponsesWebSocketConnector websocketConnector)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(websocketConnector);
 
         if (string.IsNullOrWhiteSpace(options.Id))
         {
@@ -55,12 +65,26 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         _client = client;
         _headerTimeout = options.HeaderTimeout;
         _providerPreferences = options.ProviderPreferences;
+        _websocketConnector = websocketConnector;
     }
 
     public string Id { get; }
 
     // The offline catalogue: what is selectable before the endpoint is reached.
     public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults);
+
+    public ILLMProviderSession OpenSession() =>
+        _protocol == CompatibleProtocol.Responses
+            ? new OpenAICompatibleProviderSession(
+                Prepare,
+                CallHttp,
+                AuthHeadersForSession,
+                new ResponsesWebSocketClient(
+                    _websocketConnector,
+                    _endpoint,
+                    _headerTimeout,
+                    ResponsesWebSocket.DefaultIdleTimeout))
+            : new StatelessProviderSession(this);
 
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
         _apiKeySource.HasCredential(cancellationToken);
@@ -74,18 +98,16 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         return ModelCatalogue.Merge(_decoder.Decode(Id, body), _declared, _defaults);
     }
 
-    public async IAsyncEnumerable<LLMEvent> Call(
+    public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
+        CallHttp(request, cancellationToken);
+
+    private async IAsyncEnumerable<LLMEvent> CallHttp(
         LLMRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var prepared = request with
-        {
-            ProviderPreferences = _providerPreferences,
-            IncludeRouterMetadata = _providerPreferences.Length > 0,
-        };
-
+        var prepared = Prepare(request);
         var body = _protocol == CompatibleProtocol.Responses
             ? ResponsesAdapter.Encode(prepared)
             : ChatCompletionsAdapter.Encode(prepared);
@@ -106,6 +128,15 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             }
         }
     }
+
+    private LLMRequest Prepare(LLMRequest request) => request with
+    {
+        ProviderPreferences = _providerPreferences,
+        IncludeRouterMetadata = _providerPreferences.Length > 0,
+    };
+
+    private async Task<IReadOnlyDictionary<string, string>> AuthHeadersForSession(CancellationToken cancellationToken) =>
+        await AuthHeaders(cancellationToken).ConfigureAwait(false);
 
     private async Task<Dictionary<string, string>> AuthHeaders(CancellationToken cancellationToken)
     {
