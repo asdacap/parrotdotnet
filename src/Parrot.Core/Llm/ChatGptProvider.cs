@@ -25,25 +25,41 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
     private readonly IReadOnlyList<LLMModel> _defaults;
     private readonly Uri _endpoint = new(StreamEndpoint);
     private readonly string _sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+    private readonly IResponsesWebSocketConnector _websocketConnector;
 
     public ChatGptProvider(
         IOAuthTokenSource tokens,
         HttpClient client,
         IReadOnlyList<LLMModel> declared,
-        IReadOnlyList<LLMModel> defaults)
+        IReadOnlyList<LLMModel> defaults,
+        IResponsesWebSocketConnector websocketConnector)
     {
         ArgumentNullException.ThrowIfNull(tokens);
+        ArgumentNullException.ThrowIfNull(websocketConnector);
         _tokens = tokens;
         _client = client;
         _declared = declared;
         _defaults = defaults;
+        _websocketConnector = websocketConnector;
     }
 
     public string Id => ProviderId;
 
     public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults);
 
-    public ILLMProviderSession OpenSession() => new StatelessProviderSession(this);
+    public ILLMProviderSession OpenSession()
+    {
+        var sessionId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        return new OpenAICompatibleProviderSession(
+            static request => request with { MaxTokens = 0 },
+            Call,
+            cancellationToken => AuthHeadersForSession(sessionId, cancellationToken),
+            new ResponsesWebSocketClient(
+                _websocketConnector,
+                _endpoint,
+                HeaderTimeout,
+                ResponsesWebSocket.DefaultIdleTimeout));
+    }
 
     public ValueTask<bool> HasCredential(CancellationToken cancellationToken) =>
         _tokens.HasCredential(cancellationToken);
@@ -232,6 +248,17 @@ internal sealed class ChatGptProvider : ILLMProvider, IUsageReporter
             headers["ChatGPT-Account-Id"] = access.AccountId;
         }
 
+        return headers;
+    }
+
+    private async Task<IReadOnlyDictionary<string, string>> AuthHeadersForSession(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        var access = await _tokens.Token(cancellationToken).ConfigureAwait(false);
+        RequireToken(access);
+        var headers = Headers(access);
+        headers["session-id"] = sessionId;
         return headers;
     }
 }

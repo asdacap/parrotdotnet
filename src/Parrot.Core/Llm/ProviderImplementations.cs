@@ -1,5 +1,6 @@
 using Parrot.Auth;
 using Parrot.Config;
+using Parrot.Llm.Wire;
 
 namespace Parrot.Llm;
 
@@ -48,7 +49,8 @@ internal static class ProviderImplementations
                 tokenSource,
                 context.HttpClient,
                 ProviderModels.ReadDeclared(context.Id, context.Config.Models),
-                ProviderModels.ReadDefaults(context.Id, context.Config.ModelDefaults));
+                ProviderModels.ReadDefaults(context.Id, context.Config.ModelDefaults),
+                new ResponsesWebSocketConnector());
             return new(provider, provider.SeedModels());
         }
     }

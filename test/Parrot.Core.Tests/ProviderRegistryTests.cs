@@ -4,6 +4,7 @@ using System.Text.Json;
 using Parrot.Auth;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Llm.Wire;
 
 namespace Parrot.Core.Tests;
 
@@ -286,7 +287,8 @@ internal sealed class ProviderRegistryTests
                     InputPrice = 0.001,
                     Fields = ModelMetadataFields.InputPrice,
                 },
-            ]);
+            ],
+            new ResponsesWebSocketConnector());
 
         var seed = provider.SeedModels();
         var refreshed = await provider.ListModels(cancellationToken);
@@ -301,7 +303,7 @@ internal sealed class ProviderRegistryTests
     {
         using var handler = new ChatGptCallHandler();
         using var client = new HttpClient(handler, disposeHandler: false);
-        var provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], []);
+        var provider = new ChatGptProvider(new FakeOAuthTokenSource(), client, [], [], new ResponsesWebSocketConnector());
         var request = new LLMRequest
         {
             Model = "gpt-5.6-sol",
