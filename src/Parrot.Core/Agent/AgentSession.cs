@@ -55,10 +55,12 @@ internal sealed class AgentSession(
     CancellationToken lifetime) : IAgentSession
 {
     private const string InterruptedFinish = "interrupted";
+    private const int DefaultMaximumOutputTokens = 32 * 1024;
     private const int MaxAgentMessageBytes = 1024 * 1024;
     private const int MaxAgentResultBytes = 1024 * 1024;
 
     private readonly string _runawayMessage = promptTemplates.Render("agent-session.runaway", []);
+    private readonly string _truncatedToolCallPrompt = promptTemplates.Render("agent-session.truncated-tool-call", []);
     private readonly string _finalProviderRequestPrompt = promptTemplates.Render("agent-session.final-request", []);
     private readonly string _toolAvailabilityRestoredPrompt = promptTemplates.Render("agent-session.tools-restored", []);
     private readonly string _interruptedResult = promptTemplates.Render("agent-session.interrupted-result", []);
@@ -1515,6 +1517,27 @@ internal sealed class AgentSession(
                 var completed = await Call(activeSelection, snapshot, instructions, messages, cancellationToken)
                     .ConfigureAwait(false);
 
+                if (completed.FinishReason == "length" && completed.ToolCalls.Count > 0)
+                {
+                    var published = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        RetryNotice = new RetryNotice
+                        {
+                            Attempt = providerRequests,
+                            Reason = _truncatedToolCallPrompt,
+                        },
+                    };
+                    _ = eventRepository.Append(
+                        published,
+                        LLMMessage.System(_truncatedToolCallPrompt),
+                        ConversationOrigin.System);
+                    _history.Add(LLMMessage.System(_truncatedToolCallPrompt));
+                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 if (completed.ToolCalls.Count > 0)
                 {
                     var published = new Event
@@ -2378,10 +2401,24 @@ internal sealed class AgentSession(
     {
         var selectedModel = selection?.ResolvedModel.CanonicalModel
             ?? throw new AgentRegistryException("turn selection is unavailable");
+        var maximumOutputTokens = DefaultMaximumOutputTokens;
+        if (selectedModel.Model.ContextWindow > 0)
+        {
+            var availableOutputTokens = selectedModel.Model.ContextWindow
+                - Compactor.EstimateInputTokens(instructions, snapshot.Definitions, messages);
+            if (availableOutputTokens <= 0)
+            {
+                throw new InvalidOperationException(
+                    "The conversation leaves no output capacity in the selected model context window.");
+            }
+
+            maximumOutputTokens = (int)Math.Min(DefaultMaximumOutputTokens, availableOutputTokens);
+        }
+
         var request = new LLMRequest
         {
             Model = selectedModel.ModelId,
-            MaxTokens = 4096,
+            MaxTokens = maximumOutputTokens,
             Instructions = instructions,
             Messages = messages,
             Tools = snapshot.Definitions,

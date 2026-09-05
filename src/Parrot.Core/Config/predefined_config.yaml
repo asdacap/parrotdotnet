@@ -300,6 +300,10 @@ prompt_templates:
     template: 'the turn exceeded its provider-request limit'
     allowed_arguments: []
     required_arguments: []
+  agent-session.truncated-tool-call:
+    template: 'Your previous tool call was cut off by the output limit and was not executed. Reissue the complete tool call with shorter arguments.'
+    allowed_arguments: []
+    required_arguments: []
   agent-session.final-request:
     template: 'This is the final provider request allowed for the current turn. Tools are unavailable for this request. Do not request or invoke tools. Provide the best possible final answer using the information already available.'
     allowed_arguments: []

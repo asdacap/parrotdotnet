@@ -71,6 +71,57 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    [Arguments(0)]
+    [Arguments(100_000)]
+    [Arguments(20_000)]
+    public async Task Provider_output_budget_uses_32k_or_the_known_remaining_context(
+        int contextWindow,
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(Answer("done"));
+        var repository = new EventRepository(_database);
+        await using var session = Session(provider, repository, [], contextWindow, 0, 0, 0, cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+
+        var request = provider.Requests.Single();
+        var estimatedInputTokens = Compactor.EstimateInputTokens(
+            request.Instructions,
+            request.Tools,
+            request.Messages);
+        var expectedMaximumOutputTokens = contextWindow > 0
+            ? (int)Math.Min(32_768, contextWindow - estimatedInputTokens)
+            : 32_768;
+        _ = await Assert.That(expectedMaximumOutputTokens).IsGreaterThan(0);
+        _ = await Assert.That(request.MaxTokens).IsEqualTo(expectedMaximumOutputTokens);
+        if (contextWindow > 0)
+        {
+            _ = await Assert.That(estimatedInputTokens + request.MaxTokens).IsLessThanOrEqualTo(contextWindow);
+        }
+
+        provider.Release();
+        await session.Settled();
+    }
+
+    [Test]
+    public async Task Exhausted_known_context_fails_before_calling_the_provider(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("should not be called");
+        var repository = new EventRepository(_database);
+        await using var session = Session(provider, repository, [], 1, 0, 0, 0, cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await session.Settled();
+
+        _ = await Assert.That(provider.Requests).IsEmpty();
+        _ = await Assert.That(repository.Replay().Last(published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
+            .Contains("no output capacity");
+    }
+
+    [Test]
     public async Task Disposal_waits_for_a_blocked_drain_and_is_safe_when_repeated(
         CancellationToken cancellationToken)
     {
@@ -460,7 +511,7 @@ internal sealed class DrainTests : IDisposable
                 firstProvider,
                 repository,
                 [new FixedToolFactory(new SettledTool("settled"))],
-                128,
+                100_000,
                 0.125,
                 0.025,
                 0.25,
@@ -476,7 +527,7 @@ internal sealed class DrainTests : IDisposable
         using (var secondProvider = new SteppedProvider(
             LLMEvent.Completed("stop", 6, 1, 2, "second", [])))
         {
-            await using var restoredSession = Session(secondProvider, repository, [], 128, 0.125, 0.025, 0.25, cancellationToken);
+            await using var restoredSession = Session(secondProvider, repository, [], 100_000, 0.125, 0.025, 0.25, cancellationToken);
             _ = await restoredSession.Send([ConversationPart.TextPart("second prompt")], "msg-2", Delivery.Steer, cancellationToken);
             await secondProvider.Arrived(cancellationToken);
             secondProvider.Release();
@@ -498,7 +549,7 @@ internal sealed class DrainTests : IDisposable
             string.Join(" | ", statistics.Select(updated =>
                 $"{updated.InputTokens}:{updated.CachedInputTokens}:{updated.OutputTokens}:"
                 + $"{updated.ContextSize}:{updated.ContextLimit}")))
-            .IsEqualTo("10:3:4:10:128 | 17:5:9:7:128 | 23:6:11:6:128");
+            .IsEqualTo("10:3:4:10:100000 | 17:5:9:7:100000 | 23:6:11:6:100000");
         _ = await Assert.That(statistics[0].InputCost).IsEqualTo(0.95);
         _ = await Assert.That(statistics[0].OutputCost).IsEqualTo(1.0);
         _ = await Assert.That(statistics[1].InputCost).IsEqualTo(1.625);
@@ -797,6 +848,120 @@ internal sealed class DrainTests : IDisposable
 
         _ = await Assert.That(repository.Messages("agent").Count(message =>
             message.Contains("Tool access is restored", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Length_truncated_tool_call_is_discarded_and_reissued_before_execution(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed(
+                "length",
+                10,
+                0,
+                32_768,
+                "partial",
+                [new LLMToolCall("truncated", "settled", "{\"value\":\"")]),
+            Answer(string.Empty, new LLMToolCall("complete", "settled", "{}")),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        using var subscription = _broker.Subscribe();
+        await using var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            Profile(maxTurns: 4),
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        var correction = provider.Requests[1].Messages.Single(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("cut off by the output limit", StringComparison.Ordinal));
+        _ = await Assert.That(correction.Content).Contains("was not executed").And.Contains("shorter arguments");
+        _ = await Assert.That(provider.Requests[1].Messages).DoesNotContain(message =>
+            message.ToolCalls.Any(call => call.Id == "truncated"));
+        _ = await Assert.That(repository.ModelHistory("agent")).DoesNotContain(message =>
+            message.ToolCalls.Any(call => call.Id == "truncated"));
+        _ = await Assert.That(ToolLifecycle(repository)).IsEmpty();
+
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        var published = new List<Event>();
+        while (subscription.Reader.TryRead(out var next))
+        {
+            published.Add(next);
+        }
+
+        var retry = published.Single(item => item.PayloadCase == Event.PayloadOneofCase.RetryNotice).RetryNotice;
+        _ = await Assert.That(retry.Attempt).IsEqualTo(1);
+        _ = await Assert.That(retry.RetryAfterMs).IsEqualTo(0);
+        _ = await Assert.That(retry.Reason).Contains("cut off by the output limit");
+        _ = await Assert.That(ToolLifecycle(repository)).IsEqualTo(
+            "started:complete:settled | finished:complete:settled");
+        _ = await Assert.That(Conversation(repository)).IsEqualTo(
+            $"user: prompt | system: {correction.Content} | assistant:  | tool: settled | assistant: done");
+    }
+
+    [Test]
+    public async Task Repeated_length_truncated_tool_calls_consume_the_provider_request_limit(
+        CancellationToken cancellationToken)
+    {
+        var truncated = LLMEvent.Completed(
+            "length",
+            1,
+            0,
+            1,
+            string.Empty,
+            [new LLMToolCall("truncated", "settled", "{")]);
+        using var provider = new SteppedProvider(truncated, truncated);
+        var repository = new EventRepository(_database);
+        await using var session = Session(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            Profile(maxTurns: 2),
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+        _ = await Assert.That(ToolLifecycle(repository)).IsEmpty();
+        _ = await Assert.That(repository.ModelHistory("agent")).DoesNotContain(message => message.ToolCalls.Count > 0);
+        _ = await Assert.That(repository.Replay().Last(published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
+            .IsEqualTo("the turn exceeded its provider-request limit");
+    }
+
+    [Test]
+    public async Task Length_completion_without_tool_calls_keeps_the_normal_completion_behavior(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("length", 1, 0, 32_768, "partial answer", []));
+        var repository = new EventRepository(_database);
+        await using var session = Session(provider, repository, [], cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(Endings(repository)).IsEqualTo("length");
+        _ = await Assert.That(Conversation(repository)).IsEqualTo("user: prompt | assistant: partial answer");
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.RetryNotice)).IsEqualTo(0);
     }
 
     [Test]
