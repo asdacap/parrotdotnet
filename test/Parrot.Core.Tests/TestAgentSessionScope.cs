@@ -22,8 +22,8 @@ internal sealed class TestAgentSessionScope : IAgentSessionScope, IDisposable
         _promptTemplates = promptTemplates;
         _children = new ChildRegistry(owner);
         ChildRegistry = _children;
-        AgentSpawner = new AgentSpawner(owner, registry, this, ChildRegistry);
         ParentScope = AgentSessionParentScope.Bind(owner, registry, () => this, ChildRegistry, parentLink);
+        AgentSpawner = new AgentSpawner(owner, registry, ParentScope, ChildRegistry);
         ChildQuestions = new ChildQuestionCoordinator(ParentScope, promptTemplates);
     }
 

@@ -8,7 +8,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
     private const int MaxDepth = 4;
     private readonly AgentIdentity _owner;
     private readonly IAgentRegistry _authority;
-    private readonly IAgentSessionScope _ownerScope;
+    private readonly AgentSessionParentScope _parentSessionScope;
     private readonly IChildRegistry _children;
     private readonly CancellationTokenSource _lifetime;
     private readonly Lock _gate = new();
@@ -24,12 +24,12 @@ internal sealed class AgentSpawner : IAsyncDisposable
     internal AgentSpawner(
         AgentIdentity owner,
         IAgentRegistry authority,
-        IAgentSessionScope ownerScope,
+        AgentSessionParentScope parentSessionScope,
         IChildRegistry children)
     {
         _owner = owner ?? throw new ArgumentNullException(nameof(owner));
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
-        _ownerScope = ownerScope ?? throw new ArgumentNullException(nameof(ownerScope));
+        _parentSessionScope = parentSessionScope ?? throw new ArgumentNullException(nameof(parentSessionScope));
         _children = children ?? throw new ArgumentNullException(nameof(children));
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(authority.ChildLifetime);
     }
@@ -53,7 +53,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
             throw new AgentRegistryException("subagent depth limit reached");
         }
 
-        var registeredOwnerScope = RequireOwnerScope();
+        var registeredOwnerScope = _parentSessionScope.RequireOwnerScope();
         var profile = _authority.ResolveChildProfile(request.RequestedProfile);
         var status = _authority.RequireStatus();
         var retainedReservation = _authority.ReserveRetainedAgent();
@@ -65,11 +65,6 @@ internal sealed class AgentSpawner : IAsyncDisposable
             lock (_gate)
             {
                 EnsureAccepting();
-                if (!ReferenceEquals(_ownerScope, registeredOwnerScope))
-                {
-                    throw new AgentRegistryException($"parent agent scope not found: {_owner.SessionId}");
-                }
-
                 childParentLink = new AgentSessionParentLink(registeredOwnerScope, request.DeliveryPolicy);
                 if (childParentLink.PolicyLineage.CountProfile(profile.Id)
                     + _pendingProfiles.GetValueOrDefault(profile.Id)
@@ -207,23 +202,6 @@ internal sealed class AgentSpawner : IAsyncDisposable
         }
 
         return sanitized.ToString().TrimEnd('-');
-    }
-
-    private IAgentSessionScope RequireOwnerScope()
-    {
-        if (!_authority.IsAccepting)
-        {
-            throw new AgentRegistryException("the user session is shutting down");
-        }
-
-        lock (_gate)
-        {
-            EnsureAccepting();
-        }
-
-        return _authority.ContainsScope(_ownerScope)
-            ? _ownerScope
-            : throw new AgentRegistryException($"parent agent scope not found: {_owner.SessionId}");
     }
 
     private string SelectUniqueName(string requestedName, string sessionId)
