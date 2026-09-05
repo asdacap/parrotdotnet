@@ -51,10 +51,10 @@ internal sealed class PermissionBrokerTests : IDisposable
         broker.Reply(pending.Id, "grant", string.Empty);
 
         _ = await Assert.That((await request).Decision).IsEqualTo(PermissionDecision.Grant);
-        _ = await Assert.That(requestingSecurity.Capture(requesting.Selection().SecurityProfile).AllowsWrite(first.Path)).IsTrue();
-        _ = await Assert.That(requestingSecurity.Capture(requesting.Selection().SecurityProfile).AllowsWrite(second.Path)).IsTrue();
-        _ = await Assert.That(otherSecurity.Capture(other.Selection().SecurityProfile).AllowsWrite(first.Path)).IsFalse();
-        _ = await Assert.That(otherSecurity.Capture(other.Selection().SecurityProfile).AllowsWrite(second.Path)).IsFalse();
+        _ = await Assert.That(requestingSecurity.Capture(requesting.CurrentSelection().SecurityProfile).AllowsWrite(first.Path)).IsTrue();
+        _ = await Assert.That(requestingSecurity.Capture(requesting.CurrentSelection().SecurityProfile).AllowsWrite(second.Path)).IsTrue();
+        _ = await Assert.That(otherSecurity.Capture(other.CurrentSelection().SecurityProfile).AllowsWrite(first.Path)).IsFalse();
+        _ = await Assert.That(otherSecurity.Capture(other.CurrentSelection().SecurityProfile).AllowsWrite(second.Path)).IsFalse();
         _ = await Assert.That(broker.Pending()).IsEmpty();
     }
 

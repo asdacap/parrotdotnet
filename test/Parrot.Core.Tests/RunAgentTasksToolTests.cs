@@ -594,7 +594,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             cancellationToken));
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
-        var selected = parent.Selection();
+        var selected = parent.CurrentSelection();
         var catalog = new AgentTaskRunCatalog(cancellationToken);
         _catalogs.Add(catalog);
         return new RuntimeContext(

@@ -219,7 +219,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             new AgentSessionActivity(TimeProvider.System),
             cancellationToken));
         registry.RegisterRootScope(parentScope);
-        var selected = parentScope.Session.Selection();
+        var selected = parentScope.Session.CurrentSelection();
         return new RuntimeContext(
             router,
             registry,

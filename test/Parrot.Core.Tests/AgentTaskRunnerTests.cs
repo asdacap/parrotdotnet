@@ -871,7 +871,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             cancellationToken));
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
-        var selected = parent.Selection();
+        var selected = parent.CurrentSelection();
         var selection = new AgentTurnSelection(
             selected.RequestedModel,
             router.Resolve(selected.RequestedModel.Value),

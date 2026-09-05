@@ -7,7 +7,7 @@ using Parrot.Context;
 namespace Parrot.Tools;
 
 internal sealed class CompactContextTool(
-    IAgentSession session,
+    IAgentSessionContext session,
     PromptTemplateCatalog promptTemplates) : ITool
 {
     public string Name => "compact_context";

@@ -50,7 +50,7 @@ internal sealed class AgentSendTool(
                 return ToolResultFormatter.Error(invocation, "cannot delegate to a more permissive agent");
             }
 
-            return (await target.Send(message, cancellationToken).ConfigureAwait(false)).Format();
+            return (await target.SendTextMessage(message, cancellationToken).ConfigureAwait(false)).Format();
         }
         catch (AgentRegistryException failure)
         {

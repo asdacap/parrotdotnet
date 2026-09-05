@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Text;
 using Parrot.Config;
 using Parrot.Context;
@@ -23,11 +22,7 @@ namespace Parrot.Agent;
 // runs is admitted and promoted by that drain, never answered by a second one:
 // two drains would be two writers on one history and two provider calls billed
 // for the same conversation.
-//
-// The drain state below -- the task, its cancellation, the wake flag and the
-// state itself -- is shared with whatever thread admits or interrupts, and
-// _drainGate is the whole of its synchronisation.
-internal sealed class AgentSession(
+internal sealed partial class AgentSession(
     AgentIdentity identity,
     AgentSessionParentScope parentScope,
     ModelSelector model,
@@ -52,7 +47,7 @@ internal sealed class AgentSession(
     RuntimeStatus status,
     AgentQueues queues,
     AgentSessionActivity activity,
-    CancellationToken lifetime) : IAgentSession
+    CancellationToken lifetime) : IAgentSession, IAgentSessionContext
 {
     private const string InterruptedFinish = "interrupted";
     private const int DefaultMaximumOutputTokens = 32 * 1024;
@@ -75,8 +70,12 @@ internal sealed class AgentSession(
     // context is sampled once per epoch and prefixed at each turn.
     private readonly List<LLMMessage> _history = RestoreHistory(eventRepository, identity.SessionId);
 
+    private readonly DrainLifecycle _drainLifecycle = new();
+
+    private readonly EpochContext _epochContext = new(identity.Depth > 0);
+
     // Compaction runs inside the drain so it cannot mutate history concurrently
-    // with a turn. Callers enqueue requests under _drainGate and wake that drain.
+    // with a turn. Callers enqueue requests under the drain gate and wake that drain.
     private readonly Queue<ForcedCompactionRequest> _forcedCompactions = [];
     private readonly IReadOnlyList<IAgentTurnCompletionCallback> _turnCompletionCallbacks =
         turnCompletionCallbacks ?? throw new ArgumentNullException(nameof(turnCompletionCallbacks));
@@ -84,7 +83,6 @@ internal sealed class AgentSession(
     private readonly AgentSkills _skills = skills ?? throw new ArgumentNullException(nameof(skills));
 
     private readonly Lock _executionGate = new();
-    private readonly Lock _drainGate = new();
     private readonly Lock _selectionGate = new();
     private readonly ISystemPrompt _systemPrompt = systemPrompt
         ?? throw new ArgumentNullException(nameof(systemPrompt));
@@ -94,29 +92,12 @@ internal sealed class AgentSession(
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
         ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);
 
-    private DrainState _state;
-
     private AgentSelection _selection = new(model, mode, security.Policy());
     private ResolvedModelSelection? _resolvedSelection;
-    private ToolSnapshot? _tools;
-
-    private bool _epochInitialized;
-    private bool _contextCadenceRestored;
-    private bool _initialStatusPending = identity.Depth > 0;
-    private Task<AgentExecution> _drain = Task.FromResult(AgentExecution.Succeeded(string.Empty));
-    private DrainCancellation? _drainCancellation;
-    private bool _wake;
     private bool _disposing;
     private bool _started;
     private Task<AgentExecution> _execution = Task.FromResult(AgentExecution.Succeeded(string.Empty));
     private TaskCompletionSource<IncomingActivity>? _incomingInputWait;
-
-    // Set while an interrupt is unwinding a drain. It says who disposes the
-    // drain's cancellation: normally the drain does when it settles, but an
-    // interrupter still holding it to cancel would then be cancelling a
-    // disposed source, so it hands that duty over for the one case where the
-    // two overlap.
-    private bool _stopping;
 
     internal AgentSession(
         AgentIdentity identity,
@@ -180,8 +161,6 @@ internal sealed class AgentSession(
 
     public string ParentSessionName => identity.ParentSessionName;
 
-    // How deep this session sits below the root. The registry refuses a child
-    // beyond its recursion limit.
     public int Depth => identity.Depth;
 
     public AgentIdentity Identity => identity;
@@ -190,65 +169,7 @@ internal sealed class AgentSession(
     public AgentSessionActivity Activity { get; } = activity
         ?? throw new ArgumentNullException(nameof(activity));
 
-    public ContextSnapshot EstimateContext(AgentTurnSelection selection)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-
-        if (!_epochInitialized)
-        {
-            _systemPrompt.RenewEpoch();
-            _epochInitialized = true;
-        }
-
-        var tools = MaterializeTools()
-            .Without(selection.Profile.DisabledTools)
-            .Only(selection.Profile.AllowedTools);
-        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools.Definitions, [.. _history]);
-    }
-
-    public IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        return MaterializeTools()
-            .Without(selection.Profile.DisabledTools)
-            .Only(selection.Profile.AllowedTools)
-            .Definitions;
-    }
-
-    public ContextSnapshot EstimateContextForTools(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(tools);
-        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools, [.. _history]);
-    }
-
-    public ContextSnapshot EstimateContextForToolsAndHistory(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools,
-        IReadOnlyList<LLMMessage> history)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(tools);
-        ArgumentNullException.ThrowIfNull(history);
-        return EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools, history);
-    }
-
-    public ContextSnapshot EstimateContextForHistory(
-        AgentTurnSelection selection,
-        string instructions,
-        IReadOnlyList<LLMToolDefinition> tools,
-        IReadOnlyList<LLMMessage> history)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(instructions);
-        ArgumentNullException.ThrowIfNull(tools);
-        ArgumentNullException.ThrowIfNull(history);
-        return compactor.EstimateContext(selection.ResolvedModel.CanonicalModel, instructions, tools, history);
-    }
-
-    public AgentSelection Selection()
+    public AgentSelection CurrentSelection()
     {
         lock (_selectionGate)
         {
@@ -296,29 +217,29 @@ internal sealed class AgentSession(
     public async Task Interrupt(CancellationToken cancellationToken)
     {
         Task draining;
-        DrainCancellation? stopping = null;
+        DrainLifecycle.DrainCancellation? stopping = null;
 
-        lock (_drainGate)
+        lock (_drainLifecycle.Gate)
         {
-            if (_drainCancellation is null)
+            if (_drainLifecycle.Cancellation is null)
             {
                 return;
             }
 
-            draining = _drain;
+            draining = _drainLifecycle.Drain;
 
             // Somebody is already stopping this drain. Wait for the same
             // unwinding rather than cancelling and disposing it twice.
-            if (!_stopping)
+            if (!_drainLifecycle.Stopping)
             {
-                _state = DrainState.Interrupting;
+                _drainLifecycle.State = DrainState.Interrupting;
                 Activity.ChangeState(DrainState.Interrupting);
 
                 // Cleared behind the same gate as the capture: a wake that
                 // survived it would restart the drain this is stopping.
-                _wake = false;
-                _stopping = true;
-                stopping = _drainCancellation;
+                _drainLifecycle.Wake = false;
+                _drainLifecycle.Stopping = true;
+                stopping = _drainLifecycle.Cancellation;
             }
         }
 
@@ -333,13 +254,13 @@ internal sealed class AgentSession(
 
         if (stopping is not null)
         {
-            lock (_drainGate)
+            lock (_drainLifecycle.Gate)
             {
-                _stopping = false;
+                _drainLifecycle.Stopping = false;
             }
 
-            // The drain left it alone because _stopping was set, and it has
-            // finished, so nothing else can be holding it.
+            // The drain left it alone because the stopping flag was set, and it
+            // has finished, so nothing else can be holding it.
             stopping.Release();
         }
 
@@ -355,10 +276,10 @@ internal sealed class AgentSession(
     // close.
     public async ValueTask DisposeAsync()
     {
-        lock (_drainGate)
+        lock (_drainLifecycle.Gate)
         {
             _disposing = true;
-            _wake = false;
+            _drainLifecycle.Wake = false;
         }
 
         await Interrupt(CancellationToken.None).ConfigureAwait(false);
@@ -370,7 +291,7 @@ internal sealed class AgentSession(
         cancellationToken.ThrowIfCancellationRequested();
         var request = new ForcedCompactionRequest(cancellationToken);
 
-        lock (_drainGate)
+        lock (_drainLifecycle.Gate)
         {
             if (_disposing || lifetime.IsCancellationRequested)
             {
@@ -378,85 +299,26 @@ internal sealed class AgentSession(
             }
 
             _forcedCompactions.Enqueue(request);
-            if (_drainCancellation is not null)
+            if (_drainLifecycle.Cancellation is not null)
             {
-                _wake = true;
+                _drainLifecycle.Wake = true;
             }
             else
             {
-                _drainCancellation = new DrainCancellation(lifetime);
-                _state = DrainState.Running;
+                var cancellation = new DrainLifecycle.DrainCancellation(lifetime);
+                _drainLifecycle.Cancellation = cancellation;
+                _drainLifecycle.State = DrainState.Running;
                 Activity.ChangeState(DrainState.Running);
-                _drain = Drain(_drainCancellation.Token);
+                _drainLifecycle.Drain = Drain(cancellation.Token);
             }
         }
 
         return AwaitForcedCompaction(request);
     }
 
-    public ContextSnapshot EstimateContextAfterToolResult(
-        AgentTurnSelection selection,
-        string toolCallId,
-        string result)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentException.ThrowIfNullOrWhiteSpace(toolCallId);
-        ArgumentNullException.ThrowIfNull(result);
-
-        var tools = MaterializeTools()
-            .Without(selection.Profile.DisabledTools)
-            .Only(selection.Profile.AllowedTools);
-        var history = RestoreHistory(eventRepository, SessionId);
-        var formattedResult = promptTemplates.Render(
-            "tool-result.text",
-            [new PromptTemplateArgument("value", result)]);
-        history.Add(LLMMessage.ToolResult(toolCallId, formattedResult));
-        return EstimateContextForHistory(
-            selection,
-            _systemPrompt.Build(selection),
-            tools.Definitions,
-            history);
-    }
-
-    public async Task<ContextCompactionResult> CompactFromTool(
-        AgentTurnSelection selection,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(selection);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var tools = MaterializeTools()
-            .Without(selection.Profile.DisabledTools)
-            .Only(selection.Profile.AllowedTools);
-        if (!_epochInitialized)
-        {
-            _systemPrompt.RenewEpoch();
-            _epochInitialized = true;
-        }
-
-        var instructions = _systemPrompt.Build(selection);
-        var before = EstimateContextForHistory(selection, instructions, tools.Definitions, [.. _history]);
-        if (!before.IsAvailable)
-        {
-            return new ContextCompactionResult(before, false);
-        }
-
-        var compacted = await CompactEpoch(
-            selection,
-            tools.Definitions,
-            instructions,
-            cancellationToken).ConfigureAwait(false);
-        var after = EstimateContextForHistory(
-            selection,
-            compacted.Instructions,
-            tools.Definitions,
-            [.. _history]);
-        return new ContextCompactionResult(after, compacted.Reduced);
-    }
-
     public AgentSelection ResolvePolicySelection()
     {
-        var selected = Selection();
+        var selected = CurrentSelection();
         return selected with
         {
             SecurityProfile = identity.PolicyLineage.Resolve(selected.SecurityProfile),
@@ -465,19 +327,19 @@ internal sealed class AgentSession(
 
     public AgentPolicyLineage ResolvePolicyLineage() => identity.PolicyLineage;
 
-    public bool IsIdle() => _state == DrainState.Idle;
+    public bool IsIdle() => _drainLifecycle.State == DrainState.Idle;
 
     public bool IsActive()
     {
         lock (_executionGate)
         {
-            return _state != DrainState.Idle || (_started && !_execution.IsCompleted);
+            return _drainLifecycle.State != DrainState.Idle || (_started && !_execution.IsCompleted);
         }
     }
 
     public bool IsWaitingForIncomingInput()
     {
-        lock (_drainGate)
+        lock (_drainLifecycle.Gate)
         {
             return _incomingInputWait is not null;
         }
@@ -492,7 +354,7 @@ internal sealed class AgentSession(
         cancellationToken.ThrowIfCancellationRequested();
         var incoming = new TaskCompletionSource<IncomingActivity>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        lock (_drainGate)
+        lock (_drainLifecycle.Gate)
         {
             if (_incomingInputWait is not null)
             {
@@ -550,7 +412,7 @@ internal sealed class AgentSession(
         }
         finally
         {
-            lock (_drainGate)
+            lock (_drainLifecycle.Gate)
             {
                 if (ReferenceEquals(_incomingInputWait, incoming))
                 {
@@ -617,7 +479,7 @@ internal sealed class AgentSession(
         return true;
     }
 
-    public async Task<AgentSendResult> Send(string message, CancellationToken cancellationToken)
+    public async Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken)
     {
         var (result, _) = await SendAndSelectExecution(message, cancellationToken).ConfigureAwait(false);
         return result;
@@ -909,13 +771,6 @@ internal sealed class AgentSession(
         ToolCallId = item.ToolCallId,
     };
 
-    private static MessageContentPart ToProtocol(ConversationPart part) => part.Kind switch
-    {
-        ConversationPartKind.Text => new MessageContentPart { Text = part.Text },
-        ConversationPartKind.ImageArtifact => new MessageContentPart { ArtifactId = part.ArtifactId },
-        _ => throw new InvalidOperationException($"unsupported conversation part {part.Kind}"),
-    };
-
     private static bool IsParallelSafe(ToolSnapshot snapshot, long assistantSequence, LLMToolCall call)
     {
         var tool = snapshot.Find(call.Name);
@@ -926,1720 +781,54 @@ internal sealed class AgentSession(
     private static async Task AwaitForcedCompaction(ForcedCompactionRequest request) =>
         await request.Completion.Task.WaitAsync(request.CancellationToken).ConfigureAwait(false);
 
-    private List<LLMMessage> HistoryWithNextPromotion()
+    // The drain state -- the task, its cancellation, the wake flag and the
+    // state itself -- is shared with whatever thread admits or interrupts, and
+    // the gate is the whole of its synchronisation.
+    private sealed class DrainLifecycle
     {
-        var history = new List<LLMMessage>(_history);
-        history.AddRange(eventRepository.InputsForNextPromotion(SessionId)
-            .Select(input => LLMMessage.User(eventRepository.Materialize(input.Parts))));
-        return history;
-    }
+        internal Lock Gate { get; } = new();
 
-    private async Task<string> ObserveStatusForInsertion(
-        AgentTurnSelection selection,
-        IAgentProfile profile,
-        IReadOnlyList<LLMToolDefinition> tools,
-        CancellationToken cancellationToken)
-    {
-        var requestHistory = HistoryWithNextPromotion();
-        var context = EstimateContextForHistory(selection, _systemPrompt.Build(selection), tools, requestHistory);
-        var content = await status.ObserveWithContext(
-            this,
-            selection,
-            profile,
-            context,
-            cancellationToken).ConfigureAwait(false);
-        const int maximumStatusConvergenceAttempts = 8;
-        for (var attempt = 0; attempt < maximumStatusConvergenceAttempts; attempt++)
+        internal DrainState State { get; set; }
+
+        internal Task<AgentExecution> Drain { get; set; } =
+            Task.FromResult(AgentExecution.Succeeded(string.Empty));
+
+        internal DrainCancellation? Cancellation { get; set; }
+
+        internal bool Wake { get; set; }
+
+        // Set while an interrupt is unwinding a drain. It says who disposes the
+        // drain's cancellation: normally the drain does when it settles, but an
+        // interrupter still holding it to cancel would then be cancelling a
+        // disposed source, so it hands that duty over for the one case where the
+        // two overlap.
+        internal bool Stopping { get; set; }
+
+        internal sealed class DrainCancellation(CancellationToken lifetime)
         {
-            var candidateHistory = new List<LLMMessage>(requestHistory) { LLMMessage.System(content) };
-            var candidateContext = EstimateContextForHistory(
-                selection,
-                _systemPrompt.Build(selection),
-                tools,
-                candidateHistory);
-            var contextContent = await status.ObserveContext(
-                this,
-                selection,
-                candidateContext,
-                cancellationToken).ConfigureAwait(false);
-            var rendered = ReplaceContextStatus(content, contextContent);
-            var renderedContext = EstimateContextForHistory(
-                selection,
-                _systemPrompt.Build(selection),
-                tools,
-                [.. requestHistory, LLMMessage.System(rendered)]);
-            content = rendered;
-            if (candidateContext == renderedContext)
-            {
-                break;
-            }
-        }
+            private readonly CancellationTokenSource _source =
+                CancellationTokenSource.CreateLinkedTokenSource(lifetime);
 
-        return content;
-    }
+            internal CancellationToken Token => _source.Token;
 
-    private AgentSelection CaptureSelection()
-    {
-        var selected = ResolvePolicySelection();
-        return selected with { SecurityProfile = security.Capture(selected.SecurityProfile) };
-    }
+            internal async ValueTask CancelAsync() => await _source.CancelAsync().ConfigureAwait(false);
 
-    private ResolvedModelSelection ResolveModel(AgentSelection selection)
-    {
-        lock (_selectionGate)
-        {
-            return _resolvedSelection is { } resolved
-                && string.Equals(resolved.RequestedSelector.Value, selection.RequestedModel.Value, StringComparison.Ordinal)
-                    ? resolved
-                    : router.Resolve(selection.RequestedModel.Value);
+            internal void Release() => _source.Dispose();
         }
     }
 
-    private async Task<AgentExecution> WaitForDrainResult()
+    // The context-epoch state -- the epoch-initialised and cadence-restored
+    // flags, the pending initial status, and the materialised tools -- is
+    // sampled once per epoch and carried across turns.
+    private sealed class EpochContext(bool initialStatusPending)
     {
-        Task<AgentExecution> draining;
+        internal bool EpochInitialized { get; set; }
 
-        lock (_drainGate)
-        {
-            draining = _drain;
-        }
+        internal bool ContextCadenceRestored { get; set; }
 
-        return await draining.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-    }
+        internal bool InitialStatusPending { get; set; } = initialStatusPending;
 
-    private Event TranslateProviderEvent(LLMEvent llmEvent)
-    {
-        var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-
-        switch (llmEvent.Kind)
-        {
-            case LLMEventKind.TextDelta:
-                published.TextChunk = new TextChunk { Fragment = llmEvent.Text };
-                break;
-
-            case LLMEventKind.ReasoningDelta:
-                published.ReasoningChunk = new ReasoningChunk
-                {
-                    Fragment = llmEvent.Text,
-                    Kind = llmEvent.ReasoningKind == LLMReasoningKind.Summary
-                        ? ReasoningKind.Summary
-                        : ReasoningKind.Raw,
-                    PartId = llmEvent.ReasoningPartId,
-                    Completed = llmEvent.ReasoningCompleted,
-                };
-                break;
-
-            case LLMEventKind.ToolCallDelta:
-                published.ToolCallChunk = new ToolCallChunk
-                {
-                    ToolCallId = llmEvent.ToolCallId,
-                    ToolName = llmEvent.ToolName,
-                    ArgumentsFragment = llmEvent.Text,
-                };
-                break;
-
-            default:
-                published.RetryNotice = new RetryNotice
-                {
-                    Attempt = llmEvent.Attempt,
-                    RetryAfterMs = (int)llmEvent.RetryAfter.TotalMilliseconds,
-                    Reason = llmEvent.Text,
-                };
-                break;
-        }
-
-        return published;
-    }
-
-    private WaitAgentResult Terminal(AgentExecution completed, long elapsedMilliseconds) =>
-        completed.Status switch
-        {
-            AgentExecutionStatus.Succeeded => TaskResult(
-                AgentTaskStatus.Succeeded,
-                yielded: false,
-                elapsedMilliseconds,
-                completed.Output,
-                completed.Error),
-            AgentExecutionStatus.Failed => TaskResult(
-                AgentTaskStatus.Failed,
-                yielded: false,
-                elapsedMilliseconds,
-                completed.Output,
-                completed.Error),
-            _ => TaskResult(
-                AgentTaskStatus.Canceled,
-                yielded: false,
-                elapsedMilliseconds,
-                completed.Output,
-                completed.Error),
-        };
-
-    private WaitAgentResult TaskResult(
-        AgentTaskStatus status,
-        bool yielded,
-        long elapsedMilliseconds,
-        string output,
-        string error) =>
-        new(SessionId, Name, status, yielded, elapsedMilliseconds, output, error);
-
-    private async Task<(AgentSendResult Result, Task<AgentExecution> Execution)> SendAndSelectExecution(
-        string message,
-        CancellationToken cancellationToken)
-    {
-        if (lifetime.IsCancellationRequested)
-        {
-            throw new AgentRegistryException("the user session is shutting down");
-        }
-
-        if (string.IsNullOrWhiteSpace(message))
-        {
-            throw new AgentRegistryException("no message given");
-        }
-
-        if (Encoding.UTF8.GetByteCount(message) > MaxAgentMessageBytes)
-        {
-            throw new AgentRegistryException("agent message exceeds 1048576 bytes");
-        }
-
-        var messageId = Identifier.MessageId();
-        Task<AgentExecution>? execution = null;
-        var followUp = false;
-
-        lock (_executionGate)
-        {
-            if (!_started || _execution.IsCompleted)
-            {
-                followUp = _started;
-                _started = true;
-                execution = Execute(
-                    message,
-                    messageId,
-                    selectedDrain: null,
-                    followUp ? cancellationToken : CancellationToken.None);
-                _execution = execution;
-            }
-        }
-
-        if (execution is null)
-        {
-            var admitted = await AdmitPartsAndWake(
-                [ConversationPart.TextPart(message)],
-                messageId,
-                Delivery.Steer,
-                new IncomingActivity(IncomingActivityKind.Input, string.Empty),
-                cancellationToken).ConfigureAwait(false);
-            execution = admitted.SelectedDrain;
-        }
-
-        return (new AgentSendResult(SessionId, Name, messageId, followUp), execution);
-    }
-
-    private async Task<AgentExecution> Execute(
-        string prompt,
-        string messageId,
-        Task<AgentExecution>? selectedDrain,
-        CancellationToken cancellationToken)
-    {
-        var activityExecution = Activity.BeginExecution();
-        await Task.Yield();
-
-        AgentExecution completed;
-        var started = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            AgentStarted = new AgentStarted
-            {
-                ParentAgentSessionId = identity.ParentSessionId,
-                Name = Name,
-            },
-        };
-
-        try
-        {
-            await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
-            if (selectedDrain is null)
-            {
-                _ = await Send(
-                    [ConversationPart.TextPart(prompt)], messageId, Delivery.Steer, cancellationToken).ConfigureAwait(false);
-                completed = BoundResult(await WaitForDrainResult().ConfigureAwait(false));
-            }
-            else
-            {
-                completed = BoundResult(await selectedDrain.WaitAsync(CancellationToken.None).ConfigureAwait(false));
-            }
-        }
-        catch (Exception failure)
-        {
-            completed = AgentExecution.Failed(BoundResult(failure.Message));
-        }
-
-        ChildQuestionCompletionAttempt terminalCompletionAttempt;
-        while (true)
-        {
-            terminalCompletionAttempt = childQuestions.BeginCompletion();
-            if (terminalCompletionAttempt.Reminder is null)
-            {
-                break;
-            }
-
-            terminalCompletionAttempt.Dispose();
-            completed = BoundResult(await WaitForDrainResult().ConfigureAwait(false));
-        }
-
-        using (terminalCompletionAttempt)
-        {
-            var elapsedMilliseconds = (long)(Activity.Capture().RequestSessionDuration ?? TimeSpan.Zero).TotalMilliseconds;
-            var terminal = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-            if (completed.Status == AgentExecutionStatus.Succeeded)
-            {
-                terminal.AgentFinished = new AgentFinished
-                {
-                    ParentAgentSessionId = identity.ParentSessionId,
-                    Name = Name,
-                    ElapsedMs = elapsedMilliseconds,
-                };
-            }
-            else
-            {
-                terminal.AgentFailed = new AgentFailed
-                {
-                    ParentAgentSessionId = identity.ParentSessionId,
-                    Name = Name,
-                    Message = completed.Error,
-                };
-            }
-
-            try
-            {
-                await EmitEvent(terminal, null, null, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception failure)
-            {
-                completed = AgentExecution.Failed(BoundResult(failure.Message));
-            }
-        }
-
-        Activity.FinishExecution(activityExecution, completed);
-        if (parentScope.DeliveryPolicy == AgentCompletionDeliveryPolicy.Automatic
-            && parentScope.Parent is { } parent)
-        {
-            try
-            {
-                if (parent.ChildRegistry.IsAccepting)
-                {
-                    await parent.Session.ReceiveAgentCompletion(
-                        identity.Name,
-                        completed.FormatCompletion(identity, parent.Session.Identity.PromptTemplates),
-                        CancellationToken.None).ConfigureAwait(false);
-                }
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        return completed;
-    }
-
-    private async Task<(Admission Admission, bool FollowUp, Task<AgentExecution> SelectedDrain)> AdmitPartsAndWake(
-        IReadOnlyList<ConversationPart> parts,
-        string messageId,
-        Delivery delivery,
-        IncomingActivity activity,
-        CancellationToken cancellationToken)
-    {
-        var admission = eventRepository.Admit(
-            SessionId,
-            messageId,
-            parts,
-            delivery,
-            input =>
-            {
-                var admitted = new InputAdmitted
-                {
-                    InputId = input.Id,
-                    MessageId = input.MessageId,
-                    Content = input.Content,
-                    Delivery = input.Delivery,
-                };
-                admitted.Parts.AddRange(input.Parts.Select(ToProtocol));
-                return new Event
-                {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = SessionId,
-                    InputAdmitted = admitted,
-                };
-            });
-
-        // Only a real admission has an event; a re-send of one already taken
-        // has nothing new to publish, but still wakes, because the sender
-        // re-sent precisely because they were not sure it had been.
-        if (admission.Published is not null)
-        {
-            await eventBroker.Publish(admission.Published, cancellationToken).ConfigureAwait(false);
-        }
-
-        var incoming = admission.Created || eventRepository.HasPendingInputs(SessionId) ? activity : null;
-        var (followUp, selectedDrain) = WakeSelected(incoming);
-        return (admission, followUp, selectedDrain);
-    }
-
-    private (bool FollowUp, Task<AgentExecution> SelectedDrain) WakeSelected(IncomingActivity? activity)
-    {
-        lock (_drainGate)
-        {
-            if (_disposing)
-            {
-                return (false, _drain);
-            }
-
-            if (activity is not null)
-            {
-                _ = _incomingInputWait?.TrySetResult(activity);
-            }
-
-            if (_drainCancellation is not null)
-            {
-                _wake = true;
-                return (false, _drain);
-            }
-
-            // Linked to the session's lifetime, never to the request that woke
-            // it: a unary call's token is cancelled when the call returns, and
-            // the turn outlives the call that admitted its prompt.
-            _drainCancellation = new DrainCancellation(lifetime);
-            _state = DrainState.Running;
-            Activity.ChangeState(DrainState.Running);
-            _drain = Drain(_drainCancellation.Token);
-            return (true, _drain);
-        }
-    }
-
-    private async Task<AgentExecution> Drain(CancellationToken cancellationToken)
-    {
-        // The drain belongs to the session, not to whoever admitted the prompt:
-        // yielding here returns Wake to its caller instead of running the first
-        // turn on the admitting thread.
-        await Task.Yield();
-
-        var completed = AgentExecution.Succeeded(string.Empty);
-
-        while (true)
-        {
-            await RunForcedCompactions(cancellationToken).ConfigureAwait(false);
-            var pass = await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false);
-            if (pass.Status != AgentExecutionStatus.Succeeded || pass.Output.Length > 0)
-            {
-                completed = pass;
-            }
-
-            lock (_drainGate)
-            {
-                // Admitted after the last promotion looked and before the drain
-                // settled. Check durable input as well as the in-memory wake so
-                // recovered or otherwise pre-existing input cannot be stranded.
-                if (pass.Status == AgentExecutionStatus.Succeeded
-                    && !cancellationToken.IsCancellationRequested
-                    && (_forcedCompactions.Count > 0 || _wake || eventRepository.HasPendingInputs(SessionId)))
-                {
-                    _wake = false;
-                    continue;
-                }
-
-                // Left alone while an interrupt is unwinding: that caller is
-                // still holding it, and disposes it once this task has ended.
-                if (!_stopping)
-                {
-                    _drainCancellation?.Release();
-                }
-
-                _drainCancellation = null;
-                while (_forcedCompactions.TryDequeue(out var forcedCompaction))
-                {
-                    _ = forcedCompaction.Completion.TrySetCanceled(cancellationToken);
-                }
-
-                _state = DrainState.Idle;
-                Activity.ChangeState(DrainState.Idle);
-            }
-
-            if (completed.Status == AgentExecutionStatus.Succeeded
-                && !cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    _ = await queues.Deliver(cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                }
-            }
-
-            return completed;
-        }
-    }
-
-    // One pass: promote what is due, call the provider, run what it asks for,
-    // and repeat until nothing is left to answer. The sequence is the one
-    // docs/architecture.md fixes, and its two promotion points are the whole
-    // difference between a steer and a queued prompt.
-    private async Task<AgentExecution> Pass(
-        bool turnOpen,
-        AgentTurnSelection? activeSelection,
-        CancellationToken cancellationToken)
-    {
-        var answer = string.Empty;
-        var providerRequests = 0;
-        var completionRetryPending = false;
-        ToolSnapshot? activeTools = null;
-
-        try
-        {
-            while (true)
-            {
-                if (!turnOpen && HasForcedCompactions())
-                {
-                    return AgentExecution.Succeeded(answer);
-                }
-
-                await ReconcileToolBatchesUsingCurrentConfiguration(cancellationToken).ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Looking is not consuming. A pending status remains pending
-                // while an idle drain has no input that could reach a provider.
-                if (!completionRetryPending && !Answerable() && !eventRepository.HasPendingInputs(SessionId))
-                {
-                    return AgentExecution.Succeeded(answer);
-                }
-
-                if (!turnOpen)
-                {
-                    _skills.EndTurn();
-                    var captured = CaptureSelection();
-                    captured.Profile.Prepare();
-                    var resolved = ResolveModel(captured);
-                    activeSelection = new AgentTurnSelection(
-                        resolved.RequestedSelector,
-                        resolved,
-                        captured.Profile,
-                        captured.SecurityProfile);
-                    providerRequests = 0;
-                    turnOpen = true;
-                    _providerSessions.BeginTurn();
-                    var aliasIcon = resolved.Alias?.Icon;
-                    var started = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        TurnStarted = new TurnStarted
-                        {
-                            Model = resolved.CanonicalModel.Selector,
-                            ModelAliasIcon = aliasIcon is null
-                                ? null
-                                : new TurnModelAliasIcon
-                                {
-                                    Glyph = aliasIcon.Glyph,
-                                    Color = aliasIcon.Color switch
-                                    {
-                                        ModelAliasIconColor.Black => TurnModelAliasIconColor.Black,
-                                        ModelAliasIconColor.Red => TurnModelAliasIconColor.Red,
-                                        ModelAliasIconColor.Green => TurnModelAliasIconColor.Green,
-                                        ModelAliasIconColor.Yellow => TurnModelAliasIconColor.Yellow,
-                                        ModelAliasIconColor.Blue => TurnModelAliasIconColor.Blue,
-                                        ModelAliasIconColor.Magenta => TurnModelAliasIconColor.Magenta,
-                                        ModelAliasIconColor.Cyan => TurnModelAliasIconColor.Cyan,
-                                        ModelAliasIconColor.White => TurnModelAliasIconColor.White,
-                                        ModelAliasIconColor.Gray => TurnModelAliasIconColor.Gray,
-                                        _ => throw new InvalidOperationException("The model alias icon color is invalid."),
-                                    },
-                                },
-                        },
-                    };
-                    await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
-                    if (!_epochInitialized)
-                    {
-                        _systemPrompt.RenewEpoch();
-                        _epochInitialized = true;
-                    }
-
-                    activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
-                    _skills.BeginTurn();
-                    activeTools = MaterializeTools()
-                        .Without(activeSelection.Profile.DisabledTools)
-                        .Only(activeSelection.Profile.AllowedTools);
-                    await RestoreToolAvailability(cancellationToken).ConfigureAwait(false);
-                }
-
-                // Status is committed before promotion, so sequenced history is
-                // epoch baseline, status, then the user input it describes.
-                _ = await Promote(cancellationToken).ConfigureAwait(false);
-
-                if (activeSelection is null || activeTools is null)
-                {
-                    throw new AgentRegistryException("turn selection is unavailable");
-                }
-
-                var maxTurns = activeSelection.Profile.MaxTurns;
-                if (providerRequests >= maxTurns)
-                {
-                    await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
-                    return AgentExecution.Failed(_runawayMessage);
-                }
-
-                var finalProviderRequest = providerRequests + 1 == maxTurns;
-                var snapshot = finalProviderRequest
-                    ? ToolSnapshot.Empty
-                    : activeTools;
-                if (finalProviderRequest)
-                {
-                    await InjectFinalProviderRequestPrompt(cancellationToken).ConfigureAwait(false);
-                }
-
-                var instructions = await PrepareEpoch(
-                    activeSelection,
-                    snapshot.Definitions,
-                    cancellationToken).ConfigureAwait(false);
-                var messages = new List<LLMMessage>(_history);
-                var loadedSkillPaths = _skills.AppendTo(messages);
-                foreach (var loadedSkillPath in loadedSkillPaths)
-                {
-                    var loaded = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        SkillLoaded = new SkillLoadedEvent { Path = loadedSkillPath },
-                    };
-                    await EmitEvent(loaded, null, null, cancellationToken).ConfigureAwait(false);
-                }
-
-                providerRequests++;
-                var completed = await Call(activeSelection, snapshot, instructions, messages, cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (completed.FinishReason == "length" && completed.ToolCalls.Count > 0)
-                {
-                    var published = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        RetryNotice = new RetryNotice
-                        {
-                            Attempt = providerRequests,
-                            Reason = _truncatedToolCallPrompt,
-                        },
-                    };
-                    _ = eventRepository.Append(
-                        published,
-                        LLMMessage.System(_truncatedToolCallPrompt),
-                        ConversationOrigin.System);
-                    _history.Add(LLMMessage.System(_truncatedToolCallPrompt));
-                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (completed.ToolCalls.Count > 0)
-                {
-                    var published = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                    };
-                    eventRepository.AppendConversation(
-                        published,
-                        ConversationOrigin.Model,
-                        LLMRole.Assistant,
-                        [ConversationPart.TextPart(completed.AssistantText)],
-                        completed.ToolCalls,
-                        string.Empty);
-                    _history.Add(LLMMessage.Assistant(completed.AssistantText, completed.ToolCalls));
-                    await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-                    Activity.RecordAssistantMessage(completed.AssistantText);
-                    await ReconcileToolBatches(
-                        activeSelection,
-                        snapshot,
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (providerRequests == maxTurns)
-                    {
-                        await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
-                        return AgentExecution.Failed(_runawayMessage);
-                    }
-
-                    continue;
-                }
-
-                var completionCandidate = new AgentTurnCompletionCandidate(
-                    SessionId,
-                    Identifier.MessageId(),
-                    completed.AssistantText,
-                    activeSelection.Profile);
-                List<IDisposable> completionReservations = [];
-                PlanCompleted? deferredPlanCompletion = null;
-                AgentTurnCompletionOutcome.RetryOutcome? retryOutcome = null;
-                try
-                {
-                    foreach (var callback in _turnCompletionCallbacks)
-                    {
-                        var outcome = await callback.Complete(completionCandidate, cancellationToken)
-                            .ConfigureAwait(false);
-                        switch (outcome)
-                        {
-                            case AgentTurnCompletionOutcome.ContinueOutcome continuation:
-                                if (continuation.CompletionReservation is { } completionReservation)
-                                {
-                                    completionReservations.Add(completionReservation);
-                                }
-
-                                if (continuation.DeferredPlanCompletion is { } planCompletion)
-                                {
-                                    deferredPlanCompletion = planCompletion;
-                                }
-
-                                break;
-                            case AgentTurnCompletionOutcome.RetryOutcome retry:
-                                retryOutcome = retry;
-                                break;
-                        }
-
-                        if (retryOutcome is not null)
-                        {
-                            break;
-                        }
-                    }
-
-                    if (retryOutcome is not null)
-                    {
-                        var systemMessage = retryOutcome.SystemMessage
-                            ?? throw new InvalidOperationException("A retry outcome requires a system message.");
-                        if (retryOutcome.RetainCandidateAssistant)
-                        {
-                            _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
-                        }
-
-                        _history.Add(LLMMessage.System(systemMessage));
-                        if (retryOutcome.RecordAssistantActivity)
-                        {
-                            Activity.RecordAssistantMessage(completed.AssistantText);
-                        }
-
-                        if (retryOutcome.SelectCandidateAnswer)
-                        {
-                            answer = completed.AssistantText;
-                        }
-
-                        if (retryOutcome.CompletionRetryPending is { } retryPending)
-                        {
-                            completionRetryPending = retryPending;
-                        }
-
-                        providerRequests = 0;
-                        continue;
-                    }
-
-                    answer = completed.AssistantText;
-                    completionRetryPending = false;
-                    _history.Add(LLMMessage.Assistant(completed.AssistantText, []));
-                    var ended = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        TurnEnded = new TurnEnded
-                        {
-                            FinishReason = completed.FinishReason,
-                            InputTokens = _statistics.InputTokens,
-                            OutputTokens = _statistics.OutputTokens,
-                        },
-                    };
-                    if (deferredPlanCompletion is { } planCompleted)
-                    {
-                        var plan = new Event
-                        {
-                            Id = Identifier.EventId(),
-                            AgentSessionId = SessionId,
-                            PlanCompleted = planCompleted,
-                        };
-                        await EmitEvent(plan, null, null, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
-                        .ConfigureAwait(false);
-                    Activity.RecordAssistantMessage(completed.AssistantText);
-
-                    // Back to the top rather than out: a queued prompt is promoted
-                    // exactly here, where the turn would otherwise stop.
-                    turnOpen = false;
-                    activeSelection = null;
-                    activeTools = null;
-                }
-                finally
-                {
-                    foreach (var completionReservation in completionReservations)
-                    {
-                        completionReservation.Dispose();
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Not a failure: the turn was stopped, and it stopped with every
-            // tool call settled. Reported on the same event as any other
-            // ending, because it is one.
-            if (turnOpen)
-            {
-                _history.Add(LLMMessage.Assistant(_interruptedNote, []));
-
-                var ended = new Event
-                {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = SessionId,
-                    TurnEnded = new TurnEnded
-                    {
-                        FinishReason = InterruptedFinish,
-                        InputTokens = _statistics.InputTokens,
-                        OutputTokens = _statistics.OutputTokens,
-                    },
-                };
-                await EmitEvent(ended, "assistant", _interruptedNote, CancellationToken.None)
-                    .ConfigureAwait(false);
-                Activity.RecordAssistantMessage(_interruptedNote);
-            }
-
-            return AgentExecution.Canceled();
-        }
-        catch (Exception failure)
-        {
-            // A provider or tool boundary is a deliberate containment point, and
-            // this one is total: the drain is nobody's awaited task, so an
-            // escaping exception would be unobserved rather than reported.
-            await Fail(
-                failure.Message,
-                ProviderErrors.ReadResponseBody(failure),
-                CancellationToken.None).ConfigureAwait(false);
-            return AgentExecution.Failed(failure.Message);
-        }
-        finally
-        {
-            _skills.EndTurn();
-        }
-    }
-
-    // Steers first, all of them: they join the turn already running. A queued
-    // prompt is taken only when nothing else is owed an answer, which is what
-    // makes it a turn of its own rather than a second voice in this one.
-    private async Task<int> Promote(CancellationToken cancellationToken)
-    {
-        var promoted = eventRepository.PromoteSteers(
-            SessionId,
-            input => new Event
-            {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                InputPromoted = new InputPromoted { InputId = input.Id, MessageId = input.MessageId },
-            });
-
-        if (promoted.Count == 0 && !Answerable())
-        {
-            promoted = eventRepository.PromoteNextQueue(
-                SessionId,
-                input => new Event
-                {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = SessionId,
-                    InputPromoted = new InputPromoted { InputId = input.Id, MessageId = input.MessageId },
-                });
-        }
-
-        foreach (var promotion in promoted)
-        {
-            _skills.Select(promotion.Input.Parts);
-            _history.Add(LLMMessage.User(eventRepository.Materialize(promotion.Input.Parts)));
-            await eventBroker.Publish(promotion.Published, cancellationToken).ConfigureAwait(false);
-        }
-
-        return promoted.Count;
-    }
-
-    // Whether the model owes an answer. A history ending in a user prompt or a
-    // tool result is unanswered; one ending in an assistant message is not.
-    private bool Answerable() =>
-        _history.LastOrDefault(message => message.Role != LLMRole.System)?.Role is LLMRole.User or LLMRole.Tool;
-
-    // Every call the model made gets a result, even when the turn is stopped
-    // part-way through: a provider rejects a history holding a call with no
-    // answer, so an interrupt that left one behind would break every later
-    // prompt rather than only this turn (principle 6).
-    private ToolSnapshot MaterializeTools()
-    {
-        if (_tools is not null)
-        {
-            return _tools;
-        }
-
-        var tools = new List<ITool>(toolFactories.Count);
-        var supported = new List<bool>(toolFactories.Count);
-        foreach (var factory in toolFactories)
-        {
-            supported.Add(factory.Supports(this));
-            tools.Add(factory.Create(this));
-        }
-
-        _tools = ToolSnapshot.Document(tools, supported, toolDefinitions);
-        return _tools;
-    }
-
-    private async Task ReconcileToolBatchesUsingCurrentConfiguration(CancellationToken cancellationToken)
-    {
-        var captured = CaptureSelection();
-        var resolved = ResolveModel(captured);
-        var selection = new AgentTurnSelection(
-            resolved.RequestedSelector,
-            resolved,
-            captured.Profile,
-            captured.SecurityProfile);
-        var tools = MaterializeTools()
-            .Without(captured.Profile.DisabledTools)
-            .Only(captured.Profile.AllowedTools);
-        await ReconcileToolBatches(selection, tools, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task ReconcileToolBatches(
-        AgentTurnSelection selection,
-        ToolSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        var conversation = eventRepository.Conversation(SessionId);
-        var terminals = eventRepository.ToolTerminals(SessionId)
-            .ToDictionary(terminal => terminal.ToolCallId, StringComparer.Ordinal);
-        var changed = false;
-
-        foreach (var batch in conversation.Where(item => item.Role == LLMRole.Assistant && item.ToolCalls.Count > 0))
-        {
-            var stopped = false;
-            var callIndex = 0;
-            while (callIndex < batch.ToolCalls.Count)
-            {
-                var call = batch.ToolCalls[callIndex];
-                if (terminals.TryGetValue(call.Id, out var restoredTerminal))
-                {
-                    changed |= eventRepository.AppendToolSettlement(
-                        new Event { Id = Identifier.EventId(), AgentSessionId = SessionId },
-                        batch.Sequence,
-                        restoredTerminal);
-                    stopped |= restoredTerminal.Status == ToolExecutionStatus.Cancelled;
-                    callIndex++;
-                    continue;
-                }
-
-                if (stopped || cancellationToken.IsCancellationRequested)
-                {
-                    var cancelled = CancelTool(call);
-                    await SettleTool(batch.Sequence, cancelled, terminals).ConfigureAwait(false);
-                    changed = true;
-                    stopped = true;
-                    callIndex++;
-                    continue;
-                }
-
-                if (!IsParallelSafe(snapshot, batch.Sequence, call))
-                {
-                    var settlement = await Invoke(selection, snapshot, batch.Sequence, call, cancellationToken)
-                        .ConfigureAwait(false);
-                    await SettleTool(batch.Sequence, settlement, terminals).ConfigureAwait(false);
-                    changed = true;
-                    stopped |= settlement.Terminal.Status == ToolExecutionStatus.Cancelled;
-                    callIndex++;
-                    continue;
-                }
-
-                var runEnd = callIndex;
-                var executions = new Dictionary<string, Task<(Event Published, ToolExecutionTerminal Terminal)>>(
-                    StringComparer.Ordinal);
-                while (runEnd < batch.ToolCalls.Count)
-                {
-                    var candidate = batch.ToolCalls[runEnd];
-                    if (!IsParallelSafe(snapshot, batch.Sequence, candidate))
-                    {
-                        break;
-                    }
-
-                    if (terminals.TryGetValue(candidate.Id, out var candidateTerminal))
-                    {
-                        if (candidateTerminal.Status == ToolExecutionStatus.Cancelled)
-                        {
-                            break;
-                        }
-
-                        runEnd++;
-                        continue;
-                    }
-
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-
-                    executions.Add(
-                        candidate.Id,
-                        Invoke(selection, snapshot, batch.Sequence, candidate, cancellationToken));
-                    runEnd++;
-                }
-
-                if (runEnd == callIndex)
-                {
-                    continue;
-                }
-
-                var settlements = await Task.WhenAll(executions.Values).ConfigureAwait(false);
-                var settlementsByCall = settlements.ToDictionary(
-                    settlement => settlement.Terminal.ToolCallId,
-                    StringComparer.Ordinal);
-                while (callIndex < runEnd)
-                {
-                    call = batch.ToolCalls[callIndex];
-                    if (terminals.TryGetValue(call.Id, out restoredTerminal))
-                    {
-                        changed |= eventRepository.AppendToolSettlement(
-                            new Event { Id = Identifier.EventId(), AgentSessionId = SessionId },
-                            batch.Sequence,
-                            restoredTerminal);
-                    }
-                    else
-                    {
-                        var settlement = settlementsByCall[call.Id];
-                        await SettleTool(batch.Sequence, settlement, terminals).ConfigureAwait(false);
-                        changed = true;
-                        stopped |= settlement.Terminal.Status == ToolExecutionStatus.Cancelled;
-                    }
-
-                    callIndex++;
-                }
-            }
-
-            var images = batch.ToolCalls
-                .Select(call => terminals[call.Id])
-                .Where(terminal => terminal.Status == ToolExecutionStatus.Finished)
-                .SelectMany(terminal => terminal.ResultParts)
-                .Where(part => part.Kind == ConversationPartKind.ImageArtifact)
-                .ToArray();
-            if (images.Length > 0 && !eventRepository.HasToolSynthetic(batch.Sequence, SessionId))
-            {
-                var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-                _ = eventRepository.AppendToolSynthetic(published, batch.Sequence, images);
-                await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
-                changed = true;
-            }
-        }
-
-        if (changed)
-        {
-            _history.Clear();
-            _history.AddRange(RestoreHistory(eventRepository, SessionId));
-        }
-    }
-
-    private async Task SettleTool(
-        long assistantSequence,
-        (Event Published, ToolExecutionTerminal Terminal) settlement,
-        Dictionary<string, ToolExecutionTerminal> terminals)
-    {
-        _ = eventRepository.AppendToolSettlement(settlement.Published, assistantSequence, settlement.Terminal);
-        await eventBroker.Publish(settlement.Published, CancellationToken.None).ConfigureAwait(false);
-        terminals.Add(settlement.Terminal.ToolCallId, settlement.Terminal);
-    }
-
-    private bool HasForcedCompactions()
-    {
-        lock (_drainGate)
-        {
-            return _forcedCompactions.Count > 0;
-        }
-    }
-
-    private async Task RunForcedCompactions(CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            ForcedCompactionRequest? request;
-            lock (_drainGate)
-            {
-                _ = _forcedCompactions.TryDequeue(out request);
-            }
-
-            if (request is null)
-            {
-                return;
-            }
-
-            try
-            {
-                using var operation = CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken,
-                    request.CancellationToken);
-                operation.Token.ThrowIfCancellationRequested();
-                await ReconcileToolBatchesUsingCurrentConfiguration(operation.Token).ConfigureAwait(false);
-                var captured = CaptureSelection();
-                captured.Profile.Prepare();
-                var resolved = ResolveModel(captured);
-                var selection = new AgentTurnSelection(
-                    resolved.RequestedSelector,
-                    resolved,
-                    captured.Profile,
-                    captured.SecurityProfile);
-                var tools = MaterializeTools()
-                    .Without(selection.Profile.DisabledTools)
-                    .Only(selection.Profile.AllowedTools);
-                if (!_epochInitialized)
-                {
-                    _systemPrompt.RenewEpoch();
-                    _epochInitialized = true;
-                }
-
-                var instructions = _systemPrompt.Build(selection);
-                _ = await CompactEpoch(selection, tools.Definitions, instructions, operation.Token).ConfigureAwait(false);
-                _ = request.Completion.TrySetResult();
-            }
-            catch (OperationCanceledException failure)
-            {
-                _ = request.Completion.TrySetCanceled(failure.CancellationToken);
-            }
-            catch (Exception failure)
-            {
-                _ = request.Completion.TrySetException(failure);
-            }
-        }
-    }
-
-    // Sampled at the start of an epoch, not every turn, and compaction starts a
-    // fresh one -- so a turn never begins already over the window.
-    private async Task<string> PrepareEpoch(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools,
-        CancellationToken cancellationToken)
-    {
-        if (!_epochInitialized)
-        {
-            _systemPrompt.RenewEpoch();
-            _epochInitialized = true;
-        }
-
-        var instructions = _systemPrompt.Build(selection);
-        var context = compactor.EstimateContext(
-            selection.ResolvedModel.CanonicalModel,
-            instructions,
-            tools,
-            _skills.HasSelection ? _skills.Augment(_history) : _history);
-        if (context.ExceedsTrigger)
-        {
-            instructions = (await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false)).Instructions;
-            context = compactor.EstimateContext(
-                selection.ResolvedModel.CanonicalModel,
-                instructions,
-                tools,
-                _skills.HasSelection ? _skills.Augment(_history) : _history);
-            EnsureRequestFitsAfterCompaction(context);
-        }
-
-        if (!_contextCadenceRestored)
-        {
-            contextCadence.Restore(eventRepository.LatestContextReminder(SessionId));
-            _contextCadenceRestored = true;
-        }
-
-        var crossedPercentage = contextCadence.Observe(
-            context,
-            selection.ResolvedModel.CanonicalModel.Selector,
-            _history.Count);
-        if (crossedPercentage is { } percentage)
-        {
-            instructions = await InjectContextReminder(
-                selection,
-                tools,
-                instructions,
-                context,
-                percentage,
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        if (_skills.HasSelection)
-        {
-            var requestContext = compactor.EstimateContext(
-                selection.ResolvedModel.CanonicalModel,
-                instructions,
-                tools,
-                _skills.Augment(_history));
-            EnsureRequestFitsAfterCompaction(requestContext);
-        }
-
-        return instructions;
-    }
-
-    private async Task<string> InjectContextReminder(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools,
-        string instructions,
-        ContextSnapshot context,
-        int percentage,
-        CancellationToken cancellationToken)
-    {
-        var selectedModel = selection.ResolvedModel.CanonicalModel;
-        var reminder = RenderContextReminder(context, percentage);
-        LLMMessage[] candidateHistory = [.. _history, LLMMessage.System(reminder)];
-        var insertedContext = compactor.EstimateContext(selectedModel, instructions, tools, candidateHistory);
-        if (!insertedContext.IsAvailable)
-        {
-            return instructions;
-        }
-
-        if (insertedContext.EstimatedTokens > insertedContext.ContextLimit || insertedContext.ExceedsTrigger)
-        {
-            var compacted = await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false);
-            var compactedContext = compactor.EstimateContext(selectedModel, compacted.Instructions, tools, _history);
-            EnsureRequestFitsAfterCompaction(compactedContext);
-            return compacted.Instructions;
-        }
-
-        var checkpoint = new ContextReminderCheckpoint(selectedModel.Selector, context.ContextLimit, percentage);
-        var published = new Event { Id = Identifier.EventId(), AgentSessionId = SessionId };
-        if (!eventRepository.AppendContextReminder(published, checkpoint, reminder))
-        {
-            contextCadence.Acknowledge(insertedContext, selectedModel.Selector, _history.Count);
-            return instructions;
-        }
-
-        _history.Add(LLMMessage.System(reminder));
-        var persistedContext = compactor.EstimateContext(selectedModel, instructions, tools, _history);
-        contextCadence.Acknowledge(persistedContext, selectedModel.Selector, _history.Count);
-        await eventBroker.Publish(published, CancellationToken.None).ConfigureAwait(false);
-        return instructions;
-    }
-
-    private string RenderContextReminder(ContextSnapshot context, int percentage) =>
-        promptTemplates.Render("agent-session.context-reminder", [
-            new PromptTemplateArgument("percentage", percentage.ToString(CultureInfo.InvariantCulture)),
-            new PromptTemplateArgument(
-                "estimated_tokens",
-                context.EstimatedTokens.ToString(CultureInfo.InvariantCulture)),
-            new PromptTemplateArgument("context_limit", context.ContextLimit.ToString(CultureInfo.InvariantCulture)),
-            new PromptTemplateArgument(
-                "notification_interval",
-                ContextCadence.NotificationInterval.ToString(CultureInfo.InvariantCulture)),
-            new PromptTemplateArgument("trigger", context.TriggerPercent.ToString(CultureInfo.InvariantCulture)),
-        ]);
-
-    private async Task<CompactionEpochResult> CompactEpoch(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools,
-        string instructions,
-        CancellationToken cancellationToken)
-    {
-        var selectedModel = selection.ResolvedModel.CanonicalModel;
-        var started = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            CompactionStarted = new CompactionStarted(),
-        };
-        await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
-
-        try
-        {
-            var reduced = false;
-            _systemPrompt.RenewEpoch();
-            instructions = _systemPrompt.Build(selection);
-            var effective = eventRepository.EffectiveConversationGroups(SessionId);
-            var activeCheckpoints = eventRepository.ActiveCheckpointAssistantSequences(SessionId);
-            var compactionGroups = new List<CompactionGroup>();
-            if (effective.Snapshot is not null)
-            {
-                compactionGroups.Add(new CompactionGroup(
-                    [LLMMessage.System(effective.Snapshot.Summary)],
-                    effective.Snapshot.Watermark,
-                    false,
-                    true));
-            }
-
-            compactionGroups.AddRange(effective.Groups.Select(group => new CompactionGroup(
-                [.. group.Items.Select(item => RestoreMessage(eventRepository, item))],
-                group.EndWatermark,
-                group.AssistantSequence > 0 && activeCheckpoints.Contains(group.AssistantSequence),
-                group.IsComplete)));
-            var statusContent = await status.ObserveWithContext(
-                this,
-                selection,
-                selection.Profile,
-                EstimateContextForHistory(selection, instructions, tools, [.. _history]),
-                cancellationToken).ConfigureAwait(false);
-            var fixedStatus = LLMMessage.System(statusContent);
-            var compacted = await compactor.CompactWithProviderSessions(
-                selectedModel,
-                instructions,
-                tools,
-                compactionGroups,
-                effective.Snapshot?.Watermark ?? 0,
-                fixedStatus,
-                compactionGroupBlobs,
-                _providerSessions,
-                cancellationToken).ConfigureAwait(false);
-            var currentWatermark = effective.Snapshot?.Watermark ?? 0;
-            if ((compacted is null || compacted.Watermark <= currentWatermark)
-                && Compactor.EstimateInputTokens(instructions, tools, _history) > selectedModel.Model.ContextWindow)
-            {
-                throw new InvalidOperationException("The conversation has no safe compaction boundary before the context limit.");
-            }
-
-            if (compacted is not null && compacted.Watermark > currentWatermark)
-            {
-                const int maximumStatusConvergenceAttempts = 8;
-                var compactedHistory = ReplaceFixedStatus(compacted.History, statusContent);
-                for (var attempt = 0; attempt < maximumStatusConvergenceAttempts; attempt++)
-                {
-                    var postCompactionContext = EstimateContextForHistory(
-                        selection,
-                        instructions,
-                        tools,
-                        compactedHistory);
-                    var contextContent = await status.ObserveContext(
-                        this,
-                        selection,
-                        postCompactionContext,
-                        cancellationToken).ConfigureAwait(false);
-                    var postCompactionStatus = ReplaceContextStatus(statusContent, contextContent);
-                    var postCompactionHistory = ReplaceFixedStatus(compacted.History, postCompactionStatus);
-                    var renderedContext = EstimateContextForHistory(
-                        selection,
-                        instructions,
-                        tools,
-                        postCompactionHistory);
-                    statusContent = postCompactionStatus;
-                    compactedHistory = postCompactionHistory;
-                    if (postCompactionContext == renderedContext)
-                    {
-                        break;
-                    }
-                }
-
-                compacted = compacted with { History = compactedHistory };
-                var finalContext = EstimateContextForHistory(selection, instructions, tools, compacted.History);
-                if (finalContext.IsAvailable && finalContext.EstimatedTokens > finalContext.ContextLimit)
-                {
-                    throw new InvalidOperationException(
-                        "The compacted conversation exceeds the selected model context window.");
-                }
-
-                var statusInjected = new Event
-                {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = SessionId,
-                    StatusInjected = new StatusInjected(),
-                };
-                if (!eventRepository.AppendCompactionStatus(
-                        statusInjected,
-                        new CompactionSnapshot(compacted.Summary.Content, compacted.Watermark),
-                        statusContent))
-                {
-                    throw new InvalidOperationException("compaction snapshot was already persisted");
-                }
-
-                reduced = true;
-                _history.Clear();
-                _history.AddRange(RestoreHistory(eventRepository, SessionId));
-                var persistedContext = compactor.EstimateContext(
-                    selectedModel,
-                    instructions,
-                    tools,
-                    _history);
-                contextCadence.Rebase(
-                    persistedContext,
-                    selectedModel.Selector,
-                    _history.Count);
-                await eventBroker.Publish(statusInjected, CancellationToken.None).ConfigureAwait(false);
-            }
-
-            var finished = new Event
-            {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                CompactionFinished = new CompactionFinished(),
-            };
-            await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
-            return new CompactionEpochResult(instructions, reduced);
-        }
-        catch (Exception failure)
-        {
-            var failed = new Event
-            {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                CompactionFailed = new CompactionFailed { Message = failure.Message },
-            };
-            await EmitEvent(failed, null, null, CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
-    }
-
-    private async Task InjectFinalProviderRequestPrompt(CancellationToken cancellationToken)
-    {
-        var published = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-        };
-        eventRepository.AppendFinalProviderRequestPrompt(published, _finalProviderRequestPrompt);
-        _history.Add(LLMMessage.System(_finalProviderRequestPrompt));
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task RestoreToolAvailability(CancellationToken cancellationToken)
-    {
-        var published = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-        };
-        if (!eventRepository.AppendToolAvailabilityRestoredPrompt(published, _toolAvailabilityRestoredPrompt))
-        {
-            return;
-        }
-
-        _history.Add(LLMMessage.System(_toolAvailabilityRestoredPrompt));
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task<AgentTurnSelection> InjectStatus(
-        AgentTurnSelection selection,
-        CancellationToken cancellationToken)
-    {
-        if (Depth > 0)
-        {
-            if (!_initialStatusPending)
-            {
-                return selection;
-            }
-
-            var content = await ObserveStatusForInsertion(
-                selection,
-                selection.Profile,
-                AdvertisedToolDefinitions(selection),
-                cancellationToken).ConfigureAwait(false);
-            var published = new Event
-            {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                StatusInjected = new StatusInjected(),
-            };
-            eventRepository.AppendInitialStatusPrompt(published, content);
-            _history.Add(LLMMessage.System(content));
-            _initialStatusPending = false;
-            await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-            return selection;
-        }
-
-        while (eventRepository.PendingStatus(SessionId) is { } pending)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var profile = selection.Profile;
-
-            if (!string.Equals(profile.Id, pending.Mode, StringComparison.Ordinal))
-            {
-                selection = RefreshSelection(selection);
-                selection.Profile.Prepare();
-                await Task.Yield();
-                continue;
-            }
-
-            var content = await ObserveStatusForInsertion(
-                selection,
-                profile,
-                AdvertisedToolDefinitions(selection),
-                cancellationToken).ConfigureAwait(false);
-            var published = new Event
-            {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                StatusInjected = new StatusInjected(),
-            };
-            if (!eventRepository.AppendStatusPrompt(published, pending, content))
-            {
-                selection = RefreshSelection(selection);
-                selection.Profile.Prepare();
-                continue;
-            }
-
-            _history.Add(LLMMessage.System(content));
-            await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-        }
-
-        return selection;
-    }
-
-    private AgentTurnSelection RefreshSelection(AgentTurnSelection active)
-    {
-        var selected = CaptureSelection();
-        return active with
-        {
-            RequestedModel = selected.RequestedModel,
-            ResolvedModel = ResolveModel(selected),
-            Profile = selected.Profile,
-            SecurityProfile = selected.SecurityProfile,
-        };
-    }
-
-    // Streams one provider call: deltas go out as events, and the terminal
-    // Completed is returned so the loop can decide what to do next.
-    private async Task<LLMEvent> Call(
-        AgentTurnSelection? selection,
-        ToolSnapshot snapshot,
-        string instructions,
-        IReadOnlyList<LLMMessage> messages,
-        CancellationToken cancellationToken)
-    {
-        var selectedModel = selection?.ResolvedModel.CanonicalModel
-            ?? throw new AgentRegistryException("turn selection is unavailable");
-        var maximumOutputTokens = DefaultMaximumOutputTokens;
-        if (selectedModel.Model.ContextWindow > 0)
-        {
-            var availableOutputTokens = selectedModel.Model.ContextWindow
-                - Compactor.EstimateInputTokens(instructions, snapshot.Definitions, messages);
-            if (availableOutputTokens <= 0)
-            {
-                throw new InvalidOperationException(
-                    "The conversation leaves no output capacity in the selected model context window.");
-            }
-
-            maximumOutputTokens = (int)Math.Min(DefaultMaximumOutputTokens, availableOutputTokens);
-        }
-
-        var request = new LLMRequest
-        {
-            Model = selectedModel.ModelId,
-            MaxTokens = maximumOutputTokens,
-            Instructions = instructions,
-            Messages = messages,
-            Tools = snapshot.Definitions,
-            Reasoning = selectedModel.Reasoning,
-        };
-
-        var completed = LLMEvent.Completed(string.Empty, 0, 0, 0, string.Empty, []);
-
-        try
-        {
-            Activity.BeginProviderRequest();
-            await foreach (var llmEvent in _providerSessions.Get(selectedModel.Provider)
-                .Call(request, cancellationToken).ConfigureAwait(false))
-            {
-                if (llmEvent.Kind == LLMEventKind.Completed)
-                {
-                    var statistics = _statistics.Add(llmEvent, selectedModel.Model);
-                    var published = new Event
-                    {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        AgentStatisticsUpdated = statistics.ConvertToPayload(),
-                    };
-                    await EmitEvent(published, null, null, CancellationToken.None).ConfigureAwait(false);
-                    eventBroker.PublishTransient(
-                        new Event
-                        {
-                            Id = Identifier.EventId(),
-                            AgentSessionId = SessionId,
-                            ProviderCallUsage = new ProviderCallUsage
-                            {
-                                InputTokens = Math.Max(0, llmEvent.InputTokens),
-                                OutputTokens = Math.Max(0, llmEvent.OutputTokens),
-                            },
-                        });
-                    _statistics = statistics;
-                    completed = llmEvent;
-                    continue;
-                }
-
-                Activity.ObserveProviderEvent(llmEvent);
-                await EmitEvent(TranslateProviderEvent(llmEvent), null, null, cancellationToken).ConfigureAwait(false);
-            }
-
-            return completed;
-        }
-        finally
-        {
-            Activity.FinishProviderRequest();
-        }
-    }
-
-    private async Task<(Event Published, ToolExecutionTerminal Terminal)> Invoke(
-        AgentTurnSelection selection,
-        ToolSnapshot snapshot,
-        long assistantSequence,
-        LLMToolCall call,
-        CancellationToken cancellationToken)
-    {
-        var started = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            ToolStarted = new ToolStarted { ToolCallId = call.Id, ToolName = call.Name },
-        };
-        await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
-
-        var tool = snapshot.Find(call.Name);
-        if (tool is null)
-        {
-            return FailTool(call, $"unknown tool {call.Name}");
-        }
-
-        try
-        {
-            var effective = CaptureSelection();
-            var invocationSelection = selection with { SecurityProfile = effective.SecurityProfile };
-            var invocation = new ToolInvocation(call.Id, call.ArgumentsJson, assistantSequence)
-            {
-                PromptTemplates = promptTemplates,
-            };
-            ToolExecutionResult result;
-            var execution = Activity.BeginTool(tool.Name);
-            try
-            {
-                result = await tool.Execute(invocation, invocationSelection, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                Activity.FinishTool(execution);
-            }
-
-            var text = promptTemplates.Render(
-                "tool-result.text",
-                [new PromptTemplateArgument("value", result.Text)]);
-            if (ToolOutputBlobStore.IsOversized(text))
-            {
-                text = await toolOutputBlobs.Persist(text, CancellationToken.None).ConfigureAwait(false);
-            }
-
-            var terminal = new ToolFinished { ToolCallId = call.Id, ToolName = call.Name, Result = text };
-            if (result.YieldedProcess is { } yielded)
-            {
-                var protocolYielded = new Protocol.YieldedShellProcess
-                {
-                    ProcessId = yielded.ProcessId,
-                    Name = yielded.Name,
-                    InventoryInstanceId = yielded.InventoryInstanceId,
-                    VisibleRevision = yielded.VisibleRevision,
-                };
-                if (yielded.StdoutPath is { } stdoutPath)
-                {
-                    protocolYielded.StdoutPath = stdoutPath;
-                }
-
-                if (yielded.StderrPath is { } stderrPath)
-                {
-                    protocolYielded.StderrPath = stderrPath;
-                }
-
-                terminal.YieldedProcess = protocolYielded;
-            }
-
-            var finished = new Event
-            {
-                Id = Identifier.EventId(),
-                AgentSessionId = SessionId,
-                ToolFinished = terminal,
-            };
-            var parts = new List<ConversationPart> { ConversationPart.TextPart(text) };
-            parts.AddRange(result.ImageArtifacts.Select(ConversationPart.ImageArtifact));
-            return (finished, new ToolExecutionTerminal(
-                call.Id,
-                call.Name,
-                ToolExecutionStatus.Finished,
-                parts,
-                text));
-        }
-        catch (OperationCanceledException)
-        {
-            return CancelTool(call);
-        }
-        catch (Exception failure)
-        {
-            return FailTool(call, failure.Message);
-        }
-    }
-
-    private (Event Published, ToolExecutionTerminal Terminal) CancelTool(LLMToolCall call)
-    {
-        var cancelled = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            ToolCancelled = new ToolCancelled { ToolCallId = call.Id, ToolName = call.Name },
-        };
-        return (cancelled, new ToolExecutionTerminal(
-            call.Id,
-            call.Name,
-            ToolExecutionStatus.Cancelled,
-            [ConversationPart.TextPart(_interruptedResult)],
-            _interruptedResult));
-    }
-
-    private (Event Published, ToolExecutionTerminal Terminal) FailTool(LLMToolCall call, string message)
-    {
-        var failed = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            ToolError = new ToolError { ToolCallId = call.Id, ToolName = call.Name, Message = message },
-        };
-        var result = promptTemplates.Render(
-            "tool-result.error",
-            [new PromptTemplateArgument("message", message)]);
-        return (failed, new ToolExecutionTerminal(
-            call.Id,
-            call.Name,
-            ToolExecutionStatus.Error,
-            [ConversationPart.TextPart(result)],
-            result));
-    }
-
-    private async Task Fail(string message, string providerResponseBody, CancellationToken cancellationToken)
-    {
-        var failed = new Event
-        {
-            Id = Identifier.EventId(),
-            AgentSessionId = SessionId,
-            TurnFailed = new TurnFailed
-            {
-                Message = message,
-                ProviderResponseBody = providerResponseBody,
-            },
-        };
-        await EmitEvent(failed, null, null, cancellationToken).ConfigureAwait(false);
-    }
-
-    // Commits the event and its projection, then publishes it. In that order:
-    // EventBroker must only ever hand a subscriber an event the repository has
-    // already committed, so nothing observable can be un-happened by a crash.
-    private async ValueTask EmitEvent(
-        Event published,
-        string? role,
-        string? content,
-        CancellationToken cancellationToken)
-    {
-        var usage = eventRepository.Append(published, role, content);
-        await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-        if (usage is not null)
-        {
-            await eventBroker.Publish(usage.ConvertToEvent(), cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private sealed class DrainCancellation(CancellationToken lifetime)
-    {
-        private readonly CancellationTokenSource _source =
-            CancellationTokenSource.CreateLinkedTokenSource(lifetime);
-
-        internal CancellationToken Token => _source.Token;
-
-        internal async ValueTask CancelAsync() => await _source.CancelAsync().ConfigureAwait(false);
-
-        internal void Release() => _source.Dispose();
+        internal ToolSnapshot? Tools { get; set; }
     }
 
     private sealed class ForcedCompactionRequest(CancellationToken cancellationToken)

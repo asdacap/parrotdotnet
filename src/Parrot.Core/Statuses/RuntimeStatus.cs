@@ -46,42 +46,39 @@ internal sealed class RuntimeStatus
 
     public Task<string> ObserveWithTools(
         IAgentSession session,
+        IAgentSessionContext context,
         AgentTurnSelection selection,
         IAgentProfile profile,
         IReadOnlyList<LLMToolDefinition> tools,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(tools);
-        var context = new ContextStatusProvider(session.EstimateContextForTools(selection, tools), _templates);
+        var contextStatus = new ContextStatusProvider(context.EstimateContextForTools(selection, tools), _templates);
         return _full.ObserveWithProvider(
             Query(session, selection, profile.Id),
             new ProfileStatusProvider($"profile:{profile.Id}", profile.Prompt),
-            context,
+            contextStatus,
             cancellationToken);
     }
 
-    public Task<string> Observe(
-        IAgentSession session,
-        AgentTurnSelection selection,
-        IAgentProfile profile,
-        CancellationToken cancellationToken) =>
-        ObserveWithTools(session, selection, profile, session.AdvertisedToolDefinitions(selection), cancellationToken);
-
     public Task<string> ObserveRuntime(
         IAgentSession session,
+        IAgentSessionContext context,
         AgentTurnSelection selection,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(selection);
-        var context = new ContextStatusProvider(session.EstimateContext(selection), _templates);
+        var contextStatus = new ContextStatusProvider(context.EstimateContext(selection), _templates);
         return _activity.ObserveWithProvider(
             Query(session, selection, selection.Profile.Id),
             null,
-            context,
+            contextStatus,
             cancellationToken);
     }
 

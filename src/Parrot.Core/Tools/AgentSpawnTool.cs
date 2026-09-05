@@ -55,7 +55,7 @@ internal sealed class AgentSpawnTool(
                 requestedFork,
                 new HistoryForkBoundary.BeforeToolBatch(invocation.AssistantSequence, invocation.CallId),
                 AgentCompletionDeliveryPolicy.Automatic)).Session;
-            _ = await agent.Send(prompt, cancellationToken).ConfigureAwait(false);
+            _ = await agent.SendTextMessage(prompt, cancellationToken).ConfigureAwait(false);
             return new SpawnAgentResult(agent.SessionId, agent.Name, agent.Depth).Format();
         }
         catch (Exception failure) when (failure is AgentRegistryException or LLMProviderException or ArgumentException)

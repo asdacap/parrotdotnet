@@ -709,7 +709,7 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await session.Settled();
 
-        session.UpdateSelection(session.Selection().RequestedModel, secondProfile);
+        session.UpdateSelection(session.CurrentSelection().RequestedModel, secondProfile);
         _ = await session.Send([ConversationPart.TextPart("second prompt")], "msg-2", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", provider.Requests[1].Tools.Select(tool => tool.Name)))
@@ -748,7 +748,7 @@ internal sealed class DrainTests : IDisposable
 
         _ = await session.Send([ConversationPart.TextPart("first prompt")], "msg-1", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
-        session.UpdateSelection(session.Selection().RequestedModel, readOnly);
+        session.UpdateSelection(session.CurrentSelection().RequestedModel, readOnly);
         provider.Release();
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(string.Join(" | ", factory.RecordingTool.Selections.Select(SelectionSummary)))

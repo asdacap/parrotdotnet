@@ -68,7 +68,7 @@ internal sealed class WaitTool(
             };
         }
 
-        var runtime = await status.ObserveRuntime(session, selection, cancellationToken).ConfigureAwait(false);
+        var runtime = await status.ObserveRuntime(session, (IAgentSessionContext)session, selection, cancellationToken).ConfigureAwait(false);
         return $"Wait timed out after {durationMilliseconds} ms.\n\n{runtime}";
     }
 }

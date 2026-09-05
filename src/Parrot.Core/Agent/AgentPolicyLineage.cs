@@ -20,7 +20,7 @@ internal sealed class AgentPolicyLineage(IAgentSession? parent, AgentPolicyLinea
             return securityProfile;
         }
 
-        var selected = parent.Selection();
+        var selected = parent.CurrentSelection();
         return ancestors?.Resolve(selected.SecurityProfile).RestrictWith(securityProfile)
             ?? throw new AgentRegistryException("agent policy lineage is missing its ancestors");
     }
@@ -33,7 +33,7 @@ internal sealed class AgentPolicyLineage(IAgentSession? parent, AgentPolicyLinea
             return 0;
         }
 
-        var occurrence = string.Equals(parent.Selection().Profile.Id, profileId, StringComparison.Ordinal) ? 1 : 0;
+        var occurrence = string.Equals(parent.CurrentSelection().Profile.Id, profileId, StringComparison.Ordinal) ? 1 : 0;
         return occurrence + (ancestors?.CountProfile(profileId)
             ?? throw new AgentRegistryException("agent policy lineage is missing its ancestors"));
     }

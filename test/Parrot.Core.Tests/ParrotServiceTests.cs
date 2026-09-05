@@ -529,7 +529,7 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(invalid?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(missing?.StatusCode).IsEqualTo(StatusCode.NotFound);
         var security = sessions.Securities.Single();
-        var currentSecurityProfile = sessions.Sessions.Single().Selection().SecurityProfile;
+        var currentSecurityProfile = sessions.Sessions.Single().CurrentSelection().SecurityProfile;
         _ = await Assert.That(security.Capture(currentSecurityProfile).AllowsWrite(directory)).IsTrue();
         _ = await Assert.That(security.Capture(currentSecurityProfile).AllowsWrite(file)).IsTrue();
     }
@@ -561,7 +561,7 @@ internal sealed class ParrotServiceTests : IDisposable
 
         _ = await Assert.That(reply.Decision).IsEqualTo(PermissionDecision.Reject);
         _ = await Assert.That(listed.Permissions).IsEmpty();
-        var currentSecurityProfile = sessions.Sessions.Single().Selection().SecurityProfile;
+        var currentSecurityProfile = sessions.Sessions.Single().CurrentSelection().SecurityProfile;
         _ = await Assert.That(sessions.Securities.Single().Capture(currentSecurityProfile).AllowsWrite(target.Path)).IsFalse();
     }
 

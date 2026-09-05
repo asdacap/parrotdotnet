@@ -70,9 +70,9 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
         var parent = parentScope.Session;
         var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(Request(parent, router, "child")).Session;
         var grandchild = TestModels.ScopeOf(child).AgentSpawner.SpawnScope(Request(child, router, "grandchild")).Session;
-        _ = await child.Send("work", cancellationToken);
+        _ = await child.SendTextMessage("work", cancellationToken);
         await provider.Arrived(cancellationToken);
-        _ = await grandchild.Send("work", cancellationToken);
+        _ = await grandchild.SendTextMessage("work", cancellationToken);
         await provider.Arrived(cancellationToken);
         child.Activity.ObserveProviderEvent(LLMEvent.TextDelta("token"));
         child.Activity.RecordAssistantMessage("line one\nline two");
@@ -163,7 +163,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             parent,
             Turn(parent, router),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -172,7 +172,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
 
     private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)
     {
-        var selection = session.Selection();
+        var selection = session.CurrentSelection();
         return new AgentTurnSelection(
             selection.RequestedModel,
             router.Resolve(selection.RequestedModel.Value),

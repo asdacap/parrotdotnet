@@ -560,7 +560,7 @@ internal sealed class CompactorAndContextTests : IDisposable
             provider,
             new LLMModel("second", provider.Id) { ContextWindow = 40_000 });
         var resolvedSecondModel = TestModels.Resolve(secondModel);
-        restarted.UpdateSelection(resolvedSecondModel.RequestedSelector, restarted.Selection().Profile);
+        restarted.UpdateSelection(resolvedSecondModel.RequestedSelector, restarted.CurrentSelection().Profile);
         restarted.UseResolvedSelection(resolvedSecondModel);
         _ = await restarted.Send(
             [ConversationPart.TextPart("model changed")], Identifier.MessageId(), Delivery.Steer, cancellationToken);

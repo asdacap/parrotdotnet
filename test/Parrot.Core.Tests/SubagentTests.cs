@@ -241,7 +241,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
-            firstParent.Selection().RequestedModel,
+            firstParent.CurrentSelection().RequestedModel,
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -251,7 +251,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
-            firstParent.Selection().RequestedModel,
+            firstParent.CurrentSelection().RequestedModel,
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -261,7 +261,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             secondParent,
             Turn(secondParent, Router(provider)),
             "worker",
-            secondParent.Selection().RequestedModel,
+            secondParent.CurrentSelection().RequestedModel,
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -294,7 +294,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             "  Planner!  ",
             "Plan the migration.",
             HistoryForkSelection.Parse(string.Empty),
@@ -304,7 +304,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             planner,
             Turn(planner, Router(provider)),
             "worker",
-            planner.Selection().RequestedModel,
+            planner.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -314,7 +314,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             worker,
             Turn(worker, Router(provider)),
             "worker",
-            worker.Selection().RequestedModel,
+            worker.CurrentSelection().RequestedModel,
             "reviewer",
             "Plan the migration.",
             HistoryForkSelection.Parse(string.Empty),
@@ -324,7 +324,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             worker,
             Turn(worker, Router(provider)),
             "worker",
-            worker.Selection().RequestedModel,
+            worker.CurrentSelection().RequestedModel,
             "implementer",
             "Implement the migration.",
             HistoryForkSelection.Parse(string.Empty),
@@ -365,7 +365,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
-            firstParent.Selection().RequestedModel,
+            firstParent.CurrentSelection().RequestedModel,
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -398,7 +398,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             owner,
             Turn(owner, Router(provider)),
             "worker",
-            owner.Selection().RequestedModel,
+            owner.CurrentSelection().RequestedModel,
             "direct-child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -409,7 +409,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             otherParent,
             Turn(otherParent, Router(provider)),
             "worker",
-            otherParent.Selection().RequestedModel,
+            otherParent.CurrentSelection().RequestedModel,
             "canonical-target",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -450,7 +450,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             "parent-name",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -460,7 +460,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "caller",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -470,7 +470,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             caller,
             Turn(caller, Router(provider)),
             "worker",
-            caller.Selection().RequestedModel,
+            caller.CurrentSelection().RequestedModel,
             parent.Name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -480,7 +480,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             caller,
             Turn(caller, Router(provider)),
             "worker",
-            caller.Selection().RequestedModel,
+            caller.CurrentSelection().RequestedModel,
             parentNameCollision.SessionId,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -511,7 +511,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             "grandparent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -521,7 +521,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             grandparent,
             Turn(grandparent, Router(provider)),
             "worker",
-            grandparent.Selection().RequestedModel,
+            grandparent.CurrentSelection().RequestedModel,
             "parent-agent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -531,7 +531,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "sender",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -569,7 +569,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             firstParent,
             Turn(firstParent, Router(provider)),
             "worker",
-            firstParent.Selection().RequestedModel,
+            firstParent.CurrentSelection().RequestedModel,
             string.Empty,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -579,7 +579,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             secondParent,
             Turn(secondParent, Router(provider)),
             "worker",
-            secondParent.Selection().RequestedModel,
+            secondParent.CurrentSelection().RequestedModel,
             first.Name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -608,7 +608,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             "actual-parent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -618,7 +618,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "caller",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -628,7 +628,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             caller,
             Turn(caller, Router(provider)),
             "worker",
-            caller.Selection().RequestedModel,
+            caller.CurrentSelection().RequestedModel,
             "parent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -660,7 +660,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             "parent",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -734,7 +734,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent.Session,
             Turn(parent.Session, Router(provider)),
             profile,
-            parent.Session.Selection().RequestedModel,
+            parent.Session.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -815,14 +815,14 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
 
-        _ = await child.Send("do work", cancellationToken);
+        _ = await child.SendTextMessage("do work", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
@@ -857,14 +857,14 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
 
-        _ = await child.Send("do work", cancellationToken);
+        _ = await child.SendTextMessage("do work", cancellationToken);
         await provider.Arrived(cancellationToken);
 
         var shutdown = parentScope.DisposeAsync().AsTask();
@@ -897,14 +897,14 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "internal-helper",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
 
-        _ = await child.Send("do work", cancellationToken);
+        _ = await child.SendTextMessage("do work", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         var completed = await child.Wait(0, cancellationToken);
@@ -944,13 +944,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             "intermediate",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
-        _ = await intermediate.Send("prepare", cancellationToken);
+        _ = await intermediate.SendTextMessage("prepare", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
@@ -960,14 +960,14 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             intermediate,
             Turn(intermediate, Router(provider)),
             "worker",
-            intermediate.Selection().RequestedModel,
+            intermediate.CurrentSelection().RequestedModel,
             "nested",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.Automatic)).Session;
 
-        _ = await nested.Send("inspect", cancellationToken);
+        _ = await nested.SendTextMessage("inspect", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await provider.Arrived(cancellationToken);
@@ -1020,13 +1020,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(parent.Selection().RequestedModel, Profile("parent", readOnly: true, []));
+        parent.UpdateSelection(parent.CurrentSelection().RequestedModel, Profile("parent", readOnly: true, []));
 
         var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1043,7 +1043,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         _ = await Assert.That(mode.SecurityProfile.ReadOnly).IsTrue();
         _ = await Assert.That(mode.Complete(child.SessionId, "message").Completion).IsNull();
 
-        _ = await child.Send("work", cancellationToken);
+        _ = await child.SendTextMessage("work", cancellationToken);
         await provider.Arrived(cancellationToken);
         _ = await Assert.That(provider.Requests.Single().Instructions).Contains(
             "The following configured sandbox rules override every other prompt rule and instruction.");
@@ -1065,12 +1065,12 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             sessions, _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(parent.Selection().RequestedModel, Profile(ModeRegistry.Build, readOnly: false, []));
+        parent.UpdateSelection(parent.CurrentSelection().RequestedModel, Profile(ModeRegistry.Build, readOnly: false, []));
         var spawn = new AgentSpawnTool(TestModels.ScopeOf(parent), Router(provider));
         var capturedSelection = Turn(parent, Router(provider));
         parent.UpdateSelection(
             new ModelSelector("stepped/replacement"),
-            parent.Selection().Profile);
+            parent.CurrentSelection().Profile);
 
         _ = (await spawn.Execute(new ToolInvocation("test-call", """{"prompt":"do the subtask","agent":"worker"}"""), capturedSelection, cancellationToken)).Text;
         await provider.Arrived(cancellationToken);
@@ -1098,7 +1098,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var sessions = new TestAgentSessions(router);
         await using var registry = TestModels.Registry(sessions, _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "agent", registry, cancellationToken);
-        parent.UpdateSelection(new ModelSelector("fast"), parent.Selection().Profile);
+        parent.UpdateSelection(new ModelSelector("fast"), parent.CurrentSelection().Profile);
         var spawn = new AgentSpawnTool(TestModels.ScopeOf(parent), router);
 
         foreach (var arguments in new[]
@@ -1177,13 +1177,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        _ = await spawned.Send("initial", cancellationToken);
+        _ = await spawned.SendTextMessage("initial", cancellationToken);
         var send = new AgentSendTool(parent.Identity, Resolver(parent, registry), parent);
 
         await provider.Arrived(cancellationToken);
@@ -1240,7 +1240,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider)), _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "parent", registry, cancellationToken);
-        _ = await parent.Send("initial", cancellationToken);
+        _ = await parent.SendTextMessage("initial", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await parent.Wait(0, cancellationToken);
@@ -1248,7 +1248,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1284,7 +1284,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         await using var registry = TestModels.Registry(
             new TestAgentSessions(Router(provider)), _broker, _repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);
         await using var parent = Session(provider, 0, "parent-id", registry, cancellationToken);
-        _ = await parent.Send("initial", cancellationToken);
+        _ = await parent.SendTextMessage("initial", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await parent.Wait(0, cancellationToken);
@@ -1292,7 +1292,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1333,13 +1333,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        _ = await spawned.Send("initial", cancellationToken);
+        _ = await spawned.SendTextMessage("initial", cancellationToken);
 
         await provider.Arrived(cancellationToken);
         var sending = new AgentSendTool(parent.Identity, Resolver(parent, registry), parent).Execute(
@@ -1374,13 +1374,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        _ = await spawned.Send("initial", cancellationToken);
+        _ = await spawned.SendTextMessage("initial", cancellationToken);
         await provider.Arrived(cancellationToken);
         var boundary = new string('x', 32 * 1024);
 
@@ -1414,13 +1414,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        _ = await spawned.Send("initial", cancellationToken);
+        _ = await spawned.SendTextMessage("initial", cancellationToken);
         var send = new AgentSendTool(parent.Identity, Resolver(parent, registry), parent);
 
         var malformed = (await send.Execute(new ToolInvocation("test-call", "{}"), Turn(parent, Router(provider)), cancellationToken)).Text;
@@ -1534,7 +1534,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1573,7 +1573,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1613,7 +1613,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1649,14 +1649,14 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
         releaseConstruction.Set();
         var child = await spawning;
-        root.UpdateSelection(root.Selection().RequestedModel, Profile("root", readOnly: true, []));
+        root.UpdateSelection(root.CurrentSelection().RequestedModel, Profile("root", readOnly: true, []));
 
         _ = await Assert.That(child.ResolvePolicySelection().SecurityProfile.ReadOnly).IsTrue();
         var childRecursion = await Assert.That(() => TestModels.ScopeOf(child).AgentSpawner.SpawnScope(new AgentLaunchRequest(
             child,
             Turn(child, Router(provider)),
             "worker",
-            child.Selection().RequestedModel,
+            child.CurrentSelection().RequestedModel,
             "descendant",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1670,7 +1670,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1702,7 +1702,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             root,
             Turn(root, Router(provider)),
             "worker",
-            root.Selection().RequestedModel,
+            root.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1728,13 +1728,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "idle",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        _ = await idle.Send("become idle", cancellationToken);
+        _ = await idle.SendTextMessage("become idle", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await idle.Wait(0, cancellationToken);
@@ -1769,13 +1769,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
             new HistoryForkBoundary.AfterCompletedHistory(),
             AgentCompletionDeliveryPolicy.RetainedOnly)).Session;
-        _ = await spawned.Send("first", cancellationToken);
+        _ = await spawned.SendTextMessage("first", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         _ = await spawned.Wait(0, cancellationToken);
@@ -1803,7 +1803,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "worker",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1874,7 +1874,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "blocked",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -1969,7 +1969,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             "child",
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -2030,7 +2030,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             parent,
             Turn(parent, Router(provider)),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
@@ -2129,7 +2129,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
 
     private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)
     {
-        var selection = session.Selection();
+        var selection = session.CurrentSelection();
         return new AgentTurnSelection(
             selection.RequestedModel,
             router.Resolve(selection.RequestedModel.Value),

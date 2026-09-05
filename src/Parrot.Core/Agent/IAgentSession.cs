@@ -1,4 +1,3 @@
-using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Queues;
@@ -22,7 +21,7 @@ internal interface IAgentSession : IAsyncDisposable
 
     AgentSessionActivity Activity { get; }
 
-    AgentSelection Selection();
+    AgentSelection CurrentSelection();
 
     void UseResolvedSelection(ResolvedModelSelection selectedModel);
 
@@ -35,34 +34,6 @@ internal interface IAgentSession : IAsyncDisposable
     Task Interrupt(CancellationToken cancellationToken);
 
     Task Compact(CancellationToken cancellationToken);
-
-    ContextSnapshot EstimateContext(AgentTurnSelection selection);
-
-    IReadOnlyList<LLMToolDefinition> AdvertisedToolDefinitions(AgentTurnSelection selection);
-
-    ContextSnapshot EstimateContextForTools(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools);
-
-    ContextSnapshot EstimateContextForToolsAndHistory(
-        AgentTurnSelection selection,
-        IReadOnlyList<LLMToolDefinition> tools,
-        IReadOnlyList<LLMMessage> history);
-
-    ContextSnapshot EstimateContextForHistory(
-        AgentTurnSelection selection,
-        string instructions,
-        IReadOnlyList<LLMToolDefinition> tools,
-        IReadOnlyList<LLMMessage> history);
-
-    ContextSnapshot EstimateContextAfterToolResult(
-        AgentTurnSelection selection,
-        string toolCallId,
-        string result);
-
-    Task<ContextCompactionResult> CompactFromTool(
-        AgentTurnSelection selection,
-        CancellationToken cancellationToken);
 
     AgentSelection ResolvePolicySelection();
 
@@ -91,7 +62,7 @@ internal interface IAgentSession : IAsyncDisposable
         QueueNotification notification,
         CancellationToken cancellationToken);
 
-    Task<AgentSendResult> Send(string message, CancellationToken cancellationToken);
+    Task<AgentSendResult> SendTextMessage(string message, CancellationToken cancellationToken);
 
     Task<string> SendAndWaitForResult(string prompt, CancellationToken cancellationToken);
 

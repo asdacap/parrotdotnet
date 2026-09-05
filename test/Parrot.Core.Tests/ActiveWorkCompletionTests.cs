@@ -79,9 +79,9 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
-        _ = await child.Send("work", cancellationToken);
+        _ = await child.SendTextMessage("work", cancellationToken);
         await childProvider.Arrived(cancellationToken);
-        _ = await parent.Send("finish", cancellationToken);
+        _ = await parent.SendTextMessage("finish", cancellationToken);
         await parentProvider.Arrived(cancellationToken);
         parentProvider.Release();
         await parentProvider.Arrived(cancellationToken);
@@ -212,7 +212,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var secondChild = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(QuestionChildRequest(parent, router, "second")).Session;
         using var subscription = _broker.Subscribe();
 
-        _ = await parent.Send("finish", cancellationToken);
+        _ = await parent.SendTextMessage("finish", cancellationToken);
         await parentProvider.Arrived(cancellationToken);
         var firstQuestion = ownedChildQuestions.Ask(firstChild, [Question("first")], cancellationToken);
         var secondQuestion = ownedChildQuestions.Ask(secondChild, [Question("second")], cancellationToken);
@@ -277,9 +277,9 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
-        _ = await child.Send("work", cancellationToken);
+        _ = await child.SendTextMessage("work", cancellationToken);
         await childProvider.Arrived(cancellationToken);
-        _ = await parent.Send("finish", cancellationToken);
+        _ = await parent.SendTextMessage("finish", cancellationToken);
         await parentProvider.Arrived(cancellationToken);
         parentProvider.Release();
         _ = await parent.Wait(0, cancellationToken);
@@ -356,11 +356,11 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
-        _ = await sibling.Send("work", cancellationToken);
+        _ = await sibling.SendTextMessage("work", cancellationToken);
         await siblingProvider.Arrived(cancellationToken);
-        _ = await grandchild.Send("work", cancellationToken);
+        _ = await grandchild.SendTextMessage("work", cancellationToken);
         await grandchildProvider.Arrived(cancellationToken);
-        _ = await monitored.Send("finish", cancellationToken);
+        _ = await monitored.SendTextMessage("finish", cancellationToken);
         await monitoredProvider.Arrived(cancellationToken);
         monitoredProvider.Release();
         await monitored.DisposeAsync();
@@ -426,7 +426,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         _ = await process.Wait(TimeSpan.Zero, cancellationToken);
         using var subscription = _broker.Subscribe();
 
-        _ = await parent.Send("finish", cancellationToken);
+        _ = await parent.SendTextMessage("finish", cancellationToken);
         await provider.Arrived(cancellationToken);
         provider.Release();
         await parent.DisposeAsync();
@@ -470,9 +470,9 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             AgentCompletionDeliveryPolicy.Automatic)).Session;
         using var subscription = _broker.Subscribe();
 
-        _ = await child.Send("work", cancellationToken);
+        _ = await child.SendTextMessage("work", cancellationToken);
         await childProvider.Arrived(cancellationToken);
-        _ = await parent.Send("finish", cancellationToken);
+        _ = await parent.SendTextMessage("finish", cancellationToken);
         await parentProvider.Arrived(cancellationToken);
         await parent.Interrupt(cancellationToken);
 
@@ -532,7 +532,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
 
     private static AgentTurnSelection Turn(IAgentSession session, ModelRouter router)
     {
-        var selection = session.Selection();
+        var selection = session.CurrentSelection();
         return new AgentTurnSelection(
             selection.RequestedModel,
             router.Resolve(selection.RequestedModel.Value),

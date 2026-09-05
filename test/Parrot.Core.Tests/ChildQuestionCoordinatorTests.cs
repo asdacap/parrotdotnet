@@ -421,7 +421,7 @@ internal sealed partial class SubagentTests
             parent,
             Turn(parent, router),
             "worker",
-            parent.Selection().RequestedModel,
+            parent.CurrentSelection().RequestedModel,
             name,
             string.Empty,
             HistoryForkSelection.Parse(string.Empty),
