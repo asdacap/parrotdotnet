@@ -42,9 +42,12 @@ segment, and the model may itself contain slashes. The refreshed provider
 catalog supplies autocomplete and model metadata. `/models` controls endpoint
 catalog membership. When an OpenAI-compatible `/models` entry omits metadata
 Parrot can represent, Parrot conditionally and best-effort queries LiteLLM's
-sibling `/model/info` endpoint; an unavailable or malformed supplemental
-response does not fail an otherwise successful refresh. Field precedence is
-`/models`, then `/model/info`, then configured `models`, then `model_defaults`.
+sibling `/model/info` endpoint. It reads both LiteLLM's normalized
+`data[].model_info` and configured `data[].litellm_params.model_info`, using
+valid normalized fields in preference to configured fields. An unavailable or
+malformed supplemental response does not fail an otherwise successful refresh.
+Field precedence is `/models`, then `/model/info`, then configured `models`,
+then `model_defaults`.
 Declared `models` are always selectable, even when an endpoint does not list
 them. Offline `model_defaults` catalogues seed model names and descriptions, but
 a successful endpoint refresh drops entries that the endpoint omits. An

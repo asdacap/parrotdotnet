@@ -43,15 +43,46 @@ internal sealed class LiteLlmModelInfoDecoder : IModelListDecoder
 
             var id = JsonRead.String(item, "model_name");
 
-            if (id.Length == 0
-                || !item.TryGetProperty("model_info", out var modelInfo)
-                || modelInfo.ValueKind != JsonValueKind.Object)
+            if (id.Length == 0)
             {
                 continue;
             }
 
-            var decoded = ModelMetadataDecoder.Decode(
-                id, providerId, id, modelInfo, ["max_input_tokens"], readName: false);
+            LLMModel? configured = null;
+            LLMModel? normalized = null;
+
+            if (item.TryGetProperty("litellm_params", out var litellmParams)
+                && litellmParams.ValueKind == JsonValueKind.Object
+                && litellmParams.TryGetProperty("model_info", out var configuredModelInfo)
+                && configuredModelInfo.ValueKind == JsonValueKind.Object)
+            {
+                configured = ModelMetadataDecoder.Decode(
+                    id, providerId, id, configuredModelInfo, ["max_input_tokens"], readName: false);
+            }
+
+            if (item.TryGetProperty("model_info", out var normalizedModelInfo)
+                && normalizedModelInfo.ValueKind == JsonValueKind.Object)
+            {
+                normalized = ModelMetadataDecoder.Decode(
+                    id, providerId, id, normalizedModelInfo, ["max_input_tokens"], readName: false);
+            }
+
+            LLMModel decoded;
+
+            if (normalized is not null)
+            {
+                decoded = configured is null
+                    ? normalized
+                    : ModelCatalogue.Supplement([normalized], [configured]).Single();
+            }
+            else if (configured is not null)
+            {
+                decoded = configured;
+            }
+            else
+            {
+                continue;
+            }
 
             if (modelIndexes.TryGetValue(id, out var modelIndex))
             {

@@ -81,6 +81,34 @@ internal sealed class ModelCatalogueTests
     }
 
     [Test]
+    public async Task Litellm_decoder_merges_configured_and_normalized_metadata_before_deployments()
+    {
+        var models = LiteLlmModelInfoDecoder.Instance.Decode(
+            "p",
+            """{"data":[{"model_name":"qwen38-27b","litellm_params":{"model_info":{"max_input_tokens":262144,"max_output_tokens":128,"supports_function_calling":true,"supports_reasoning":true,"reasoning_effort_levels":["low","medium","xhigh"]}},"model_info":{"max_input_tokens":null,"max_output_tokens":64,"supports_function_calling":false,"supports_reasoning":null}},{"model_name":"nested-only","litellm_params":{"model_info":{"max_input_tokens":1024,"supports_reasoning":true,"reasoning_effort_levels":["low"]}}},{"model_name":"normalized-only","litellm_params":{"model_info":[]},"model_info":{"max_input_tokens":2048,"supports_reasoning":false}},{"model_name":"malformed-normalized","litellm_params":{"model_info":{"max_input_tokens":4096}},"model_info":"bad"},{"model_name":"duplicate","litellm_params":{"model_info":{"max_input_tokens":8192,"supports_reasoning":true,"reasoning_effort_levels":["low","medium","xhigh"]}},"model_info":{"max_output_tokens":256}},{"model_name":"duplicate","litellm_params":{"model_info":{"max_input_tokens":4096,"supports_reasoning":true,"reasoning_effort_levels":["medium","xhigh"]}},"model_info":{"max_output_tokens":128}},{"model_name":"missing"},{"model_name":"malformed","litellm_params":{"model_info":null},"model_info":[]}]}""");
+        var qwen = models.Single(model => model.Id == "qwen38-27b");
+        var duplicate = models.Single(model => model.Id == "duplicate");
+
+        _ = await Assert.That(string.Join(",", models.Select(model => model.Id)))
+            .IsEqualTo("qwen38-27b,nested-only,normalized-only,malformed-normalized,duplicate");
+        _ = await Assert.That(qwen.ContextWindow).IsEqualTo(262144);
+        _ = await Assert.That(qwen.MaxOutputTokens).IsEqualTo(64);
+        _ = await Assert.That(qwen.Capabilities.Tools).IsFalse();
+        _ = await Assert.That(qwen.Capabilities.Reasoning).IsTrue();
+        _ = await Assert.That(string.Join(",", qwen.Capabilities.Variants.Select(variant => variant.Name)))
+            .IsEqualTo("low,medium,xhigh");
+        _ = await Assert.That(models.Single(model => model.Id == "nested-only").ContextWindow).IsEqualTo(1024);
+        _ = await Assert.That(models.Single(model => model.Id == "normalized-only").ContextWindow).IsEqualTo(2048);
+        _ = await Assert.That(models.Single(model => model.Id == "normalized-only").Capabilities.Reasoning).IsFalse();
+        _ = await Assert.That(models.Single(model => model.Id == "malformed-normalized").ContextWindow)
+            .IsEqualTo(4096);
+        _ = await Assert.That(duplicate.ContextWindow).IsEqualTo(4096);
+        _ = await Assert.That(duplicate.MaxOutputTokens).IsEqualTo(128);
+        _ = await Assert.That(string.Join(",", duplicate.Capabilities.Variants.Select(variant => variant.Name)))
+            .IsEqualTo("medium,xhigh");
+    }
+
+    [Test]
     public async Task Supplement_preserves_primary_membership_and_field_precedence_before_configuration()
     {
         var primary = StandardModelDecoder.Instance.Decode(
