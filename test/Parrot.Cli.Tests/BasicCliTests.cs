@@ -356,6 +356,13 @@ internal sealed class BasicCliTests
             },
             cancellationToken);
         await stream.WriteAsync(
+            new Event
+            {
+                Id = "skill-loaded",
+                SkillLoaded = new SkillLoadedEvent { Path = "/skills/example/SKILL.md" },
+            },
+            cancellationToken);
+        await stream.WriteAsync(
             new Event { Id = "ended", TurnEnded = new TurnEnded { FinishReason = "stop" } }, cancellationToken);
         stream.Complete();
 
@@ -366,8 +373,10 @@ internal sealed class BasicCliTests
         _ = await Assert.That(completed).IsTrue();
         _ = await Assert.That(output.ToString()).Contains("draft\n↻ Final provider request prompt injected");
         _ = await Assert.That(output.ToString()).Contains("↻ Tool availability restored prompt injected");
+        _ = await Assert.That(output.ToString()).Contains("↻ Skill loaded: /skills/example/SKILL.md");
         _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Final provider request prompt injected");
         _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Tool availability restored prompt injected");
+        _ = await Assert.That(output.ToString()).DoesNotContain("  ↻ Skill loaded:");
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 

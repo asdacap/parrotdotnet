@@ -12,6 +12,17 @@ namespace Parrot.Core.Tests;
 internal sealed class EventPayloadTests
 {
     [Test]
+    public async Task Skill_loaded_roundtrips_as_additive_payload()
+    {
+        var source = new Event { SkillLoaded = new SkillLoadedEvent { Path = "/skills/example/SKILL.md" } };
+
+        var restored = Event.Parser.ParseFrom(source.ToByteArray());
+
+        _ = await Assert.That(restored.PayloadCase).IsEqualTo(Event.PayloadOneofCase.SkillLoaded);
+        _ = await Assert.That(restored.SkillLoaded.Path).IsEqualTo("/skills/example/SKILL.md");
+    }
+
+    [Test]
     public async Task Plan_validation_repair_roundtrips_as_additive_payload()
     {
         var source = new Event { PlanValidationRepairInjected = new PlanValidationRepairInjected { Diagnostic = "repair tasks" } };

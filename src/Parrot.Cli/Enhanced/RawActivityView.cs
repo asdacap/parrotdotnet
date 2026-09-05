@@ -420,6 +420,17 @@ internal sealed class RawActivityView(
                         cancellationToken).ConfigureAwait(false);
                     break;
 
+                case Event.PayloadOneofCase.SkillLoaded when _hierarchy.IsChild(published.AgentSessionId):
+                    await commit(
+                        Wrap(
+                            GetNamedAgentSession(published.AgentSessionId),
+                            ImmediateScrollbackValue.Muted(
+                                [$"↻ Skill loaded: {TerminalText.Sanitize(published.SkillLoaded.Path)}"]),
+                            null),
+                        Snapshot(),
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+
                 case Event.PayloadOneofCase.ReasoningChunk:
                 {
                     var fragment = TerminalText.Sanitize(published.ReasoningChunk.Fragment);

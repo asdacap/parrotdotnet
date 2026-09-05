@@ -145,6 +145,17 @@ internal sealed class EnhancedTurnView(
                     cancellationToken).ConfigureAwait(false);
                 break;
 
+            case Event.PayloadOneofCase.SkillLoaded:
+                if (!foreground.IsChild(published.AgentSessionId))
+                {
+                    await Commit(
+                        ImmediateScrollbackValue.Trusted(
+                            [$"{Dim}↻ Skill loaded: {TerminalText.Sanitize(published.SkillLoaded.Path)}{Reset}"]),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                break;
+
             case Event.PayloadOneofCase.ReasoningChunk:
                 if (renderActivityEvents && !foreground.IsChild(published.AgentSessionId))
                 {

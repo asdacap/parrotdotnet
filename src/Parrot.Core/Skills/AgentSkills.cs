@@ -15,6 +15,7 @@ internal sealed class AgentSkills(
     private const int MaximumDiagnosticLength = 1024;
     private readonly List<SelectedSkill> _selected = [];
     private readonly HashSet<string> _selectedPaths = new(PathComparer());
+    private readonly HashSet<string> _reportedPaths = new(PathComparer());
     private SkillSnapshot _snapshot = SkillSnapshot.Empty;
     private SecurityProfile? _turnSecurity;
 
@@ -27,6 +28,7 @@ internal sealed class AgentSkills(
         _snapshot = catalog.Capture(security);
         _selected.Clear();
         _selectedPaths.Clear();
+        _reportedPaths.Clear();
     }
 
     public string BuildCatalog(SecurityProfile security)
@@ -70,20 +72,22 @@ internal sealed class AgentSkills(
         }
     }
 
-    public void AppendTo(List<LLMMessage> messages, SecurityProfile security)
+    public IReadOnlyList<string> AppendTo(List<LLMMessage> messages, SecurityProfile security)
     {
         ArgumentNullException.ThrowIfNull(messages);
         EnsureEpoch(security);
         if (_selected.Count == 0)
         {
-            return;
+            return [];
         }
 
-        var rendered = RenderSelection(security);
-        if (rendered.Length > 0)
+        var rendering = RenderSelection(security);
+        if (rendering.Content.Length > 0)
         {
-            messages.Add(LLMMessage.User(rendered));
+            messages.Add(LLMMessage.User(rendering.Content));
         }
+
+        return [.. rendering.LoadedPaths.Where(_reportedPaths.Add)];
     }
 
     public IReadOnlyList<LLMMessage> Augment(
@@ -91,8 +95,19 @@ internal sealed class AgentSkills(
         SecurityProfile security)
     {
         ArgumentNullException.ThrowIfNull(history);
+        EnsureEpoch(security);
         var augmented = new List<LLMMessage>(history);
-        AppendTo(augmented, security);
+        if (_selected.Count == 0)
+        {
+            return augmented;
+        }
+
+        var rendering = RenderSelection(security);
+        if (rendering.Content.Length > 0)
+        {
+            augmented.Add(LLMMessage.User(rendering.Content));
+        }
+
         return augmented;
     }
 
@@ -100,6 +115,7 @@ internal sealed class AgentSkills(
     {
         _selected.Clear();
         _selectedPaths.Clear();
+        _reportedPaths.Clear();
         _turnSecurity = null;
         _snapshot = SkillSnapshot.Empty;
     }
@@ -155,9 +171,10 @@ internal sealed class AgentSkills(
         ? _snapshot
         : throw new InvalidOperationException("The active skill snapshot belongs to a different security profile.");
 
-    private string RenderSelection(SecurityProfile security)
+    private SkillRendering RenderSelection(SecurityProfile security)
     {
         var rendered = new StringBuilder();
+        var loadedPaths = new List<string>();
         var consumedBytes = 0;
         var omittedDiagnostics = 0;
         var summaryReserveBytes = Encoding.UTF8.GetByteCount(RenderOmittedDiagnostics(int.MaxValue)) + 2;
@@ -213,6 +230,7 @@ internal sealed class AgentSkills(
             }
 
             Append(rendered, selected);
+            loadedPaths.Add(selection.Skill.DiscoveryPath);
             consumedBytes += selectedBytes + separatorBytes;
         }
 
@@ -228,7 +246,7 @@ internal sealed class AgentSkills(
             }
         }
 
-        return rendered.ToString();
+        return new SkillRendering(rendered.ToString(), loadedPaths);
     }
 
     private string RenderOmittedDiagnostics(int count) =>
@@ -262,4 +280,6 @@ internal sealed class AgentSkills(
     }
 
     private sealed record SelectedSkill(SkillMetadata Skill, int Position);
+
+    private sealed record SkillRendering(string Content, IReadOnlyList<string> LoadedPaths);
 }

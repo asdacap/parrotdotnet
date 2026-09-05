@@ -158,6 +158,7 @@ internal sealed class BasicCli(
                 Event.PayloadOneofCase.ContextReminderInjected or
                 Event.PayloadOneofCase.FinalProviderRequestPromptInjected or
                 Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected or
+                Event.PayloadOneofCase.SkillLoaded or
                 Event.PayloadOneofCase.AgentTaskProgressSnapshot)
             {
                 await output.WriteLineAsync().ConfigureAwait(false);
@@ -204,6 +205,12 @@ internal sealed class BasicCli(
 
                 case Event.PayloadOneofCase.ToolAvailabilityRestoredPromptInjected:
                     await output.WriteLineAsync("↻ Tool availability restored prompt injected".AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case Event.PayloadOneofCase.SkillLoaded:
+                    await output.WriteLineAsync(
+                        $"↻ Skill loaded: {published.SkillLoaded.Path}".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 

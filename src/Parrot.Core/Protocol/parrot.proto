@@ -463,6 +463,7 @@ message Event {
     ExitReminderChanged exit_reminder_changed = 37;
     ExitReminderInjected exit_reminder_injected = 38;
     ContextReminderInjected context_reminder_injected = 39;
+    SkillLoadedEvent skill_loaded = 40;
   }
 }
 
@@ -592,6 +593,10 @@ message FinalProviderRequestPromptInjected {}
 // Transient notification that a durable system prompt restores tool availability
 // for a new turn after its provider-request budget resets.
 message ToolAvailabilityRestoredPromptInjected {}
+
+message SkillLoadedEvent {
+  string path = 1;
+}
 
 message CompactionStarted {}
 

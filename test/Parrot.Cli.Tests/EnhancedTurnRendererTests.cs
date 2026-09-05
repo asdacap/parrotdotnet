@@ -43,6 +43,11 @@ internal sealed class EnhancedTurnRendererTests
                 },
                 new Event
                 {
+                    Id = "skill-loaded",
+                    SkillLoaded = new SkillLoadedEvent { Path = "/skills/example\u001b[2J/SKILL.md" },
+                },
+                new Event
+                {
                     Id = "queued",
                     InputAdmitted = new InputAdmitted { Content = "next\u001b[2J\tline" },
                 },
@@ -129,6 +134,8 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(output).DoesNotContain("  ↻ Final provider request prompt injected");
         _ = await Assert.That(output).Contains("↻ Tool availability restored prompt injected");
         _ = await Assert.That(output).DoesNotContain("  ↻ Tool availability restored prompt injected");
+        _ = await Assert.That(output).Contains("↻ Skill loaded: /skills/example[2J/SKILL.md");
+        _ = await Assert.That(output).DoesNotContain("  ↻ Skill loaded:");
         _ = await Assert.That(output).Contains("  queued: next[2J    line");
         _ = await Assert.That(output).DoesNotContain("think]0;title");
         _ = await Assert.That(output).Contains("● abcdef\r\n  ghij\r\n");

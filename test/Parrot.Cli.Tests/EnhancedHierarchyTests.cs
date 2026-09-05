@@ -10,7 +10,7 @@ namespace Parrot.Cli.Tests;
 internal sealed class EnhancedHierarchyTests
 {
     [Test]
-    public async Task Exit_reminder_is_committed_at_the_owning_agent_level(CancellationToken cancellationToken)
+    public async Task Agent_notices_are_committed_at_the_owning_agent_level(CancellationToken cancellationToken)
     {
         var committed = new List<string>();
         var liveContext = new LiveBufferRenderContext(120, new TerminalPalette(false));
@@ -44,9 +44,16 @@ internal sealed class EnhancedHierarchyTests
         await view.Render(
             new Event { AgentSessionId = "child", ExitReminderInjected = new ExitReminderInjected() },
             cancellationToken);
+        await view.Render(
+            new Event
+            {
+                AgentSessionId = "child",
+                SkillLoaded = new SkillLoadedEvent { Path = "/skills/example\u001b[2J/SKILL.md" },
+            },
+            cancellationToken);
 
-        _ = await Assert.That(committed).HasSingleItem();
-        _ = await Assert.That(committed[0]).IsEqualTo("  • [worker] ↻ Exit reminder injected");
+        _ = await Assert.That(string.Join('|', committed)).IsEqualTo(
+            "  • [worker] ↻ Exit reminder injected|  • [worker] ↻ Skill loaded: /skills/example[2J/SKILL.md");
     }
 
     [Test]

@@ -1498,7 +1498,17 @@ internal sealed class AgentSession(
                     snapshot.Definitions,
                     cancellationToken).ConfigureAwait(false);
                 var messages = new List<LLMMessage>(_history);
-                _skills.AppendTo(messages, activeSelection.SecurityProfile);
+                var loadedSkillPaths = _skills.AppendTo(messages, activeSelection.SecurityProfile);
+                foreach (var loadedSkillPath in loadedSkillPaths)
+                {
+                    var loaded = new Event
+                    {
+                        Id = Identifier.EventId(),
+                        AgentSessionId = SessionId,
+                        SkillLoaded = new SkillLoadedEvent { Path = loadedSkillPath },
+                    };
+                    await EmitEvent(loaded, null, null, cancellationToken).ConfigureAwait(false);
+                }
 
                 providerRequests++;
                 var completed = await Call(activeSelection, snapshot, instructions, messages, cancellationToken)

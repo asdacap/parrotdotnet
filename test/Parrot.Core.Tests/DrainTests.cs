@@ -213,7 +213,7 @@ internal sealed class DrainTests : IDisposable
             skills,
             null,
             cancellationToken);
-        const string originalPrompt = "use $second and $first then $second";
+        const string originalPrompt = "use $second then $second";
         const string steer = "also $first";
 
         _ = await session.Send([ConversationPart.TextPart(originalPrompt)], "msg-1", Delivery.Steer, cancellationToken);
@@ -232,10 +232,14 @@ internal sealed class DrainTests : IDisposable
             .And.Contains(firstPath)
             .And.Contains(secondPath);
         _ = await Assert.That(firstSkillContext.Role).IsEqualTo(LLMRole.User);
-        _ = await Assert.That(firstSkillContext.Content.IndexOf("SECOND BODY", StringComparison.Ordinal))
-            .IsLessThan(firstSkillContext.Content.IndexOf("FIRST BODY", StringComparison.Ordinal));
+        _ = await Assert.That(firstSkillContext.Content)
+            .Contains("SECOND BODY")
+            .And.DoesNotContain("FIRST BODY");
         _ = await Assert.That(firstSkillContext.Content.Split("SECOND BODY", StringSplitOptions.None).Length).IsEqualTo(2);
-        _ = await Assert.That(continuedSkillContext.Content).IsEqualTo(firstSkillContext.Content);
+        _ = await Assert.That(continuedSkillContext.Content.IndexOf("SECOND BODY", StringComparison.Ordinal))
+            .IsLessThan(continuedSkillContext.Content.IndexOf("FIRST BODY", StringComparison.Ordinal));
+        _ = await Assert.That(continuedSkillContext.Content.Split("SECOND BODY", StringSplitOptions.None).Length).IsEqualTo(2);
+        _ = await Assert.That(continuedSkillContext.Content.Split("FIRST BODY", StringSplitOptions.None).Length).IsEqualTo(2);
         _ = await Assert.That(repository.ModelHistory("agent"))
             .DoesNotContain(message => message.Content.Contains("<skill>", StringComparison.Ordinal));
         _ = await Assert.That(Conversation(repository)).IsEqualTo(
@@ -244,21 +248,30 @@ internal sealed class DrainTests : IDisposable
         provider.Release();
         await session.Settled();
         _ = await session.Send(
-            [ConversationPart.TextPart("next turn")],
+            [ConversationPart.TextPart("next turn $first")],
             "msg-3",
             Delivery.Steer,
             cancellationToken);
         await provider.Arrived(cancellationToken);
         var nextRequest = provider.Requests[2];
-        _ = await Assert.That(nextRequest.Messages)
-            .DoesNotContain(message => message.Content.Contains("<skill>", StringComparison.Ordinal));
+        _ = await Assert.That(nextRequest.Messages[^1].Content)
+            .Contains("FIRST BODY")
+            .And.DoesNotContain("SECOND BODY");
         provider.Release();
         await session.Settled();
         await session.DisposeAsync();
 
+        var replay = repository.Replay().ToList();
+        var loadedSkills = replay
+            .Where(published => published.PayloadCase == Event.PayloadOneofCase.SkillLoaded)
+            .ToArray();
+        _ = await Assert.That(string.Join('|', loadedSkills.Select(published => published.SkillLoaded.Path)))
+            .IsEqualTo($"{secondPath}|{firstPath}|{firstPath}");
+        _ = await Assert.That(replay.IndexOf(loadedSkills[0]))
+            .IsLessThan(replay.FindIndex(published => published.PayloadCase == Event.PayloadOneofCase.ToolStarted));
         _ = await Assert.That(repository.ModelHistory("agent"))
             .DoesNotContain(message => message.Content.Contains("<skill>", StringComparison.Ordinal));
-        _ = await Assert.That(repository.Replay())
+        _ = await Assert.That(replay)
             .DoesNotContain(published => published.ToString().Contains("<skill>", StringComparison.Ordinal));
     }
 
@@ -268,10 +281,17 @@ internal sealed class DrainTests : IDisposable
         var skillRoot = Directory.CreateDirectory(Path.Combine(_blobDirectory, "unavailable-skills"));
         var enabledDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "enabled"));
         var disabledDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "disabled"));
+        var overBudgetDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "over-budget"));
         var enabledPath = Path.Combine(enabledDirectory.FullName, "SKILL.md");
         var disabledPath = Path.Combine(disabledDirectory.FullName, "SKILL.md");
+        var overBudgetPath = Path.Combine(overBudgetDirectory.FullName, "SKILL.md");
         await File.WriteAllTextAsync(enabledPath, "---\nname: enabled\ndescription: enabled\n---\nENABLED BODY", cancellationToken);
         await File.WriteAllTextAsync(disabledPath, "---\nname: disabled\ndescription: disabled\n---\nDISABLED BODY", cancellationToken);
+        const string overBudgetHeader = "---\nname: over-budget\ndescription: over budget\n---\n";
+        await File.WriteAllTextAsync(
+            overBudgetPath,
+            overBudgetHeader + new string('x', (1024 * 1024) - overBudgetHeader.Length),
+            cancellationToken);
         var catalog = new SkillCatalog(
             [new(skillRoot.FullName, SkillScope.User, true)],
             () => (new SkillConfiguration(true, [new(disabledPath, false)]), 0L));
@@ -293,7 +313,7 @@ internal sealed class DrainTests : IDisposable
             cancellationToken);
 
         _ = await session.Send(
-            [ConversationPart.TextPart("$unknown $disabled $enabled")],
+            [ConversationPart.TextPart("$unknown $disabled $enabled $over-budget")],
             "msg",
             Delivery.Steer,
             cancellationToken);
@@ -305,6 +325,8 @@ internal sealed class DrainTests : IDisposable
             .DoesNotContain(message => message.Content.Contains("BODY", StringComparison.Ordinal));
         _ = await Assert.That(repository.ModelHistory("agent"))
             .DoesNotContain(message => message.Content.Contains("BODY", StringComparison.Ordinal));
+        _ = await Assert.That(repository.Replay())
+            .DoesNotContain(published => published.PayloadCase == Event.PayloadOneofCase.SkillLoaded);
     }
 
     [Test]
