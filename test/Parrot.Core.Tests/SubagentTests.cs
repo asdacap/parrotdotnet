@@ -1555,10 +1555,13 @@ internal sealed partial class SubagentTests : IAsyncDisposable
             cancellationToken);
         await using var root = Session(provider, 0, "root", registry, cancellationToken);
         var rootScope = TestModels.ScopeOf(root);
-        var first = rootScope.ChildRegistry.SpawnScope(Request("worker"));
+        var first = rootScope.AgentSpawner.SpawnScope(Request("worker"));
 
-        await rootScope.ChildRegistry.RetireDirectChildScope(first);
-        var replacement = rootScope.ChildRegistry.SpawnScope(Request("worker"));
+        var detached = rootScope.ChildRegistry.DetachDirectChildScope(first)
+            ?? throw new InvalidOperationException("The registered child was not detached.");
+        await detached.DisposeAsync();
+        rootScope.AgentSpawner.ReleaseRetainedAgent(detached.Session.SessionId);
+        var replacement = rootScope.AgentSpawner.SpawnScope(Request("worker"));
 
         _ = await Assert.That(rootScope.ChildRegistry.SnapshotDescendants()).HasSingleItem();
         _ = await Assert.That(replacement.Session.Name).IsEqualTo("worker");

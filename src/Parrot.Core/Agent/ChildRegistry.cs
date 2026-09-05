@@ -32,10 +32,9 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
         }
     }
 
-    public async Task RetireDirectChildScope(IAgentSessionScope scope)
+    public IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        Task? shutdown = null;
         lock (_gate)
         {
             if (_entries.TryGetValue(scope.Session.SessionId, out var registered)
@@ -46,32 +45,16 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
                 {
                     _ = _names.Remove(scope.Session.Name);
                 }
-            }
-            else if (!_accepting && _shutdown is not null)
-            {
-                shutdown = _shutdown;
-            }
-            else
-            {
-                throw new AgentRegistryException($"child agent scope not found: {scope.Session.SessionId}");
-            }
-        }
 
-        if (shutdown is not null)
-        {
-            await shutdown.ConfigureAwait(false);
-            return;
-        }
+                return scope;
+            }
 
-        var parent = scope.ParentScope.Parent
-            ?? throw new AgentRegistryException("child agent identity requires a parent scope");
-        try
-        {
-            await scope.DisposeAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            parent.AgentSpawner.ReleaseRetainedAgent(scope.Session.SessionId);
+            if (!_accepting && _shutdown is not null)
+            {
+                return null;
+            }
+
+            throw new AgentRegistryException($"child agent scope not found: {scope.Session.SessionId}");
         }
     }
 

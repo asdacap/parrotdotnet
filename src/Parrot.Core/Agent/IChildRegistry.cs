@@ -8,7 +8,7 @@ internal interface IChildRegistry
 
     IAgentSessionScope? FindDirectChildScope(string childSessionId);
 
-    Task RetireDirectChildScope(IAgentSessionScope scope);
+    IAgentSessionScope? DetachDirectChildScope(IAgentSessionScope scope);
 
     void ValidateOwner(AgentIdentity identity);
 

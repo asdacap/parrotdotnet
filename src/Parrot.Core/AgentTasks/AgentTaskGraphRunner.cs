@@ -1116,9 +1116,24 @@ internal sealed class AgentTaskGraphRunner(
                 continue;
             }
 
+            var detachedScope = entry.Value.ChildRegistry.DetachDirectChildScope(entry.Key);
+            if (detachedScope is null)
+            {
+                continue;
+            }
+
             try
             {
-                await entry.Value.ChildRegistry.RetireDirectChildScope(entry.Key).ConfigureAwait(false);
+                await detachedScope.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+
+            try
+            {
+                entry.Value.AgentSpawner.ReleaseRetainedAgent(detachedScope.Session.SessionId);
             }
             catch (Exception exception)
             {
