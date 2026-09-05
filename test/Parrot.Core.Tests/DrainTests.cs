@@ -7,6 +7,7 @@ using Parrot.Llm;
 using Parrot.Llm.Wire;
 using Parrot.Protocol;
 using Parrot.Security;
+using Parrot.Skills;
 using Parrot.Store;
 using Parrot.Tools;
 
@@ -182,6 +183,128 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(plans[0].PlanCompleted.Markdown).IsEqualTo("retained");
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Selected_skill_context_is_request_only_and_follows_the_active_turn(
+        CancellationToken cancellationToken)
+    {
+        var skillRoot = Directory.CreateDirectory(Path.Combine(_blobDirectory, "skills"));
+        var firstDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "first"));
+        var secondDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "second"));
+        var firstPath = Path.Combine(firstDirectory.FullName, "SKILL.md");
+        var secondPath = Path.Combine(secondDirectory.FullName, "SKILL.md");
+        await File.WriteAllTextAsync(firstPath, "---\nname: first\ndescription: first description\n---\nFIRST BODY", cancellationToken);
+        await File.WriteAllTextAsync(secondPath, "---\nname: second\ndescription: second description\n---\nSECOND BODY", cancellationToken);
+        var catalog = new SkillCatalog(
+            [new(skillRoot.FullName, SkillScope.User, true)],
+            () => (SkillConfiguration.Default, 0L));
+        var skills = new AgentSkills(catalog, TestModels.PromptTemplates);
+        using var provider = new SteppedProvider(
+            Answer(string.Empty, new LLMToolCall("call-1", "settled", "{}")),
+            Answer("first answer"),
+            Answer("second answer"));
+        var repository = new EventRepository(_database);
+        await using var session = SessionWithSkills(
+            provider,
+            repository,
+            [new FixedToolFactory(new SettledTool("settled"))],
+            Profile(maxTurns: 3),
+            skills,
+            null,
+            cancellationToken);
+        const string originalPrompt = "use $second and $first then $second";
+        const string steer = "also $first";
+
+        _ = await session.Send([ConversationPart.TextPart(originalPrompt)], "msg-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        _ = await session.Send([ConversationPart.TextPart(steer)], "msg-2", Delivery.Steer, cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+
+        var firstRequest = provider.Requests[0];
+        var continuedRequest = provider.Requests[1];
+        var firstSkillContext = firstRequest.Messages[^1];
+        var continuedSkillContext = continuedRequest.Messages[^1];
+        _ = await Assert.That(firstRequest.Instructions)
+            .Contains("$first")
+            .And.Contains("$second")
+            .And.Contains(firstPath)
+            .And.Contains(secondPath);
+        _ = await Assert.That(firstSkillContext.Role).IsEqualTo(LLMRole.User);
+        _ = await Assert.That(firstSkillContext.Content.IndexOf("SECOND BODY", StringComparison.Ordinal))
+            .IsLessThan(firstSkillContext.Content.IndexOf("FIRST BODY", StringComparison.Ordinal));
+        _ = await Assert.That(firstSkillContext.Content.Split("SECOND BODY", StringSplitOptions.None).Length).IsEqualTo(2);
+        _ = await Assert.That(continuedSkillContext.Content).IsEqualTo(firstSkillContext.Content);
+        _ = await Assert.That(repository.ModelHistory("agent"))
+            .DoesNotContain(message => message.Content.Contains("<skill>", StringComparison.Ordinal));
+        _ = await Assert.That(Conversation(repository)).IsEqualTo(
+            $"user: {originalPrompt} | assistant:  | tool: settled | user: {steer}");
+
+        provider.Release();
+        await session.Settled();
+        _ = await session.Send(
+            [ConversationPart.TextPart("next turn")],
+            "msg-3",
+            Delivery.Steer,
+            cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var nextRequest = provider.Requests[2];
+        _ = await Assert.That(nextRequest.Messages)
+            .DoesNotContain(message => message.Content.Contains("<skill>", StringComparison.Ordinal));
+        provider.Release();
+        await session.Settled();
+        await session.DisposeAsync();
+
+        _ = await Assert.That(repository.ModelHistory("agent"))
+            .DoesNotContain(message => message.Content.Contains("<skill>", StringComparison.Ordinal));
+        _ = await Assert.That(repository.Replay())
+            .DoesNotContain(published => published.ToString().Contains("<skill>", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task Unknown_disabled_and_denied_skills_do_not_inject_bodies(CancellationToken cancellationToken)
+    {
+        var skillRoot = Directory.CreateDirectory(Path.Combine(_blobDirectory, "unavailable-skills"));
+        var enabledDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "enabled"));
+        var disabledDirectory = Directory.CreateDirectory(Path.Combine(skillRoot.FullName, "disabled"));
+        var enabledPath = Path.Combine(enabledDirectory.FullName, "SKILL.md");
+        var disabledPath = Path.Combine(disabledDirectory.FullName, "SKILL.md");
+        await File.WriteAllTextAsync(enabledPath, "---\nname: enabled\ndescription: enabled\n---\nENABLED BODY", cancellationToken);
+        await File.WriteAllTextAsync(disabledPath, "---\nname: disabled\ndescription: disabled\n---\nDISABLED BODY", cancellationToken);
+        var catalog = new SkillCatalog(
+            [new(skillRoot.FullName, SkillScope.User, true)],
+            () => (new SkillConfiguration(true, [new(disabledPath, false)]), 0L));
+        var skills = new AgentSkills(catalog, TestModels.PromptTemplates);
+        var securityProfile = SecurityProfile.Compose(
+            readOnly: true,
+            [new SandboxRule(enabledPath, SandboxRuleAction.DenyRead)],
+            [],
+            []);
+        var provider = new ScriptedProvider("done");
+        var repository = new EventRepository(_database);
+        await using var session = SessionWithSkills(
+            provider,
+            repository,
+            [],
+            TestModels.Profile(),
+            skills,
+            securityProfile,
+            cancellationToken);
+
+        _ = await session.Send(
+            [ConversationPart.TextPart("$unknown $disabled $enabled")],
+            "msg",
+            Delivery.Steer,
+            cancellationToken);
+        await session.Settled();
+        await session.DisposeAsync();
+
+        var request = provider.Requests.Single();
+        _ = await Assert.That(request.Messages)
+            .DoesNotContain(message => message.Content.Contains("BODY", StringComparison.Ordinal));
+        _ = await Assert.That(repository.ModelHistory("agent"))
+            .DoesNotContain(message => message.Content.Contains("BODY", StringComparison.Ordinal));
     }
 
     [Test]
@@ -1268,6 +1391,62 @@ internal sealed class DrainTests : IDisposable
             cachedInputPrice,
             outputPrice,
             lifetime);
+
+    private AgentSession SessionWithSkills(
+        ILLMProvider provider,
+        EventRepository repository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        IMode profile,
+        AgentSkills skills,
+        SecurityProfile? securityProfile,
+        CancellationToken lifetime)
+    {
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
+        _dependencies.Add(dependencies);
+        var security = new AgentSessionSecurity(
+            securityProfile ?? SecurityProfile.Compose(readOnly: false, [], [], []),
+            ProjectWorkspace.FromLaunchDirectory(Directory.GetCurrentDirectory()),
+            Directory.GetCurrentDirectory());
+        var prompt = new CompositeSystemPromptProvider(
+            "test:skill-system-prompt",
+            [
+                new ConfiguredSystemPromptProvider("runtime:test-base", "base"),
+                new AgentSkillPromptProvider(skills),
+            ]).Materialize(identity);
+        return new AgentSession(
+            identity,
+            AgentSessionParentScope.Root(),
+            new ModelSelector(model.Selector),
+            TestModels.Route(model),
+            _broker,
+            repository,
+            toolFactories,
+            Document(toolFactories),
+            prompt,
+            new ToolOutputBlobStore(_blobDirectory),
+            TestModels.CompactionGroupBlobs(),
+            new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates),
+            new ProviderSessions(),
+            new ContextCadence(),
+            TestModels.PromptTemplates,
+            dependencies.ChildQuestions,
+            dependencies.ExitReminder,
+            profile,
+            TestModels.CompletionCallbacks(
+                dependencies.ChildQuestions,
+                dependencies.ActiveWorkReminder,
+                dependencies.ExitReminder,
+                repository,
+                _broker),
+            security,
+            skills,
+            dependencies.Status,
+            dependencies.Queues,
+            new AgentSessionActivity(TimeProvider.System),
+            lifetime);
+    }
 
     private AgentSession SessionWithCompletionCallbacks(
         SteppedProvider provider,

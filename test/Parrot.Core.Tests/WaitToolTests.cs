@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
+using Parrot.Config;
 using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
@@ -8,6 +9,7 @@ using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Queues;
 using Parrot.Security;
+using Parrot.Skills;
 using Parrot.State;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -507,6 +509,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             new UserSessionModes(modes, TestModels.PromptTemplates, Path.Combine(_root, "plans")),
             TestModels.PromptTemplates,
             profiles,
+            SkillCatalogFactory(),
             interactivePermissions: false,
             TimeSpan.FromSeconds(1),
             TimeProvider.System);
@@ -548,6 +551,14 @@ internal sealed class WaitToolTests : IAsyncDisposable
             TestModels.Resolve(model),
             TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []));
+    }
+
+    private static SkillCatalogFactory SkillCatalogFactory()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "config.yaml"),
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "predefined.yaml"));
+        return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
     }
 
     private SessionResourceLease Resources(string ownerId) => SessionResourceLease.Own(

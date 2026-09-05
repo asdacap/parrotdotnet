@@ -7,6 +7,8 @@ using Parrot.Process;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Queues;
+using Parrot.Security;
+using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
 
@@ -53,6 +55,7 @@ internal sealed class UserSession : IAsyncDisposable
         UserSessionModes modes,
         PromptTemplateCatalog promptTemplates,
         ProfileRegistry profiles,
+        SkillCatalogFactory skillCatalogFactory,
         bool interactivePermissions,
         TimeSpan userInputTimeout,
         TimeProvider timeProvider)
@@ -69,6 +72,7 @@ internal sealed class UserSession : IAsyncDisposable
         _eventRepository = resources.Events;
         _modes = modes;
         _promptTemplates = promptTemplates ?? throw new ArgumentNullException(nameof(promptTemplates));
+        SkillCatalog = skillCatalogFactory.Create(resources.Resources.Workspace);
         var state = _eventRepository.SessionState(id, modes.Resolve(mode).Id);
         _mainSessionId = state.AgentSessionId;
         _modes.Attach(resources.Resources.AgentScratch(_mainSessionId));
@@ -138,6 +142,10 @@ internal sealed class UserSession : IAsyncDisposable
     internal QuestionBroker Questions { get; }
 
     internal PermissionBroker Permissions { get; }
+
+    internal SkillCatalog SkillCatalog { get; }
+
+    internal SecurityProfile SkillSecurityProfile => Mode.SecurityProfile;
 
     // Assigned, never rebuilt. The main session holds the conversation, the
     // input admitted against it and the drain that may be running: replacing it

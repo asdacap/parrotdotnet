@@ -19,10 +19,11 @@ internal sealed class SlashCommandTests
             new ApplicationExit(application),
             new UnusedCredentials(),
             new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions()),
-            ["provider"]);
+            ["provider"],
+            static _ => Task.CompletedTask);
 
         _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
-            .IsEqualTo("/auth|/clear|/compact|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/models|/modes|/sessions|/version");
+            .IsEqualTo("/auth|/clear|/compact|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/models|/modes|/sessions|/skills|/version");
         _ = await Assert.That(registry.Commands.All(command => command.Summary.Length > 0)).IsTrue();
     }
 

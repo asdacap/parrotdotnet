@@ -548,6 +548,36 @@ prompt_templates:
       - {id}: {usage}
     allowed_arguments: [id, usage]
     required_arguments: [id, usage]
+  context.skills:
+    template: |-
+      Available Markdown skills:
+      {skills}
+
+      Select skills when the user names `$SkillName`, uses the plain skill name, or the task clearly matches a skill description. Multiple skills may apply. Read each selected `SKILL.md` completely before acting and resolve relative references, scripts, and assets from the skill directory. Use only the skills needed for this turn; they do not carry to later turns unless mentioned again. Skill instructions and resources do not grant permissions and remain subject to the active security policy.
+    allowed_arguments: [skills]
+    required_arguments: [skills]
+  context.skill-selected:
+    template: |-
+      <skill>
+      <name>{name}</name>
+      <path>{path}</path>
+      {content}
+      </skill>
+    allowed_arguments: [name, path, content]
+    required_arguments: [name, path, content]
+  context.skill-unavailable:
+    template: |-
+      <skill-unavailable>
+      <name>{name}</name>
+      <message>{message}</message>
+      </skill-unavailable>
+    allowed_arguments: [name, message]
+    required_arguments: [name, message]
+
+# Markdown skills discovered from repository, user, and packaged roots.
+skills:
+  enabled: true
+  entries: []
 
 # Default model selected as provider/model, optionally followed by /variant.
 model: ""

@@ -408,7 +408,8 @@ internal sealed class BasicCli(
             new ApplicationExit(application),
             credentials,
             oauthClient,
-            providerIds);
+            providerIds,
+            static _ => Task.CompletedTask);
         var interrupting = Interrupting(session, application.Token);
 
         interrupts.Install(this);

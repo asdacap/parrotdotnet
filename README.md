@@ -929,6 +929,101 @@ configuration rules let users append or replace them. This is a lexical prefix
 check, not general shell analysis; commands that do not match remain unsafe.
 
 
+## Markdown skills
+
+Parrot supports local Markdown skills: folders whose `SKILL.md` gives the model
+specialized instructions for a task. Skills use progressive disclosure. Every
+agent receives the enabled skill names, descriptions, and locations in its
+system context, but a full `SKILL.md` is added only when the current user turn
+explicitly mentions its `$name`. The model can also choose an advertised skill
+when the plain name or task description matches. Multiple skills may apply.
+
+Skills are discovered in this order:
+
+1. `.agents/skills` below the session's Git repository, beginning at the launch
+   directory and walking toward the repository root (nearest directory first).
+2. `~/.agents/skills` on the server.
+3. The packaged `skills` directory beside Parrot's Core assembly
+   (`AppContext.BaseDirectory/skills`).
+
+Parrot does not search repository ancestors when the launch directory is not
+inside a detected Git repository. Duplicate names remain visible; a bare
+`$name` uses the first enabled match in the order above. Canonical `SKILL.md`
+paths, rather than names, identify entries for configuration and de-duplication.
+
+Discovery looks for the exact case-sensitive filename `SKILL.md`, skips hidden
+directories, and is bounded to depth 6, 2,000 directories, and 20,000 entries
+per root. Repository and user roots may follow directory symlinks with cycle
+protection; packaged roots do not. Symlinked `SKILL.md` files are ignored.
+Reads must pass the active agent's security policy for both their discovery and
+resolved physical paths. A skill file must be valid UTF-8 and no larger than
+1 MiB. Discovery errors are isolated and shown by `/skills`, so one malformed
+skill does not hide valid siblings.
+
+A `SKILL.md` starts with YAML frontmatter:
+
+```markdown
+---
+name: example-skill
+description: Use this skill for example work.
+---
+
+# Instructions
+...
+```
+
+`description` is required. A missing or blank `name` defaults to the containing
+directory name. Both are collapsed to one line; names are limited to 64
+characters and descriptions to 1,024 characters. `metadata.short-description`
+is supported.
+An optional `agents/openai.yaml` may provide `interface.display_name` and
+`interface.short_description` for display. Missing, malformed, or invalid
+optional display metadata fails open and does not invalidate a valid
+`SKILL.md`; other OpenAI metadata is ignored.
+
+Skill enablement is server-owned configuration in `config.yaml`:
+
+```yaml
+skills:
+  enabled: true
+  entries:
+    - path: /absolute/path/to/example-skill/SKILL.md
+      enabled: false
+```
+
+`skills.enabled: false` disables every skill. Otherwise a skill is enabled when
+it has no path entry, and its exact canonical path entry overrides that
+default. Disabled skills remain visible in `/skills`. The command can list the
+session's inventory or repeatedly enable and disable an exact path. It uses the
+same session-addressed RPC for an in-process or remote CLI: discovery and
+configuration always belong to the server session, never the remote client's
+working directory. The enhanced input editor caches enabled metadata and offers
+deterministically sorted completions for the current `$` token; it refreshes
+after session changes and `/skills` toggles. The basic CLI supports `$name`
+invocation without a completion popup.
+
+Selected skill instructions are active-turn, request-only context. Parrot reads
+the complete selected `SKILL.md`, resolves referenced files relative to its
+skill directory, retains the selection through tool-call continuations and
+same-turn steers, and clears it when that turn ends. Expanded content and
+bounded read/size diagnostics are added only to provider-request copies: they
+are never written into the user's input, conversation history, events,
+database, or compaction input. A selected file and the aggregate selected
+context are each bounded to 1 MiB. The available-skills catalogue is bounded
+to 64 KiB and uses only names, descriptions, and paths. Unknown and disabled
+`$name` references inject nothing.
+
+Skills are instructions and data, not authority. They do not bypass sandbox
+rules, read/write policy, permission requests, or network restrictions.
+Packaged scripts, references, images, and licenses are copied verbatim from the
+current Codex sample skill tree, but Parrot does not execute or install them
+automatically; an agent can use them only through its ordinary authorized
+tools. This local subsystem does not implement Codex plugins, dependency or MCP
+installation, marketplaces, remote/executor/orchestrator skill providers,
+implicit shell invocation, or an installer API. Codex-specific scripts such as
+the bundled `skill-installer` remain inert assets and retain their upstream
+behavior if a user explicitly authorizes an agent to run them.
+
 ## Build And Run
 
 The quickest way to run it, no dev shell needed:

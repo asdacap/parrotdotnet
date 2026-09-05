@@ -13,7 +13,7 @@ namespace Parrot.Config;
 
 // The user-owned config.yaml is layered over a generated, agent-readable copy
 // of the predefined defaults. Writes intentionally touch only the user layer.
-internal sealed class Configuration(string path)
+internal sealed partial class Configuration(string path)
 {
     private const string ModelAliasesKey = "model_aliases";
     private const string ProviderModelAliasDefaultsKey = "provider_model_alias_defaults";
@@ -31,6 +31,7 @@ internal sealed class Configuration(string path)
     private const string CompactionKey = "compaction";
     private const string AgentTasksKey = "agent_tasks";
     private const string ToolsKey = "tools";
+    private const string SkillsKey = "skills";
     private static readonly TagName ReplaceTag = new("!replace");
     private static readonly Lazy<string> Predefined = new(() => File.ReadAllText(
         Path.Combine(AppContext.BaseDirectory, "Config", "predefined_config.yaml")));
@@ -92,6 +93,10 @@ internal sealed class Configuration(string path)
 
     public ToolDefinitionCatalog ToolDefinitions { get; private set; } = new(
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
+
+    public SkillConfiguration Skills { get; private set; } = SkillConfiguration.Default;
+
+    internal long SkillsGeneration { get; private set; }
 
     public static Configuration Load(string path, string predefinedPath) =>
         Load(path, predefinedPath, CaptureEnvironment());
@@ -211,6 +216,7 @@ internal sealed class Configuration(string path)
             Compaction = ReadCompaction(root),
             AgentTasks = ReadAgentTasks(root),
             ToolDefinitions = ReadToolDefinitions(root),
+            Skills = ReadSkills(root),
         };
         ProvisionSandboxDirectories(directories);
         return configuration;

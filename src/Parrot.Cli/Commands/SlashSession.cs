@@ -1,6 +1,7 @@
 using Parrot.Config;
 using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
+using ProtocolSkill = Parrot.Protocol.Skill;
 
 namespace Parrot.Cli.Commands;
 
@@ -46,6 +47,19 @@ internal sealed class SlashSession(
         client.CompactAsync(
             new CompactRequest { UserSessionId = Id },
             cancellationToken: cancellationToken).ResponseAsync;
+
+    public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>
+        client.ListSkillsAsync(
+            new ListSkillsRequest { UserSessionId = Id },
+            cancellationToken: cancellationToken).ResponseAsync;
+
+    public async Task<ProtocolSkill> ConfigureSkill(string path, bool enabled, CancellationToken cancellationToken)
+    {
+        var configured = await client.ConfigureSkillAsync(
+            new ConfigureSkillRequest { UserSessionId = Id, Path = path, Enabled = enabled },
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return configured.Skill;
+    }
 
     public async Task StartNew(string model, string mode, CancellationToken cancellationToken)
     {

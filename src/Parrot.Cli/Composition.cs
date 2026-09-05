@@ -4,6 +4,7 @@ using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
+using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
 using Parrot.Web;
@@ -48,6 +49,15 @@ internal partial class Composition
             {
                 ctx.Inject<StatePaths>(out var paths);
                 return new SessionCatalog(paths);
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<Configuration>(out var configuration);
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                return new SkillCatalogFactory(
+                    configuration,
+                    home,
+                    Path.Combine(AppContext.BaseDirectory, "skills"));
             })
             .Bind().As(Lifetime.Singleton).To(_ => ExecutableLocator.Capture())
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -193,11 +203,13 @@ internal partial class Composition
                 ctx.Inject<ModeRegistry>(out var modes);
                 ctx.Inject<ProfileRegistry>(out var profiles);
                 ctx.Inject<Configuration>(out var configuration);
+                ctx.Inject<SkillCatalogFactory>(out var skillCatalogFactory);
                 return new UserSessionFactory(
                     agentSessionFactories,
                     modes,
                     configuration.PromptTemplates,
                     profiles,
+                    skillCatalogFactory,
                     configuration.UserInputTimeout,
                     TimeProvider.System);
             })

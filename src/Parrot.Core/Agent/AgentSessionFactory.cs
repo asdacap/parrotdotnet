@@ -3,6 +3,7 @@ using Parrot.Context;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Security;
+using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -47,9 +48,14 @@ internal sealed class AgentSessionFactory(
                 securityProfile,
                 owner.Resources.Workspace,
                 owner.Resources.ScratchRootDirectory);
+            var agentSkills = new AgentSkills(owner.SkillCatalog, promptTemplates);
             var prompts = new CompositeSystemPromptProvider(
                 "runtime:agent-session-system-prompt",
-                [systemPromptProvider, new ScratchDirectoryProvider(scratch, promptTemplates)]);
+                [
+                    systemPromptProvider,
+                    new ScratchDirectoryProvider(scratch, promptTemplates),
+                    new AgentSkillPromptProvider(agentSkills),
+                ]);
             var arguments = new AgentSessionScopeArguments(
                 identity,
                 parentLink,
@@ -71,6 +77,7 @@ internal sealed class AgentSessionFactory(
                 promptTemplates,
                 mode,
                 security,
+                agentSkills,
                 owner.Permissions,
                 status,
                 registry,

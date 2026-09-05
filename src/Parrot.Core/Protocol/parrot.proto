@@ -17,6 +17,8 @@ service Parrot {
   rpc ListProviderModelAliasDefaults (ListProviderModelAliasDefaultsRequest) returns (ListProviderModelAliasDefaultsResponse);
   rpc ApplyProviderModelAliasDefaults (ApplyProviderModelAliasDefaultsRequest) returns (ApplyProviderModelAliasDefaultsResponse);
   rpc ListModes (ListModesRequest) returns (ListModesResponse);
+  rpc ListSkills (ListSkillsRequest) returns (ListSkillsResponse);
+  rpc ConfigureSkill (ConfigureSkillRequest) returns (ConfigureSkillResponse);
   rpc ListSessions (ListSessionsRequest) returns (ListSessionsResponse);
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
@@ -138,6 +140,47 @@ message ListModesResponse {
 
 message Mode {
   string id = 1;
+}
+
+message ListSkillsRequest {
+  string user_session_id = 1;
+}
+
+message ListSkillsResponse {
+  repeated Skill skills = 1;
+  repeated SkillLoadError errors = 2;
+}
+
+message Skill {
+  string name = 1;
+  string description = 2;
+  string path = 3;
+  ListedSkillScope scope = 4;
+  bool enabled = 5;
+  optional string display_name = 6;
+  optional string short_description = 7;
+}
+
+enum ListedSkillScope {
+  SKILL_SCOPE_UNSPECIFIED = 0;
+  SKILL_SCOPE_REPO = 1;
+  SKILL_SCOPE_USER = 2;
+  SKILL_SCOPE_SYSTEM = 3;
+}
+
+message SkillLoadError {
+  string path = 1;
+  string message = 2;
+}
+
+message ConfigureSkillRequest {
+  string user_session_id = 1;
+  string path = 2;
+  bool enabled = 3;
+}
+
+message ConfigureSkillResponse {
+  Skill skill = 1;
 }
 
 message ListSessionsRequest {}

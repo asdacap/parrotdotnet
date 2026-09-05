@@ -29,6 +29,9 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<ReplyPermissionRequest> _permissionReplies = [];
     private readonly List<AttachmentUploadFrame> _uploadedAttachments = [];
     private readonly List<CompactRequest> _compactions = [];
+    private readonly List<ConfigureSkillRequest> _configuredSkills = [];
+    private readonly Dictionary<string, List<Skill>> _skills = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _skillLists = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
     private int _pendingQuestionLists;
     private int _pendingPermissionLists;
@@ -153,6 +156,19 @@ internal sealed class ScriptedInvoker : CallInvoker
 
     public bool SessionLoaded { get; set; }
 
+    public StatusCode? SkillFailure { get; set; }
+
+    public IReadOnlyList<ConfigureSkillRequest> ConfiguredSkills
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _configuredSkills.Select(request => request.Clone())];
+            }
+        }
+    }
+
     public List<ModelAlias> ModelAliases { get; } = [];
 
     public List<ProviderModelAliasDefaults> ProviderModelAliasDefaults { get; } = [];
@@ -234,6 +250,22 @@ internal sealed class ScriptedInvoker : CallInvoker
         lock (_gate)
         {
             Models.Add(model);
+        }
+    }
+
+    public void SetSkills(string userSessionId, params Skill[] skills)
+    {
+        lock (_gate)
+        {
+            _skills[userSessionId] = [.. skills.Select(skill => skill.Clone())];
+        }
+    }
+
+    public int SkillLists(string userSessionId)
+    {
+        lock (_gate)
+        {
+            return _skillLists.GetValueOrDefault(userSessionId);
         }
     }
 
@@ -455,6 +487,42 @@ internal sealed class ScriptedInvoker : CallInvoker
                 var listedModes = new ListModesResponse();
                 listedModes.Modes.Add(Modes);
                 answered = listedModes;
+                break;
+            case ListSkillsRequest listSkills:
+                if (SkillFailure is { } listSkillFailure)
+                {
+                    return Failed<TResponse>(listSkillFailure, "scripted skill failure");
+                }
+
+                var listedSkills = new ListSkillsResponse();
+                lock (_gate)
+                {
+                    _skillLists[listSkills.UserSessionId] = _skillLists.GetValueOrDefault(listSkills.UserSessionId) + 1;
+                    if (_skills.TryGetValue(listSkills.UserSessionId, out var sessionSkills))
+                    {
+                        listedSkills.Skills.Add(sessionSkills.Select(skill => skill.Clone()));
+                    }
+                }
+
+                answered = listedSkills;
+                break;
+            case ConfigureSkillRequest configureSkill:
+                if (SkillFailure is { } configureSkillFailure)
+                {
+                    return Failed<TResponse>(configureSkillFailure, "scripted skill failure");
+                }
+
+                Skill configuredSkill;
+                lock (_gate)
+                {
+                    _configuredSkills.Add(configureSkill.Clone());
+                    configuredSkill = _skills[configureSkill.UserSessionId].Single(skill =>
+                        string.Equals(skill.Path, configureSkill.Path, StringComparison.Ordinal));
+                    configuredSkill.Enabled = configureSkill.Enabled;
+                    configuredSkill = configuredSkill.Clone();
+                }
+
+                answered = new ConfigureSkillResponse { Skill = configuredSkill };
                 break;
             case ListSessionsRequest:
                 if (SessionListingUnavailable)

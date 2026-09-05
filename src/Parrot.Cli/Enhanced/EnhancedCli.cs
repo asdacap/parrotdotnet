@@ -108,6 +108,14 @@ internal sealed class EnhancedCli(
             Delivery = Delivery.Steer,
         };
 
+    private static int CompletionCount(SlashCommandCompletion slash, SkillCompletion skills) =>
+        slash.Commands.Count > 0 ? slash.Commands.Count : skills.Skills.Count;
+
+    private static int CompletionStart(int selected, int count) => Math.Clamp(
+        selected - MaximumVisibleCompletions + 1,
+        0,
+        Math.Max(0, count - MaximumVisibleCompletions));
+
     private static async Task<string?> NextMode(
         GeneratedParrot.ParrotClient client,
         string current,
@@ -162,6 +170,7 @@ internal sealed class EnhancedCli(
         var questionRequests = Channel.CreateUnbounded<(string UserSessionId, PendingQuestion Pending)>();
         var discoveredQuestionRequests = new HashSet<string>(StringComparer.Ordinal);
         var permissions = new PermissionInteractionPresenter(client);
+        var skillCompletion = new SkillCompletion(client);
         PermissionInteractionPresenter.Session? permissionSession = null;
         var reconcilingPermissions = Task.CompletedTask;
 
@@ -273,6 +282,7 @@ internal sealed class EnhancedCli(
 
             activeSession = replacement;
             permissionSession = permissions.Attach(replacement.Id);
+            await skillCompletion.RefreshCatalog(replacement.Id, token).ConfigureAwait(false);
             binding = EnhancedListenBinding.Open(client, replacement.Id, StartRendering, listening.Token);
             rendering = binding.Rendering;
             _busy = false;
@@ -290,26 +300,39 @@ internal sealed class EnhancedCli(
             new ApplicationExit(applicationExit),
             credentials,
             oauthClient,
-            providerIds);
-        var completion = new SlashCommandCompletion(commands);
+            providerIds,
+            token => skillCompletion.RefreshCatalog(session.Id, token));
+        var slashCompletion = new SlashCommandCompletion(commands);
 
         Task DrawPrompt(CancellationToken token)
         {
-            completion.Refresh(editor.Prompt.Text);
-            var start = Math.Clamp(
-                completion.Selected - MaximumVisibleCompletions + 1,
-                0,
-                Math.Max(0, completion.Commands.Count - MaximumVisibleCompletions));
-            var items = completion.Commands
-                .Skip(start)
-                .Take(MaximumVisibleCompletions)
-                .Select((command, index) => (ILiveBufferItem)new PickerOptionValue(
-                    command.Name,
-                    command.Summary,
-                    start + index == completion.Selected))
-                .Append(editor.Prompt)
-                .ToList();
-            return renderingSession.ReplaceInput(items, token);
+            slashCompletion.Refresh(editor.Prompt.Text);
+            skillCompletion.Refresh(editor.Prompt);
+            IReadOnlyList<ILiveBufferItem> candidates;
+            if (slashCompletion.Commands.Count > 0)
+            {
+                var start = CompletionStart(slashCompletion.Selected, slashCompletion.Commands.Count);
+                candidates = [.. slashCompletion.Commands
+                    .Skip(start)
+                    .Take(MaximumVisibleCompletions)
+                    .Select((command, index) => (ILiveBufferItem)new PickerOptionValue(
+                        command.Name,
+                        command.Summary,
+                        start + index == slashCompletion.Selected))];
+            }
+            else
+            {
+                var start = CompletionStart(skillCompletion.Selected, skillCompletion.Skills.Count);
+                candidates = [.. skillCompletion.Skills
+                    .Skip(start)
+                    .Take(MaximumVisibleCompletions)
+                    .Select((skill, index) => (ILiveBufferItem)new PickerOptionValue(
+                        $"${skill.Name}",
+                        SkillCompletion.Description(skill),
+                        start + index == skillCompletion.Selected))];
+            }
+
+            return renderingSession.ReplaceInput([.. candidates, editor.Prompt], token);
         }
 
         void DeferSubmit() => pendingSubmit = new PendingSubmit(delaySubmit, SubmitDelay, cancellationToken);
@@ -338,22 +361,42 @@ internal sealed class EnhancedCli(
             }
 
             string? entered;
-            if (key.Kind == TerminalKeyKind.Up && completion.Commands.Count > 0)
+            if (key.Kind == TerminalKeyKind.Up && CompletionCount(slashCompletion, skillCompletion) > 0)
             {
-                completion.SelectPrevious();
+                if (slashCompletion.Commands.Count > 0)
+                {
+                    slashCompletion.SelectPrevious();
+                }
+                else
+                {
+                    skillCompletion.SelectPrevious();
+                }
+
                 entered = null;
             }
-            else if (key.Kind == TerminalKeyKind.Down && completion.Commands.Count > 0)
+            else if (key.Kind == TerminalKeyKind.Down && CompletionCount(slashCompletion, skillCompletion) > 0)
             {
-                completion.SelectNext();
+                if (slashCompletion.Commands.Count > 0)
+                {
+                    slashCompletion.SelectNext();
+                }
+                else
+                {
+                    skillCompletion.SelectNext();
+                }
+
                 entered = null;
             }
             else if (key.Kind == TerminalKeyKind.Complete)
             {
-                var accepted = completion.Accept(editor.Prompt.Text);
+                var accepted = slashCompletion.Accept(editor.Prompt.Text);
                 if (accepted is not null)
                 {
                     editor.Replace(accepted);
+                }
+                else
+                {
+                    _ = skillCompletion.Accept(editor);
                 }
 
                 entered = null;
@@ -399,6 +442,7 @@ internal sealed class EnhancedCli(
             await SetKeyboardEnhancement(output, true, cancellationToken).ConfigureAwait(false);
             permissionSession = permissions.Attach(activeSession.Id);
             reconcilingPermissions = permissions.Reconcile(listening.Token);
+            await skillCompletion.RefreshCatalog(activeSession.Id, cancellationToken).ConfigureAwait(false);
             binding = EnhancedListenBinding.Open(client, activeSession.Id, StartRendering, listening.Token);
             rendering = binding.Rendering;
             if (initialSession.Loaded && !exitOnFirstCompletion)
@@ -533,7 +577,8 @@ internal sealed class EnhancedCli(
                     {
                         await ClearDeferredSubmit(true).ConfigureAwait(false);
                         _ = editor.Apply(new TerminalKey(TerminalKeyKind.Newline));
-                        completion.Refresh(editor.Prompt.Text);
+                        slashCompletion.Refresh(editor.Prompt.Text);
+                        skillCompletion.Refresh(editor.Prompt);
                     }
 
                     await ApplyPromptKey(received, true).ConfigureAwait(false);

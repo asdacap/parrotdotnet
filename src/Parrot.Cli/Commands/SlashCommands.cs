@@ -13,7 +13,8 @@ internal static class SlashCommands
         IApplicationExit applicationExit,
         ICredentialStore credentials,
         OpenAiOAuthClient oauth,
-        IReadOnlyList<string> providerIds)
+        IReadOnlyList<string> providerIds,
+        Func<CancellationToken, Task> refreshSkillCompletion)
     {
         var commands = new List<ISlashCommand>();
         var registry = new SlashCommandRegistry(commands, dialog);
@@ -26,12 +27,13 @@ internal static class SlashCommands
         commands.Add(new ExitCommand(applicationExit));
         commands.Add(new GoalCommand(session, dialog));
         commands.Add(new HelpCommand(registry, dialog));
-        commands.Add(new ModeCommand(modes, session, activity, dialog));
+        commands.Add(new ModeCommand(modes, session, activity, dialog, refreshSkillCompletion));
         commands.Add(new ModelCommand(models, session, activity, dialog));
         commands.Add(new ModelAliasCommand(client, models, dialog));
         commands.Add(new ModelsCommand(client, dialog));
         commands.Add(new ModesCommand(client, dialog));
         commands.Add(new SessionsCommand(client, session, dialog));
+        commands.Add(new SkillsCommand(session, activity, dialog, refreshSkillCompletion));
         commands.Add(new VersionCommand(dialog));
         return registry;
     }

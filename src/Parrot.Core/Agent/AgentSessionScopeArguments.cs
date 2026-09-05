@@ -7,6 +7,7 @@ using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
+using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -35,6 +36,7 @@ internal sealed record AgentSessionScopeArguments(
     PromptTemplateCatalog PromptTemplates,
     IMode Mode,
     AgentSessionSecurity Security,
+    AgentSkills Skills,
     PermissionBroker Permissions,
     RuntimeStatus Status,
     IAgentRegistry Registry,

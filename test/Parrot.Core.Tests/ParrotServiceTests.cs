@@ -6,6 +6,7 @@ using Parrot.Permissions;
 using Parrot.Protocol;
 using Parrot.Queues;
 using Parrot.Security;
+using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
@@ -57,6 +58,73 @@ internal sealed class ParrotServiceTests : IDisposable
         {
             Directory.Delete(_root, recursive: true);
         }
+    }
+
+    [Test]
+    public async Task Skill_inventory_and_exact_path_configuration_use_the_hosted_session(
+        CancellationToken cancellationToken)
+    {
+        var skillRoot = Path.Combine(_root, "packaged-skills", "demo");
+        _ = Directory.CreateDirectory(skillRoot);
+        var skillPath = Path.Combine(skillRoot, "SKILL.md");
+        await File.WriteAllTextAsync(
+            skillPath,
+            "---\nname: demo\ndescription: Demo skill\n---\nsecret body",
+            cancellationToken);
+        await using var service = Service(Store(new DirectAgentSessions()));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection },
+            cancellationToken: cancellationToken);
+
+        var listed = await client.ListSkillsAsync(
+            new ListSkillsRequest { UserSessionId = session.Id },
+            cancellationToken: cancellationToken);
+        var skill = listed.Skills.Single(item => item.Name == "demo");
+
+        _ = await Assert.That(skill.Path).IsEqualTo(Path.GetFullPath(skillPath));
+        _ = await Assert.That(skill.Enabled).IsTrue();
+        _ = await Assert.That(skill.ToString()).DoesNotContain("secret body");
+
+        var configured = await client.ConfigureSkillAsync(
+            new ConfigureSkillRequest { UserSessionId = session.Id, Path = skill.Path, Enabled = false },
+            cancellationToken: cancellationToken);
+        var refreshed = await client.ListSkillsAsync(
+            new ListSkillsRequest { UserSessionId = session.Id },
+            cancellationToken: cancellationToken);
+
+        _ = await Assert.That(configured.Skill.Enabled).IsFalse();
+        _ = await Assert.That(refreshed.Skills.Single(item => item.Path == skill.Path).Enabled).IsFalse();
+        _ = await Assert.That(_configuration.Skills.Entries.Single().Path).IsEqualTo(skill.Path);
+    }
+
+    [Test]
+    public async Task Skill_management_rejects_unknown_sessions_and_paths(CancellationToken cancellationToken)
+    {
+        await using var service = Service(Store(new DirectAgentSessions()));
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var unknownSession = await Assert.That(async () => await client.ListSkillsAsync(
+            new ListSkillsRequest { UserSessionId = "missing" },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+        _ = await Assert.That(unknownSession?.StatusCode).IsEqualTo(StatusCode.NotFound);
+
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection },
+            cancellationToken: cancellationToken);
+        var relative = await Assert.That(async () => await client.ConfigureSkillAsync(
+            new ConfigureSkillRequest { UserSessionId = session.Id, Path = "SKILL.md", Enabled = true },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+        _ = await Assert.That(relative?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+
+        var absent = await Assert.That(async () => await client.ConfigureSkillAsync(
+            new ConfigureSkillRequest
+            {
+                UserSessionId = session.Id,
+                Path = Path.Combine(_root, "absent", "SKILL.md"),
+                Enabled = true,
+            },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+        _ = await Assert.That(absent?.StatusCode).IsEqualTo(StatusCode.NotFound);
     }
 
     [Test]
@@ -825,6 +893,9 @@ internal sealed class ParrotServiceTests : IDisposable
         return path;
     }
 
+    private SkillCatalogFactory SkillCatalogFactory() =>
+        new(_configuration, _root, Path.Combine(_root, "packaged-skills"));
+
     private void PublishMeta(
         string id,
         string rootAgentName,
@@ -885,7 +956,7 @@ internal sealed class ParrotServiceTests : IDisposable
             new StatePaths(_root, _root, _root),
             EnsureDirectory(Path.Combine(_root, "work")),
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), TimeSpan.FromSeconds(30), TimeProvider.System),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
             _router,
             Modes());
     }

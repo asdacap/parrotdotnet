@@ -5,6 +5,7 @@ using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Questions;
 using Parrot.Security;
+using Parrot.Skills;
 using Parrot.Store;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -143,6 +144,64 @@ internal sealed class ParrotService(
         var response = new ListModesResponse();
         response.Modes.AddRange(modes.List().Select(id => new Mode { Id = id }));
         return Task.FromResult(response);
+    }
+
+    public override Task<ListSkillsResponse> ListSkills(ListSkillsRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+        var session = Find(request.UserSessionId);
+        var snapshot = session.SkillCatalog.Refresh(session.SkillSecurityProfile);
+        var response = new ListSkillsResponse();
+        response.Skills.AddRange(snapshot.Skills.Select(ToProtocol));
+        response.Errors.AddRange(snapshot.Errors.Select(error => new global::Parrot.Protocol.SkillLoadError
+        {
+            Path = Limit(error.Path),
+            Message = Limit(error.Message),
+        }));
+        return Task.FromResult(response);
+    }
+
+    public override Task<ConfigureSkillResponse> ConfigureSkill(
+        ConfigureSkillRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(request.Path) || !Path.IsPathFullyQualified(request.Path))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "skill path must be an absolute catalog path"));
+        }
+
+        var session = Find(request.UserSessionId);
+        var snapshot = session.SkillCatalog.Refresh(session.SkillSecurityProfile);
+        var skill = snapshot.Skills.FirstOrDefault(candidate => PathsEqual(candidate.Path, request.Path))
+            ?? throw new RpcException(new Status(StatusCode.NotFound, "skill path is not present in this session catalog"));
+        try
+        {
+            session.SkillCatalog.Configure(skill.Path, request.Enabled);
+            var refreshed = session.SkillCatalog.Refresh(session.SkillSecurityProfile);
+            var configured = refreshed.Skills.FirstOrDefault(candidate => PathsEqual(candidate.Path, skill.Path))
+                ?? throw new RpcException(new Status(
+                    StatusCode.NotFound,
+                    "skill configuration was persisted, but the skill is no longer present in this session catalog"));
+
+            return Task.FromResult(new ConfigureSkillResponse { Skill = ToProtocol(configured) });
+        }
+        catch (InvalidDataException failure)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+        catch (UnauthorizedAccessException failure)
+        {
+            throw new RpcException(new Status(StatusCode.PermissionDenied, failure.Message));
+        }
+        catch (IOException failure)
+        {
+            throw new RpcException(new Status(StatusCode.Internal, $"failed to persist skill configuration: {failure.Message}"));
+        }
     }
 
     public override Task<ListSessionsResponse> ListSessions(
@@ -677,6 +736,55 @@ internal sealed class ParrotService(
 
     private static ModelAlias ToProtocol(ModelAliasDefinition definition) =>
         new() { Name = definition.Name, ModelString = definition.ModelString, Usage = definition.Usage };
+
+    private static global::Parrot.Protocol.Skill ToProtocol(SkillMetadata skill)
+    {
+        var result = new global::Parrot.Protocol.Skill
+        {
+            Name = skill.Name,
+            Description = skill.Description,
+            Path = skill.Path,
+            Scope = skill.Scope switch
+            {
+                Skills.SkillScope.Repo => ListedSkillScope.SkillScopeRepo,
+                Skills.SkillScope.User => ListedSkillScope.SkillScopeUser,
+                Skills.SkillScope.System => ListedSkillScope.SkillScopeSystem,
+                _ => ListedSkillScope.SkillScopeUnspecified,
+            },
+            Enabled = skill.Enabled,
+        };
+        if (skill.DisplayName is not null)
+        {
+            result.DisplayName = skill.DisplayName;
+        }
+
+        if (skill.ShortDescription is not null)
+        {
+            result.ShortDescription = skill.ShortDescription;
+        }
+
+        return result;
+    }
+
+    private static bool PathsEqual(string left, string right)
+    {
+        try
+        {
+            var comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+                comparison);
+        }
+        catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private static string Limit(string value) => value.Length <= 4096 ? value : value[..4096];
 
     private Agent.UserSession Find(string userSessionId) => _userSessions.Find(userSessionId);
 }

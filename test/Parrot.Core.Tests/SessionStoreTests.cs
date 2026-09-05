@@ -2,6 +2,7 @@ using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Llm;
+using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
 
@@ -175,6 +176,14 @@ internal sealed class SessionStoreTests : IDisposable
         return new ProviderModel(provider, new LLMModel("model", provider.Id));
     }
 
+    private static SkillCatalogFactory SkillCatalogFactory()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "config.yaml"),
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "predefined.yaml"));
+        return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
+    }
+
     private UserSession Open(string workingDirectory)
     {
         var sessions = new DirectAgentSessions();
@@ -185,7 +194,7 @@ internal sealed class SessionStoreTests : IDisposable
             Paths(),
             workingDirectory,
             "host",
-            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), TimeSpan.FromSeconds(30), TimeProvider.System),
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
             router,
             Modes());
         return store.Open(router.Resolve(model.Selector));

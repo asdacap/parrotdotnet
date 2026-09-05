@@ -14,6 +14,26 @@ internal sealed class PromptTemplateCatalog
             new Dictionary<string, PromptTemplate>(templates, StringComparer.Ordinal));
     }
 
+    public string RenderSkills(string skills) =>
+        Render("context.skills", [new PromptTemplateArgument("skills", skills)]);
+
+    public string RenderSelectedSkill(string name, string path, string content) =>
+        Render(
+            "context.skill-selected",
+            [
+                new PromptTemplateArgument("name", name),
+                new PromptTemplateArgument("path", path),
+                new PromptTemplateArgument("content", content),
+            ]);
+
+    public string RenderUnavailableSkill(string name, string message) =>
+        Render(
+            "context.skill-unavailable",
+            [
+                new PromptTemplateArgument("name", name),
+                new PromptTemplateArgument("message", message),
+            ]);
+
     public string Render(string id, IReadOnlyList<PromptTemplateArgument> arguments)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);

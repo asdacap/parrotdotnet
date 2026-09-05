@@ -8,6 +8,7 @@ using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Questions;
 using Parrot.Queues;
+using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -47,6 +48,7 @@ internal sealed class AgentSession(
     IMode mode,
     [InjectionTag("turnCompletionCallbacks")] IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
     AgentSessionSecurity security,
+    AgentSkills skills,
     RuntimeStatus status,
     AgentQueues queues,
     AgentSessionActivity activity,
@@ -76,6 +78,8 @@ internal sealed class AgentSession(
     private readonly Queue<ForcedCompactionRequest> _forcedCompactions = [];
     private readonly IReadOnlyList<IAgentTurnCompletionCallback> _turnCompletionCallbacks =
         turnCompletionCallbacks ?? throw new ArgumentNullException(nameof(turnCompletionCallbacks));
+
+    private readonly AgentSkills _skills = skills ?? throw new ArgumentNullException(nameof(skills));
 
     private readonly Lock _executionGate = new();
     private readonly Lock _drainGate = new();
@@ -111,6 +115,60 @@ internal sealed class AgentSession(
     // disposed source, so it hands that duty over for the one case where the
     // two overlap.
     private bool _stopping;
+
+    internal AgentSession(
+        AgentIdentity identity,
+        AgentSessionParentScope parentScope,
+        ModelSelector model,
+        ModelRouter router,
+        EventBroker eventBroker,
+        EventRepository eventRepository,
+        IReadOnlyList<IToolFactory> toolFactories,
+        ToolDefinitionCatalog toolDefinitions,
+        ISystemPrompt systemPrompt,
+        ToolOutputBlobStore toolOutputBlobs,
+        CompactionGroupBlobStore compactionGroupBlobs,
+        Compactor compactor,
+        ProviderSessions providerSessions,
+        ContextCadence contextCadence,
+        PromptTemplateCatalog promptTemplates,
+        ChildQuestionCoordinator childQuestions,
+        ExitReminder exitReminder,
+        IMode mode,
+        IReadOnlyList<IAgentTurnCompletionCallback> turnCompletionCallbacks,
+        AgentSessionSecurity security,
+        RuntimeStatus status,
+        AgentQueues queues,
+        AgentSessionActivity activity,
+        CancellationToken lifetime)
+        : this(
+            identity,
+            parentScope,
+            model,
+            router,
+            eventBroker,
+            eventRepository,
+            toolFactories,
+            toolDefinitions,
+            systemPrompt,
+            toolOutputBlobs,
+            compactionGroupBlobs,
+            compactor,
+            providerSessions,
+            contextCadence,
+            promptTemplates,
+            childQuestions,
+            exitReminder,
+            mode,
+            turnCompletionCallbacks,
+            security,
+            new AgentSkills(new SkillCatalog([], () => (SkillConfiguration.Default, 0L)), promptTemplates),
+            status,
+            queues,
+            activity,
+            lifetime)
+    {
+    }
 
     public string SessionId => identity.SessionId;
 
@@ -1355,6 +1413,7 @@ internal sealed class AgentSession(
 
                 if (!turnOpen)
                 {
+                    _skills.EndTurn();
                     var captured = CaptureSelection();
                     captured.Profile.Prepare();
                     var resolved = ResolveModel(captured);
@@ -1402,6 +1461,7 @@ internal sealed class AgentSession(
                     }
 
                     activeSelection = await InjectStatus(activeSelection, cancellationToken).ConfigureAwait(false);
+                    _skills.BeginTurn(activeSelection.SecurityProfile);
                     activeTools = MaterializeTools()
                         .Without(activeSelection.Profile.DisabledTools)
                         .Only(activeSelection.Profile.AllowedTools);
@@ -1410,7 +1470,7 @@ internal sealed class AgentSession(
 
                 // Status is committed before promotion, so sequenced history is
                 // epoch baseline, status, then the user input it describes.
-                _ = await Promote(cancellationToken).ConfigureAwait(false);
+                _ = await Promote(activeSelection?.SecurityProfile, cancellationToken).ConfigureAwait(false);
 
                 if (activeSelection is null || activeTools is null)
                 {
@@ -1438,6 +1498,7 @@ internal sealed class AgentSession(
                     snapshot.Definitions,
                     cancellationToken).ConfigureAwait(false);
                 var messages = new List<LLMMessage>(_history);
+                _skills.AppendTo(messages, activeSelection.SecurityProfile);
 
                 providerRequests++;
                 var completed = await Call(activeSelection, snapshot, instructions, messages, cancellationToken)
@@ -1628,12 +1689,18 @@ internal sealed class AgentSession(
                 CancellationToken.None).ConfigureAwait(false);
             return AgentExecution.Failed(failure.Message);
         }
+        finally
+        {
+            _skills.EndTurn();
+        }
     }
 
     // Steers first, all of them: they join the turn already running. A queued
     // prompt is taken only when nothing else is owed an answer, which is what
     // makes it a turn of its own rather than a second voice in this one.
-    private async Task<int> Promote(CancellationToken cancellationToken)
+    private async Task<int> Promote(
+        Parrot.Security.SecurityProfile? securityProfile,
+        CancellationToken cancellationToken)
     {
         var promoted = eventRepository.PromoteSteers(
             SessionId,
@@ -1658,6 +1725,11 @@ internal sealed class AgentSession(
 
         foreach (var promotion in promoted)
         {
+            if (securityProfile is not null)
+            {
+                _skills.Select(promotion.Input.Parts, securityProfile);
+            }
+
             _history.Add(LLMMessage.User(eventRepository.Materialize(promotion.Input.Parts)));
             await eventBroker.Publish(promotion.Published, cancellationToken).ConfigureAwait(false);
         }
@@ -1933,7 +2005,7 @@ internal sealed class AgentSession(
             selection.ResolvedModel.CanonicalModel,
             instructions,
             tools,
-            _history);
+            _skills.HasSelection ? _skills.Augment(_history, selection.SecurityProfile) : _history);
         if (context.ExceedsTrigger)
         {
             instructions = (await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false)).Instructions;
@@ -1941,7 +2013,7 @@ internal sealed class AgentSession(
                 selection.ResolvedModel.CanonicalModel,
                 instructions,
                 tools,
-                _history);
+                _skills.HasSelection ? _skills.Augment(_history, selection.SecurityProfile) : _history);
             EnsureRequestFitsAfterCompaction(context);
         }
 
@@ -1964,6 +2036,16 @@ internal sealed class AgentSession(
                 context,
                 percentage,
                 cancellationToken).ConfigureAwait(false);
+        }
+
+        if (_skills.HasSelection)
+        {
+            var requestContext = compactor.EstimateContext(
+                selection.ResolvedModel.CanonicalModel,
+                instructions,
+                tools,
+                _skills.Augment(_history, selection.SecurityProfile));
+            EnsureRequestFitsAfterCompaction(requestContext);
         }
 
         return instructions;

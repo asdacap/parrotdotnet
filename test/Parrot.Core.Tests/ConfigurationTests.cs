@@ -1488,6 +1488,88 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Skills_configuration_is_path_only_and_last_canonical_duplicate_wins()
+    {
+        var firstPath = Path.Combine(_directory, "skills", "..", "skill", "SKILL.md");
+        var canonicalPath = Path.GetFullPath(Path.Combine(_directory, "skill", "SKILL.md"));
+        var configuration = Load(Write($"""
+            skills:
+              enabled: true
+              entries:
+                - path: '{firstPath}'
+                  enabled: false
+                - path: '{canonicalPath}'
+                  enabled: true
+            """));
+
+        _ = await Assert.That(configuration.Skills.Enabled).IsTrue();
+        _ = await Assert.That(configuration.Skills.Entries).HasSingleItem();
+        _ = await Assert.That(configuration.Skills.Entries[0])
+            .IsEqualTo(new SkillConfigEntry(canonicalPath, true));
+        _ = await Assert.That(configuration.Skills.IsEnabled(canonicalPath)).IsTrue();
+    }
+
+    [Test]
+    [Arguments("skills: false", "skills must be a mapping")]
+    [Arguments("skills:\n  enabled: yes", "skills.enabled must be true or false")]
+    [Arguments("skills:\n  entries: {}", "skills.entries must be a sequence")]
+    [Arguments("skills:\n  entries:\n    - path: relative/SKILL.md\n      enabled: true", "skills.entries[0].path must be an absolute path")]
+    [Arguments("skills:\n  entries:\n    - path: /tmp/SKILL.md", "skills.entries[0].enabled must be true or false")]
+    [Arguments("skills:\n  entries:\n    - path: /tmp/SKILL.md\n      enabled: true\n      name: forbidden", "skills.entries[0] contains an unsupported key")]
+    public async Task Invalid_skills_configuration_is_rejected(string yaml, string message)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() => Load(Write(yaml + "\n")));
+
+        _ = await Assert.That(exception.Message).IsEqualTo(message);
+    }
+
+    [Test]
+    public async Task Set_skill_enabled_replaces_only_the_canonical_path_and_preserves_other_yaml(
+        CancellationToken cancellationToken)
+    {
+        var canonicalPath = Path.GetFullPath(Path.Combine(_directory, "skill", "SKILL.md"));
+        var alternatePath = Path.Combine(_directory, "skill", "..", "skill", "SKILL.md");
+        var otherPath = Path.GetFullPath(Path.Combine(_directory, "other", "SKILL.md"));
+        var path = Write($"""
+            theme: dark
+            skills:
+              entries:
+                - path: '{alternatePath}'
+                  enabled: false
+                - path: '{canonicalPath}'
+                  enabled: false
+                - path: '{otherPath}'
+                  enabled: false
+            """);
+        var configuration = Load(path);
+
+        configuration.SetSkillEnabled(canonicalPath, enabled: true);
+
+        var persisted = await File.ReadAllTextAsync(path, cancellationToken);
+        var reloaded = Load(path);
+        _ = await Assert.That(persisted).Contains("theme: dark");
+        _ = await Assert.That(reloaded.Skills.Entries.Count).IsEqualTo(2);
+        _ = await Assert.That(reloaded.Skills.IsEnabled(canonicalPath)).IsTrue();
+        _ = await Assert.That(reloaded.Skills.IsEnabled(otherPath)).IsFalse();
+        _ = await Assert.That(configuration.Skills.Enabled).IsEqualTo(reloaded.Skills.Enabled);
+        _ = await Assert.That(configuration.Skills.Entries.SequenceEqual(reloaded.Skills.Entries)).IsTrue();
+        _ = await Assert.That(File.Exists(path + ".tmp")).IsFalse();
+    }
+
+    [Test]
+    public async Task Set_skill_enabled_does_not_update_runtime_state_when_persistence_fails()
+    {
+        var path = Path.Combine(_directory, "config.yaml");
+        var configuration = Load(path);
+        var skillPath = Path.GetFullPath(Path.Combine(_directory, "skill", "SKILL.md"));
+        _ = Directory.CreateDirectory(path);
+
+        _ = await Assert.That(() => configuration.SetSkillEnabled(skillPath, enabled: false)).Throws<IOException>();
+        _ = await Assert.That(configuration.Skills.IsEnabled(skillPath)).IsTrue();
+        _ = await Assert.That(File.Exists(path + ".tmp")).IsFalse();
+    }
+
+    [Test]
     public async Task Prompt_template_render_arguments_are_validated()
     {
         var templates = Load(Write(string.Empty)).PromptTemplates;

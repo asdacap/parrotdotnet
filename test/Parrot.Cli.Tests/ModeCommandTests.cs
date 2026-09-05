@@ -15,7 +15,7 @@ internal sealed class ModeCommandTests
         var modeDialog = new TestSlashDialog().Select("plan");
         var clearDialog = new TestSlashDialog().Select("provider", "model", "query");
 
-        await new ModeCommand(new ModeSelection(client, modeDialog), session, activity, modeDialog)
+        await new ModeCommand(new ModeSelection(client, modeDialog), session, activity, modeDialog, _ => Task.CompletedTask)
             .Run(string.Empty, cancellationToken);
         await new ClearCommand(
             new ModelWizard(client, clearDialog),

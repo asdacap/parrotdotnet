@@ -4,7 +4,8 @@ internal sealed class ModeCommand(
     ModeSelection selection,
     ISlashSession session,
     ISlashActivity activity,
-    ISlashDialog dialog) : ISlashCommand
+    ISlashDialog dialog,
+    Func<CancellationToken, Task> refreshSkillCompletion) : ISlashCommand
 {
     public string Name => "/mode";
 
@@ -20,6 +21,7 @@ internal sealed class ModeCommand(
 
         await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
         await session.SelectMode(selected, cancellationToken).ConfigureAwait(false);
+        await refreshSkillCompletion(cancellationToken).ConfigureAwait(false);
         await dialog.Show([$"mode is now {selected}"], cancellationToken).ConfigureAwait(false);
     }
 }

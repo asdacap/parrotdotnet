@@ -3,6 +3,7 @@ using Parrot.Config;
 using Parrot.Context;
 using Parrot.Llm;
 using Parrot.Protocol;
+using Parrot.Skills;
 using Parrot.State;
 using Parrot.Store;
 
@@ -139,6 +140,7 @@ internal sealed class StatusDrainTests : IDisposable
             OwnerModes(modes, "repair-user"),
             TestModels.PromptTemplates,
             TestModels.ProfileRegistry(),
+            SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
@@ -216,6 +218,7 @@ internal sealed class StatusDrainTests : IDisposable
             OwnerModes(modes, "user"),
             TestModels.PromptTemplates,
             TestModels.ProfileRegistry(),
+            SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System);
@@ -371,6 +374,14 @@ internal sealed class StatusDrainTests : IDisposable
         }
     }
 
+    private static SkillCatalogFactory SkillCatalogFactory()
+    {
+        var configuration = Configuration.Load(
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "config.yaml"),
+            Path.Combine(Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"), "predefined.yaml"));
+        return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
+    }
+
     private static async Task Settled(Parrot.Agent.UserSession session)
     {
         while (session.History().Count == 0 || !session.History()[^1].StartsWith("assistant:", StringComparison.Ordinal))
@@ -422,6 +433,7 @@ internal sealed class StatusDrainTests : IDisposable
             OwnerModes(modes, "user"),
             TestModels.PromptTemplates,
             TestModels.ProfileRegistry(),
+            SkillCatalogFactory(),
             false,
             TimeSpan.FromSeconds(30),
             TimeProvider.System);

@@ -1,4 +1,6 @@
 using Parrot.Cli.Commands;
+using Parrot.Protocol;
+using ProtocolSkill = Parrot.Protocol.Skill;
 
 namespace Parrot.Cli.Tests;
 
@@ -17,6 +19,10 @@ internal sealed class TestSlashSession(string model) : ISlashSession
     public int Compactions { get; private set; }
 
     public CancellationToken CompactionCancellationToken { get; private set; }
+
+    public ListSkillsResponse Skills { get; } = new();
+
+    public List<ConfigureSkillRequest> ConfiguredSkills { get; } = [];
 
     public Task SelectModel(string model, CancellationToken cancellationToken)
     {
@@ -55,5 +61,16 @@ internal sealed class TestSlashSession(string model) : ISlashSession
         Compactions++;
         CompactionCancellationToken = cancellationToken;
         return Task.CompletedTask;
+    }
+
+    public Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken) =>
+        Task.FromResult(Skills.Clone());
+
+    public Task<ProtocolSkill> ConfigureSkill(string path, bool enabled, CancellationToken cancellationToken)
+    {
+        ConfiguredSkills.Add(new ConfigureSkillRequest { UserSessionId = Id, Path = path, Enabled = enabled });
+        var skill = Skills.Skills.Single(candidate => string.Equals(candidate.Path, path, StringComparison.Ordinal));
+        skill.Enabled = enabled;
+        return Task.FromResult(skill.Clone());
     }
 }

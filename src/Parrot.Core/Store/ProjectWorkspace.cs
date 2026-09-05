@@ -7,6 +7,7 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
         LaunchDirectory = launchDirectory;
         PhysicalIdentity = physicalIdentity;
         IsGitRepository = repository.IsRepository;
+        RepositoryRoot = repository.RepositoryRoot;
         WritableRoots = ResolveWritableRoots(launchDirectory, physicalIdentity, repository.WritableRoot);
     }
 
@@ -15,6 +16,8 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
     public string PhysicalIdentity { get; }
 
     public bool IsGitRepository { get; }
+
+    public string? RepositoryRoot { get; }
 
     public IReadOnlyList<string> WritableRoots { get; }
 
@@ -33,7 +36,13 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
         }
 
         var physicalIdentity = ResolvePhysicalIdentity(launchDirectory);
-        return new ProjectWorkspace(launchDirectory, physicalIdentity, FindGitRepository(launchDirectory));
+        var repository = FindGitRepository(launchDirectory);
+        if (!repository.IsRepository && !string.Equals(launchDirectory, physicalIdentity, StringComparison.Ordinal))
+        {
+            repository = FindGitRepository(physicalIdentity);
+        }
+
+        return new ProjectWorkspace(launchDirectory, physicalIdentity, repository);
     }
 
     public bool Equals(ProjectWorkspace? other) =>
@@ -67,15 +76,15 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
                 var gitPath = Path.Combine(directory.FullName, ".git");
                 if (Directory.Exists(gitPath))
                 {
-                    return new GitRepository(true, directory.FullName);
+                    return new GitRepository(true, directory.FullName, directory.FullName);
                 }
 
                 if (File.Exists(gitPath))
                 {
                     var gitDirectory = ReadGitDirectory(gitPath);
                     return gitDirectory is not null && Directory.Exists(gitDirectory)
-                        ? new GitRepository(true, FindLinkedRepositoryRoot(gitPath))
-                        : new GitRepository(false, null);
+                        ? new GitRepository(true, directory.FullName, FindLinkedRepositoryRoot(gitPath))
+                        : new GitRepository(false, null, null);
                 }
             }
         }
@@ -83,7 +92,7 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
         {
         }
 
-        return new GitRepository(false, null);
+        return new GitRepository(false, null, null);
     }
 
     private static string? FindLinkedRepositoryRoot(string gitPath)
@@ -157,5 +166,5 @@ internal sealed class ProjectWorkspace : IEquatable<ProjectWorkspace>
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(current));
     }
 
-    private sealed record GitRepository(bool IsRepository, string? WritableRoot);
+    private sealed record GitRepository(bool IsRepository, string? RepositoryRoot, string? WritableRoot);
 }

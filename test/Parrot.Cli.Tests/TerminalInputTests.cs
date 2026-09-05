@@ -243,6 +243,17 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    public async Task Editor_replaces_only_a_rune_range_and_leaves_the_caret_before_the_suffix()
+    {
+        var editor = new IncrementalEditor("> ", 20);
+        editor.Replace("🙂 $al suffix");
+
+        editor.ReplaceRange(2, 3, "$alpha");
+
+        _ = await Assert.That(editor.Prompt).IsEqualTo(new PromptValue("> ", "🙂 $alpha suffix", 8));
+    }
+
+    [Test]
     [Arguments("one\ntwo", 80, "one|two")]
     [Arguments("abcdef", 3, "abc|def")]
     [Arguments("a界b", 3, "a界|b")]

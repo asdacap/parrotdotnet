@@ -26,6 +26,27 @@ internal sealed class SlashSessionTests
     }
 
     [Test]
+    public async Task Skills_forward_the_current_session_and_exact_path(CancellationToken cancellationToken)
+    {
+        var invoker = new ScriptedInvoker();
+        invoker.SetSkills("session-7", new Skill { Name = "skill", Path = "/skill/SKILL.md", Enabled = true });
+        var session = new SlashSession(
+            new GeneratedParrot.ParrotClient(invoker),
+            new UserSession { Id = "session-7", Model = "provider/model", Mode = "build" },
+            new Configuration(Path.Combine(Path.GetTempPath(), "parrot-tests-config.yaml")),
+            false,
+            new RecordingSlashSessionBinding());
+
+        var listed = await session.ListSkills(cancellationToken);
+        var configured = await session.ConfigureSkill("/skill/SKILL.md", false, cancellationToken);
+
+        _ = await Assert.That(listed.Skills.Single().Name).IsEqualTo("skill");
+        _ = await Assert.That(configured.Enabled).IsFalse();
+        _ = await Assert.That(invoker.ConfiguredSkills.Single().UserSessionId).IsEqualTo("session-7");
+        _ = await Assert.That(invoker.ConfiguredSkills.Single().Path).IsEqualTo("/skill/SKILL.md");
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Start_new_forwards_interaction_ownership_and_cancellation_to_binding(

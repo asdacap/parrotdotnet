@@ -1,3 +1,6 @@
+using Parrot.Protocol;
+using ProtocolSkill = Parrot.Protocol.Skill;
+
 namespace Parrot.Cli.Commands;
 
 internal interface ISlashSession
@@ -19,4 +22,8 @@ internal interface ISlashSession
     Task ClearGoal(CancellationToken cancellationToken);
 
     Task Compact(CancellationToken cancellationToken);
+
+    Task<ListSkillsResponse> ListSkills(CancellationToken cancellationToken);
+
+    Task<ProtocolSkill> ConfigureSkill(string path, bool enabled, CancellationToken cancellationToken);
 }

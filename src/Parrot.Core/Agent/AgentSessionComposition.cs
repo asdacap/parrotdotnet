@@ -7,6 +7,7 @@ using Parrot.Permissions;
 using Parrot.Process;
 using Parrot.Questions;
 using Parrot.Queues;
+using Parrot.Skills;
 using Parrot.Statuses;
 using Parrot.Store;
 using Parrot.Tools;
@@ -168,6 +169,11 @@ internal partial class AgentSessionComposition : IAsyncDisposable
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);
                 return arguments.Security;
+            })
+            .Bind<AgentSkills>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.Skills;
             })
             .Bind<ContextCadence>().As(Lifetime.Scoped).To<ContextCadence>()
             .Bind<ProviderSessions>().As(Lifetime.Scoped).To<ProviderSessions>()
