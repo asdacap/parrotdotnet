@@ -441,63 +441,6 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
     }
 
     [Test]
-    public async Task Repeated_ignored_reminders_reach_the_turn_limit_without_completing_plan(
-        CancellationToken cancellationToken)
-    {
-        using var parentProvider = new HeldProvider("parent", Answer("one"), Answer("two"), Answer("three"));
-        using var childProvider = new HeldProvider("child", Answer("child finished"));
-        var router = Router(parentProvider, childProvider);
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var processes = Processes(string.Empty, lifetime.Token);
-        var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(Resources());
-        var factory = new CompletionAgentSessions(
-            router, processes, repository, _broker, queueCatalog, _workspace);
-        await using var registry = new AgentRegistry(
-            factory, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
-        var status = new RuntimeStatus(queueCatalog, processes, registry, TestModels.PromptTemplates, TimeProvider.System);
-        registry.AttachStatus(status);
-        var mode = new CompletionMode(enforce: true, maxTurns: 3);
-        await using var parent = Session("parent", parentProvider, router, repository, registry, processes, queueCatalog, status, mode, lifetime.Token);
-        var child = TestModels.ScopeOf(parent).AgentSpawner.SpawnScope(new AgentLaunchRequest(
-            parent,
-            Turn(parent, router),
-            "worker",
-            new ModelSelector("child/model"),
-            "direct-child",
-            string.Empty,
-            HistoryForkSelection.Parse(string.Empty),
-            new HistoryForkBoundary.AfterCompletedHistory(),
-            AgentCompletionDeliveryPolicy.Automatic)).Session;
-        using var subscription = _broker.Subscribe();
-
-        _ = await child.Send("work", cancellationToken);
-        await childProvider.Arrived(cancellationToken);
-        _ = await parent.Send("finish", cancellationToken);
-        for (var request = 0; request < 3; request++)
-        {
-            await parentProvider.Arrived(cancellationToken);
-            parentProvider.Release();
-        }
-
-        _ = await parent.Wait(0, cancellationToken);
-        await parent.DisposeAsync();
-
-        var events = Events(subscription);
-        _ = await Assert.That(parentProvider.Requests).Count().IsEqualTo(3);
-        _ = await Assert.That(Reminders(events, "parent")).Count().IsEqualTo(3);
-        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
-        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnEnded)).IsEqualTo(0);
-        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.PlanCompleted)).IsEqualTo(0);
-        _ = await Assert.That(Payloads(repository, "parent", Event.PayloadOneofCase.TurnFailed)).IsEqualTo(1);
-        _ = await Assert.That(mode.Completions).IsEqualTo(0);
-        _ = await Assert.That(repository.Replay().Single(published =>
-            published.AgentSessionId == "parent"
-            && published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
-            .IsEqualTo("the turn exceeded its provider-request limit");
-    }
-
-    [Test]
     public async Task Interruption_bypasses_active_work_completion_enforcement(CancellationToken cancellationToken)
     {
         using var parentProvider = new HeldProvider("parent", Answer("unreachable"));

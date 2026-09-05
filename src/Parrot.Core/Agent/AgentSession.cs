@@ -1633,11 +1633,7 @@ internal sealed class AgentSession(
                             completionRetryPending = retryPending;
                         }
 
-                        if (retryOutcome.ResetProviderRequestBudget)
-                        {
-                            providerRequests = 0;
-                        }
-
+                        providerRequests = 0;
                         continue;
                     }
 

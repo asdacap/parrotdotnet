@@ -22,6 +22,6 @@ internal sealed class ActiveWorkTurnCompletionCallback(
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
         eventRepository.AppendActiveWorkReminder(published, reminder);
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-        return AgentTurnCompletionOutcome.Retry(reminder, false, false, false, null, false);
+        return AgentTurnCompletionOutcome.Retry(reminder, false, false, false, null);
     }
 }

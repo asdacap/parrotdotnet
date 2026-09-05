@@ -18,15 +18,13 @@ internal abstract record AgentTurnCompletionOutcome
         bool retainCandidateAssistant,
         bool selectCandidateAnswer,
         bool recordAssistantActivity,
-        bool? completionRetryPending,
-        bool resetProviderRequestBudget) =>
+        bool? completionRetryPending) =>
         new RetryOutcome(
             systemMessage,
             retainCandidateAssistant,
             selectCandidateAnswer,
             recordAssistantActivity,
-            completionRetryPending,
-            resetProviderRequestBudget);
+            completionRetryPending);
 
     internal sealed record ContinueOutcome(
         IDisposable? CompletionReservation,
@@ -37,6 +35,5 @@ internal abstract record AgentTurnCompletionOutcome
         bool RetainCandidateAssistant,
         bool SelectCandidateAnswer,
         bool RecordAssistantActivity,
-        bool? CompletionRetryPending,
-        bool ResetProviderRequestBudget) : AgentTurnCompletionOutcome;
+        bool? CompletionRetryPending) : AgentTurnCompletionOutcome;
 }

@@ -27,6 +27,6 @@ internal sealed class ModeTurnCompletionCallback(
         };
         eventRepository.AppendPlanValidationRepair(published, candidate.AssistantText, diagnostic);
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-        return AgentTurnCompletionOutcome.Retry(diagnostic, true, true, true, true, false);
+        return AgentTurnCompletionOutcome.Retry(diagnostic, true, true, true, true);
     }
 }

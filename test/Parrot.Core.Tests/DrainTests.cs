@@ -201,8 +201,7 @@ internal sealed class DrainTests : IDisposable
                     false,
                     false,
                     false,
-                    null,
-                    false)
+                    null)
                 : AgentTurnCompletionOutcome.Continue(null, null);
         });
         var third = new RecordingCompletionCallback((candidate, _) =>
@@ -210,7 +209,12 @@ internal sealed class DrainTests : IDisposable
             calls.Add($"third:{candidate.MessageId}");
             return AgentTurnCompletionOutcome.Continue(null, null);
         });
-        var session = SessionWithCompletionCallbacks(provider, repository, [first, second, third], cancellationToken);
+        var session = SessionWithCompletionCallbacks(
+            provider,
+            repository,
+            [first, second, third],
+            TestModels.Profile(),
+            cancellationToken);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -233,6 +237,47 @@ internal sealed class DrainTests : IDisposable
         _ = await Assert.That(plans).HasSingleItem();
         _ = await Assert.That(plans[0].PlanCompleted.Markdown).IsEqualTo("retained");
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnStarted)).IsEqualTo(1);
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_completion_callback_retry_resets_the_provider_request_budget(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(Answer("first candidate"), Answer("settled answer"));
+        var repository = new EventRepository(_database);
+        var retry = new RecordingCompletionCallback((candidate, invocation) => invocation == 1
+            ? AgentTurnCompletionOutcome.Retry(
+                "keep going",
+                false,
+                false,
+                false,
+                null)
+            : AgentTurnCompletionOutcome.Continue(null, null));
+        await using var session = SessionWithCompletionCallbacks(
+            provider,
+            repository,
+            [retry],
+            Profile(maxTurns: 2),
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+        await session.DisposeAsync();
+
+        // Both requests are made and the turn completes. Without the reset the
+        // retry would leave the budget at one, so the second request would be
+        // treated as the final provider request and have tools withheld.
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+        _ = await Assert.That(provider.Requests[1].Messages).DoesNotContain(message =>
+            message.Role == LLMRole.System
+            && message.Content.Contains("final provider request", StringComparison.Ordinal));
+        _ = await Assert.That(Endings(repository)).IsEqualTo("stop");
+        _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnFailed)).IsEqualTo(0);
         _ = await Assert.That(Payloads(repository, Event.PayloadOneofCase.TurnEnded)).IsEqualTo(1);
     }
 
@@ -1640,13 +1685,14 @@ internal sealed class DrainTests : IDisposable
         SteppedProvider provider,
         EventRepository repository,
         IReadOnlyList<IAgentTurnCompletionCallback> completionCallbacks,
+        IMode profile,
         CancellationToken lifetime)
     {
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         _dependencies.Add(dependencies);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, completionCallbacks, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile, completionCallbacks, SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
     }
 
     private AgentSession Session(

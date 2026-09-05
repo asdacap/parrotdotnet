@@ -24,7 +24,7 @@ internal sealed class PendingChildQuestionTurnCompletionCallback(
                 var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
                 eventRepository.AppendPendingChildQuestionReminder(published, candidate.AssistantText, reminder);
                 await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-                return AgentTurnCompletionOutcome.Retry(reminder, true, false, true, null, false);
+                return AgentTurnCompletionOutcome.Retry(reminder, true, false, true, null);
             }
 
             var outcome = AgentTurnCompletionOutcome.Continue(completionAttempt, null);

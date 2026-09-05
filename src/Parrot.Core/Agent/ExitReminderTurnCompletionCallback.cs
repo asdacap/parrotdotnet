@@ -22,6 +22,6 @@ internal sealed class ExitReminderTurnCompletionCallback(
         var published = new Event { Id = Identifier.EventId(), AgentSessionId = candidate.SessionId };
         eventRepository.AppendExitReminder(published, candidate.AssistantText, reminder);
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
-        return AgentTurnCompletionOutcome.Retry(reminder, true, false, true, true, true);
+        return AgentTurnCompletionOutcome.Retry(reminder, true, false, true, true);
     }
 }
