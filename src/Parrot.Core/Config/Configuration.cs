@@ -1533,7 +1533,12 @@ internal sealed partial class Configuration(string path)
                 Protocol = Scalar(item, "protocol"),
                 BaseUrl = Scalar(item, "base_url"),
                 ApiKeyEnv = Scalar(item, "api_key_env"),
-                AllowInsecureLocalhost = Scalar(item, "allow_insecure_localhost") == "true",
+                AllowInsecureLocalhost = ReadOptionalBoolean(
+                    item, "allow_insecure_localhost", $"providers.{id}.allow_insecure_localhost"),
+                AllowInsecureRemote = ReadOptionalBoolean(
+                    item, "allow_insecure_remote", $"providers.{id}.allow_insecure_remote"),
+                AllowInvalidTlsCertificate = ReadOptionalBoolean(
+                    item, "allow_invalid_tls_certificate", $"providers.{id}.allow_invalid_tls_certificate"),
                 DisableWebSocket = !Child(item, "disable_websocket", out var disableWebSocket) ||
                     ParseBoolean(disableWebSocket, $"providers.{id}.disable_websocket"),
                 HeaderTimeoutMs = Integer(item, "header_timeout_ms"),

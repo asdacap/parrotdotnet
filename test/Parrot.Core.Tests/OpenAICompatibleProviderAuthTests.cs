@@ -8,6 +8,41 @@ namespace Parrot.Core.Tests;
 internal sealed class OpenAICompatibleProviderAuthTests
 {
     [Test]
+    [Arguments("https://example.test/v1", false, false, true)]
+    [Arguments("http://example.test/v1", false, false, false)]
+    [Arguments("http://example.test/v1", true, false, true)]
+    [Arguments("http://127.0.0.1:8000/v1", false, false, false)]
+    [Arguments("http://127.0.0.1:8000/v1", false, true, true)]
+    public async Task Provider_endpoint_requires_an_explicit_plaintext_exception(
+        string baseUrl,
+        bool allowInsecureRemote,
+        bool allowInsecureLocalhost,
+        bool accepted)
+    {
+        using var client = new HttpClient();
+        OpenAICompatibleProvider Build() => new(
+            new OpenAICompatibleOptions
+            {
+                Id = "configured",
+                BaseUrl = baseUrl,
+                ApiKeySource = new RecordingApiKeySource(["key"]),
+                AllowInsecureRemote = allowInsecureRemote,
+                AllowInsecureLocalhost = allowInsecureLocalhost,
+            },
+            client);
+
+        if (accepted)
+        {
+            var provider = Build();
+            _ = await Assert.That(provider.Id).IsEqualTo("configured");
+        }
+        else
+        {
+            _ = await Assert.That(Build).Throws<ProviderHttpException>();
+        }
+    }
+
+    [Test]
     public async Task Non_success_responses_preserve_their_body(CancellationToken cancellationToken)
     {
         const string body = """{"error":{"type":"invalid_request","code":"bad","message":"broken"},"trace":"abc"}""";

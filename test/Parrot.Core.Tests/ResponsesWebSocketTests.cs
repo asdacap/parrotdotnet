@@ -30,6 +30,22 @@ internal sealed class ResponsesWebSocketTests
     }
 
     [Test]
+    public async Task Client_derives_plaintext_endpoint_and_certificate_exception_is_authority_scoped()
+    {
+        _ = await Assert.That(ResponsesWebSocketClient.Endpoint(
+            new Uri("http://api.example.test/v1/responses"))).IsEqualTo(
+            new Uri("ws://api.example.test/v1/responses"));
+        using var configuredRequest = new HttpRequestMessage(
+            HttpMethod.Get, "wss://api.example.test/v1/responses");
+        using var redirectedRequest = new HttpRequestMessage(
+            HttpMethod.Get, "wss://other.example.test/v1/responses");
+        _ = await Assert.That(ResponsesWebSocketConnector.HasAuthority(
+            configuredRequest, "https://api.example.test")).IsTrue();
+        _ = await Assert.That(ResponsesWebSocketConnector.HasAuthority(
+            redirectedRequest, "https://api.example.test")).IsFalse();
+    }
+
+    [Test]
     public async Task Text_frames_reassemble_and_share_responses_event_semantics(CancellationToken cancellationToken)
     {
         const string delta = "{\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}";

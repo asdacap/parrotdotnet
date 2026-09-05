@@ -6,7 +6,7 @@ namespace Parrot.Llm;
 internal sealed class ProviderRegistryBuilder(
     Configuration configuration,
     ICredentialStore store,
-    HttpClient httpClient,
+    ProviderHttpClientCatalog httpClients,
     IBrowserOpener browser)
 {
     public static IReadOnlyList<string> BuildableProviderIds(Configuration configuration)
@@ -31,6 +31,7 @@ internal sealed class ProviderRegistryBuilder(
         {
             var config = configuration.Providers[id];
             var implementation = ProviderImplementations.Resolve(id);
+            var httpClient = httpClients.Resolve(config.BaseUrl, config.AllowInvalidTlsCertificate);
             var built = implementation.Build(new(id, config, store, httpClient, browser));
             providers.Add(new RetryingProvider(built.Provider));
             catalogues[id] = built.Seed;

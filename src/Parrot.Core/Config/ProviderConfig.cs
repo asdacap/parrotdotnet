@@ -17,6 +17,10 @@ internal sealed record ProviderConfig
 
     public bool AllowInsecureLocalhost { get; init; }
 
+    public bool AllowInsecureRemote { get; init; }
+
+    public bool AllowInvalidTlsCertificate { get; init; }
+
     public bool DisableWebSocket { get; init; } = true;
 
     public int? HeaderTimeoutMs { get; init; }

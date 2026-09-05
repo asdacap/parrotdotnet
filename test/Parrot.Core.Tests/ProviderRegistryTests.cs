@@ -36,10 +36,11 @@ internal sealed class ProviderRegistryTests
             var configuration = Configuration.Load(
                 configurationPath,
                 Path.Combine(directory, "predefined_config.yaml"));
+            using var httpClients = new ProviderHttpClientCatalog(client);
             var registry = await new ProviderRegistryBuilder(
                 configuration,
                 store,
-                client,
+                httpClients,
                 new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
             var provider = registry.List().Single(item => item.Id == "openrouter");
             var request = new LLMRequest
@@ -182,10 +183,11 @@ internal sealed class ProviderRegistryTests
             await store.Set("openai", Credential.ForApiKey("placeholder"), cancellationToken);
             using var handler = new OpenAiModelsHandler();
             using var client = new HttpClient(handler, disposeHandler: false);
+            using var httpClients = new ProviderHttpClientCatalog(client);
             var registry = await new ProviderRegistryBuilder(
                 Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
                 store,
-                client,
+                httpClients,
                 new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
 
             _ = await Assert.That(registry.List().Select(provider => provider.Id)).Contains("openai");
@@ -216,10 +218,11 @@ internal sealed class ProviderRegistryTests
             await store.Set("configured", Credential.ForApiKey("key"), cancellationToken);
             using var handler = new ModelsHandler();
             using var client = new HttpClient(handler, disposeHandler: false);
+            using var httpClients = new ProviderHttpClientCatalog(client);
             var registry = await new ProviderRegistryBuilder(
                 Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
                 store,
-                client,
+                httpClients,
                 new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
 
             var selected = registry.ResolveCanonical("configured/not-listed");
@@ -250,10 +253,11 @@ internal sealed class ProviderRegistryTests
                 cancellationToken);
             using var handler = new ModelsHandler();
             using var client = new HttpClient(handler, disposeHandler: false);
+            using var httpClients = new ProviderHttpClientCatalog(client);
             var registry = await new ProviderRegistryBuilder(
                 Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml")),
                 new InMemoryCredentialStore(),
-                client,
+                httpClients,
                 new SystemBrowserOpener(static _ => null)).Build(cancellationToken);
 
             var seed = registry.Models("custom").Single();

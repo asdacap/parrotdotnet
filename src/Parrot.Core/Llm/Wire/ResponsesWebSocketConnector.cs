@@ -1,9 +1,29 @@
+using System.Net.Security;
 using System.Net.WebSockets;
 
 namespace Parrot.Llm.Wire;
 
 internal sealed class ResponsesWebSocketConnector : IResponsesWebSocketConnector
 {
+    private readonly string _authority = string.Empty;
+    private readonly bool _allowInvalidTlsCertificate;
+
+    public ResponsesWebSocketConnector()
+    {
+    }
+
+    public ResponsesWebSocketConnector(OpenAICompatibleOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.AllowInvalidTlsCertificate &&
+            Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var endpoint) &&
+            endpoint.Scheme == Uri.UriSchemeHttps && endpoint.Host.Length > 0)
+        {
+            _authority = endpoint.GetLeftPart(UriPartial.Authority);
+            _allowInvalidTlsCertificate = true;
+        }
+    }
+
     public async Task<WebSocket> Connect(
         Uri endpoint,
         IReadOnlyDictionary<string, string> headers,
@@ -12,6 +32,12 @@ internal sealed class ResponsesWebSocketConnector : IResponsesWebSocketConnector
     {
         var socket = new ClientWebSocket();
         socket.Options.CollectHttpResponseDetails = true;
+        if (_allowInvalidTlsCertificate)
+        {
+            socket.Options.RemoteCertificateValidationCallback = (sender, _, _, errors) =>
+                errors == SslPolicyErrors.None || HasAuthority(sender, _authority);
+        }
+
         foreach (var (name, value) in headers)
         {
             socket.Options.SetRequestHeader(name, value);
@@ -44,5 +70,24 @@ internal sealed class ResponsesWebSocketConnector : IResponsesWebSocketConnector
             socket.Dispose();
             throw;
         }
+    }
+
+    internal static bool HasAuthority(object sender, string authority)
+    {
+        if (sender is not HttpRequestMessage { RequestUri: { } endpoint })
+        {
+            return false;
+        }
+
+        var scheme = endpoint.Scheme switch
+        {
+            "wss" => Uri.UriSchemeHttps,
+            "ws" => Uri.UriSchemeHttp,
+            _ => endpoint.Scheme,
+        };
+        return string.Equals(
+            new UriBuilder(endpoint) { Scheme = scheme }.Uri.GetLeftPart(UriPartial.Authority),
+            authority,
+            StringComparison.OrdinalIgnoreCase);
     }
 }

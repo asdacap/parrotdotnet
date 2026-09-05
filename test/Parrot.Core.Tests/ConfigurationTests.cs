@@ -79,6 +79,36 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    [Arguments("allow_insecure_localhost")]
+    [Arguments("allow_insecure_remote")]
+    [Arguments("allow_invalid_tls_certificate")]
+    public async Task Provider_transport_exceptions_are_strict_booleans(string option)
+    {
+        var enabled = Load(Write($"providers:\n  custom:\n    {option}: true\n")).Providers["custom"];
+        var disabled = Load(Write($"providers:\n  custom:\n    {option}: false\n")).Providers["custom"];
+        var malformed = Assert.Throws<InvalidDataException>(
+            () => Load(Write($"providers:\n  custom:\n    {option}: null\n")));
+        var enabledValue = option switch
+        {
+            "allow_insecure_localhost" => enabled.AllowInsecureLocalhost,
+            "allow_insecure_remote" => enabled.AllowInsecureRemote,
+            "allow_invalid_tls_certificate" => enabled.AllowInvalidTlsCertificate,
+            _ => throw new InvalidOperationException("Unknown provider transport option."),
+        };
+        var disabledValue = option switch
+        {
+            "allow_insecure_localhost" => disabled.AllowInsecureLocalhost,
+            "allow_insecure_remote" => disabled.AllowInsecureRemote,
+            "allow_invalid_tls_certificate" => disabled.AllowInvalidTlsCertificate,
+            _ => throw new InvalidOperationException("Unknown provider transport option."),
+        };
+
+        _ = await Assert.That(enabledValue).IsTrue();
+        _ = await Assert.That(disabledValue).IsFalse();
+        _ = await Assert.That(malformed.Message).IsEqualTo($"providers.custom.{option} must be true or false");
+    }
+
+    [Test]
     public async Task Openai_provider_defaults_can_be_partially_overridden()
     {
         var provider = Load(Write("providers:\n  openai:\n    header_timeout_ms: 2500\n")).Providers["openai"];

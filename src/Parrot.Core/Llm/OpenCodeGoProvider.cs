@@ -19,7 +19,8 @@ internal sealed class OpenCodeGoProvider : ILLMProvider, IUsageReporter
         ArgumentNullException.ThrowIfNull(options);
         _inner = new OpenAICompatibleProvider(options, client);
         _client = client;
-        _usageEndpoint = HttpStreaming.EndpointUrl(options.BaseUrl, "usage", options.AllowInsecureLocalhost);
+        _usageEndpoint = HttpStreaming.EndpointUrl(
+            options.BaseUrl, "usage", options.AllowInsecureLocalhost, options.AllowInsecureRemote);
         _apiKeySource = options.ApiKeySource;
     }
 

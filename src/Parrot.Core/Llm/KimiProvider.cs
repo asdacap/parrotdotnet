@@ -18,7 +18,8 @@ internal sealed class KimiProvider : ILLMProvider, IUsageReporter
         ArgumentNullException.ThrowIfNull(options);
         _inner = new OpenAICompatibleProvider(options, client);
         _client = client;
-        _balanceEndpoint = HttpStreaming.EndpointUrl(options.BaseUrl, "users/me/balance", options.AllowInsecureLocalhost);
+        _balanceEndpoint = HttpStreaming.EndpointUrl(
+            options.BaseUrl, "users/me/balance", options.AllowInsecureLocalhost, options.AllowInsecureRemote);
         _apiKeySource = options.ApiKeySource;
     }
 

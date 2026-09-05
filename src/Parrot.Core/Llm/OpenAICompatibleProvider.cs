@@ -23,7 +23,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly bool _disableWebSocket;
 
     public OpenAICompatibleProvider(OpenAICompatibleOptions options, HttpClient client)
-        : this(options, client, new ResponsesWebSocketConnector())
+        : this(options, client, new ResponsesWebSocketConnector(options))
     {
     }
 
@@ -57,8 +57,10 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         Id = options.Id;
         _protocol = options.Protocol;
         _apiKeySource = options.ApiKeySource;
-        _endpoint = HttpStreaming.EndpointUrl(options.BaseUrl, endpointName, options.AllowInsecureLocalhost);
-        _modelsEndpoint = HttpStreaming.EndpointUrl(options.BaseUrl, "models", options.AllowInsecureLocalhost);
+        _endpoint = HttpStreaming.EndpointUrl(
+            options.BaseUrl, endpointName, options.AllowInsecureLocalhost, options.AllowInsecureRemote);
+        _modelsEndpoint = HttpStreaming.EndpointUrl(
+            options.BaseUrl, "models", options.AllowInsecureLocalhost, options.AllowInsecureRemote);
         _headers = HttpStreaming.ValidateHeaders(options.Headers);
         _declared = options.Models;
         _defaults = options.ModelDefaults;

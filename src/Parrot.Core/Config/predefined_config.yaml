@@ -1830,6 +1830,10 @@ providers:
 #       X-Tenant: non-secret-value
 #     # Allow plain HTTP for localhost endpoints.
 #     allow_insecure_localhost: false
+#     # Allow plain HTTP for remote endpoints. This exposes credentials and content.
+#     allow_insecure_remote: false
+#     # Accept invalid or self-signed TLS certificates for this provider only.
+#     allow_invalid_tls_certificate: false
 #     # Milliseconds to wait for response headers; zero disables.
 #     header_timeout_ms: 10000
 #     # OpenRouter provider routing preferences. The OpenRouter adapter forwards

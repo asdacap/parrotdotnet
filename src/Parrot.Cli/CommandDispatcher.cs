@@ -19,7 +19,7 @@ internal sealed class CommandDispatcher(
     Interrupts interrupts,
     TextWriter output,
     TextWriter error,
-    HttpClient httpClient,
+    ProviderHttpClientCatalog httpClients,
     IBrowserOpener browserOpener,
     OpenAiOAuthClient oauthClient)
 {
@@ -284,7 +284,7 @@ internal sealed class CommandDispatcher(
     {
         try
         {
-            var registry = await new ProviderRegistryBuilder(configuration, credentials, httpClient, browserOpener)
+            var registry = await new ProviderRegistryBuilder(configuration, credentials, httpClients, browserOpener)
                 .Build(cancellationToken).ConfigureAwait(false);
 
             return new Composition(

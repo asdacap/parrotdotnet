@@ -16,6 +16,10 @@ internal sealed record OpenAICompatibleOptions
 
     public bool AllowInsecureLocalhost { get; init; }
 
+    public bool AllowInsecureRemote { get; init; }
+
+    public bool AllowInvalidTlsCertificate { get; init; }
+
     public bool DisableWebSocket { get; init; } = true;
 
     // Declared by the user; always selectable, even when the endpoint does not

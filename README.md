@@ -839,11 +839,19 @@ serializable defaults and catalog metadata.
 Responses API providers, including the API-key `openai` provider and the
 OAuth-backed `chatgpt` provider, use HTTP/SSE by default. Set the flat provider
 option `providers.<id>.disable_websocket: false` to opt into Responses WebSocket
-v2. The socket endpoint is derived from `base_url` (`https` becomes `wss`;
-opted-in loopback `http` becomes `ws`). If the upgrade is unsupported or
-transient WebSocket attempts are exhausted, that agent session falls back to
-HTTP/SSE; another agent session can still try WebSocket. `chatgpt` remains
-separate in its credentials and endpoint handling from `openai`.
+v2. The socket endpoint is derived from `base_url` (`https` becomes `wss` and
+permitted `http` becomes `ws`). If the upgrade is unsupported or transient
+WebSocket attempts are exhausted, that agent session falls back to HTTP/SSE;
+another agent session can still try WebSocket. `chatgpt` remains separate in its
+credentials and endpoint handling from `openai`.
+
+Provider endpoints require HTTPS by default. `allow_insecure_localhost: true`
+permits plain HTTP only for loopback endpoints. The provider-scoped
+`allow_insecure_remote: true` also permits remote plain HTTP, which exposes API
+keys, prompts, and responses to interception. The provider-scoped
+`allow_invalid_tls_certificate: true` accepts invalid or self-signed HTTPS and
+WSS certificates only for that provider's configured authority. Both remote
+transport exceptions are disabled by default.
 
 OpenRouter provider-routing criteria are configured as an open-ended mapping at
 `providers.openrouter.provider_preferences`. The predefined policy enables

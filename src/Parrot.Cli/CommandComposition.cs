@@ -1,4 +1,5 @@
 using Parrot.Auth;
+using Parrot.Llm;
 using Pure.DI;
 
 namespace Parrot.Cli;
@@ -16,6 +17,11 @@ internal partial class CommandComposition
                 {
                     Timeout = Timeout.InfiniteTimeSpan,
                 })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<HttpClient>(out var httpClient);
+                return new ProviderHttpClientCatalog(httpClient);
+            })
             .Bind().As(Lifetime.Singleton).To<IBrowserOpener>(_ =>
                 new SystemBrowserOpener(System.Diagnostics.Process.Start))
             .Bind().As(Lifetime.Singleton).To(_ => new OpenAiOAuthOptions())
@@ -31,11 +37,11 @@ internal partial class CommandComposition
                 ctx.Inject<Interrupts>(out var interrupts);
                 ctx.Inject<TextWriter>("output", out var output);
                 ctx.Inject<TextWriter>("error", out var error);
-                ctx.Inject<HttpClient>(out var httpClient);
+                ctx.Inject<ProviderHttpClientCatalog>(out var httpClients);
                 ctx.Inject<IBrowserOpener>(out var browserOpener);
                 ctx.Inject<OpenAiOAuthClient>(out var oauthClient);
                 return new CommandDispatcher(
-                    interrupts, output, error, httpClient, browserOpener, oauthClient);
+                    interrupts, output, error, httpClients, browserOpener, oauthClient);
             })
             .Root<CommandDispatcher>("Dispatcher");
 }

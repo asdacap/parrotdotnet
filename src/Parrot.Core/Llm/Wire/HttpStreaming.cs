@@ -26,7 +26,11 @@ internal static class HttpStreaming
         "proxy-authorization",
     };
 
-    public static Uri EndpointUrl(string baseUrl, string endpoint, bool allowInsecureLocalhost)
+    public static Uri EndpointUrl(
+        string baseUrl,
+        string endpoint,
+        bool allowInsecureLocalhost,
+        bool allowInsecureRemote)
     {
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsed))
         {
@@ -44,12 +48,12 @@ internal static class HttpStreaming
             case "https":
                 break;
 
-            case "http" when allowInsecureLocalhost && IsLoopbackHost(parsed.Host):
+            case "http" when allowInsecureRemote || (allowInsecureLocalhost && IsLoopbackHost(parsed.Host)):
                 break;
 
             case "http":
                 throw new ProviderHttpException(
-                    "provider: HTTP is allowed only for loopback hosts with allow_insecure_localhost");
+                    "provider: HTTP requires allow_insecure_remote, or allow_insecure_localhost for a loopback host");
 
             default:
                 throw new ProviderHttpException("provider: base URL must use HTTPS");

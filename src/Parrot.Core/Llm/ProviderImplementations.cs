@@ -87,6 +87,8 @@ internal static class ProviderImplementations
                 ApiKeySource = new StoredApiKeySource(context.Id, config.ApiKeyEnv, context.CredentialStore),
                 Headers = config.Headers,
                 AllowInsecureLocalhost = config.AllowInsecureLocalhost,
+                AllowInsecureRemote = config.AllowInsecureRemote,
+                AllowInvalidTlsCertificate = config.AllowInvalidTlsCertificate,
                 DisableWebSocket = config.DisableWebSocket,
                 Models = ProviderModels.ReadDeclared(context.Id, config.Models),
                 ModelDefaults = ProviderModels.ReadDefaults(context.Id, config.ModelDefaults),
