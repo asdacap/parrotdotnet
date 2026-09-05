@@ -24,5 +24,5 @@ internal interface IChildRegistry
 
     bool ContainsName(string name);
 
-    void Add(IAgentSessionScope scope);
+    bool TryAdd(IAgentSessionScope scope);
 }

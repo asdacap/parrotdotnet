@@ -116,7 +116,11 @@ internal sealed class AgentSpawner : IAsyncDisposable
                 status,
                 _lifetime.Token);
             Retain(childIdentity.SessionId, retainedReservation);
-            _children.Add(constructedScope);
+            if (!_children.TryAdd(constructedScope))
+            {
+                throw new AgentRegistryException("the user session is shutting down");
+            }
+
             return constructedScope;
         }
         catch

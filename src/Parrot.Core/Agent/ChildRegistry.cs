@@ -198,16 +198,15 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
         }
     }
 
-    public void Add(IAgentSessionScope scope)
+    public bool TryAdd(IAgentSessionScope scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        scope.ChildRegistry.ValidateOwner(scope.Session.Identity);
 
         lock (_gate)
         {
             if (!_accepting)
             {
-                throw new AgentRegistryException("the user session is shutting down");
+                return false;
             }
 
             if (!string.Equals(scope.Session.ParentSessionId, owner.SessionId, StringComparison.Ordinal))
@@ -225,6 +224,8 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
                 _ = _entries.Remove(scope.Session.SessionId);
                 throw;
             }
+
+            return true;
         }
     }
 
