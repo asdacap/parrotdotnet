@@ -208,6 +208,23 @@ internal sealed class ParrotService(
         }
     }
 
+    public override Task<ListModelPresetsResponse> ListModelPresets(
+        ListModelPresetsRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+
+        var response = new ListModelPresetsResponse();
+        foreach (var (name, preset) in modelConfiguration.CapturePresets())
+        {
+            response.Presets.Add(ToProtocol(name, preset));
+        }
+
+        return Task.FromResult(response);
+    }
+
     public override Task<ListModesResponse> ListModes(ListModesRequest request, ServerCallContext context)
     {
         ArgumentNullException.ThrowIfNull(request);

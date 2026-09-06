@@ -16,21 +16,36 @@ internal sealed class ModelPresetSelectCommand(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        try
+        if (string.IsNullOrWhiteSpace(arguments))
         {
-            Configuration.ValidatePresetName(arguments);
+            await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
+            var picked = await PickPreset(cancellationToken).ConfigureAwait(false);
+            if (picked is null)
+            {
+                return;
+            }
+
+            arguments = picked;
         }
-        catch (InvalidDataException)
+        else
         {
-            await dialog.ShowError(
-                $"usage: {Name} <name>; name must be one token without whitespace or '/'",
-                cancellationToken).ConfigureAwait(false);
-            return;
+            try
+            {
+                Configuration.ValidatePresetName(arguments);
+            }
+            catch (InvalidDataException)
+            {
+                await dialog.ShowError(
+                    $"usage: {Name} <name>; name must be one token without whitespace or '/'",
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
         }
 
         try
         {
-            await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
             var preset = await session.SelectModelPreset(arguments, cancellationToken).ConfigureAwait(false);
             await dialog.Show(
                 [$"Model preset selected: {preset.Name} = {preset.Model}"],
@@ -40,5 +55,22 @@ internal sealed class ModelPresetSelectCommand(
         {
             await dialog.ShowError(failure.Status.Detail, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private async Task<string?> PickPreset(CancellationToken cancellationToken)
+    {
+        var presets = await session.ListModelPresets(cancellationToken).ConfigureAwait(false);
+
+        if (presets.Count == 0)
+        {
+            await dialog.ShowError("no model presets are saved", cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
+        var chosen = await dialog.Select(
+            "Select a model preset",
+            [.. presets.Select(preset => new SlashDialogOption(preset.Name, preset.Name, preset.Model))],
+            cancellationToken).ConfigureAwait(false);
+        return chosen?.Id;
     }
 }

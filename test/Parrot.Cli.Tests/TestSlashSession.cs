@@ -30,6 +30,10 @@ internal sealed class TestSlashSession(string model) : ISlashSession
 
     public ModelPreset Preset { get; set; } = new() { Name = "work", Model = "provider/model" };
 
+    public List<ModelPreset> ModelPresets { get; set; } = [];
+
+    public int ListedModelPresets { get; private set; }
+
     public Task SelectModel(string model, CancellationToken cancellationToken)
     {
         Model = model;
@@ -47,8 +51,16 @@ internal sealed class TestSlashSession(string model) : ISlashSession
     {
         cancellationToken.ThrowIfCancellationRequested();
         SelectedModelPresets.Add(name);
-        Model = Preset.Model;
-        return Task.FromResult(Preset.Clone());
+        var picked = ModelPresets.FirstOrDefault(preset => preset.Name == name);
+        Model = picked?.Model ?? Preset.Model;
+        return Task.FromResult(picked?.Clone() ?? Preset.Clone());
+    }
+
+    public Task<IReadOnlyList<ModelPreset>> ListModelPresets(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ListedModelPresets++;
+        return Task.FromResult<IReadOnlyList<ModelPreset>>(ModelPresets);
     }
 
     public Task SelectMode(string mode, CancellationToken cancellationToken)

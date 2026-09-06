@@ -114,6 +114,9 @@ internal sealed class SkillsCommandTests
         public Task<ModelPreset> SelectModelPreset(string name, CancellationToken cancellationToken) =>
             Task.FromResult(new ModelPreset());
 
+        public Task<IReadOnlyList<ModelPreset>> ListModelPresets(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ModelPreset>>([]);
+
         public Task SelectMode(string mode, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task StartNew(string model, string mode, CancellationToken cancellationToken) => Task.CompletedTask;

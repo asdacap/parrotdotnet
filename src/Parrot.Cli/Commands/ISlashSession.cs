@@ -17,6 +17,8 @@ internal interface ISlashSession
 
     Task<ModelPreset> SelectModelPreset(string name, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<ModelPreset>> ListModelPresets(CancellationToken cancellationToken);
+
     Task SelectMode(string mode, CancellationToken cancellationToken);
 
     Task StartNew(string model, string mode, CancellationToken cancellationToken);

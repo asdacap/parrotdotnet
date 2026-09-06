@@ -30,7 +30,65 @@ internal sealed class ModelPresetCommandTests
     }
 
     [Test]
-    [Arguments("")]
+    public async Task Select_command_picks_presets_when_none_specified(CancellationToken cancellationToken)
+    {
+        var session = new TestSlashSession("high_llm")
+        {
+            ModelPresets =
+            [
+                new ModelPreset { Name = "Work", Model = "high_llm" },
+                new ModelPreset { Name = "Research", Model = "medium_llm" },
+            ],
+        };
+        var activity = new TestSlashActivity();
+        var dialog = new TestSlashDialog().Select("Research");
+
+        await new ModelPresetSelectCommand(session, activity, dialog).Run(string.Empty, cancellationToken);
+
+        _ = await Assert.That(string.Join(',', session.SelectedModelPresets)).IsEqualTo("Research");
+        _ = await Assert.That(session.Model).IsEqualTo("medium_llm");
+        _ = await Assert.That(activity.Waits).IsEqualTo(1);
+        _ = await Assert.That(dialog.Pickers.Single().Title).IsEqualTo("Select a model preset");
+        _ = await Assert.That(string.Join(',', dialog.Pickers.Single().Options.Select(option => option.Id))).IsEqualTo("Work,Research");
+        _ = await Assert.That(dialog.Pickers.Single().Options[0].Description).IsEqualTo("high_llm");
+        _ = await Assert.That(dialog.Shown).Contains("Model preset selected: Research = medium_llm");
+    }
+
+    [Test]
+    public async Task Select_command_cancels_quietly_when_picker_dismissed(CancellationToken cancellationToken)
+    {
+        var session = new TestSlashSession("high_llm")
+        {
+            ModelPresets = [new ModelPreset { Name = "Work", Model = "high_llm" }],
+        };
+        var activity = new TestSlashActivity();
+        var dialog = new TestSlashDialog().Select([null]);
+
+        await new ModelPresetSelectCommand(session, activity, dialog).Run("   ", cancellationToken);
+
+        _ = await Assert.That(session.SelectedModelPresets).IsEmpty();
+        _ = await Assert.That(session.SetModelPresets).IsEmpty();
+        _ = await Assert.That(activity.Waits).IsEqualTo(1);
+        _ = await Assert.That(dialog.Shown).IsEmpty();
+        _ = await Assert.That(dialog.Errors).IsEmpty();
+    }
+
+    [Test]
+    public async Task Select_command_reports_when_no_presets_are_saved(CancellationToken cancellationToken)
+    {
+        var session = new TestSlashSession("high_llm");
+        var activity = new TestSlashActivity();
+        var dialog = new TestSlashDialog();
+
+        await new ModelPresetSelectCommand(session, activity, dialog).Run(string.Empty, cancellationToken);
+
+        _ = await Assert.That(session.SelectedModelPresets).IsEmpty();
+        _ = await Assert.That(activity.Waits).IsEqualTo(1);
+        _ = await Assert.That(dialog.Pickers).IsEmpty();
+        _ = await Assert.That(dialog.Errors.Single()).IsEqualTo("no model presets are saved");
+    }
+
+    [Test]
     [Arguments("two words")]
     [Arguments("bad/name")]
     [Arguments("line\nbreak")]

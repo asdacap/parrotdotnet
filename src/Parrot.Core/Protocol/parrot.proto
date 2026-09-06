@@ -18,6 +18,7 @@ service Parrot {
   rpc ApplyProviderModelAliasDefaults (ApplyProviderModelAliasDefaultsRequest) returns (ApplyProviderModelAliasDefaultsResponse);
   rpc SetModelPreset (SetModelPresetRequest) returns (SetModelPresetResponse);
   rpc SelectModelPreset (SelectModelPresetRequest) returns (SelectModelPresetResponse);
+  rpc ListModelPresets (ListModelPresetsRequest) returns (ListModelPresetsResponse);
   rpc ListModes (ListModesRequest) returns (ListModesResponse);
   rpc ListSkills (ListSkillsRequest) returns (ListSkillsResponse);
   rpc ConfigureSkill (ConfigureSkillRequest) returns (ConfigureSkillResponse);
@@ -151,6 +152,12 @@ message SelectModelPresetRequest {
 message SelectModelPresetResponse {
   UserSession session = 1;
   ModelPreset preset = 2;
+}
+
+message ListModelPresetsRequest {}
+
+message ListModelPresetsResponse {
+  repeated ModelPreset presets = 1;
 }
 
 message ModelPreset {

@@ -45,6 +45,14 @@ internal sealed class SlashSession(
         return response.Preset;
     }
 
+    public async Task<IReadOnlyList<ModelPreset>> ListModelPresets(CancellationToken cancellationToken)
+    {
+        var listed = await client.ListModelPresetsAsync(
+            new ListModelPresetsRequest(),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return listed.Presets;
+    }
+
     public async Task SelectMode(string mode, CancellationToken cancellationToken) =>
         _current = await client.UpdateSessionAsync(
             new UpdateSessionRequest { UserSessionId = Id, Mode = mode },
