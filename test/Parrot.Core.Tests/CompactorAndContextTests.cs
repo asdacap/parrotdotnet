@@ -300,7 +300,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         ]);
         var selection = new AgentTurnSelection(
             new ModelSelector(model.Selector),
-            new ResolvedModelSelection(new ModelSelector(model.Selector), null, model, snapshot),
+            new ResolvedModelSelection(new ModelSelector(model.Selector), null, model, new ModelRoutingSnapshot(model.Selector, snapshot, 0)),
             TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []));
 
@@ -336,7 +336,10 @@ internal sealed class CompactorAndContextTests : IDisposable
             new(
                 new ModelSelector(selectedAlias?.Name ?? model.Selector),
                 new ResolvedModelSelection(
-                    new ModelSelector(selectedAlias?.Name ?? model.Selector), selectedAlias, model, snapshot),
+                    new ModelSelector(selectedAlias?.Name ?? model.Selector),
+                    selectedAlias,
+                    model,
+                    new ModelRoutingSnapshot(model.Selector, snapshot, 0)),
                 TestModels.Profile(),
                 SecurityProfile.Compose(readOnly: false, [], [], []));
 
@@ -1869,7 +1872,7 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new ModelSelector(model.Selector),
                 null,
                 model,
-                new ModelAliasSnapshot([])),
+                new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0)),
             profile,
             SecurityProfile.Compose(readOnly: false, [], [], []));
     }

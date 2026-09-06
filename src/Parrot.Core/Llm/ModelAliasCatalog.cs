@@ -3,17 +3,16 @@ namespace Parrot.Llm;
 internal sealed class ModelAliasCatalog
 {
     private readonly ProviderRegistry _registry;
-    private ModelAliasSnapshot _snapshot;
 
     public ModelAliasCatalog(ProviderRegistry registry, IEnumerable<ModelAliasDefinition> definitions)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(definitions);
         _registry = registry;
-        _snapshot = PrepareReplacement(definitions);
+        InitialSnapshot = PrepareReplacement(definitions);
     }
 
-    public ModelAliasSnapshot Capture() => Volatile.Read(ref _snapshot);
+    public ModelAliasSnapshot InitialSnapshot { get; }
 
     public ModelAliasSnapshot PrepareReplacement(IEnumerable<ModelAliasDefinition> definitions)
     {
@@ -57,14 +56,6 @@ internal sealed class ModelAliasCatalog
 
         return new ModelAliasSnapshot(copied);
     }
-
-    public void Publish(ModelAliasSnapshot snapshot)
-    {
-        ArgumentNullException.ThrowIfNull(snapshot);
-        Volatile.Write(ref _snapshot, snapshot);
-    }
-
-    public void Replace(IEnumerable<ModelAliasDefinition> definitions) => Publish(PrepareReplacement(definitions));
 
     private static void ValidateName(string name)
     {

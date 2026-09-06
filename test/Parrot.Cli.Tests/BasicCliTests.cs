@@ -7,6 +7,57 @@ internal sealed class BasicCliTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
+    public async Task Model_preset_commands_dispatch_in_both_interactive_clients(
+        bool enhanced,
+        CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced);
+        driver.Invoker.ModelPreset.Name = "Work";
+        driver.Invoker.ModelPreset.Model = "high_llm";
+        driver.Invoker.SelectedModelPresetModel = "high_llm";
+        var running = driver.Drive(cancellationToken);
+
+        while (driver.Input.Reads < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        driver.Input.Type("/model-preset-set Work");
+        while (driver.Invoker.SetModelPresets.Count == 0)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        await driver.OutputContains("Model preset saved: Work = high_llm", cancellationToken);
+        driver.Input.End();
+        _ = await running.WaitAsync(cancellationToken);
+        _ = await Assert.That(driver.Invoker.SetModelPresets.Single().Name).IsEqualTo("Work");
+
+        using var selecting = new CliLifecycleDriver(enhanced);
+        selecting.Invoker.ModelPreset.Name = "Work";
+        selecting.Invoker.ModelPreset.Model = "high_llm";
+        selecting.Invoker.SelectedModelPresetModel = "high_llm";
+        var selectingRun = selecting.Drive(cancellationToken);
+        while (selecting.Input.Reads < 1)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        selecting.Input.Type("/model-preset-select Work");
+        while (selecting.Invoker.SelectedModelPresets.Count == 0)
+        {
+            await Task.Delay(5, cancellationToken);
+        }
+
+        await selecting.OutputContains("Model preset selected: Work = high_llm", cancellationToken);
+        selecting.Input.End();
+        _ = await selectingRun.WaitAsync(cancellationToken);
+        _ = await Assert.That(selecting.Invoker.SelectedModelPresets.Single().Name).IsEqualTo("Work");
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Startup_logs_when_an_existing_session_is_loaded(
         bool enhanced,
         CancellationToken cancellationToken)

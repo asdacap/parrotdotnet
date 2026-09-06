@@ -116,16 +116,27 @@ internal partial class Composition
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
-                ctx.Inject<ProviderRegistry>(out var registry);
                 ctx.Inject<ModelAliasCatalog>(out var aliases);
                 ctx.Inject<Configuration>(out var configuration);
-                return new ModelRouter(registry, aliases, configuration.Model);
+                return new ModelRouting(aliases, configuration.Model);
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<ProviderRegistry>(out var registry);
+                ctx.Inject<ModelRouting>(out var routing);
+                return new ModelRouter(registry, routing);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<Configuration>(out var configuration);
-                ctx.Inject<ModelAliasCatalog>(out var aliases);
-                return new ModelAliasConfigurator(configuration, aliases);
+                ctx.Inject<ModelRouting>(out var routing);
+                ctx.Inject<ModelRouter>(out var router);
+                return new ModelConfigurationCoordinator(configuration, routing, router);
+            })
+            .Bind().As(Lifetime.Singleton).To(ctx =>
+            {
+                ctx.Inject<ModelConfigurationCoordinator>(out var models);
+                return new ModelAliasConfigurator(models);
             })
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
@@ -230,10 +241,11 @@ internal partial class Composition
                 ctx.Inject<ModelRouter>(out var router);
                 ctx.Inject<ProviderRegistry>(out var registry);
                 ctx.Inject<ModelAliasConfigurator>(out var aliases);
+                ctx.Inject<ModelConfigurationCoordinator>(out var modelConfiguration);
                 ctx.Inject<SessionStore>(out var store);
                 ctx.Inject<SessionCatalog>(out var sessionCatalog);
                 ctx.Inject<ModeRegistry>(out var modes);
-                return new ParrotService(router, registry, aliases, store, sessionCatalog, modes);
+                return new ParrotService(router, registry, aliases, modelConfiguration, store, sessionCatalog, modes);
             })
 
             .Root<StatePaths>("Paths")

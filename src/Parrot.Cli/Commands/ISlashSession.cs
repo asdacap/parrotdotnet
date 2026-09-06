@@ -13,6 +13,10 @@ internal interface ISlashSession
 
     Task SelectModel(string model, CancellationToken cancellationToken);
 
+    Task<ModelPreset> SetModelPreset(string name, CancellationToken cancellationToken);
+
+    Task<ModelPreset> SelectModelPreset(string name, CancellationToken cancellationToken);
+
     Task SelectMode(string mode, CancellationToken cancellationToken);
 
     Task StartNew(string model, string mode, CancellationToken cancellationToken);

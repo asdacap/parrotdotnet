@@ -569,10 +569,8 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             provider => [new LLMModel("model", provider.Id)],
             StringComparer.Ordinal);
         var registry = new ProviderRegistry(providers, models);
-        return new ModelRouter(
-            registry,
-            new ModelAliasCatalog(registry, []),
-            $"{providers[0].Id}/model");
+        var aliases = new ModelAliasCatalog(registry, []);
+        return new ModelRouter(registry, new ModelRouting(aliases, $"{providers[0].Id}/model"));
     }
 
     private IAgentSession Session(

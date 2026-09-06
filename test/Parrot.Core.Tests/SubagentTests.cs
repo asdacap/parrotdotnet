@@ -2148,7 +2148,7 @@ internal sealed partial class SubagentTests : IAsyncDisposable
         var registry = new ProviderRegistry(
             [provider],
             new Dictionary<string, IReadOnlyList<LLMModel>> { [provider.Id] = models });
-        return new ModelRouter(registry, new ModelAliasCatalog(registry, aliases), "stepped/model");
+        return new ModelRouter(registry, new ModelRouting(new ModelAliasCatalog(registry, aliases), "stepped/model"));
     }
 
     private IAgentSession Session(

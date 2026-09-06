@@ -4,7 +4,9 @@ internal sealed record ResolvedModelSelection(
     ModelSelector RequestedSelector,
     ModelAliasDefinition? Alias,
     ProviderModel CanonicalModel,
-    ModelAliasSnapshot AliasSnapshot)
+    ModelRoutingSnapshot RoutingSnapshot)
 {
     public string CanonicalBase => $"{CanonicalModel.Provider.Id}/{CanonicalModel.Model.Id}";
+
+    public ModelAliasSnapshot AliasSnapshot => RoutingSnapshot.Aliases;
 }

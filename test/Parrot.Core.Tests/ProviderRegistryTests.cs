@@ -337,7 +337,7 @@ internal sealed class ProviderRegistryTests
         var catalog = new ModelAliasCatalog(
             registry,
             [new("preferred", "p/vendor/model", "primary", "system prompt", null)]);
-        var router = new ModelRouter(registry, catalog, string.Empty);
+        var router = new ModelRouter(registry, new ModelRouting(catalog, string.Empty));
 
         var selection = router.Resolve("preferred");
 
@@ -357,7 +357,7 @@ internal sealed class ProviderRegistryTests
                 new("default", "p/not-listed", "primary", null, null),
                 new("unlisted", "p/also-not-listed", "secondary", null, null),
             ]);
-        var router = new ModelRouter(registry, catalog, "default");
+        var router = new ModelRouter(registry, new ModelRouting(catalog, "default"));
 
         var defaultSelection = router.Resolve(string.Empty);
         var unlistedSelection = router.Resolve("unlisted");
@@ -372,7 +372,7 @@ internal sealed class ProviderRegistryTests
     {
         var registry = Build([("p", ["listed"])], string.Empty);
         var catalog = new ModelAliasCatalog(registry, [new("disabled", string.Empty, "primary", null, null)]);
-        var router = new ModelRouter(registry, catalog, string.Empty);
+        var router = new ModelRouter(registry, new ModelRouting(catalog, string.Empty));
 
         _ = await Assert.That(() => router.Resolve("disabled")).Throws<LLMProviderException>();
     }
@@ -382,10 +382,11 @@ internal sealed class ProviderRegistryTests
     {
         var registry = Build([("p", ["old", "new"])], string.Empty);
         var catalog = new ModelAliasCatalog(registry, [new("preferred", "p/old", "primary", null, null)]);
-        var router = new ModelRouter(registry, catalog, string.Empty);
+        var routing = new ModelRouting(catalog, string.Empty);
+        var router = new ModelRouter(registry, routing);
         var beforeReplacement = router.Resolve("preferred");
 
-        catalog.Replace([new("preferred", "p/new", "primary", null, null)]);
+        routing.Publish(routing.Prepare(string.Empty, [new("preferred", "p/new", "primary", null, null)]));
         var afterReplacement = router.Resolve("preferred");
 
         _ = await Assert.That(beforeReplacement.CanonicalModel.Selector).IsEqualTo("p/old");
@@ -407,9 +408,11 @@ internal sealed class ProviderRegistryTests
             registry,
             [new("first", "second", "primary", null, null), new("second", "p/old", "primary", null, null)]))
             .Throws<LLMProviderException>();
-        _ = await Assert.That(() => catalog.Replace([new("preferred", "preferred", "primary", null, null)]))
+        var routing = new ModelRouting(catalog, string.Empty);
+        _ = await Assert.That(() => routing.Prepare(
+            string.Empty, [new("preferred", "preferred", "primary", null, null)]))
             .Throws<LLMProviderException>();
-        _ = await Assert.That(catalog.Capture().Find("preferred")?.ModelString).IsEqualTo("p/old");
+        _ = await Assert.That(routing.Capture().Aliases.Find("preferred")?.ModelString).IsEqualTo("p/old");
     }
 
     [Test]
@@ -444,6 +447,208 @@ internal sealed class ProviderRegistryTests
             .IsEqualTo("a/not-listed,b/fresh,c/seed-c");
         _ = await Assert.That(unavailable.ListCalls).IsEqualTo(1);
     }
+
+    [Test]
+    public async Task Model_configuration_refresh_publishes_one_valid_generation_and_rejects_invalid_edits(
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-routing-refresh", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+
+        try
+        {
+            const string initialConfiguration = """
+                model: preferred
+                model_aliases:
+                  preferred:
+                    model_string: p/old
+                    usage: Primary
+                """;
+            await File.WriteAllTextAsync(path, initialConfiguration, cancellationToken);
+            var registry = Build([("p", ["old", "new"])], string.Empty);
+            var configuration = Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml"));
+            var catalog = AliasCatalog(registry, configuration);
+            var routing = new ModelRouting(catalog, configuration.Model);
+            var router = new ModelRouter(registry, routing);
+            var coordinator = new ModelConfigurationCoordinator(configuration, routing, router);
+            var initial = router.Resolve(string.Empty);
+
+            const string refreshedConfiguration = """
+                model: preferred
+                model_aliases:
+                  preferred:
+                    model_string: p/new
+                    usage: Updated primary
+                """;
+            await File.WriteAllTextAsync(path, refreshedConfiguration, cancellationToken);
+            var refreshed = coordinator.Refresh();
+            var afterRefresh = router.Resolve(string.Empty);
+            await File.WriteAllTextAsync(path, "model_aliases: []\n", cancellationToken);
+            var refused = Assert.Throws<InvalidDataException>(() => coordinator.Refresh());
+            var afterRefusal = router.Resolve(string.Empty);
+
+            _ = await Assert.That(initial.CanonicalModel.Selector).IsEqualTo("p/old");
+            _ = await Assert.That(afterRefresh.CanonicalModel.Selector).IsEqualTo("p/new");
+            _ = await Assert.That(afterRefresh.Alias?.Usage).IsEqualTo("Updated primary");
+            _ = await Assert.That(refreshed.Revision).IsGreaterThan(initial.RoutingSnapshot.Revision);
+            _ = await Assert.That(refused.Message).Contains("model_aliases must be a mapping");
+            _ = await Assert.That(afterRefusal.CanonicalModel.Selector).IsEqualTo("p/new");
+            _ = await Assert.That(afterRefusal.RoutingSnapshot.Revision).IsEqualTo(refreshed.Revision);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Model_preset_snapshot_overwrites_and_selection_overlays_later_aliases(
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-routing-preset", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+
+        try
+        {
+            const string initialConfiguration = """
+                model: preferred
+                model_aliases:
+                  preferred:
+                    model_string: p/old
+                    usage: Primary
+                  empty:
+                    model_string: ""
+                    usage: Disabled
+                """;
+            await File.WriteAllTextAsync(path, initialConfiguration, cancellationToken);
+            var registry = Build([("p", ["old", "new", "later"])], string.Empty);
+            var configuration = Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml"));
+            var catalog = AliasCatalog(registry, configuration);
+            var routing = new ModelRouting(catalog, configuration.Model);
+            var router = new ModelRouter(registry, routing);
+            var coordinator = new ModelConfigurationCoordinator(configuration, routing, router);
+
+            var first = coordinator.SetPreset("Work", "preferred");
+            var overwritten = coordinator.SetPreset("Work", "p/new");
+            _ = coordinator.SetPreset("Work", "preferred");
+            const string externallyEditedConfiguration = """
+                model: p/new
+                model_presets:
+                  Work:
+                    model: preferred
+                    model_aliases:
+                      empty: ""
+                      high_llm: ""
+                      low_llm: ""
+                      medium_llm: ""
+                      preferred: p/old
+                      xhigh_llm: ""
+                model_aliases:
+                  preferred:
+                    model_string: p/new
+                    usage: Changed
+                  empty:
+                    model_string: p/later
+                    usage: Enabled later
+                  later:
+                    model_string: p/later
+                    usage: Added later
+                """;
+            await File.WriteAllTextAsync(path, externallyEditedConfiguration, cancellationToken);
+
+            var selected = coordinator.SelectPreset("Work", "preferred", static _ => { }).ResolvedSelection.RoutingSnapshot;
+            var reloaded = Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml"));
+
+            _ = await Assert.That(first.ModelAliases["empty"]).IsEmpty();
+            _ = await Assert.That(first.ModelAliases.Keys).Contains("preferred");
+            _ = await Assert.That(overwritten.Model).IsEqualTo("p/new");
+            _ = await Assert.That(selected.ConfiguredDefaultSelector).IsEqualTo("preferred");
+            _ = await Assert.That(selected.Aliases.Find("preferred")?.ModelString).IsEqualTo("p/old");
+            _ = await Assert.That(selected.Aliases.Find("empty")?.ModelString).IsEmpty();
+            _ = await Assert.That(selected.Aliases.Find("later")?.ModelString).IsEqualTo("p/later");
+            _ = await Assert.That(reloaded.Model).IsEqualTo("preferred");
+            _ = await Assert.That(reloaded.ModelAliases["later"].ModelString).IsEqualTo("p/later");
+            _ = await Assert.That(reloaded.ModelPresets["Work"].Model).IsEqualTo("preferred");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task Concurrent_preset_and_alias_mutations_publish_only_complete_generations(
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-routing-concurrency", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "config.yaml");
+
+        try
+        {
+            const string initialConfiguration = """
+                model: preferred
+                model_aliases:
+                  preferred:
+                    model_string: p/old
+                    usage: Primary
+                """;
+            await File.WriteAllTextAsync(path, initialConfiguration, cancellationToken);
+            var registry = Build([("p", ["old", "new"])], string.Empty);
+            var configuration = Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml"));
+            var catalog = AliasCatalog(registry, configuration);
+            var routing = new ModelRouting(catalog, configuration.Model);
+            var router = new ModelRouter(registry, routing);
+            var coordinator = new ModelConfigurationCoordinator(configuration, routing, router);
+            _ = coordinator.SetPreset("Work", "preferred");
+
+            using var ready = new CountdownEvent(2);
+            using var start = new ManualResetEventSlim();
+            var select = Task.Run(
+                () =>
+                {
+                    _ = ready.Signal();
+                    start.Wait(cancellationToken);
+                    return coordinator.SelectPreset("Work", "preferred", static _ => { }).ResolvedSelection;
+                },
+                cancellationToken);
+            var configure = Task.Run(
+                () =>
+                {
+                    _ = ready.Signal();
+                    start.Wait(cancellationToken);
+                    return coordinator.ConfigureAlias("preferred", "p/new");
+                },
+                cancellationToken);
+            ready.Wait(cancellationToken);
+            start.Set();
+            await Task.WhenAll(select, configure);
+
+            var persisted = Configuration.Load(path, Path.Combine(directory, "predefined_config.yaml"));
+            var live = routing.Capture();
+
+            _ = await Assert.That(live.ConfiguredDefaultSelector).IsEqualTo(persisted.Model);
+            _ = await Assert.That(live.Aliases.Find("preferred")?.ModelString)
+                .IsEqualTo(persisted.ModelAliases["preferred"].ModelString);
+            _ = await Assert.That(router.Resolve("preferred").CanonicalModel.Selector)
+                .IsEqualTo(persisted.ModelAliases["preferred"].ModelString);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static ModelAliasCatalog AliasCatalog(ProviderRegistry registry, Configuration configuration) => new(
+        registry,
+        configuration.ModelAliases.Select(alias => new ModelAliasDefinition(
+            alias.Key,
+            alias.Value.ModelString,
+            alias.Value.Usage,
+            alias.Value.AugmentSystemPrompt,
+            alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
 
     private static ProviderRegistry Build(
         IReadOnlyList<(string Id, string[] Models)> providers,

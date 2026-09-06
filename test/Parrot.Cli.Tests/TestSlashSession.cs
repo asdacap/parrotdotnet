@@ -24,10 +24,31 @@ internal sealed class TestSlashSession(string model) : ISlashSession
 
     public List<ConfigureSkillRequest> ConfiguredSkills { get; } = [];
 
+    public List<string> SetModelPresets { get; } = [];
+
+    public List<string> SelectedModelPresets { get; } = [];
+
+    public ModelPreset Preset { get; set; } = new() { Name = "work", Model = "provider/model" };
+
     public Task SelectModel(string model, CancellationToken cancellationToken)
     {
         Model = model;
         return Task.CompletedTask;
+    }
+
+    public Task<ModelPreset> SetModelPreset(string name, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        SetModelPresets.Add(name);
+        return Task.FromResult(Preset.Clone());
+    }
+
+    public Task<ModelPreset> SelectModelPreset(string name, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        SelectedModelPresets.Add(name);
+        Model = Preset.Model;
+        return Task.FromResult(Preset.Clone());
     }
 
     public Task SelectMode(string mode, CancellationToken cancellationToken)

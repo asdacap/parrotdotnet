@@ -556,7 +556,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
         var providers = new ProviderRegistry(
             [provider],
             new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal) { [provider.Id] = [model] });
-        var router = new ModelRouter(providers, new ModelAliasCatalog(providers, []), $"{provider.Id}/model");
+        var router = new ModelRouter(providers, new ModelRouting(new ModelAliasCatalog(providers, []), $"{provider.Id}/model"));
         var repository = new EventRepository(_database);
         var sessions = new AgentTaskTestSessionFactory(router);
         var registry = TestModels.Registry(sessions, _broker, repository, TestModels.ProfileRegistry(), TestModels.PromptTemplates, cancellationToken);

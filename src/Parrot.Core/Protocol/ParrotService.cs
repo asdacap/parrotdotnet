@@ -25,6 +25,7 @@ internal sealed class ParrotService(
     ModelRouter router,
     ProviderRegistry registry,
     ModelAliasConfigurator aliases,
+    ModelConfigurationCoordinator modelConfiguration,
     SessionStore store,
     SessionCatalog sessionCatalog,
     ModeRegistry modes) : GeneratedParrot.ParrotBase, IAsyncDisposable
@@ -133,6 +134,77 @@ internal sealed class ParrotService(
             throw new RpcException(new Status(
                 StatusCode.Internal,
                 $"failed to persist model aliases: {failure.Message}"));
+        }
+    }
+
+    public override Task<SetModelPresetResponse> SetModelPreset(
+        SetModelPresetRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+        var session = Find(request.UserSessionId);
+
+        try
+        {
+            var preset = modelConfiguration.SetPreset(request.Name, session.Model);
+            return Task.FromResult(new SetModelPresetResponse
+            {
+                Preset = ToProtocol(request.Name, preset),
+            });
+        }
+        catch (Exception failure) when (failure is LLMProviderException or InvalidDataException)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new RpcException(new Status(
+                StatusCode.Internal,
+                $"failed to persist model preset: {failure.Message}"));
+        }
+    }
+
+    public override Task<SelectModelPresetResponse> SelectModelPreset(
+        SelectModelPresetRequest request,
+        ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+        var session = Find(request.UserSessionId);
+
+        try
+        {
+            var selected = modelConfiguration.SelectPreset(
+                request.Name,
+                session.Model,
+                selectedModel =>
+                {
+                    session.UpdateSelection(selectedModel);
+                    SessionStore.Publish(session);
+                });
+
+            return Task.FromResult(new SelectModelPresetResponse
+            {
+                Session = UserSession.From(session, false),
+                Preset = ToProtocol(request.Name, selected.Preset),
+            });
+        }
+        catch (KeyNotFoundException failure)
+        {
+            throw new RpcException(new Status(StatusCode.NotFound, failure.Message));
+        }
+        catch (Exception failure) when (failure is LLMProviderException or InvalidDataException)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new RpcException(new Status(
+                StatusCode.Internal,
+                $"failed to select model preset: {failure.Message}"));
         }
     }
 
@@ -736,6 +808,17 @@ internal sealed class ParrotService(
 
     private static ModelAlias ToProtocol(ModelAliasDefinition definition) =>
         new() { Name = definition.Name, ModelString = definition.ModelString, Usage = definition.Usage };
+
+    private static ModelPreset ToProtocol(string name, ModelPresetConfig preset)
+    {
+        var converted = new ModelPreset { Name = name, Model = preset.Model };
+        foreach (var alias in preset.ModelAliases)
+        {
+            converted.ModelAliases.Add(alias.Key, alias.Value);
+        }
+
+        return converted;
+    }
 
     private static global::Parrot.Protocol.Skill ToProtocol(SkillMetadata skill)
     {

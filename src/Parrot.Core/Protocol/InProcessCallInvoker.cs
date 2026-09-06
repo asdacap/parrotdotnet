@@ -94,6 +94,10 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
                 await service.ListProviderModelAliasDefaults(list, context).ConfigureAwait(false),
             ApplyProviderModelAliasDefaultsRequest apply =>
                 await service.ApplyProviderModelAliasDefaults(apply, context).ConfigureAwait(false),
+            SetModelPresetRequest setPreset =>
+                await service.SetModelPreset(setPreset, context).ConfigureAwait(false),
+            SelectModelPresetRequest selectPreset =>
+                await service.SelectModelPreset(selectPreset, context).ConfigureAwait(false),
             ListModesRequest list => await service.ListModes(list, context).ConfigureAwait(false),
             ListSkillsRequest list => await service.ListSkills(list, context).ConfigureAwait(false),
             ConfigureSkillRequest configure => await service.ConfigureSkill(configure, context).ConfigureAwait(false),

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text;
@@ -16,6 +17,7 @@ namespace Parrot.Config;
 internal sealed partial class Configuration(string path)
 {
     private const string ModelAliasesKey = "model_aliases";
+    private const string ModelPresetsKey = "model_presets";
     private const string ProviderModelAliasDefaultsKey = "provider_model_alias_defaults";
     private const string ModelAugmentSystemPromptsKey = "model_augment_system_prompts";
     private const string ModelKey = "model";
@@ -36,7 +38,10 @@ internal sealed partial class Configuration(string path)
     private static readonly Lazy<string> Predefined = new(() => File.ReadAllText(
         Path.Combine(AppContext.BaseDirectory, "Config", "predefined_config.yaml")));
 
-    private readonly Lock _writeLock = new();
+    private static readonly ConcurrentDictionary<string, Lock> ModelConfigurationLocks =
+        new(StringComparer.Ordinal);
+
+    private readonly Lock _writeLock = ModelConfigurationLock(path);
 
     // A read-modify-write. Rename gives atomicity, not serialisation across
     // hosts, so this is last-write-wins for a global preference -- which is
@@ -58,6 +63,9 @@ internal sealed partial class Configuration(string path)
 
     public IReadOnlyDictionary<string, ModelAliasConfig> ModelAliases { get; private set; } =
         new SortedDictionary<string, ModelAliasConfig>(StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, ModelPresetConfig> ModelPresets { get; private set; } =
+        new SortedDictionary<string, ModelPresetConfig>(StringComparer.Ordinal);
 
     public IReadOnlyDictionary<string, ProviderModelAliasDefaults> ProviderModelAliasDefaults { get; private set; } =
         new SortedDictionary<string, ProviderModelAliasDefaults>(StringComparer.Ordinal);
@@ -95,6 +103,8 @@ internal sealed partial class Configuration(string path)
         new Dictionary<string, ConfiguredToolDefinition>(StringComparer.Ordinal));
 
     public SkillConfiguration Skills { get; private set; } = SkillConfiguration.Default;
+
+    internal string ConfigurationPath => path;
 
     internal long SkillsGeneration { get; private set; }
 
@@ -180,6 +190,30 @@ internal sealed partial class Configuration(string path)
         }
     }
 
+    internal static Lock ModelConfigurationLock(string modelConfigurationPath) =>
+        ModelConfigurationLocks.GetOrAdd(Path.GetFullPath(modelConfigurationPath), static _ => new Lock());
+
+    internal static void ValidatePresetName(string name)
+    {
+        if (name.Length == 0 ||
+            !string.Equals(name.Trim(), name, StringComparison.Ordinal) ||
+            name.Contains('/', StringComparison.Ordinal) ||
+            name.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)))
+        {
+            throw new InvalidDataException(
+                $"{ModelPresetsKey} name must be one non-empty token without whitespace or '/'");
+        }
+    }
+
+    internal static void SynchronizeModelConfiguration(Configuration target, Configuration refreshed)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(refreshed);
+        target.Model = refreshed.Model;
+        target.ModelAliases = refreshed.ModelAliases;
+        target.ModelPresets = refreshed.ModelPresets;
+    }
+
     internal static Configuration Load(
         string path,
         string predefinedPath,
@@ -201,6 +235,7 @@ internal sealed partial class Configuration(string path)
             PromptTemplates = promptTemplates,
             InlineDiff = ReadInlineDiff(root),
             ModelAliases = ReadModelAliases(root),
+            ModelPresets = ReadModelPresets(root),
             ProviderModelAliasDefaults = ReadProviderModelAliasDefaults(root),
             ModelAugmentSystemPrompts = ReadModelAugmentSystemPrompts(root),
             Providers = ReadProviders(root),
@@ -220,6 +255,89 @@ internal sealed partial class Configuration(string path)
         };
         ProvisionSandboxDirectories(directories);
         return configuration;
+    }
+
+    internal Configuration ReloadModelConfiguration()
+    {
+        var userRoot = LoadRoot(path);
+        ValidateReplaceTags(userRoot, []);
+        var root = Merge(LoadRootContent(Predefined.Value), userRoot);
+        return new Configuration(path)
+        {
+            Model = Scalar(root, ModelKey),
+            ModelAliases = ReadModelAliases(root),
+            ModelPresets = ReadModelPresets(root),
+        };
+    }
+
+    internal void SetModelPreset(string name, ModelPresetConfig preset)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+        ValidatePresetName(name);
+        ValidateRequestedSelector($"{ModelPresetsKey}.{name}.model", preset.Model);
+
+        lock (_writeLock)
+        {
+            var root = LoadRoot(path);
+            var presets = Mapping(root, ModelPresetsKey);
+            var aliases = new YamlMappingNode();
+            foreach (var target in preset.ModelAliases)
+            {
+                ValidateAliasName(target.Key);
+                ValidateModelSelector(
+                    $"{ModelPresetsKey}.{name}.{ModelAliasesKey}.{target.Key}", target.Value, allowEmpty: true);
+                aliases.Add(new YamlScalarNode(target.Key), new YamlScalarNode(target.Value));
+            }
+
+            var fields = new YamlMappingNode
+            {
+                { "model", preset.Model },
+                { ModelAliasesKey, aliases },
+            };
+            presets.Children[new YamlScalarNode(name)] = fields;
+            Write(root);
+
+            var updated = new SortedDictionary<string, ModelPresetConfig>(
+                ModelPresets.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal),
+                StringComparer.Ordinal)
+            {
+                [name] = preset,
+            };
+            ModelPresets = updated;
+        }
+    }
+
+    internal void SetModelRouting(string model, IReadOnlyDictionary<string, string> aliasTargets)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(aliasTargets);
+        ValidateRequestedSelector(ModelKey, model);
+
+        lock (_writeLock)
+        {
+            var updated = new SortedDictionary<string, ModelAliasConfig>(
+                ModelAliases.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal),
+                StringComparer.Ordinal);
+            var root = LoadRoot(path);
+            var aliases = Mapping(root, ModelAliasesKey);
+            foreach (var target in aliasTargets)
+            {
+                if (!updated.TryGetValue(target.Key, out var existing))
+                {
+                    throw new InvalidDataException($"model alias \"{target.Key}\" is not defined");
+                }
+
+                ValidateModelSelector($"{ModelAliasesKey}.{target.Key}.model_string", target.Value, allowEmpty: true);
+                var alias = Mapping(aliases, target.Key);
+                alias.Children[new YamlScalarNode("model_string")] = new YamlScalarNode(target.Value);
+                updated[target.Key] = existing with { ModelString = target.Value };
+            }
+
+            root.Children[new YamlScalarNode(ModelKey)] = new YamlScalarNode(model);
+            Write(root);
+            Model = model;
+            ModelAliases = updated;
+        }
     }
 
     private static void CopyPredefined(string destination)
@@ -468,6 +586,63 @@ internal sealed partial class Configuration(string path)
         }
 
         return aliases;
+    }
+
+    private static SortedDictionary<string, ModelPresetConfig> ReadModelPresets(YamlMappingNode root)
+    {
+        var presets = new SortedDictionary<string, ModelPresetConfig>(StringComparer.Ordinal);
+
+        if (!Child(root, ModelPresetsKey, out var node))
+        {
+            return presets;
+        }
+
+        if (node is not YamlMappingNode configured)
+        {
+            throw new InvalidDataException($"{ModelPresetsKey} must be a mapping");
+        }
+
+        foreach (var entry in configured.Children)
+        {
+            if (entry.Key is not YamlScalarNode { Value: { } name })
+            {
+                throw new InvalidDataException($"{ModelPresetsKey} keys must be strings");
+            }
+
+            ValidatePresetName(name);
+            if (entry.Value is not YamlMappingNode fields)
+            {
+                throw new InvalidDataException($"{ModelPresetsKey}.{name} must be a mapping");
+            }
+
+            ValidateKeys(fields, $"{ModelPresetsKey}.{name}", "model", ModelAliasesKey);
+            var model = ScalarValue(fields, "model", $"{ModelPresetsKey}.{name}.model");
+            ValidateRequestedSelector($"{ModelPresetsKey}.{name}.model", model);
+            if (!Child(fields, ModelAliasesKey, out var aliasesNode) || aliasesNode is not YamlMappingNode aliases)
+            {
+                throw new InvalidDataException($"{ModelPresetsKey}.{name}.{ModelAliasesKey} must be a mapping");
+            }
+
+            var targets = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (var aliasEntry in aliases.Children)
+            {
+                if (aliasEntry.Key is not YamlScalarNode { Value: { } aliasName } ||
+                    aliasEntry.Value is not YamlScalarNode { Value: { } target })
+                {
+                    throw new InvalidDataException(
+                        $"{ModelPresetsKey}.{name}.{ModelAliasesKey} must contain string targets");
+                }
+
+                ValidateAliasName(aliasName);
+                ValidateModelSelector(
+                    $"{ModelPresetsKey}.{name}.{ModelAliasesKey}.{aliasName}", target, allowEmpty: true);
+                targets.Add(aliasName, target);
+            }
+
+            presets.Add(name, new ModelPresetConfig(model, targets));
+        }
+
+        return presets;
     }
 
     private static SortedDictionary<string, ProviderModelAliasDefaults> ReadProviderModelAliasDefaults(
@@ -740,6 +915,17 @@ internal sealed partial class Configuration(string path)
             {
                 throw new InvalidDataException($"{ModelAliasesKey}.{name} contains an unsupported key");
             }
+        }
+    }
+
+    private static void ValidateRequestedSelector(string field, string selector)
+    {
+        if (selector.Length == 0 ||
+            !string.Equals(selector.Trim(), selector, StringComparison.Ordinal) ||
+            selector.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)) ||
+            selector.Split('/').Any(segment => segment.Length == 0))
+        {
+            throw new InvalidDataException($"{field} must be a model alias or provider/model selector");
         }
     }
 

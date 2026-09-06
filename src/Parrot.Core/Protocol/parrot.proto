@@ -16,6 +16,8 @@ service Parrot {
   rpc ConfigureModelAlias (ConfigureModelAliasRequest) returns (ConfigureModelAliasResponse);
   rpc ListProviderModelAliasDefaults (ListProviderModelAliasDefaultsRequest) returns (ListProviderModelAliasDefaultsResponse);
   rpc ApplyProviderModelAliasDefaults (ApplyProviderModelAliasDefaultsRequest) returns (ApplyProviderModelAliasDefaultsResponse);
+  rpc SetModelPreset (SetModelPresetRequest) returns (SetModelPresetResponse);
+  rpc SelectModelPreset (SelectModelPresetRequest) returns (SelectModelPresetResponse);
   rpc ListModes (ListModesRequest) returns (ListModesResponse);
   rpc ListSkills (ListSkillsRequest) returns (ListSkillsResponse);
   rpc ConfigureSkill (ConfigureSkillRequest) returns (ConfigureSkillResponse);
@@ -130,6 +132,31 @@ message ApplyProviderModelAliasDefaultsRequest {
 
 message ApplyProviderModelAliasDefaultsResponse {
   repeated ModelAlias aliases = 1;
+}
+
+message SetModelPresetRequest {
+  string user_session_id = 1;
+  string name = 2;
+}
+
+message SetModelPresetResponse {
+  ModelPreset preset = 1;
+}
+
+message SelectModelPresetRequest {
+  string user_session_id = 1;
+  string name = 2;
+}
+
+message SelectModelPresetResponse {
+  UserSession session = 1;
+  ModelPreset preset = 2;
+}
+
+message ModelPreset {
+  string name = 1;
+  string model = 2;
+  map<string, string> model_aliases = 3;
 }
 
 message ListModesRequest {}

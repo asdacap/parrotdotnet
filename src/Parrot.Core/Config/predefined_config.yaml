@@ -586,6 +586,9 @@ skills:
 # Default model selected as provider/model, optionally followed by /variant.
 model: ""
 
+# Named snapshots of the selected model and model alias targets.
+model_presets: {}
+
 # Stable aliases for model routing after delegation is justified. Empty
 # model_string values are intended to be configured by the user.
 model_aliases:

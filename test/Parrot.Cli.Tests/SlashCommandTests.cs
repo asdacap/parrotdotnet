@@ -11,9 +11,10 @@ internal sealed class SlashCommandTests
     {
         using var application = new CancellationTokenSource();
         using var http = new HttpClient();
+        var dialog = new TestSlashDialog();
         var registry = SlashCommands.Create(
             new GeneratedParrot.ParrotClient(new ScriptedInvoker()),
-            new TestSlashDialog(),
+            dialog,
             new TestSlashSession("provider/old"),
             new TestSlashActivity(),
             new ApplicationExit(application),
@@ -23,8 +24,17 @@ internal sealed class SlashCommandTests
             static _ => Task.CompletedTask);
 
         _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
-            .IsEqualTo("/auth|/clear|/compact|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/models|/modes|/sessions|/skills|/version");
+            .IsEqualTo("/auth|/clear|/compact|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/model-preset-select|/model-preset-set|/models|/modes|/sessions|/skills|/version");
         _ = await Assert.That(registry.Commands.All(command => command.Summary.Length > 0)).IsTrue();
+
+        var help = registry.Find("/help")
+            ?? throw new InvalidOperationException("the slash command registry has no help command");
+        await help.Run(string.Empty, CancellationToken.None);
+        _ = await Assert.That(string.Join('|', dialog.Shown))
+            .Contains("/model-preset-select")
+            .And.Contains("/model-preset-set");
+        _ = await Assert.That(string.Join('|', registry.Complete("/model-preset-s").Select(command => command.Name)))
+            .IsEqualTo("/model-preset-select|/model-preset-set");
     }
 
     [Test]

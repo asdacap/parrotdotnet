@@ -1130,6 +1130,99 @@ internal sealed class ConfigurationTests : IDisposable
     }
 
     [Test]
+    public async Task Model_presets_round_trip_alias_and_variant_selectors_with_every_alias_target()
+    {
+        var configuration = Load(Write("""
+            model_presets:
+              Work:
+                model: high_llm
+                model_aliases:
+                  custom_llm: ""
+                  high_llm: chatgpt/gpt-5.6-sol/xhigh
+              direct:
+                model: chatgpt/gpt-5.6-terra/medium
+                model_aliases: {}
+            """));
+
+        _ = await Assert.That(string.Join(',', configuration.ModelPresets.Keys)).IsEqualTo("Work,direct");
+        _ = await Assert.That(configuration.ModelPresets["Work"].Model).IsEqualTo("high_llm");
+        _ = await Assert.That(configuration.ModelPresets["Work"].ModelAliases["custom_llm"]).IsEmpty();
+        _ = await Assert.That(configuration.ModelPresets["Work"].ModelAliases["high_llm"])
+            .IsEqualTo("chatgpt/gpt-5.6-sol/xhigh");
+        _ = await Assert.That(configuration.ModelPresets["direct"].Model)
+            .IsEqualTo("chatgpt/gpt-5.6-terra/medium");
+    }
+
+    [Test]
+    [Arguments("model_presets: []\n")]
+    [Arguments("model_presets:\n  '':\n    model: provider/model\n    model_aliases: {}\n")]
+    [Arguments("model_presets:\n  two words:\n    model: provider/model\n    model_aliases: {}\n")]
+    [Arguments("model_presets:\n  bad/name:\n    model: provider/model\n    model_aliases: {}\n")]
+    [Arguments("model_presets:\n  named: provider/model\n")]
+    [Arguments("model_presets:\n  named:\n    model: ''\n    model_aliases: {}\n")]
+    [Arguments("model_presets:\n  named:\n    model: provider//model\n    model_aliases: {}\n")]
+    [Arguments("model_presets:\n  named:\n    model: provider/model\n")]
+    [Arguments("model_presets:\n  named:\n    model: provider/model\n    model_aliases: []\n")]
+    [Arguments("model_presets:\n  named:\n    model: provider/model\n    model_aliases:\n      alias: [provider/model]\n")]
+    [Arguments("model_presets:\n  named:\n    model: provider/model\n    model_aliases: {}\n    extra: value\n")]
+    public async Task Invalid_model_preset_configuration_is_rejected(string content) =>
+        _ = await Assert.That(() => Load(Write(content))).Throws<InvalidDataException>();
+
+    [Test]
+    public async Task Set_model_preset_overwrites_only_the_named_preset_and_preserves_other_yaml()
+    {
+        var path = Write("""
+            theme: dark
+            model_presets:
+              preserved:
+                model: provider/old
+                model_aliases: {}
+              work:
+                model: provider/old
+                model_aliases:
+                  high_llm: provider/old
+            """);
+        var configuration = Load(path);
+
+        configuration.SetModelPreset("work", new ModelPresetConfig(
+            "high_llm",
+            [new KeyValuePair<string, string>("custom_llm", string.Empty),
+             new KeyValuePair<string, string>("high_llm", "provider/new/high")]));
+
+        var reloaded = Load(path);
+        var persisted = await File.ReadAllTextAsync(path);
+        _ = await Assert.That(reloaded.ModelPresets["work"].Model).IsEqualTo("high_llm");
+        _ = await Assert.That(reloaded.ModelPresets["work"].ModelAliases["custom_llm"]).IsEmpty();
+        _ = await Assert.That(reloaded.ModelPresets["preserved"].Model).IsEqualTo("provider/old");
+        _ = await Assert.That(persisted).Contains("theme: dark");
+    }
+
+    [Test]
+    public async Task Set_model_routing_persists_default_and_aliases_together_without_losing_metadata()
+    {
+        var path = Write("""
+            theme: dark
+            model_aliases:
+              high_llm:
+                model_string: provider/old
+                usage: Customized usage
+                augment_system_prompt: Keep metadata.
+            """);
+        var configuration = Load(path);
+
+        configuration.SetModelRouting(
+            "high_llm",
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["high_llm"] = "provider/new/high" });
+
+        var reloaded = Load(path);
+        _ = await Assert.That(reloaded.Model).IsEqualTo("high_llm");
+        _ = await Assert.That(reloaded.ModelAliases["high_llm"].ModelString).IsEqualTo("provider/new/high");
+        _ = await Assert.That(reloaded.ModelAliases["high_llm"].Usage).IsEqualTo("Customized usage");
+        _ = await Assert.That(reloaded.ModelAliases["high_llm"].AugmentSystemPrompt).IsEqualTo("Keep metadata.");
+        _ = await Assert.That(await File.ReadAllTextAsync(path)).Contains("theme: dark");
+    }
+
+    [Test]
     public async Task Model_alias_augmentation_distinguishes_null_from_an_explicit_empty_string()
     {
         var aliases = Load(Write("""

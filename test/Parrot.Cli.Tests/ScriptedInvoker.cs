@@ -24,6 +24,8 @@ internal sealed class ScriptedInvoker : CallInvoker
     private readonly List<UpdateSessionRequest> _updated = [];
     private readonly List<ConfigureModelAliasRequest> _configuredAliases = [];
     private readonly List<ApplyProviderModelAliasDefaultsRequest> _appliedProviderModelAliasDefaults = [];
+    private readonly List<SetModelPresetRequest> _setModelPresets = [];
+    private readonly List<SelectModelPresetRequest> _selectedModelPresets = [];
     private readonly List<ReplyQuestionRequest> _questionReplies = [];
     private readonly List<RejectQuestionRequest> _questionRejections = [];
     private readonly List<ReplyPermissionRequest> _permissionReplies = [];
@@ -126,6 +128,28 @@ internal sealed class ScriptedInvoker : CallInvoker
         }
     }
 
+    public IReadOnlyList<SetModelPresetRequest> SetModelPresets
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _setModelPresets.Select(request => request.Clone())];
+            }
+        }
+    }
+
+    public IReadOnlyList<SelectModelPresetRequest> SelectedModelPresets
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _selectedModelPresets.Select(request => request.Clone())];
+            }
+        }
+    }
+
     public int Interrupts { get; private set; }
 
     public IReadOnlyList<CompactRequest> Compactions
@@ -157,6 +181,12 @@ internal sealed class ScriptedInvoker : CallInvoker
     public bool SessionLoaded { get; set; }
 
     public StatusCode? SkillFailure { get; set; }
+
+    public StatusCode? ModelPresetFailure { get; set; }
+
+    public ModelPreset ModelPreset { get; } = new() { Name = "work", Model = "provider/model" };
+
+    public string SelectedModelPresetModel { get; set; } = "provider/model";
 
     public IReadOnlyList<ConfigureSkillRequest> ConfiguredSkills
     {
@@ -423,6 +453,41 @@ internal sealed class ScriptedInvoker : CallInvoker
                 var appliedDefaults = new ApplyProviderModelAliasDefaultsResponse();
                 appliedDefaults.Aliases.Add(ModelAliases.Select(alias => alias.Clone()));
                 answered = appliedDefaults;
+                break;
+            case SetModelPresetRequest setPreset:
+                if (ModelPresetFailure is { } setPresetFailure)
+                {
+                    return Failed<TResponse>(setPresetFailure, "scripted model preset failure");
+                }
+
+                lock (_gate)
+                {
+                    _setModelPresets.Add(setPreset.Clone());
+                }
+
+                answered = new SetModelPresetResponse { Preset = ModelPreset.Clone() };
+                break;
+            case SelectModelPresetRequest selectPreset:
+                if (ModelPresetFailure is { } selectPresetFailure)
+                {
+                    return Failed<TResponse>(selectPresetFailure, "scripted model preset failure");
+                }
+
+                lock (_gate)
+                {
+                    _selectedModelPresets.Add(selectPreset.Clone());
+                }
+
+                answered = new SelectModelPresetResponse
+                {
+                    Preset = ModelPreset.Clone(),
+                    Session = new UserSession
+                    {
+                        Id = selectPreset.UserSessionId,
+                        Model = SelectedModelPresetModel,
+                        Mode = "build",
+                    },
+                };
                 break;
             case ListPendingQuestionsRequest listQuestions:
                 var listedQuestions = new ListPendingQuestionsResponse();

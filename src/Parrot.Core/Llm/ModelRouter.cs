@@ -1,14 +1,15 @@
 namespace Parrot.Llm;
 
-internal sealed class ModelRouter(
-    ProviderRegistry registry,
-    ModelAliasCatalog aliases,
-    string configuredDefaultSelector)
+internal sealed class ModelRouter(ProviderRegistry registry, ModelRouting routing)
 {
-    public ResolvedModelSelection Resolve(string selector)
+    public long RoutingRevision => routing.Capture().Revision;
+
+    public ResolvedModelSelection Resolve(string selector) => ResolveFrom(routing.Capture(), selector);
+
+    public ResolvedModelSelection ResolveFrom(ModelRoutingSnapshot snapshot, string selector)
     {
-        var snapshot = aliases.Capture();
-        var requested = selector.Length > 0 ? selector : configuredDefaultSelector;
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var requested = selector.Length > 0 ? selector : snapshot.ConfiguredDefaultSelector;
 
         if (requested.Length == 0)
         {
@@ -17,8 +18,7 @@ internal sealed class ModelRouter(
         }
 
         var requestedSelector = new ModelSelector(requested);
-
-        var alias = snapshot.Find(requested);
+        var alias = snapshot.Aliases.Find(requested);
 
         if (alias is null)
         {

@@ -28,6 +28,23 @@ internal sealed class SlashSession(
         configuration.SetModel(_current.Model);
     }
 
+    public async Task<ModelPreset> SetModelPreset(string name, CancellationToken cancellationToken)
+    {
+        var response = await client.SetModelPresetAsync(
+            new SetModelPresetRequest { UserSessionId = Id, Name = name },
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return response.Preset;
+    }
+
+    public async Task<ModelPreset> SelectModelPreset(string name, CancellationToken cancellationToken)
+    {
+        var response = await client.SelectModelPresetAsync(
+            new SelectModelPresetRequest { UserSessionId = Id, Name = name },
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        _current = response.Session;
+        return response.Preset;
+    }
+
     public async Task SelectMode(string mode, CancellationToken cancellationToken) =>
         _current = await client.UpdateSessionAsync(
             new UpdateSessionRequest { UserSessionId = Id, Mode = mode },

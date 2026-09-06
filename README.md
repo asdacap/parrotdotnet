@@ -65,11 +65,13 @@ first listed variant, or clears the effort for a model without variants.
 
 `/model` and `/effort` persist the complete requested selector through the
 shared configuration. `/effort NAME` selects one of the active model's listed
-variants; bare `/effort` presents those variants in provider order. `--model`
-is per invocation and accepts an alias or the same complete canonical selector.
-`--variant NAME` is a deprecated startup-only override: it resolves an alias
-first, then replaces the selected canonical suffix after validation against that
-model; it does not persist.
+variants; bare `/effort` presents those variants in provider order. Named model
+presets can snapshot and restore this complete selector together with every
+defined model-alias target; see [Model Selection Presets](#model-selection-presets).
+`--model` is per invocation and accepts an alias or the same complete canonical
+selector. `--variant NAME` is a deprecated startup-only override: it resolves an
+alias first, then replaces the selected canonical suffix after validation against
+that model; it does not persist.
 
 The gRPC model-list response carries ordered model-variant metadata
 additively. Each entry contains the stable `name` and mapped
@@ -825,6 +827,66 @@ different from `null`. Direct canonical selectors retain the same exact-then-
 base augmentation behavior, and remain compatible with unlisted models that
 the provider accepts.
 
+## Model Selection Presets
+
+A model selection preset saves one complete routing setup under a case-sensitive
+name. `/model-preset-set NAME` snapshots the current session's exact requested
+selector and the target of every alias currently defined by the server. The
+selector is not expanded: `high_llm` remains `high_llm`, while an explicit
+`provider/model/high` retains its effort-variant suffix. Custom aliases and
+empty, unconfigured alias targets are included. Setting an existing name
+overwrites that preset.
+
+Presets are persisted in the server's user configuration:
+
+```yaml
+model_presets:
+  work:
+    model: high_llm
+    model_aliases:
+      custom_llm: ""
+      high_llm: provider/model/high
+      low_llm: provider/model/low
+      medium_llm: provider/model/medium
+      xhigh_llm: provider/model/xhigh
+```
+
+Preset names must be one nonempty token with no whitespace, `/`, or control
+characters. `/model-preset-select NAME` restores the saved targets and selector.
+It overlays the saved targets onto the aliases defined at selection time, so an
+alias added after the snapshot keeps its current target and metadata. A saved
+alias that was subsequently removed cannot be reconstructed from its target
+alone; selection fails without applying the preset. Current alias usage, icon,
+and system-prompt metadata are preserved because presets store targets only.
+
+Both commands operate on the executing server's configuration. This remains
+true when the CLI is connected remotely: it neither snapshots nor modifies the
+remote CLI machine's local configuration. A successful select updates the
+server's configured default model, live alias routing, current user session, and
+session metadata. The initiating CLI replaces its local session view from the
+authoritative response, so its modeline reflects the selected preset; other
+already-connected clients retain their ordinary refresh or reconnect behavior.
+The select command first waits for work in the initiating CLI to become idle.
+A turn that already captured a route keeps it through all of its tool rounds;
+a later turn resolves against the restored aliases.
+
+Immediately before either preset operation, Parrot reloads the model-routing
+portion of the server configuration. Valid external edits to the default model,
+alias definitions and metadata, and presets therefore become live before the
+operation proceeds. A malformed edit is rejected and does not replace the last
+valid live routing snapshot. Provider topology and other configuration remain
+startup-bound, so an externally added alias must still resolve through a provider
+known to the running server.
+
+Preset operations are serialized with alias configuration. Candidate routing is
+validated before it is persisted or published, and the default model plus saved
+alias targets are written to `config.yaml` together. Selection then coordinates
+the separate session metadata and live session update, attempting rollback if an
+ordinary later step fails. This is operation-level consistency, not a crash-safe
+transaction across files: a process or host crash between the configuration and
+session-metadata writes can leave one ahead of the other. Selecting the preset
+again converges them.
+
 ## Configuration
 
 Parrot keeps its configuration under `$XDG_CONFIG_HOME/parrotdotnet` (or
@@ -1082,19 +1144,23 @@ non-interactive commands and ordinary stdin/stdout pipes instead.
 
 ## Interactive slash commands
 
-Slash commands are interactive wizards. Enter `/model` to select a provider and
-then a model, `/model-alias` to configure a predefined or custom alias, `/mode`
-to select a mode, `/clear` to configure a fresh session, or `/auth` to manage
-credentials. `/compact` explicitly compacts the current root session even when it
+Most slash commands are interactive wizards. Enter `/model` to select a provider
+and then a model, `/model-alias` to configure a predefined or custom alias,
+`/mode` to select a mode, `/clear` to configure a fresh session, or `/auth` to
+manage credentials. The argument-driven `/model-preset-set <name>` snapshots the
+current selector and alias targets, while `/model-preset-select <name>` restores
+one saved snapshot; both require exactly one valid name token. `/compact`
+explicitly compacts the current root session even when it
 is below the automatic threshold. It waits for active work to become idle, sends
 no model prompt, and may complete as a no-op when there is insufficient eligible
 history. Separately, the model-facing `compact_context` tool accepts only `{}` and
 compacts only the calling agent session from inside its active tool round. It does
 not compact a parent or child session, and reports the caller's post-operation
 context estimate, percentage or unavailable window, 5% notification interval,
-and automatic trigger. Most commands ignore text after the command name because the wizard
-asks for the complete selection. `/goal <text>` is the exception: it stores a
-persistent reminder on the root session using the exact wrapped text
+and automatic trigger. Wizard commands ignore text after the command name because
+the wizard asks for the complete selection. `/goal <text>` and the two model-preset
+commands consume their arguments directly. `/goal <text>` stores a persistent
+reminder on the root session using the exact wrapped text
 `User set goal is {goal}. Clear exit reminder if end condition met.` (with `{goal}`
 replaced by the supplied text), sends one templated steering notice, and shows a
 set confirmation. A bare `/goal` clears that reminder without steering and shows

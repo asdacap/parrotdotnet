@@ -25,7 +25,9 @@ internal sealed class ParrotServiceTests : IDisposable
     private readonly Configuration _configuration;
     private readonly ProviderRegistry _registry;
     private readonly ModelAliasCatalog _catalog;
+    private readonly ModelRouting _routing;
     private readonly ModelRouter _router;
+    private readonly ModelConfigurationCoordinator _models;
 
     public ParrotServiceTests()
     {
@@ -49,7 +51,9 @@ internal sealed class ParrotServiceTests : IDisposable
                 alias.Value.Usage,
                 alias.Value.AugmentSystemPrompt,
                 alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
-        _router = new ModelRouter(_registry, _catalog, Selection);
+        _routing = new ModelRouting(_catalog, Selection);
+        _router = new ModelRouter(_registry, _routing);
+        _models = new ModelConfigurationCoordinator(_configuration, _routing, _router);
     }
 
     public void Dispose()
@@ -633,6 +637,128 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Model_presets_are_set_and_selected_through_the_server_contract(
+        CancellationToken cancellationToken)
+    {
+        const string initialConfiguration = """
+            model: scripted/model
+            provider_model_alias_defaults:
+              scripted:
+                low_llm: scripted/low
+                medium_llm: scripted/medium
+                high_llm: scripted/high
+                xhigh_llm: scripted/xhigh
+            model_aliases:
+              high_llm:
+                model_string: scripted/high
+            """;
+        await File.WriteAllTextAsync(
+            Path.Combine(_root, "config.yaml"), initialConfiguration, cancellationToken);
+        _ = _models.Refresh();
+        var store = Store();
+        await using var service = Service(store);
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = "high_llm" }, cancellationToken: cancellationToken);
+
+        var saved = await client.SetModelPresetAsync(
+            new SetModelPresetRequest { UserSessionId = session.Id, Name = "work" },
+            cancellationToken: cancellationToken);
+        var directSession = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = "scripted/vendor/model/high" },
+            cancellationToken: cancellationToken);
+        var direct = await client.SetModelPresetAsync(
+            new SetModelPresetRequest { UserSessionId = directSession.Id, Name = "direct" },
+            cancellationToken: cancellationToken);
+        const string changedConfiguration = """
+            model: scripted/model/missing
+            model_presets:
+              work:
+                model: high_llm
+                model_aliases:
+                  high_llm: scripted/high
+                  low_llm: ""
+                  medium_llm: ""
+                  xhigh_llm: ""
+            model_aliases:
+              high_llm:
+                model_string: scripted/model/missing
+              later:
+                model_string: scripted/low
+                usage: Added later
+            """;
+        await File.WriteAllTextAsync(
+            Path.Combine(_root, "config.yaml"), changedConfiguration, cancellationToken);
+        var selected = await client.SelectModelPresetAsync(
+            new SelectModelPresetRequest { UserSessionId = session.Id, Name = "work" },
+            cancellationToken: cancellationToken);
+        var aliases = await client.ListModelAliasesAsync(
+            new ListModelAliasesRequest(), cancellationToken: cancellationToken);
+        var reloaded = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"));
+        var metadata = FindMeta(session.Id);
+        var missing = await Assert.That(async () => await client.SelectModelPresetAsync(
+            new SelectModelPresetRequest { UserSessionId = session.Id, Name = "missing" },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+
+        _ = await Assert.That(saved.Preset.Name).IsEqualTo("work");
+        _ = await Assert.That(saved.Preset.Model).IsEqualTo("high_llm");
+        _ = await Assert.That(direct.Preset.Model).IsEqualTo("scripted/vendor/model/high");
+        _ = await Assert.That(saved.Preset.ModelAliases["high_llm"]).IsEqualTo("scripted/high");
+        _ = await Assert.That(saved.Preset.ModelAliases["low_llm"]).IsEmpty();
+        _ = await Assert.That(selected.Session.Model).IsEqualTo("high_llm");
+        _ = await Assert.That(selected.Preset.ModelAliases["high_llm"]).IsEqualTo("scripted/high");
+        _ = await Assert.That(reloaded.Model).IsEqualTo("high_llm");
+        _ = await Assert.That(reloaded.ModelAliases["high_llm"].ModelString).IsEqualTo("scripted/high");
+        _ = await Assert.That(reloaded.ModelAliases["later"].ModelString).IsEqualTo("scripted/low");
+        _ = await Assert.That(aliases.Aliases.Single(alias => alias.Name == "later").ModelString)
+            .IsEqualTo("scripted/low");
+        _ = await Assert.That(metadata.Selector).IsEqualTo("high_llm");
+        _ = await Assert.That(metadata.Model).IsEqualTo("scripted/high");
+        _ = await Assert.That(metadata.ProviderId).IsEqualTo("scripted");
+        _ = await Assert.That(_router.Resolve("high_llm").CanonicalModel.Selector).IsEqualTo("scripted/high");
+        _ = await Assert.That(missing?.StatusCode).IsEqualTo(StatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task Model_preset_selection_rejects_removed_alias_without_applying_candidate(
+        CancellationToken cancellationToken)
+    {
+        var store = Store();
+        await using var service = Service(store);
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(service));
+        var session = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+        const string removedAliasConfiguration = """
+            model: scripted/model/missing
+            model_presets:
+              removed:
+                model: scripted/high
+                model_aliases:
+                  no_longer_here: scripted/high
+            """;
+        await File.WriteAllTextAsync(
+            Path.Combine(_root, "config.yaml"), removedAliasConfiguration, cancellationToken);
+        var beforeRevision = _routing.Capture().Revision;
+
+        var refused = await Assert.That(async () => await client.SelectModelPresetAsync(
+            new SelectModelPresetRequest { UserSessionId = session.Id, Name = "removed" },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+        var reloaded = Configuration.Load(
+            Path.Combine(_root, "config.yaml"),
+            Path.Combine(_root, "predefined_config.yaml"));
+        var metadata = FindMeta(session.Id);
+
+        _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(reloaded.Model).IsEqualTo("scripted/model/missing");
+        _ = await Assert.That(metadata.Selector).IsEqualTo(Selection);
+        _ = await Assert.That(_routing.Capture().Revision).IsGreaterThan(beforeRevision);
+        _ = await Assert.That(_router.Resolve(string.Empty).CanonicalModel.Selector)
+            .IsEqualTo("scripted/model/missing");
+    }
+
+    [Test]
     public async Task Provider_model_alias_defaults_are_listed_applied_and_reject_unknown_providers(
         CancellationToken cancellationToken)
     {
@@ -678,10 +804,13 @@ internal sealed class ParrotServiceTests : IDisposable
                 alias.Value.Usage,
                 alias.Value.AugmentSystemPrompt,
                 alias.Value.Icon is null ? null : ModelAliasIcon.Parse(alias.Value.Icon.Glyph, alias.Value.Icon.Color))));
-        var configurator = new ModelAliasConfigurator(configuration, catalog);
+        var routing = new ModelRouting(catalog, Selection);
+        var router = new ModelRouter(registry, routing);
+        var configurator = new ModelAliasConfigurator(
+            new ModelConfigurationCoordinator(configuration, routing, router));
 
         _ = await Assert.That(() => configurator.Configure("high_llm", Selection)).Throws<IOException>();
-        _ = await Assert.That(catalog.Capture().Find("high_llm")?.ModelString).IsEmpty();
+        _ = await Assert.That(routing.Capture().Aliases.Find("high_llm")?.ModelString).IsEmpty();
     }
 
     [Test]
@@ -934,10 +1063,13 @@ internal sealed class ParrotServiceTests : IDisposable
     private ParrotService ServiceWithModes(SessionStore store, ModeRegistry modes) => new(
         _router,
         _registry,
-        new ModelAliasConfigurator(_configuration, _catalog),
+        ModelAliases(),
+        _models,
         store,
         new SessionCatalog(new StatePaths(_root, _root, _root)),
         modes);
+
+    private ModelAliasConfigurator ModelAliases() => new(_models);
 
     private ModeRegistry Modes() => new(
         new ProfileRegistry(

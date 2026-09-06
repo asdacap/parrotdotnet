@@ -301,7 +301,7 @@ internal static class TestModels
             {
                 [model.Provider.Id] = [catalogModel],
             });
-        return new ModelRouter(registry, new ModelAliasCatalog(registry, []), model.Selector);
+        return new ModelRouter(registry, new ModelRouting(new ModelAliasCatalog(registry, []), model.Selector));
     }
 
     public static ResolvedModelSelection Resolve(ProviderModel model) => Route(model).Resolve(model.Selector);

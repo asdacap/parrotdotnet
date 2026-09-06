@@ -129,7 +129,7 @@ internal sealed class QueueToolTests
                 new ModelSelector(model.Selector),
                 null,
                 model,
-                new ModelAliasSnapshot([])),
+                new ModelRoutingSnapshot(model.Selector, new ModelAliasSnapshot([]), 0)),
             TestModels.Profile(),
             SecurityProfile.Compose(readOnly: false, [], [], []));
     }

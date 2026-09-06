@@ -65,6 +65,7 @@ internal sealed partial class AgentSession
         lock (_selectionGate)
         {
             return _resolvedSelection is { } resolved
+                && resolved.RoutingSnapshot.Revision == router.RoutingRevision
                 && string.Equals(resolved.RequestedSelector.Value, selection.RequestedModel.Value, StringComparison.Ordinal)
                     ? resolved
                     : router.Resolve(selection.RequestedModel.Value);
