@@ -38,8 +38,6 @@ internal sealed class ModelPrompt(IReadOnlyDictionary<string, string> augmentati
             sections.Add(augmentation);
         }
 
-        sections.Add(selection.Profile.Prompt);
-
         return string.Join("\n\n", sections.Where(section => section.Length > 0));
     }
 

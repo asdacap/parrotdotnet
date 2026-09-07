@@ -81,10 +81,6 @@ internal partial class Composition
                 return WebFetcher.Create(policy);
             })
 
-            .Bind("date").As(Lifetime.Singleton).To(_ =>
-                DateTimeOffset.UtcNow.ToString(
-                    "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))
-
             .Bind().As(Lifetime.Singleton).To(ctx =>
             {
                 ctx.Inject<Configuration>(out var configuration);
@@ -152,7 +148,6 @@ internal partial class Composition
                 ctx.Inject<Configuration>(out var configuration);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<StatePaths>(out var paths);
-                ctx.Inject<string>("date", out var date);
                 ctx.Inject<ProfileRegistry>(out var profiles);
                 ctx.Inject<CliUtilityAvailability>(out var cliUtilities);
                 List<ISystemPromptProvider> systemPromptProviders =
@@ -161,7 +156,6 @@ internal partial class Composition
                         entry => new ConfiguredSystemPromptProvider(entry.Key, entry.Value)),
                     new AgentsPromptProvider(workingDirectory, paths.Config, configuration.PromptTemplates),
                     new ExpectedCliUtilitiesProvider(cliUtilities, configuration.PromptTemplates),
-                    new DateProvider(date, configuration.PromptTemplates),
                     new PlatformProvider(configuration.PromptTemplates),
                     new WorkingDirectoryProvider(workingDirectory, configuration.PromptTemplates),
                     new GitRepositoryProvider(ProjectWorkspace.FromLaunchDirectory(Path.GetFullPath(workingDirectory)), configuration.PromptTemplates),

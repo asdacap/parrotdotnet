@@ -273,7 +273,6 @@ internal static class TestModels
                 new ConfiguredSystemPromptProvider("runtime:system-context:01-base", "Test base prompt."),
                 new AgentsPromptProvider(workingDirectory, configDirectory, TestModels.PromptTemplates),
                 new ExpectedCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
-                new DateProvider("2026-07-24", TestModels.PromptTemplates),
                 new PlatformProvider(TestModels.PromptTemplates),
                 new WorkingDirectoryProvider(workingDirectory, TestModels.PromptTemplates),
                 new GitRepositoryProvider(ProjectWorkspace.FromLaunchDirectory(Path.GetFullPath(workingDirectory)), TestModels.PromptTemplates),

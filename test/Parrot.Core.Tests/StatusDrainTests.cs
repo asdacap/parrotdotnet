@@ -49,6 +49,7 @@ internal sealed class StatusDrainTests : IDisposable
             _ = await Assert.That(provider.Requests[0].Instructions).IsNotEmpty();
             var buildRequest = provider.Requests[0];
             var buildStatus = buildRequest.Messages[0].Content;
+            _ = await Assert.That(buildRequest.Instructions).DoesNotContain(session.Mode.Prompt);
             await AssertContextLine(buildStatus, buildRequest, 100_000);
             _ = await Assert.That(buildStatus).StartsWith($"{session.Mode.Prompt}\n\nGenerated at: ");
             _ = await Assert.That(buildStatus).Contains("\n\nRuntime:\n- agent: main-agent (");

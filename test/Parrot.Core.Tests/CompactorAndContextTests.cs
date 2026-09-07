@@ -61,7 +61,8 @@ internal sealed class CompactorAndContextTests : IDisposable
         var built = prompt.Build(Selection());
 
         _ = await Assert.That(built).StartsWith("Configured base prompt.");
-        _ = await Assert.That(built).Contains("Date: 2026-07-24\n\nPlatform:");
+        _ = await Assert.That(built).DoesNotContain("Date:");
+        _ = await Assert.That(built).Contains("\n\nPlatform:");
         _ = await Assert.That(built).Contains($"\n\nWorking directory: {_workspace}");
         _ = await Assert.That(built).Contains("Git repository: false");
         _ = await Assert.That(built).Contains("GLOBAL RULE: be concise.");
@@ -70,7 +71,6 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(built).Contains("Available optional CLI utilities: none");
         var projectIndex = built.IndexOf("PROJECT RULE: be terse.", StringComparison.Ordinal);
         var expectedIndex = built.IndexOf("Available CLI utilities: none", StringComparison.Ordinal);
-        var dateIndex = built.IndexOf("Date: 2026-07-24", StringComparison.Ordinal);
         var platformIndex = built.IndexOf("Platform:", StringComparison.Ordinal);
         var workingDirectoryIndex = built.IndexOf("Working directory:", StringComparison.Ordinal);
         var gitRepositoryIndex = built.IndexOf("Git repository: false", StringComparison.Ordinal);
@@ -80,8 +80,7 @@ internal sealed class CompactorAndContextTests : IDisposable
         _ = await Assert.That(built.IndexOf("GLOBAL RULE: be concise.", StringComparison.Ordinal))
             .IsLessThan(projectIndex);
         _ = await Assert.That(projectIndex).IsLessThan(expectedIndex);
-        _ = await Assert.That(expectedIndex).IsLessThan(dateIndex);
-        _ = await Assert.That(dateIndex).IsLessThan(platformIndex);
+        _ = await Assert.That(expectedIndex).IsLessThan(platformIndex);
         _ = await Assert.That(platformIndex).IsLessThan(workingDirectoryIndex);
         _ = await Assert.That(workingDirectoryIndex).IsLessThan(gitRepositoryIndex);
         _ = await Assert.That(gitRepositoryIndex).IsLessThan(optionalIndex);
@@ -364,13 +363,13 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Model_prompt_context_includes_the_selected_profile_prompt()
+    public async Task Model_prompt_context_excludes_the_selected_profile_prompt()
     {
         var built = new ModelPromptProvider(new Dictionary<string, string>(StringComparer.Ordinal), TestModels.PromptTemplates)
             .Materialize(AgentIdentity.Main("session", string.Empty, TestModels.PromptTemplates))
             .Build(Selection(Profile(null, new HashSet<string>(StringComparer.Ordinal))));
 
-        _ = await Assert.That(built).Contains("Test prompt");
+        _ = await Assert.That(built).DoesNotContain("Test prompt");
         _ = await Assert.That(built).DoesNotContain("Hard rules:");
     }
 
@@ -768,7 +767,9 @@ internal sealed class CompactorAndContextTests : IDisposable
         await session.Settled();
 
         var inferenceRequest = provider.Requests.Single();
-        _ = await Assert.That(inferenceRequest.Instructions).Contains("2026-07-24");
+        _ = await Assert.That(inferenceRequest.Instructions).Contains("Test base prompt.");
+        _ = await Assert.That(inferenceRequest.Instructions).Contains("\n\nPlatform:");
+        _ = await Assert.That(inferenceRequest.Instructions).DoesNotContain("\n\nDate:");
         _ = await Assert.That(inferenceRequest.Messages)
             .DoesNotContain(message => message.Role == LLMRole.System);
         _ = await Assert.That(inferenceRequest.Messages)
@@ -1932,7 +1933,6 @@ internal sealed class CompactorAndContextTests : IDisposable
                 new ConfiguredSystemPromptProvider("runtime:system-context:01-base", "Configured base prompt."),
                 new AgentsPromptProvider(_workspace, _configDirectory, TestModels.PromptTemplates),
                 new ExpectedCliUtilitiesProvider(EmptyCliUtilities(), TestModels.PromptTemplates),
-                new DateProvider("2026-07-24", TestModels.PromptTemplates),
                 new PlatformProvider(TestModels.PromptTemplates),
                 new WorkingDirectoryProvider(_workspace, TestModels.PromptTemplates),
                 new GitRepositoryProvider(ProjectWorkspace.FromLaunchDirectory(_workspace), TestModels.PromptTemplates),
