@@ -1491,14 +1491,19 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    [Arguments(400_000, 0)]
+    [Arguments(0, null)]
+    [Arguments(-1, null)]
     public async Task Maximum_input_controls_compaction_while_context_reporting_stays_total(
+        int contextWindow,
+        int? expectedUsage,
         CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
         var compactor = new Compactor(50, 30, 60_000, 1024, TestModels.PromptTemplates);
         var model = new ProviderModel(provider, new LLMModel("model", provider.Id)
         {
-            ContextWindow = 400_000,
+            ContextWindow = contextWindow,
             MaxInputTokens = 1_000,
         });
         var history = Enumerable.Range(0, 6)
@@ -1516,10 +1521,10 @@ internal sealed class CompactorAndContextTests : IDisposable
             cancellationToken) ?? throw new InvalidOperationException("Expected compaction.");
         var after = compactor.EstimateContext(model, string.Empty, [], result.History);
 
-        _ = await Assert.That(before.ContextLimit).IsEqualTo(400_000);
-        _ = await Assert.That(before.UsagePercent).IsEqualTo(0);
+        _ = await Assert.That(before.ContextLimit).IsEqualTo(contextWindow);
+        _ = await Assert.That(before.UsagePercent).IsEqualTo(expectedUsage);
         _ = await Assert.That(before.ExceedsTrigger).IsTrue();
-        _ = await Assert.That(after.ContextLimit).IsEqualTo(400_000);
+        _ = await Assert.That(after.ContextLimit).IsEqualTo(contextWindow);
         _ = await Assert.That(after.EstimatedTokens).IsLessThanOrEqualTo(300);
         _ = await Assert.That(after.ExceedsInputLimit).IsFalse();
     }
@@ -1593,10 +1598,20 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
-    public async Task Compaction_folds_bounded_complete_groups(CancellationToken cancellationToken)
+    [Arguments(10_000, 0)]
+    [Arguments(0, 10_000)]
+    [Arguments(-1, 10_000)]
+    public async Task Compaction_folds_bounded_complete_groups(
+        int contextWindow,
+        int maximumInputTokens,
+        CancellationToken cancellationToken)
     {
         var provider = new ScriptedProvider("summary");
-        var model = new ProviderModel(provider, new LLMModel("model", provider.Id) { ContextWindow = 10_000 });
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id)
+        {
+            ContextWindow = contextWindow,
+            MaxInputTokens = maximumInputTokens,
+        });
         var compactor = new Compactor(90, 5, 500, 137, TestModels.PromptTemplates);
         var history = new List<LLMMessage>();
         history.AddRange(Enumerable.Range(0, 4).Select(index => LLMMessage.User($"old {index} {new string('x', 1_000)}")));
