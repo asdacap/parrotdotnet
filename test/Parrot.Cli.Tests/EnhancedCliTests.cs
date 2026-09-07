@@ -1180,7 +1180,8 @@ internal sealed class EnhancedCliTests
 
         driver.Input.Type("first prompt");
         await driver.Sent(1, cancellationToken);
-        await driver.OutputContains("thinking", cancellationToken);
+        await driver.OutputContains("preparing turn", cancellationToken);
+        await driver.OutputContains("Preparing turn…", cancellationToken);
         await driver.Invoker.Publish(
             new Event { Id = "start-1", AgentSessionId = "agent", TurnStarted = new TurnStarted { Model = "model" } });
         await driver.Invoker.Publish(
@@ -1189,7 +1190,8 @@ internal sealed class EnhancedCliTests
         var secondTurnOutput = driver.Output.Length;
         driver.Input.Type("second prompt");
         await driver.Sent(2, cancellationToken);
-        await driver.OutputContainsAfter(secondTurnOutput, "thinking", cancellationToken);
+        await driver.OutputContainsAfter(secondTurnOutput, "preparing turn", cancellationToken);
+        await driver.OutputContainsAfter(secondTurnOutput, "Preparing turn…", cancellationToken);
 
         driver.Input.End();
         _ = await driving.WaitAsync(cancellationToken);

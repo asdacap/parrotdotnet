@@ -163,7 +163,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
         await _composing.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _modelineActivity = "Thinking…";
+            _modelineActivity = "Preparing turn…";
             _input = [.. input];
             await _renderer.Commit(scrollback, Snapshot(), CancellationToken.None).ConfigureAwait(false);
         }
@@ -617,7 +617,7 @@ internal sealed class EnhancedRenderingSession : IAsyncDisposable
             _spinnerStop = new(TaskCreationOptions.RunContinuationsAsynchronously);
             var stop = _spinnerStop;
             _spinnerRendering = _spinner.Run(
-                static index => new SpinnerValue("thinking", index),
+                static index => new SpinnerValue("preparing turn", index),
                 async (preserve, lifetimeToken) =>
                 {
                     await stop.Task.WaitAsync(lifetimeToken).ConfigureAwait(false);
