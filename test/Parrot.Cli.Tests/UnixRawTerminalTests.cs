@@ -59,6 +59,56 @@ internal sealed class UnixRawTerminalTests
     }
 
     [Test]
+    public async Task Read_retries_temporary_unavailability_with_exponential_backoff()
+    {
+        Queue<(nint Count, int Error)> results = new(
+        [
+            (-1, 4),
+            (-1, 11),
+            (-1, 11),
+            (-1, 11),
+            (2, 0),
+        ]);
+        List<TimeSpan> delays = [];
+
+        var count = UnixRawTerminal.ReadInputWithRetry(results.Dequeue, delays.Add, 11);
+
+        _ = await Assert.That(count).IsEqualTo(2);
+        _ = await Assert.That(results).IsEmpty();
+        _ = await Assert.That(delays.SequenceEqual(
+            [TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(40)])).IsTrue();
+    }
+
+    [Test]
+    public async Task Read_stops_after_five_temporary_unavailability_retries()
+    {
+        var readCount = 0;
+        List<TimeSpan> delays = [];
+
+        var failure = await Assert.That(() => UnixRawTerminal.ReadInputWithRetry(
+                () =>
+                {
+                    readCount++;
+                    return (-1, 11);
+                },
+                delays.Add,
+                11))
+            .Throws<IOException>();
+
+        _ = await Assert.That(failure).IsNotNull();
+        _ = await Assert.That(failure?.Message ?? string.Empty).Contains("errno 11");
+        _ = await Assert.That(readCount).IsEqualTo(6);
+        _ = await Assert.That(delays.SequenceEqual(
+            [
+                TimeSpan.FromMilliseconds(10),
+                TimeSpan.FromMilliseconds(20),
+                TimeSpan.FromMilliseconds(40),
+                TimeSpan.FromMilliseconds(80),
+                TimeSpan.FromMilliseconds(160),
+            ])).IsTrue();
+    }
+
+    [Test]
     public async Task Darwin_raw_mode_disables_echo_and_canonical_input()
     {
         const ulong echo = 0x00000008UL;

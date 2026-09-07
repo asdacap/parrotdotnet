@@ -7,6 +7,10 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
     private const int StandardInput = 0;
     private const int SetNow = 0;
     private const int InterruptedSystemCall = 4;
+    private const int LinuxResourceTemporarilyUnavailable = 11;
+    private const int DarwinResourceTemporarilyUnavailable = 35;
+    private const int MaximumReadRetries = 5;
+    private const int InitialReadRetryDelayMilliseconds = 10;
 
     private const uint LinuxCharacterSize = 0x00000030U;
     private const uint LinuxEightBits = 0x00000030U;
@@ -37,7 +41,7 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
     public ValueTask<int> Read(byte[] buffer, CancellationToken cancellationToken)
     {
         _ensureRaw();
-        return new(Task.Run(() => ReadInput(_descriptor, buffer), cancellationToken));
+        return new(Task.Run(() => ReadInput(_descriptor, buffer, cancellationToken), cancellationToken));
     }
 
     public void Dispose()
@@ -85,6 +89,35 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
         return raw;
     }
 
+    internal static int ReadInputWithRetry(
+        Func<(nint Count, int Error)> read,
+        Action<TimeSpan> delay,
+        int resourceTemporarilyUnavailable)
+    {
+        var retryCount = 0;
+        while (true)
+        {
+            var (count, error) = read();
+            if (count >= 0)
+            {
+                return (int)count;
+            }
+
+            if (error == InterruptedSystemCall)
+            {
+                continue;
+            }
+
+            if (error != resourceTemporarilyUnavailable || retryCount >= MaximumReadRetries)
+            {
+                throw new IOException($"failed to read terminal input (errno {error})");
+            }
+
+            delay(TimeSpan.FromMilliseconds(InitialReadRetryDelayMilliseconds << retryCount));
+            retryCount++;
+        }
+    }
+
     [LibraryImport("libc", EntryPoint = "isatty", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     private static partial int IsTerminal(int descriptor);
@@ -101,22 +134,25 @@ internal sealed partial class UnixRawTerminal : IRawTerminal
     // MakeLinuxRaw and MakeDarwinRaw set VMIN=0/VTIME=1, so read(2) returns zero bytes after
     // 100ms of silence. That zero is a poll tick -- EnhancedCli flushes a pending lone ESC and
     // rechecks cancellation on it -- and never end of input, so nothing may latch it.
-    private static int ReadInput(int descriptor, byte[] buffer)
+    private static int ReadInput(int descriptor, byte[] buffer, CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            var count = ReadDescriptor(descriptor, buffer, (nuint)buffer.Length);
-            if (count >= 0)
+        var resourceTemporarilyUnavailable = OperatingSystem.IsMacOS()
+            ? DarwinResourceTemporarilyUnavailable
+            : LinuxResourceTemporarilyUnavailable;
+        return ReadInputWithRetry(
+            () =>
             {
-                return (int)count;
-            }
-
-            var error = Marshal.GetLastPInvokeError();
-            if (error != InterruptedSystemCall)
+                var count = ReadDescriptor(descriptor, buffer, (nuint)buffer.Length);
+                return (count, count < 0 ? Marshal.GetLastPInvokeError() : 0);
+            },
+            delay =>
             {
-                throw new IOException($"failed to read terminal input (errno {error})");
-            }
-        }
+                if (cancellationToken.WaitHandle.WaitOne(delay))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+            },
+            resourceTemporarilyUnavailable);
     }
 
     private static unsafe UnixRawTerminal? OpenLinux(int descriptor)
