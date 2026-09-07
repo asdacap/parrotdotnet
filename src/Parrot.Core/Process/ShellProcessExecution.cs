@@ -12,6 +12,7 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
     private readonly string _blobDirectory;
     private readonly string _cleanupPath;
     private readonly System.Diagnostics.Process _process;
+    private readonly Task _launcherCompletion = Task.CompletedTask;
     private readonly IProcessSignalTarget _signalTarget;
     private readonly PipeProcessOutputFiles? _pipeOutputFiles;
     private readonly PtyTranscript? _transcript;
@@ -30,9 +31,11 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
         IProcessSignalTarget signalTarget,
         string blobDirectory,
         PipeProcessOutputFiles pipeOutputFiles,
+        Task launcherCompletion,
         long startedTimestamp,
         CancellationToken cancellationToken)
     {
+        _launcherCompletion = launcherCompletion;
         _process = process;
         _signalTarget = signalTarget;
         _blobDirectory = blobDirectory;
@@ -211,7 +214,14 @@ internal sealed class ShellProcessExecution : IAsyncDisposable
 
         try
         {
-            await AwaitCompletionForDisposal().ConfigureAwait(false);
+            try
+            {
+                await AwaitCompletionForDisposal().ConfigureAwait(false);
+            }
+            finally
+            {
+                await _launcherCompletion.ConfigureAwait(false);
+            }
         }
         finally
         {

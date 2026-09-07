@@ -775,6 +775,89 @@ internal sealed class ProcessRunnerTests : IDisposable
     }
 
     [Test]
+    public async Task Pipe_command_survives_the_calling_thread_exiting(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var runner = ProcessRunner.Locate();
+        if (!runner.SandboxAvailable)
+        {
+            return;
+        }
+
+        var resources = new UserSessionResources(
+            new StatePaths(
+                Path.Combine(_workspace, ".test-state"),
+                Path.Combine(_workspace, ".test-config"),
+                Path.Combine(_workspace, ".test-data")),
+            UserSessionId.Parse("session-test"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        var scratch = Scratch(resources);
+        var securityProfile = WritableProfile(resources);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        using var releaseCaller = new ManualResetEventSlim();
+        var started = new TaskCompletionSource<ShellProcessExecution>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var caller = new Thread(() =>
+        {
+            try
+            {
+                started.SetResult(runner.Start(
+                    "printf READY; while [ ! -f finish ]; do sleep 0.01; done; printf FINISHED; exit 7",
+                    ProcessEnvironmentOverrides.Empty,
+                    resources,
+                    scratch,
+                    securityProfile,
+                    ShellProcessTerminalMode.Pipe,
+                    timeout.Token));
+                releaseCaller.Wait();
+            }
+            catch (Exception exception)
+            {
+                _ = started.TrySetException(exception);
+            }
+        })
+        { IsBackground = true };
+        caller.Start();
+
+        try
+        {
+            await using var execution = await started.Task;
+            var stdoutPath = execution.StdoutPath
+                ?? throw new InvalidOperationException("Pipe output path is missing.");
+            while (!string.Equals(
+                       await File.ReadAllTextAsync(stdoutPath, timeout.Token),
+                       "READY",
+                       StringComparison.Ordinal))
+            {
+                if (execution.Result.IsCompleted)
+                {
+                    throw new InvalidOperationException($"Command exited before READY: {await execution.Result.WaitAsync(timeout.Token)}");
+                }
+
+                await Task.Delay(10, timeout.Token);
+            }
+
+            releaseCaller.Set();
+            caller.Join();
+            await File.WriteAllTextAsync(Path.Combine(_workspace, "finish"), string.Empty, timeout.Token);
+            var result = await execution.Result.WaitAsync(timeout.Token);
+
+            _ = await Assert.That(result.ExitCode).IsEqualTo(7);
+            _ = await Assert.That(result.Stdout).IsEqualTo("READYFINISHED");
+            _ = await Assert.That(result.Stderr).IsEmpty();
+        }
+        finally
+        {
+            releaseCaller.Set();
+            caller.Join();
+        }
+    }
+
+    [Test]
     public async Task Pseudo_terminal_starts_in_the_real_sandbox(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())

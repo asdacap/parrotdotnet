@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Parrot.Security;
 using Parrot.Store;
@@ -259,18 +260,20 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
         IProcessSignalTarget? signalTarget = null;
         PipeProcessOutputFiles? outputFiles = null;
         var started = false;
+        var launcher = new PipeProcessLauncher(process);
 
         try
         {
             outputFiles = PipeProcessOutputFiles.Open(scratch.BlobDirectory);
             var startedTimestamp = Stopwatch.GetTimestamp();
-            started = process.Start();
+            started = launcher.Start();
             signalTarget = LinuxProcessSignalTarget.Open(process);
             return new ShellProcessExecution(
                 process,
                 signalTarget,
                 scratch.BlobDirectory,
                 outputFiles,
+                launcher.Completion,
                 startedTimestamp,
                 cancellationToken);
         }
@@ -283,8 +286,9 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             if (started && !process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
-                process.WaitForExit();
             }
+
+            launcher.Join();
 
             process.Dispose();
             throw;
@@ -369,5 +373,61 @@ internal sealed partial class LinuxBubblewrapSandbox(string bubblewrapPath, bool
             LinuxPseudoTerminal.Close(slave);
             throw;
         }
+    }
+
+    private sealed class PipeProcessLauncher(System.Diagnostics.Process process)
+    {
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private Thread? _thread;
+
+        public Task Completion => _completion.Task;
+
+        public bool Start()
+        {
+            using var processStarted = new ManualResetEventSlim();
+            ExceptionDispatchInfo? startupFailure = null;
+            var started = false;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    started = process.Start();
+                }
+                catch (Exception exception)
+                {
+                    startupFailure = ExceptionDispatchInfo.Capture(exception);
+                }
+                finally
+                {
+                    processStarted.Set();
+                }
+
+                try
+                {
+                    if (started)
+                    {
+                        // Linux ties --die-with-parent to the launching OS thread, not the managed process.
+                        process.WaitForExit();
+                    }
+
+                    _completion.SetResult();
+                }
+                catch (Exception exception)
+                {
+                    _completion.SetException(exception);
+                }
+            })
+            {
+                IsBackground = true,
+                Name = "bubblewrap launcher",
+            };
+            thread.Start();
+            _thread = thread;
+            processStarted.Wait();
+            startupFailure?.Throw();
+            return started;
+        }
+
+        public void Join() => _thread?.Join();
     }
 }
