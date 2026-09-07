@@ -15,6 +15,8 @@ internal sealed class LocalChatStartupTests
     [Arguments("missing", false, 1, 1)]
     [Arguments("rejected", true, 1, 1)]
     [Arguments("race", true, 1, 0)]
+    [Arguments("recover", false, 1, 0)]
+    [Arguments("recover-race", true, 1, 0)]
     public async Task Startup_selects_existing_sessions_before_configuring_fresh_settings(
         string scenario,
         bool interactivePermissions,
@@ -23,11 +25,11 @@ internal sealed class LocalChatStartupTests
         CancellationToken cancellationToken)
     {
         using var workspace = new TestWorkspace();
-        var service = new TestService(scenario);
+        var service = new TestService(scenario, workspace);
         await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, cancellationToken);
         using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null);
         await using var activation = scenario == "fresh" ? null : workspace.Admit();
-        if (scenario is "load" or "race")
+        if (scenario is "load" or "race" or "recover-race")
         {
             if (activation is not null)
             {
@@ -35,7 +37,8 @@ internal sealed class LocalChatStartupTests
             }
         }
 
-        await using var ownerServer = scenario is "connect" or "rejected" or "race"
+        service.OwnerActivation = activation;
+        await using var ownerServer = scenario is "connect" or "rejected" or "race" or "recover" or "recover-race"
             ? await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, cancellationToken)
             : null;
         using var error = new StringWriter();
@@ -59,12 +62,23 @@ internal sealed class LocalChatStartupTests
                 return Task.FromResult(new CreateSessionRequest { Model = "fresh-model", Mode = "fresh-mode" });
             });
 
-        var (_, session) = await startup.Open(interactivePermissions, cancellationToken);
+        var (openedClient, session) = await startup.Open(interactivePermissions, cancellationToken);
 
         _ = await Assert.That(localOpens).IsEqualTo(expectedLocalOpens);
         _ = await Assert.That(configurations).IsEqualTo(expectedConfigurations);
         _ = await Assert.That(service.CreateCount).IsEqualTo(expectedConfigurations);
-        _ = await Assert.That(service.ResumeCount).IsEqualTo(scenario is "load" or "race" ? 1 : 0);
+        var expectedResumes = scenario switch
+        {
+            "fresh" or "connect" => 0,
+            "recover-race" => 2,
+            _ => 1,
+        };
+        _ = await Assert.That(service.ResumeCount).IsEqualTo(expectedResumes);
+        if (expectedLocalOpens == 1 && scenario != "race")
+        {
+            _ = await Assert.That(ReferenceEquals(openedClient, localClient.Client)).IsTrue();
+        }
+
         _ = await Assert.That(session.Id).IsEqualTo(expectedConfigurations == 1 ? "new-session" : "existing");
         _ = await Assert.That(session.Model).IsEqualTo(expectedConfigurations == 1 ? "fresh-model" : "stored-model");
         _ = await Assert.That(session.Mode).IsEqualTo(expectedConfigurations == 1 ? "fresh-mode" : "stored-mode");
@@ -73,14 +87,14 @@ internal sealed class LocalChatStartupTests
             _ = await Assert.That(service.Created?.InteractivePermissions).IsEqualTo(interactivePermissions);
         }
 
-        if (scenario is "load" or "race")
+        if (expectedResumes > 0)
         {
             _ = await Assert.That(service.Resumed?.UserSessionId).IsEqualTo("existing");
             _ = await Assert.That(service.Resumed?.WorkingDirectory).IsEqualTo(workspace.Root);
             _ = await Assert.That(service.Resumed?.InteractivePermissions).IsEqualTo(interactivePermissions);
         }
 
-        if (scenario is "connect" or "race" or "rejected")
+        if (scenario is "connect" or "race" or "rejected" or "recover" or "recover-race")
         {
             _ = await Assert.That(service.Attached?.UserSessionId).IsEqualTo("existing");
             _ = await Assert.That(service.Attached?.WorkingDirectory).IsEqualTo(workspace.Root);
@@ -95,14 +109,12 @@ internal sealed class LocalChatStartupTests
         {
             _ = await Assert.That(diagnostic).Contains(scenario switch
             {
-                "load" => "loaded existing user session existing",
+                "load" or "recover" or "recover-race" => "loaded existing user session existing",
                 "connect" or "race" => "connected to existing user session existing",
                 _ => "unable to connect to existing user session existing",
             });
-            if (expectedConfigurations == 1)
-            {
-                _ = await Assert.That(diagnostic).Contains("creating a new user session");
-            }
+            _ = await Assert.That(diagnostic.Contains("creating a new user session", StringComparison.Ordinal))
+                .IsEqualTo(expectedConfigurations == 1);
         }
     }
 
@@ -114,7 +126,7 @@ internal sealed class LocalChatStartupTests
     {
         using var workspace = new TestWorkspace();
         await using var activation = workspace.Admit();
-        var service = new TestService("cancel");
+        var service = new TestService("cancel", workspace);
         await using var server = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, cancellationToken);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var error = new StringWriter();
@@ -156,6 +168,57 @@ internal sealed class LocalChatStartupTests
         _ = await Assert.That(error.ToString()).IsEmpty();
     }
 
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Recovery_failure_or_cancellation_does_not_create_a_fallback(
+        bool cancelRecovery, CancellationToken cancellationToken)
+    {
+        using var workspace = new TestWorkspace();
+        await using var activation = workspace.Admit();
+        var service = new TestService(cancelRecovery ? "cancel-recovery" : "fail-recovery", workspace);
+        await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, cancellationToken);
+        await using var ownerServer = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, cancellationToken);
+        using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var error = new StringWriter();
+        var localOpens = 0;
+        var configurations = 0;
+        using var startup = new LocalChatStartup(
+            workspace.Paths,
+            workspace.Root,
+            "host",
+            error,
+            token =>
+            {
+                token.ThrowIfCancellationRequested();
+                localOpens++;
+                return Task.FromResult(localClient.Client);
+            },
+            (client, token) =>
+            {
+                configurations++;
+                throw new InvalidOperationException("Fresh settings must remain lazy.");
+            });
+        var opening = startup.Open(true, stopping.Token);
+        await service.ResumeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        if (cancelRecovery)
+        {
+            await stopping.CancelAsync();
+        }
+
+        var failure = await Assert.That(async () => await opening.WaitAsync(cancellationToken)).Throws<RpcException>();
+        _ = await Assert.That(failure?.StatusCode).IsEqualTo(cancelRecovery ? StatusCode.Cancelled : StatusCode.FailedPrecondition);
+        _ = await Assert.That(localOpens).IsEqualTo(1);
+        _ = await Assert.That(configurations).IsEqualTo(0);
+        _ = await Assert.That(service.CreateCount).IsEqualTo(0);
+        _ = await Assert.That(service.ResumeCount).IsEqualTo(1);
+        _ = await Assert.That(service.Resumed?.UserSessionId).IsEqualTo("existing");
+        _ = await Assert.That(service.Resumed?.WorkingDirectory).IsEqualTo(workspace.Root);
+        _ = await Assert.That(service.Resumed?.InteractivePermissions).IsTrue();
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
     private sealed class TestWorkspace : IDisposable
     {
         public TestWorkspace()
@@ -192,8 +255,12 @@ internal sealed class LocalChatStartupTests
         public void Dispose() => Directory.Delete(Root, recursive: true);
     }
 
-    private sealed class TestService(string scenario) : GeneratedParrot.ParrotBase
+    private sealed class TestService(string scenario, TestWorkspace workspace) : GeneratedParrot.ParrotBase
     {
+        public SessionActivationLease? OwnerActivation { get; set; }
+
+        public TaskCompletionSource ResumeStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public int CreateCount { get; private set; }
 
         public int ResumeCount { get; private set; }
@@ -213,25 +280,61 @@ internal sealed class LocalChatStartupTests
             return Task.FromResult(new UserSession { Id = "new-session", Model = request.Model, Mode = request.Mode });
         }
 
-        public override Task<UserSession> ResumeSession(ResumeSessionRequest request, ServerCallContext context)
+        public override async Task<UserSession> ResumeSession(ResumeSessionRequest request, ServerCallContext context)
         {
             ResumeCount++;
             Resumed = request;
-            return scenario == "race"
-                ? throw new RpcException(new Status(StatusCode.AlreadyExists, "Another runtime acquired the session."))
-                : Task.FromResult(new UserSession { Id = request.UserSessionId, Model = "stored-model", Mode = "stored-mode", Loaded = true });
+            _ = ResumeStarted.TrySetResult();
+            if (scenario == "cancel-recovery")
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, context.CancellationToken);
+            }
+
+            if (scenario == "fail-recovery")
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, "Stored settings are unavailable."));
+            }
+
+            if (scenario == "recover-race" && ResumeCount == 1)
+            {
+                OwnerActivation = new WorkingDirectoryClaim(workspace.Paths.State, "host")
+                    .Resume(workspace.Root, workspace.Resources.Id).ActivationLease
+                    ?? throw new InvalidOperationException("The racing owner could not acquire the session.");
+            }
+
+            if (scenario == "race")
+            {
+                throw new RpcException(new Status(StatusCode.AlreadyExists, "Another runtime acquired the session."));
+            }
+
+            var admission = new WorkingDirectoryClaim(workspace.Paths.State, "host")
+                .Resume(workspace.Root, workspace.Resources.Id);
+            await using var resumedActivation = admission.ActivationLease
+                ?? throw new RpcException(new Status(StatusCode.AlreadyExists, "Another runtime owns the session."));
+
+            return new UserSession { Id = request.UserSessionId, Model = "stored-model", Mode = "stored-mode", Loaded = true };
         }
 
         public override async Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context)
         {
             Attached = request;
-            AttachStarted.SetResult();
+            _ = AttachStarted.TrySetResult();
+            if (scenario is "recover" or "recover-race")
+            {
+                if (OwnerActivation is { } ownerActivation)
+                {
+                    await ownerActivation.DisposeAsync();
+                }
+
+                throw new RpcException(new Status(StatusCode.Unavailable, "The owner stopped."));
+            }
+
             if (scenario == "cancel")
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, context.CancellationToken);
             }
 
-            if (scenario == "rejected")
+            if (scenario is "rejected" or "cancel-recovery" or "fail-recovery")
             {
                 throw new RpcException(new Status(StatusCode.PermissionDenied, "Attachment rejected."));
             }
