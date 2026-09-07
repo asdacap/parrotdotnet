@@ -8,6 +8,136 @@ internal sealed class RetryingProviderTests
     private static readonly LLMRequest Request = new() { Model = "m", Messages = [] };
 
     [Test]
+    [Arguments(false, false, false)]
+    [Arguments(true, false, false)]
+    [Arguments(false, true, false)]
+    [Arguments(true, true, false)]
+    [Arguments(false, false, true)]
+    [Arguments(true, false, true)]
+    [Arguments(false, true, true)]
+    [Arguments(true, true, true)]
+    public async Task Context_budget_recovery_is_bounded_and_preserves_the_request(
+        bool useSession, bool failsAgain, bool streamError, CancellationToken cancellationToken)
+    {
+        const string detail = "litellm.BadRequestError: OpenAIException - Requested token count exceeds the model's maximum context length of 180000 tokens. You requested a total of 180514 tokens: 147746 tokens from the input messages and 32768 tokens for the completion. Please reduce your prompt.";
+        Exception failure = streamError
+            ? new ProviderResponseException("null", "400", detail)
+            : new ProviderHttpException(400, "null", "400", detail + " Fallback failed: " + detail);
+        const string secondDetail = "Requested token count exceeds the model's maximum context length of 180000 tokens. You requested a total of 180001 tokens: 155135 tokens from the input messages and 24866 tokens for the completion.";
+        Exception secondFailure = streamError
+            ? new ProviderResponseException("null", "400", secondDetail)
+            : new ProviderHttpException(400, "null", "400", secondDetail);
+        var scripted = new ReplayProvider(
+            () => ThrowImmediately(failure),
+            () => failsAgain
+                ? ThrowImmediately(secondFailure)
+                : Yield(LLMEvent.Completed("stop", 147746, 0, 1, "reply", [])));
+        ILLMProvider provider = new RetryingProvider(scripted);
+        await using var session = provider.OpenSession();
+        var request = Request with { MaxTokens = 32768, Instructions = "preserve", IncludeRouterMetadata = true };
+        var events = new List<LLMEvent>();
+
+        async Task Consume()
+        {
+            var stream = useSession ? session.Call(request, cancellationToken) : provider.Call(request, cancellationToken);
+            await foreach (var published in stream)
+            {
+                events.Add(published);
+            }
+        }
+
+        if (failsAgain)
+        {
+            if (streamError)
+            {
+                _ = await Assert.That(Consume).Throws<ProviderResponseException>();
+            }
+            else
+            {
+                _ = await Assert.That(Consume).Throws<ProviderHttpException>();
+            }
+
+            _ = await Assert.That(events).IsEmpty();
+        }
+        else
+        {
+            await Consume();
+            _ = await Assert.That(events.Single().Kind).IsEqualTo(LLMEventKind.Completed);
+        }
+
+        _ = await Assert.That(scripted.Calls).IsEqualTo(2);
+        _ = await Assert.That(scripted.Requests[0]).IsEqualTo(request);
+        _ = await Assert.That(scripted.Requests[1]).IsEqualTo(request with { MaxTokens = 24866 });
+        _ = await Assert.That(request.MaxTokens).IsEqualTo(32768);
+    }
+
+    [Test]
+    [Arguments(false, "180001", "212769")]
+    [Arguments(true, "180001", "212769")]
+    [Arguments(false, "171429", "204197")]
+    [Arguments(true, "171429", "204197")]
+    public async Task Context_errors_without_output_capacity_are_not_retried(
+        bool useSession, string input, string total, CancellationToken cancellationToken)
+    {
+        var failure = new ProviderHttpException(
+            400,
+            "null",
+            "400",
+            $"Requested token count exceeds the model's maximum context length of 180000 tokens. You requested a total of {total} tokens: {input} tokens from the input messages and 32768 tokens for the completion.");
+        var scripted = new ReplayProvider(() => ThrowImmediately(failure));
+        ILLMProvider provider = new RetryingProvider(scripted);
+        await using var session = provider.OpenSession();
+        var request = Request with { MaxTokens = 32768 };
+
+        async Task Consume()
+        {
+            var stream = useSession ? session.Call(request, cancellationToken) : provider.Call(request, cancellationToken);
+            await foreach (var published in stream)
+            {
+                _ = published;
+            }
+        }
+
+        _ = await Assert.That(Consume).Throws<ProviderHttpException>();
+        _ = await Assert.That(scripted.Calls).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(false, LLMEventKind.TextDelta)]
+    [Arguments(true, LLMEventKind.TextDelta)]
+    [Arguments(false, LLMEventKind.ReasoningDelta)]
+    [Arguments(true, LLMEventKind.ReasoningDelta)]
+    [Arguments(false, LLMEventKind.ToolCallDelta)]
+    [Arguments(true, LLMEventKind.ToolCallDelta)]
+    [Arguments(false, LLMEventKind.Completed)]
+    [Arguments(true, LLMEventKind.Completed)]
+    public async Task Context_errors_after_visible_output_are_not_retried(
+        bool useSession, LLMEventKind kind, CancellationToken cancellationToken)
+    {
+        var failure = new ProviderHttpException(
+            400,
+            "null",
+            "400",
+            "Requested token count exceeds the model's maximum context length of 180000 tokens. You requested a total of 180514 tokens: 147746 tokens from the input messages and 32768 tokens for the completion.");
+        var scripted = new ReplayProvider(() => YieldThenThrow(failure, new LLMEvent { Kind = kind }));
+        ILLMProvider provider = new RetryingProvider(scripted);
+        await using var session = provider.OpenSession();
+        var request = Request with { MaxTokens = 32768 };
+
+        async Task Consume()
+        {
+            var stream = useSession ? session.Call(request, cancellationToken) : provider.Call(request, cancellationToken);
+            await foreach (var published in stream)
+            {
+                _ = published;
+            }
+        }
+
+        _ = await Assert.That(Consume).Throws<ProviderHttpException>();
+        _ = await Assert.That(scripted.Calls).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task A_drop_before_any_output_reconnects(CancellationToken cancellationToken)
     {
         var scripted = new ReplayProvider(
@@ -263,6 +393,8 @@ internal sealed class RetryingProviderTests
 
         public int Calls { get; private set; }
 
+        public List<LLMRequest> Requests { get; } = [];
+
         public int CredentialChecks { get; private set; }
 
         public string Id => "scripted";
@@ -285,6 +417,7 @@ internal sealed class RetryingProviderTests
         public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken)
         {
             Calls++;
+            Requests.Add(request);
             return _attempts.Dequeue()();
         }
     }

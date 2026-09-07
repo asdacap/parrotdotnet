@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using Parrot.Llm.Wire;
 
 namespace Parrot.Llm;
@@ -7,7 +9,7 @@ namespace Parrot.Llm;
 // use structured fields or a known message. Usage-limit detection deliberately
 // ignores status and free text so a transient 429 cannot suspend autonomous
 // work. Port of the classification half of Go's provider.go.
-internal static class ProviderErrors
+internal static partial class ProviderErrors
 {
     private const int MaximumResponseBodyBytes = 64 << 10;
     private const string TruncationMarker = "\n… [truncated]";
@@ -57,10 +59,49 @@ internal static class ProviderErrors
     public static bool IsContextLengthExceeded(Exception failure) =>
         failure switch
         {
-            ProviderHttpException http => ContextLengthValue(http.ErrorType) || ContextLengthValue(http.ErrorCode),
-            ProviderResponseException response => ContextLengthValue(response.ErrorType) || ContextLengthValue(response.ErrorCode),
+            ProviderHttpException http => ContextLengthValue(http.ErrorType) || ContextLengthValue(http.ErrorCode)
+                || (http.StatusCode == 400 && ContextTokenCounts().IsMatch(http.Detail)),
+            ProviderResponseException response => ContextLengthValue(response.ErrorType) || ContextLengthValue(response.ErrorCode)
+                || ContextTokenCounts().IsMatch(response.Detail),
             _ => false,
         };
+
+    public static bool TryReduceContextBudget(Exception failure, int maximumTokens, out int reducedMaximumTokens)
+    {
+        reducedMaximumTokens = 0;
+        var detail = failure switch
+        {
+            ProviderHttpException { StatusCode: 400 } http => http.Detail,
+            ProviderResponseException response => response.Detail,
+            _ => string.Empty,
+        };
+        if (maximumTokens <= 0 || IsUsageLimit(failure))
+        {
+            return false;
+        }
+
+        var match = ContextTokenCounts().Match(detail);
+        if (!match.Success
+            || !int.TryParse(match.Groups[1].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture, out var contextTokens)
+            || !int.TryParse(match.Groups[2].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture, out var totalTokens)
+            || !int.TryParse(match.Groups[3].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture, out var inputTokens)
+            || !int.TryParse(match.Groups[4].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture, out var completionTokens)
+            || totalTokens != (long)inputTokens + completionTokens
+            || totalTokens <= contextTokens)
+        {
+            return false;
+        }
+
+        var headroom = (inputTokens / 20) + (inputTokens % 20 > 0 ? 1 : 0);
+        var availableTokens = (long)contextTokens - inputTokens - headroom;
+        if (availableTokens <= 0 || availableTokens >= maximumTokens)
+        {
+            return false;
+        }
+
+        reducedMaximumTokens = (int)availableTokens;
+        return true;
+    }
 
     public static bool IsEngineOverloaded(string type, string code, string message) =>
         OverloadValue(type) || OverloadValue(code) || RetryableProviderMessage(message);
@@ -73,6 +114,9 @@ internal static class ProviderErrors
             ProviderResponseException response => IsEngineOverloaded(response.ErrorType, response.ErrorCode, response.Detail),
             _ => false,
         };
+
+    [GeneratedRegex(@"Requested token count exceeds the model's maximum context length of ([0-9]+) tokens\. You requested a total of ([0-9]+) tokens: ([0-9]+) tokens from the input messages and ([0-9]+) tokens for the completion\.", RegexOptions.CultureInvariant)]
+    private static partial Regex ContextTokenCounts();
 
     private static bool UsageLimitValue(string value) =>
         Normalize(value) is "usage_limit_reached" or "usage_limit_exceeded"

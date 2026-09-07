@@ -45,11 +45,11 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         LLMRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var state = new RetryState();
+        var state = new RetryState(request);
         while (true)
         {
             Advance retry;
-            var enumerator = call(request, cancellationToken).GetAsyncEnumerator(cancellationToken);
+            var enumerator = call(state.Request, cancellationToken).GetAsyncEnumerator(cancellationToken);
             try
             {
                 while (true)
@@ -129,6 +129,11 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
 
     private static Advance Classify(Exception failure, RetryState state)
     {
+        if (state.TryAdjustContextBudget(failure))
+        {
+            return Advance.Retrying(TimeSpan.Zero, 1, string.Empty);
+        }
+
         switch (failure)
         {
             case HeaderTimeoutException:
@@ -248,11 +253,11 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
             LLMRequest request,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            var state = new RetryState();
+            var state = new RetryState(request);
             while (true)
             {
                 Advance retry;
-                var enumerator = _innerSession.Call(request, cancellationToken)
+                var enumerator = _innerSession.Call(state.Request, cancellationToken)
                     .GetAsyncEnumerator(cancellationToken);
                 try
                 {
@@ -307,17 +312,33 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         }
     }
 
-    private sealed class RetryState
+    private sealed class RetryState(LLMRequest request)
     {
+        private bool _contextAdjusted;
         private int _overloadAttempts;
         private int _streamRemaining = StreamMaxRetries;
         private int _streamAttempt;
+
+        public LLMRequest Request { get; private set; } = request;
 
         public bool OutputEmitted { get; set; }
 
         public int TimeoutAttempt { get; set; }
 
         public bool StreamExhausted => _streamRemaining == 0;
+
+        public bool TryAdjustContextBudget(Exception failure)
+        {
+            if (_contextAdjusted
+                || !ProviderErrors.TryReduceContextBudget(failure, Request.MaxTokens, out var reducedMaximumTokens))
+            {
+                return false;
+            }
+
+            _contextAdjusted = true;
+            Request = Request with { MaxTokens = reducedMaximumTokens };
+            return true;
+        }
 
         public bool TakeOverload(out int attempt)
         {
