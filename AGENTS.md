@@ -1,7 +1,11 @@
 ## Guideline
 
 - No comment unless necessary
-- Change in design to clean original code is allowed.
+- Interface should have comment on the top level and each method to document the behavior except if the name of the
+method is already obvious.
+- Interfaces and implementations are fine and in fact preferable.
+- If a domain class have an interface, always use the interface rather than the implementation. Do not cast to implementation. 
+- No two domain interface per implementation please.
 - Dependency injection.
 - Prefer rich domain object rather than anemic domain model.
   - For example, if something is agent session specific, create an instance per agent session and store in the same DI
@@ -9,11 +13,10 @@
 - No dotnet events.
 - No subclass unless necessary.
 - No subinterface unless necessary.
-- Interfaces and implementations are fine and in fact preferable.
 - NEVER turn of lint rules repo wide or project wide. Exception is test project can have lint rules disabled AFTER user
   explicit permission.
 - Suffix the class name properly. If a class is an event, suffix it with Event.
-- Do not make a method/function just to create another class, unless that method is on that class. Dont do CreateEvent(something). Do Event.Create(something).
+- Do not make a method/function just to construct an object, unless that method is on that class. Dont do CreateEvent(something). Do Event.Create(something).
 - Class name are noun and declarative. Method name are imperative. Its an action (unless its the class constructor). So
   method name MUST have action please, come on man...
 - Reduce coupling, as in the public method count.
