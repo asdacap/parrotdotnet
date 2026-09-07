@@ -321,9 +321,12 @@ internal sealed class Compactor(
         }
 
         var summaryTokens = checked((int)Math.Min(summaryOutputTokens, summaryBudget));
-        var inputBudget = Math.Min(
-            Math.Min((long)maximumInputTokens, inputTokenLimit),
-            selectedModel.Model.ContextWindow - summaryTokens);
+        var inputBudget = Math.Min((long)maximumInputTokens, inputTokenLimit);
+        if (selectedModel.Model.ContextWindow > 0)
+        {
+            inputBudget = Math.Min(inputBudget, selectedModel.Model.ContextWindow - summaryTokens);
+        }
+
         if (inputBudget <= 0)
         {
             throw new InvalidOperationException("The selected model leaves no room for a compaction request.");
