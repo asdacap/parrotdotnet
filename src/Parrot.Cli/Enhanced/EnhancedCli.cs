@@ -353,8 +353,26 @@ internal sealed class EnhancedCli(
 
         async Task ApplyPromptKey(TerminalKey key, bool defer)
         {
+            void AcceptCompletion()
+            {
+                var accepted = slashCompletion.Accept(editor.Prompt.Text);
+                if (accepted is not null)
+                {
+                    editor.Replace(accepted);
+                }
+                else
+                {
+                    _ = skillCompletion.Accept(editor);
+                }
+            }
+
             if (defer && key.Kind == TerminalKeyKind.Submit)
             {
+                if (CompletionCount(slashCompletion, skillCompletion) > 0)
+                {
+                    AcceptCompletion();
+                }
+
                 DeferSubmit();
                 await DrawPrompt(cancellationToken).ConfigureAwait(false);
                 return;
@@ -389,16 +407,7 @@ internal sealed class EnhancedCli(
             }
             else if (key.Kind == TerminalKeyKind.Complete)
             {
-                var accepted = slashCompletion.Accept(editor.Prompt.Text);
-                if (accepted is not null)
-                {
-                    editor.Replace(accepted);
-                }
-                else
-                {
-                    _ = skillCompletion.Accept(editor);
-                }
-
+                AcceptCompletion();
                 entered = null;
             }
             else

@@ -957,6 +957,7 @@ internal sealed class EnhancedCliTests
     }
 
     [Test]
+    [Timeout(15_000)]
     public async Task Slash_command_completion_filters_selects_and_dispatches(CancellationToken cancellationToken)
     {
         using var terminal = new ScriptedTerminal(80);
@@ -994,8 +995,38 @@ internal sealed class EnhancedCliTests
         await OutputContains(terminal, "❯ /model", cancellationToken);
         _ = await Assert.That(invoker.Sent).IsEmpty();
 
+        terminal.Type("\u0001\u000b/mo\r");
+        await OutputContains(terminal, "Select a mode", cancellationToken);
+        terminal.Type("plan\r");
+        await OutputContains(terminal, "mode is now plan", cancellationToken);
+        terminal.Type("\r");
+        _ = await Assert.That(invoker.Updated[0].Mode).IsEqualTo("plan");
+
+        terminal.Type("plain text\r");
+        await Sent(invoker, 1, cancellationToken);
+        _ = await Assert.That(invoker.Sent[0]).IsEqualTo("plain text");
+
         terminal.Type("\u0001\u000b/exit\r");
         _ = await running.WaitAsync(cancellationToken);
+    }
+
+    [Test]
+    public async Task Skill_completion_accepts_and_submits_with_enter(CancellationToken cancellationToken)
+    {
+        using var driver = new CliLifecycleDriver(enhanced: true);
+        driver.Invoker.SetSkills(
+            "session-1",
+            new Skill { Name = "greet", Path = "/greet", Enabled = true, Description = "greet description" });
+        var driving = driver.Drive(cancellationToken);
+
+        driver.Input.Type("$gre");
+        await driver.OutputContains("greet description", cancellationToken);
+        await driver.Sent(1, cancellationToken);
+
+        _ = await Assert.That(driver.Invoker.Sent[0]).IsEqualTo("$greet");
+
+        driver.Input.End();
+        _ = await driving;
     }
 
     [Test]
