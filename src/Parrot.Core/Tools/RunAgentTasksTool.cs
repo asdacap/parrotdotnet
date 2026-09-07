@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Parrot.Agent;
 using Parrot.AgentTasks;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Store;
@@ -17,7 +18,8 @@ internal sealed class RunAgentTasksTool(
     IAgentTaskRunCompletion completion,
     EventBroker eventBroker,
     EventRepository eventRepository,
-    AgentTaskConfig agentTasks) : ITool
+    AgentTaskConfig agentTasks,
+    IDiagnosticLog diagnostics) : ITool
 {
     public string Name => "run_agent_tasks";
 
@@ -111,7 +113,8 @@ internal sealed class RunAgentTasksTool(
                 eventBroker,
                 eventRepository,
                 ownerScope.Session.SessionId,
-                invocation.CallId);
+                invocation.CallId,
+                diagnostics);
             HistoryForkBoundary rootHistoryBoundary =
                 new HistoryForkBoundary.BeforeToolBatch(invocation.AssistantSequence, invocation.CallId);
             var displayName = artifact.DisplayName;

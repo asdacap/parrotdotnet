@@ -1,3 +1,4 @@
+using Parrot.Diagnostics;
 using Parrot.Statuses;
 using Parrot.Store;
 
@@ -6,6 +7,7 @@ namespace Parrot.Process;
 internal sealed class ShellProcessOwners(
     UserSessionResources resources,
     ProcessRunner runner,
+    IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IDisposable
 {
     private readonly Lock _gate = new();
@@ -25,6 +27,7 @@ internal sealed class ShellProcessOwners(
                 resources.AgentScratch(sessionId),
                 runner,
                 _inventory,
+                diagnostics,
                 lifetime);
         }
     }

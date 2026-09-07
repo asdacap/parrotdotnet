@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Skills;
@@ -33,7 +34,7 @@ internal sealed class StatusDrainTests : IDisposable
         using (var database = SessionDatabase.Open(databasePath))
         {
             var repository = new EventRepository(database);
-            await using var session = Session(provider, database, modes, "model-1");
+            await using var session = await Session(provider, database, modes, "model-1");
 
             var agentSessionId = AgentSessionId(repository);
             _ = await Assert.That(repository.StatusPromptPending(agentSessionId)).IsTrue();
@@ -109,7 +110,7 @@ internal sealed class StatusDrainTests : IDisposable
         using (var reopened = SessionDatabase.Open(databasePath))
         {
             var repository = new EventRepository(reopened);
-            await using var session = Session(provider, reopened, modes, "model-2");
+            await using var session = await Session(provider, reopened, modes, "model-2");
 
             _ = await Assert.That(session.Mode.Profile.Id).IsEqualTo(ModeRegistry.Plan);
             _ = await Assert.That(repository.StatusPromptPending(AgentSessionId(repository))).IsFalse();
@@ -131,7 +132,7 @@ internal sealed class StatusDrainTests : IDisposable
         sessions.Use(router);
         var time = new ControlledTimeProvider();
         sessions.UseTimeProvider(time);
-        await using var session = new Parrot.Agent.UserSession(
+        await using var session = await Parrot.Agent.UserSession.Create(
             "repair-user",
             "main-agent",
             router.Resolve(providerModel.Selector),
@@ -209,7 +210,7 @@ internal sealed class StatusDrainTests : IDisposable
         var router = TestModels.Route(providerModel);
         var sessions = new DirectAgentSessions();
         sessions.Use(router);
-        await using var session = new Parrot.Agent.UserSession(
+        await using var session = await Parrot.Agent.UserSession.Create(
             "user",
             "main-agent",
             router.Resolve(providerModel.Selector),
@@ -266,7 +267,7 @@ internal sealed class StatusDrainTests : IDisposable
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, string.Empty, [new LLMToolCall("status-call", "status", "{}")]),
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        await using var session = Session(provider, database, modes, "model", includeStatusTool: true);
+        await using var session = await Session(provider, database, modes, "model", includeStatusTool: true);
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -292,7 +293,7 @@ internal sealed class StatusDrainTests : IDisposable
         using var provider = new SteppedProvider(
             LLMEvent.Completed("stop", 1, 0, 1, string.Empty, [new LLMToolCall("call", "missing", "{}")]),
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
-        await using var session = Session(provider, database, modes, "model");
+        await using var session = await Session(provider, database, modes, "model");
 
         _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
         await provider.Arrived(cancellationToken);
@@ -399,13 +400,13 @@ internal sealed class StatusDrainTests : IDisposable
         }
     }
 
-    private Parrot.Agent.UserSession Session(
+    private Task<Parrot.Agent.UserSession> Session(
         SteppedProvider provider,
         SessionDatabase database,
         ModeRegistry modes,
         string model) => Session(provider, database, modes, model, false);
 
-    private Parrot.Agent.UserSession Session(
+    private Task<Parrot.Agent.UserSession> Session(
         SteppedProvider provider,
         SessionDatabase database,
         ModeRegistry modes,
@@ -421,7 +422,7 @@ internal sealed class StatusDrainTests : IDisposable
             sessions.IncludeStatusTool();
         }
 
-        return new Parrot.Agent.UserSession(
+        return Parrot.Agent.UserSession.Create(
             "user",
             "main-agent",
             router.Resolve(providerModel.Selector),
@@ -455,8 +456,17 @@ internal sealed class StatusDrainTests : IDisposable
     {
         var paths = new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data"));
         var workspace = ProjectWorkspace.FromLaunchDirectory(_root);
-        return SessionResourceLease.Own(
-            new UserSessionResources(paths, UserSessionId.Parse(ownerId), workspace),
-            database);
+        var resources = new UserSessionResources(paths, UserSessionId.Parse(ownerId), workspace);
+        var diagnostics = (IDiagnosticLog?)FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
+        try
+        {
+            var lease = SessionResourceLease.Own(resources, database, diagnostics ?? throw new InvalidOperationException("Missing diagnostics"));
+            diagnostics = null;
+            return lease;
+        }
+        finally
+        {
+            diagnostics?.Dispose();
+        }
     }
 }

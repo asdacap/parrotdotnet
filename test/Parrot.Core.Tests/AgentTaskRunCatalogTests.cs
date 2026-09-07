@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
@@ -32,18 +33,84 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
     }
 
     [Test]
+    [Arguments(AgentTaskExecutionStatus.Succeeded)]
+    [Arguments(AgentTaskExecutionStatus.Failed)]
+    [Arguments(AgentTaskExecutionStatus.Canceled)]
+    public async Task Background_run_logs_its_eventual_terminal_status(
+        AgentTaskExecutionStatus status,
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-run-diagnostics", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        try
+        {
+            var resources = new UserSessionResources(
+                new State.StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data")),
+                UserSessionId.Parse("session-diagnostics"),
+                ProjectWorkspace.FromLaunchDirectory(directory));
+            using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
+            using var provider = new AgentTaskBlockingProvider();
+            ILLMProvider selectedProvider = status == AgentTaskExecutionStatus.Canceled
+                ? provider
+                : new AgentTaskQueueProvider([status == AgentTaskExecutionStatus.Succeeded
+                    ? "{\"result\":\"secret-result\",\"verdict\":\"accept\",\"evidence\":\"secret-evidence\"}"
+                    : "secret-invalid-response"]);
+            var runtime = Runtime(selectedProvider, cancellationToken);
+            await using var registry = runtime.Registry;
+            await using var catalog = new AgentTaskRunCatalog(diagnostics, cancellationToken);
+            var completion = new Completion();
+            catalog.Start(
+                new AgentTaskRunRequest(
+                    "run-id",
+                    "secret-display-name",
+                    AgentTaskParser.ParseArtifact(
+                        """
+                        {"schema_version":1,"tasks":[{"name":"secret-name","description":"secret-description","payload":"secret-payload","acceptance_criteria":"secret-criteria"}]}
+                        """),
+                    runtime.Router,
+                    runtime.ParentScope,
+                    runtime.Selection,
+                    new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "run-id", diagnostics),
+                    new AgentTaskConfig(1, true, TestModels.PromptTemplates),
+                    new HistoryForkBoundary.AfterCompletedHistory(),
+                    completion),
+                cancellationToken);
+            if (status == AgentTaskExecutionStatus.Canceled)
+            {
+                await provider.WaitUntilArrived(cancellationToken);
+            }
+            else
+            {
+                _ = await completion.Delivered.WaitAsync(cancellationToken);
+            }
+
+            await catalog.Settle();
+            var log = await File.ReadAllTextAsync(resources.LogPath, cancellationToken);
+            _ = await Assert.That(log).Contains("category=\"task_run\" event=\"start\"")
+                .And.Contains("category=\"task_run\" event=\"completed\"")
+                .And.Contains($"outcome=\"{status.ToString().ToLowerInvariant()}\"")
+                .And.Contains("correlation=\"run-id\"")
+                .And.DoesNotContain("secret-");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task Runs_are_owner_scoped_isolated_from_the_call_token_and_settle_with_the_catalog(
         CancellationToken cancellationToken)
     {
         using var provider = new AgentTaskBlockingProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        await using var catalog = new AgentTaskRunCatalog(cancellationToken);
+        await using var catalog = new AgentTaskRunCatalog(TestDiagnosticLog.Instance, cancellationToken);
         var owner = new AgentTaskRunOwner(runtime.Parent.SessionId, catalog);
         var otherOwner = new AgentTaskRunOwner("other-owner", catalog);
         using var call = new CancellationTokenSource();
-        var first = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "first");
-        var second = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "second");
+        var first = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "first", TestDiagnosticLog.Instance);
+        var second = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "second", TestDiagnosticLog.Instance);
         var firstCompletion = new Completion();
         var secondCompletion = new Completion();
 
@@ -131,7 +198,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
                     runtime.Router,
                     runtime.ParentScope,
                     runtime.Selection,
-                    new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "third"),
+                    new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "third", TestDiagnosticLog.Instance),
                     new AgentTaskConfig(1, true, TestModels.PromptTemplates),
                     new HistoryForkBoundary.AfterCompletedHistory(),
                     new Completion()),
@@ -156,10 +223,10 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
         using var provider = new AgentTaskBlockingProvider();
         var runtime = Runtime(provider, cancellationToken);
         await using var registry = runtime.Registry;
-        await using var catalog = new AgentTaskRunCatalog(cancellationToken);
+        await using var catalog = new AgentTaskRunCatalog(TestDiagnosticLog.Instance, cancellationToken);
         var owner = new AgentTaskRunOwner(runtime.Parent.SessionId, catalog);
         var completion = new FailOnceCompletion();
-        var progress = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "retry-delivery");
+        var progress = new AgentTaskProgress(_broker, _repository, runtime.Parent.SessionId, "retry-delivery", TestDiagnosticLog.Instance);
         var request = new AgentTaskRunRequest(
             "retry-delivery",
             "leaf",
@@ -187,7 +254,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
         _ = await Assert.That(owner.Active()).IsEmpty();
     }
 
-    private RuntimeContext Runtime(AgentTaskBlockingProvider provider, CancellationToken cancellationToken)
+    private RuntimeContext Runtime(ILLMProvider provider, CancellationToken cancellationToken)
     {
         var processRoot = Directory.CreateDirectory(
             Path.Combine(Path.GetTempPath(), "parrot-agent-task-catalog-tests", Guid.NewGuid().ToString("N"))).FullName;
@@ -198,6 +265,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
         var processOwners = new ShellProcessOwners(
             processResources,
             new ProcessRunner(string.Empty),
+            TestDiagnosticLog.Instance,
             cancellationToken);
         _processOwners.Add(processOwners);
         var processOwner = processOwners.Prepare("agent-task-catalog-parent");
@@ -230,7 +298,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             new ToolOutputBlobStore(Path.GetTempPath()),
             TestModels.CompactionGroupBlobs(),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
             new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,
             childQuestions,
@@ -241,6 +309,7 @@ internal sealed class AgentTaskRunCatalogTests : IDisposable
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
+            TestDiagnosticLog.Instance,
             cancellationToken));
         registry.RegisterRootScope(parentScope);
         var selected = parentScope.Session.CurrentSelection();

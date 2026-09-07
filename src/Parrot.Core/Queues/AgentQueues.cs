@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Parrot.Agent;
+using Parrot.Diagnostics;
 
 namespace Parrot.Queues;
 
@@ -7,7 +9,8 @@ internal sealed class AgentQueues(
     AgentIdentity identity,
     AgentQueues? parent,
     string directory,
-    bool deleteDirectory) : IDisposable
+    bool deleteDirectory,
+    IDiagnosticLog diagnostics) : IDisposable
 {
     private readonly SemaphoreSlim _delivery = new(1, 1);
     private IAgentSession? _session;
@@ -78,6 +81,14 @@ internal sealed class AgentQueues(
         cancellationToken.ThrowIfCancellationRequested();
         var store = Resolve(name);
         var result = store.Push(name, items, direction, close);
+        if (close)
+        {
+            diagnostics.Write(new DiagnosticEvent("queue", "closed", DiagnosticSeverity.Information)
+            {
+                AgentSessionId = SessionId,
+                Outcome = "closed",
+            });
+        }
 
         if (items.Count > 0)
         {
@@ -163,8 +174,34 @@ internal sealed class AgentQueues(
                 return false;
             }
 
-            return await store.DeliverMonitored(SessionId, session.ReceiveQueueNotification, cancellationToken)
-                .ConfigureAwait(false);
+            var started = Stopwatch.GetTimestamp();
+            try
+            {
+                var delivered = await store.DeliverMonitored(SessionId, session.ReceiveQueueNotification, cancellationToken)
+                    .ConfigureAwait(false);
+                if (delivered)
+                {
+                    diagnostics.Write(new DiagnosticEvent("queue", "delivery_completed", DiagnosticSeverity.Information)
+                    {
+                        AgentSessionId = SessionId,
+                        DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                        Outcome = "delivered",
+                    });
+                }
+
+                return delivered;
+            }
+            catch (Exception failure)
+            {
+                diagnostics.Write(new DiagnosticEvent("queue", "delivery_completed", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+                {
+                    AgentSessionId = SessionId,
+                    DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                    Outcome = failure is OperationCanceledException ? "cancelled" : "failed",
+                    ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+                });
+                throw;
+            }
         }
         finally
         {

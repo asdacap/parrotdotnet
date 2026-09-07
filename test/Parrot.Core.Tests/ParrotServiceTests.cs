@@ -1,6 +1,7 @@
 using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Protocol;
@@ -22,6 +23,7 @@ internal sealed class ParrotServiceTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
 
+    private readonly DiagnosticLogs _diagnostics;
     private readonly Configuration _configuration;
     private readonly ProviderRegistry _registry;
     private readonly ModelAliasCatalog _catalog;
@@ -33,6 +35,7 @@ internal sealed class ParrotServiceTests : IDisposable
     {
         _registry = Registry();
         _ = Directory.CreateDirectory(_root);
+        _diagnostics = new DiagnosticLogs(new StatePaths(_root, _root, _root), "test", TextWriter.Null, TimeProvider.System);
         var configPath = Path.Combine(_root, "config.yaml");
         var configContent = """
             provider_model_alias_defaults:
@@ -58,6 +61,7 @@ internal sealed class ParrotServiceTests : IDisposable
 
     public void Dispose()
     {
+        _diagnostics.Dispose();
         if (Directory.Exists(_root))
         {
             Directory.Delete(_root, recursive: true);
@@ -424,6 +428,14 @@ internal sealed class ParrotServiceTests : IDisposable
             },
             cancellationToken: cancellationToken)).Throws<RpcException>();
         _ = await Assert.That(duplicate?.StatusCode).IsEqualTo(StatusCode.AlreadyExists);
+        var sessionLog = await File.ReadAllTextAsync(Path.Combine(_root, "sessions", sessionId, "session.log"), cancellationToken);
+        var globalLog = await File.ReadAllTextAsync(Directory.GetFiles(Path.Combine(_root, "logs")).Single(), cancellationToken);
+        _ = await Assert.That(sessionLog).Contains("attach_session_complete");
+        _ = await Assert.That(sessionLog).Contains("resume_session_complete");
+        _ = await Assert.That(globalLog).Contains("resume_session_failure");
+        _ = await Assert.That(globalLog).DoesNotContain("attach_session_complete");
+        _ = await Assert.That(sessionLog).DoesNotContain(workspace);
+        _ = await Assert.That(globalLog).DoesNotContain(workspace);
     }
 
     [Test]
@@ -1049,17 +1061,15 @@ internal sealed class ParrotServiceTests : IDisposable
         var store = Store();
         await using var registry = new UserSessionRegistry();
         using var entered = new SemaphoreSlim(0, 1);
-        using var release = new ManualResetEventSlim();
-        var opening = Task.Run(
-            async () => await registry.Host(
-                () =>
-                {
-                    _ = entered.Release();
-                    release.Wait(cancellationToken);
-                    return store.Open(_router.Resolve(Selection));
-                },
-                _ => Task.FromResult<IAsyncDisposable>(new ObservingSessionListener(store))),
-            cancellationToken);
+        using var release = new SemaphoreSlim(0, 1);
+        var opening = registry.Host(
+            async () =>
+            {
+                _ = entered.Release();
+                await release.WaitAsync(cancellationToken);
+                return await store.Open(_router.Resolve(Selection));
+            },
+            _ => Task.FromResult<IAsyncDisposable>(new ObservingSessionListener(store)));
         await entered.WaitAsync(cancellationToken);
 
         var shutdown = registry.DisposeAsync().AsTask();
@@ -1068,7 +1078,7 @@ internal sealed class ParrotServiceTests : IDisposable
         _ = await Assert.That(shutdown.IsCompleted).IsFalse();
         _ = await Assert.That(refused?.StatusCode).IsEqualTo(StatusCode.Unavailable);
 
-        release.Set();
+        _ = release.Release();
         RpcException? creation = null;
         try
         {
@@ -1191,7 +1201,8 @@ internal sealed class ParrotServiceTests : IDisposable
         store,
         new SessionCatalog(new StatePaths(_root, _root, _root)),
         modes,
-        new UnexposedUserSessionHost());
+        new UnexposedUserSessionHost(),
+        _diagnostics.Global);
 
     private SessionStore Store() => Store(new DirectAgentSessions());
 
@@ -1223,7 +1234,8 @@ internal sealed class ParrotServiceTests : IDisposable
                     _configuration.SandboxRules,
                     [],
                     _configuration.DisabledTools),
-                _configuration.DefaultProfile));
+                _configuration.DefaultProfile),
+            _diagnostics);
     }
 
     private sealed class ObservingSessionListener(SessionStore store) : IAsyncDisposable

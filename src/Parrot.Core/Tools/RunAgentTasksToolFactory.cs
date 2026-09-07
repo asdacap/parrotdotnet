@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Store;
@@ -16,7 +17,8 @@ internal sealed class RunAgentTasksToolFactory(
     AgentTaskRunOwner runs,
     ToolOutputBlobStore outputBlobs,
     PromptTemplateCatalog promptTemplates,
-    AgentTaskConfig agentTasks) : IToolFactory
+    AgentTaskConfig agentTasks,
+    IDiagnosticLog diagnostics) : IToolFactory
 {
     public ITool Create(IAgentSession session) =>
         new RunAgentTasksTool(
@@ -27,5 +29,6 @@ internal sealed class RunAgentTasksToolFactory(
             new AgentTaskRunCompletion(session, outputBlobs, promptTemplates),
             eventBroker,
             eventRepository,
-            agentTasks);
+            agentTasks,
+            diagnostics);
 }

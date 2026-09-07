@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
@@ -23,7 +25,8 @@ internal sealed class CommandDispatcher(
     ProviderHttpClientCatalog httpClients,
     IBrowserOpener browserOpener,
     IOAuthClient oauthClient,
-    ModelsDevInformationProvider modelsDev)
+    ModelsDevInformationProvider modelsDev,
+    DiagnosticLogs diagnostics)
 {
     public const int ExitSuccess = 0;
     public const int ExitUsage = 2;
@@ -184,7 +187,7 @@ internal sealed class CommandDispatcher(
                 return ExitUsage;
             }
 
-            await AuthFlows.StoreApiKey(store, provider, key, cancellationToken).ConfigureAwait(false);
+            await AuthFlows.StoreApiKey(store, provider, key, diagnostics.Global, cancellationToken).ConfigureAwait(false);
         }
         else if (provider == ChatGptProvider.ProviderId)
         {
@@ -196,6 +199,7 @@ internal sealed class CommandDispatcher(
                         store,
                         arguments.Contains("--device"),
                         output,
+                        diagnostics.Global,
                         cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -288,19 +292,48 @@ internal sealed class CommandDispatcher(
         IUserSessionHost sessionHost,
         CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
+        var correlationId = Guid.NewGuid().ToString("N");
         try
         {
+            diagnostics.Global.Write(new DiagnosticEvent("startup", "provider_catalog_start", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
             var registry = await new ProviderRegistryBuilder(configuration, credentials, httpClients, browserOpener, modelsDev)
                 .Build(cancellationToken).ConfigureAwait(false);
 
+            diagnostics.Global.Write(new DiagnosticEvent("startup", "provider_catalog_complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
             return new Composition(
-                registry, configuration, Directory.GetCurrentDirectory(), Environment.MachineName, sessionHost);
+                registry, configuration, Directory.GetCurrentDirectory(), Environment.MachineName, sessionHost, diagnostics);
         }
         catch (LLMProviderException failure)
         {
+            diagnostics.Global.Write(new DiagnosticEvent("startup", "provider_catalog_failure", DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
             await error.WriteLineAsync($"parrot: {failure.Message}".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return null;
+        }
+        catch (Exception failure)
+        {
+            diagnostics.Global.Write(new DiagnosticEvent(
+                "startup", "provider_catalog_failure", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
         }
     }
 
@@ -380,7 +413,7 @@ internal sealed class CommandDispatcher(
         await WarnAboutMissingCliUtilities(composition.CliUtilities, cancellationToken).ConfigureAwait(false);
         try
         {
-            await using var server = await GrpcServer.Start(composition.Service, address, token, cancellationToken)
+            await using var server = await GrpcServer.Start(composition.Service, address, token, diagnostics.Global, cancellationToken)
                 .ConfigureAwait(false);
             if (address.IsExternal && address.Kind == TransportAddressKind.Http)
             {
@@ -404,16 +437,46 @@ internal sealed class CommandDispatcher(
 
     private async Task<Configuration?> LoadConfiguration(CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
+        var correlationId = Guid.NewGuid().ToString("N");
         try
         {
             var paths = StatePaths.ResolveFromEnvironment();
-            return Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
+            diagnostics.Global.Write(new DiagnosticEvent("startup", "configuration_start", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+            var configuration = Configuration.Load(paths.ConfigFile, paths.PredefinedConfigFile);
+            diagnostics.Global.Write(new DiagnosticEvent("startup", "configuration_complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+            return configuration;
         }
         catch (Exception failure) when (failure is InvalidDataException or YamlException)
         {
+            diagnostics.Global.Write(new DiagnosticEvent("startup", "configuration_failure", DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
             await error.WriteLineAsync($"parrot: invalid configuration: {failure.Message}".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             return null;
+        }
+        catch (Exception failure)
+        {
+            diagnostics.Global.Write(new DiagnosticEvent(
+                "startup", "configuration_failure", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
         }
     }
 
@@ -515,7 +578,7 @@ internal sealed class CommandDispatcher(
                 return ExitUsage;
             }
 
-            using var remoteConnection = GrpcTransportClient.Connect(address, token);
+            using var remoteConnection = GrpcTransportClient.Connect(address, token, diagnostics.Global);
             var remote = remoteConnection.Client;
             if (variant is not null)
             {
@@ -548,7 +611,8 @@ internal sealed class CommandDispatcher(
                     Console.In,
                     output,
                     error,
-                    attachments);
+                    attachments,
+                    diagnostics.Global);
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
 
@@ -569,7 +633,8 @@ internal sealed class CommandDispatcher(
                     Console.In,
                     output,
                     error,
-                    attachments);
+                    attachments,
+                    diagnostics.Global);
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
 
@@ -583,7 +648,8 @@ internal sealed class CommandDispatcher(
                 remoteProviderIds,
                 new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
                 remoteTerminal,
-                attachments);
+                attachments,
+                diagnostics.Global);
             return await remoteChat.Cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
@@ -621,7 +687,7 @@ internal sealed class CommandDispatcher(
         }
 
         using var startup = new LocalChatStartup(
-            paths, Directory.GetCurrentDirectory(), Environment.MachineName, error, OpenLocalClient, ConfigureFresh);
+            paths, Directory.GetCurrentDirectory(), Environment.MachineName, error, diagnostics.Global, OpenLocalClient, ConfigureFresh);
         try
         {
             var (client, initialSession) = await startup.Open(prompt.Length == 0, cancellationToken).ConfigureAwait(false);
@@ -645,7 +711,8 @@ internal sealed class CommandDispatcher(
                     Console.In,
                     output,
                     error,
-                    attachments)
+                    attachments,
+                    diagnostics.Global)
                 { InitialSession = initialSession };
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
@@ -667,7 +734,8 @@ internal sealed class CommandDispatcher(
                     Console.In,
                     output,
                     error,
-                    attachments)
+                    attachments,
+                    diagnostics.Global)
                 { InitialSession = initialSession };
                 return await cli.Run(cancellationToken).ConfigureAwait(false);
             }
@@ -685,7 +753,8 @@ internal sealed class CommandDispatcher(
                     InitialSession = initialSession,
                 },
                 terminal,
-                attachments);
+                attachments,
+                diagnostics.Global);
             return await enhancedChat.Cli.Run(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception failure) when (failure is InvalidOperationException or RpcException or IOException)

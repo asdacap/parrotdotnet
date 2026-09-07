@@ -12,6 +12,7 @@ internal sealed class SlashCommandTests
         using var application = new CancellationTokenSource();
         using var http = new HttpClient();
         var dialog = new TestSlashDialog();
+        using var diagnostics = new TransportDiagnosticsFixture();
         var registry = SlashCommands.Create(
             new GeneratedParrot.ParrotClient(new ScriptedInvoker()),
             dialog,
@@ -21,11 +22,17 @@ internal sealed class SlashCommandTests
             new UnusedCredentials(),
             new OpenAiOAuthClient(http, new UnusedBrowser(), new OpenAiOAuthOptions()),
             ["provider"],
-            static _ => Task.CompletedTask);
+            static _ => Task.CompletedTask,
+            diagnostics.Log);
 
         _ = await Assert.That(string.Join('|', registry.Commands.Select(command => command.Name)))
             .IsEqualTo("/auth|/clear|/compact|/effort|/exit|/goal|/help|/mode|/model|/model-alias|/model-preset-select|/model-preset-set|/models|/modes|/sessions|/skills|/version");
         _ = await Assert.That(registry.Commands.All(command => command.Summary.Length > 0)).IsTrue();
+
+        _ = dialog.Select((string?)null);
+        await registry.Dispatch("/auth sentinel-argument", CancellationToken.None);
+        _ = await Assert.That(diagnostics.Read()).Contains("interactive_start")
+            .And.Contains("outcome=\"dismissed\"").And.DoesNotContain("sentinel-argument");
 
         var help = registry.Find("/help")
             ?? throw new InvalidOperationException("the slash command registry has no help command");

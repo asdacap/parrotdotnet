@@ -43,4 +43,5 @@ internal sealed record AgentSessionScopeArguments(
     AgentQueues Queues,
     QuestionBroker UserQuestions,
     TimeProvider TimeProvider,
+    Parrot.Diagnostics.IDiagnosticLog Diagnostics,
     CancellationToken Lifetime);

@@ -1,16 +1,26 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Parrot.Agent;
+using Parrot.Diagnostics;
 using Parrot.Queues;
 
 namespace Parrot.Tools;
 
-internal sealed class QueueTakeTool(AgentQueues queues) : ITool
+internal sealed class QueueTakeTool(AgentQueues queues, IDiagnosticLog diagnostics) : ITool
 {
     public string Name => "queue_take";
 
     public async Task<ToolExecutionResult> Execute(ToolInvocation invocation, AgentTurnSelection selection, CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
+        var outcome = "failed";
+        string? errorCode = null;
+        diagnostics.Write(new DiagnosticEvent("queue", "wait_started", DiagnosticSeverity.Information)
+        {
+            AgentSessionId = queues.SessionId,
+            CorrelationId = invocation.CallId,
+        });
         try
         {
             var input = QueueToolExecution.Deserialize(invocation.ArgumentsJson, QueueToolJsonContext.Default.QueueTakeToolInput);
@@ -40,6 +50,7 @@ internal sealed class QueueTakeTool(AgentQueues queues) : ITool
 
                     if (taken.Acquired)
                     {
+                        outcome = taken.Items.Count > 0 ? "delivered" : "closed";
                         return QueueToolExecution.Serialize(
                             taken.Info ?? throw new QueueException("queue: missing take information"),
                             taken.Items);
@@ -54,6 +65,7 @@ internal sealed class QueueTakeTool(AgentQueues queues) : ITool
 
                 if (remaining <= 0)
                 {
+                    outcome = "timeout";
                     return QueueToolExecution.Serialize(empty ?? queues.Get(name), []);
                 }
 
@@ -62,7 +74,25 @@ internal sealed class QueueTakeTool(AgentQueues queues) : ITool
         }
         catch (Exception failure) when (failure is JsonException or FormatException or QueueException)
         {
+            errorCode = DiagnosticEvent.ClassifyFailure(failure);
             return ToolResultFormatter.Error(invocation, failure.Message);
+        }
+        catch (Exception failure)
+        {
+            outcome = failure is OperationCanceledException ? "cancelled" : "failed";
+            errorCode = DiagnosticEvent.ClassifyFailure(failure);
+            throw;
+        }
+        finally
+        {
+            diagnostics.Write(new DiagnosticEvent("queue", "wait_completed", outcome == "failed" ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
+            {
+                AgentSessionId = queues.SessionId,
+                CorrelationId = invocation.CallId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = outcome,
+                ErrorCode = errorCode,
+            });
         }
     }
 

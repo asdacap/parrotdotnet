@@ -15,6 +15,7 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Unix_transport_is_owner_only_and_reachable(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         if (OperatingSystem.IsWindows())
         {
             return;
@@ -26,8 +27,8 @@ internal sealed class GrpcTransportTests
         try
         {
             await using var server = await GrpcServer.Start(
-                new TestService(), TransportAddress.Parse($"unix:{path}"), null, cancellationToken);
-            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+                new TestService(), TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log, cancellationToken);
+            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log);
 
             _ = await client.Client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
 
@@ -50,20 +51,21 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Active_Unix_transport_is_not_replaced(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var root = TemporaryRoot();
         var path = Path.Combine(root, "control", "parrot.sock");
         try
         {
             await using var first = await GrpcServer.Start(
-                new TestService(), TransportAddress.Parse($"unix:{path}"), null, cancellationToken);
+                new TestService(), TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log, cancellationToken);
 
             var failure = await Assert.That(async () => await GrpcServer.Start(
-                    new TestService(), TransportAddress.Parse($"unix:{path}"), null, cancellationToken))
+                    new TestService(), TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log, cancellationToken))
                 .Throws<InvalidOperationException>();
             _ = await Assert.That(failure).IsNotNull();
             _ = await Assert.That(failure?.Message ?? string.Empty).Contains("active");
 
-            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log);
             _ = await client.Client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
         }
         finally
@@ -75,6 +77,7 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Stale_Unix_transport_is_removed_explicitly(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var root = TemporaryRoot();
         var path = Path.Combine(root, "control", "parrot.sock");
         var directory = Path.GetDirectoryName(path);
@@ -93,8 +96,8 @@ internal sealed class GrpcTransportTests
         try
         {
             await using var server = await GrpcServer.Start(
-                new TestService(), TransportAddress.Parse($"unix:{path}"), null, cancellationToken);
-            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+                new TestService(), TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log, cancellationToken);
+            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log);
             _ = await client.Client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
         }
         finally
@@ -106,15 +109,16 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Tcp_requires_the_exact_bearer_token(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var token = TransportToken.Generate();
         await using var server = await GrpcServer.Start(
-            new TestService(), TransportAddress.Parse("http://127.0.0.1:0"), token, cancellationToken);
+            new TestService(), TransportAddress.Parse("http://127.0.0.1:0"), token, diagnostics.Log, cancellationToken);
         var address = TransportAddress.Parse(server.Addresses.Single());
 
-        using var authorized = GrpcTransportClient.Connect(address, token);
+        using var authorized = GrpcTransportClient.Connect(address, token, diagnostics.Log);
         _ = await authorized.Client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
 
-        using var wrong = GrpcTransportClient.Connect(address, TransportToken.Generate());
+        using var wrong = GrpcTransportClient.Connect(address, TransportToken.Generate(), diagnostics.Log);
         var failure = await Assert.That(async () => await wrong.Client.ListModesAsync(
                 new ListModesRequest(), cancellationToken: cancellationToken))
             .Throws<RpcException>();
@@ -125,17 +129,26 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Tcp_cannot_start_without_authentication(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var failure = await Assert.That(async () => await GrpcServer.Start(
-                new TestService(), TransportAddress.Parse("http://127.0.0.1:0"), null, cancellationToken))
+                new TestService(), TransportAddress.Parse("http://127.0.0.1:0"), null, diagnostics.Log, cancellationToken))
             .Throws<InvalidOperationException>();
 
         _ = await Assert.That(failure).IsNotNull();
         _ = await Assert.That(failure?.Message ?? string.Empty).Contains("bearer token");
+        _ = await Assert.That(() => GrpcTransportClient.Connect(
+            TransportAddress.Parse("http://127.0.0.1:0"), null, diagnostics.Log)).Throws<InvalidOperationException>();
+        var log = diagnostics.Read();
+        _ = await Assert.That(log).Contains("event=\"host.failure\"");
+        _ = await Assert.That(log).Contains("event=\"channel.open.complete\"");
+        _ = await Assert.That(log).Contains("error=\"invalid_operation\"");
+        _ = await Assert.That(log.Contains("127.0.0.1", StringComparison.Ordinal)).IsFalse();
     }
 
     [Test]
     public async Task Transport_addresses_are_explicit()
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         _ = await Assert.That(() => TransportAddress.Parse("127.0.0.1:8710")).Throws<InvalidOperationException>();
         _ = await Assert.That(TransportAddress.Parse("unix:/tmp/parrot.sock").Kind)
             .IsEqualTo(TransportAddressKind.Unix);
@@ -150,6 +163,7 @@ internal sealed class GrpcTransportTests
     [Arguments(true)]
     public async Task Unix_transport_refuses_non_socket_entries(bool symbolicLink, CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var root = TemporaryRoot();
         _ = Directory.CreateDirectory(root);
         var path = Path.Combine(root, "parrot.sock");
@@ -166,7 +180,7 @@ internal sealed class GrpcTransportTests
 
         try
         {
-            _ = await Assert.That(async () => await GrpcServer.StartLocal(new TestService(), path, cancellationToken))
+            _ = await Assert.That(async () => await GrpcServer.StartLocal(new TestService(), path, diagnostics.Log, cancellationToken))
                 .Throws<InvalidOperationException>();
             _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("preserved");
         }
@@ -179,19 +193,20 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Local_transport_attaches_and_client_disposal_preserves_owner(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var root = TemporaryRoot();
         var path = Path.Combine(root, "parrot.sock");
         try
         {
-            await using (var server = await GrpcServer.StartLocal(new TestService(), path, cancellationToken))
+            await using (var server = await GrpcServer.StartLocal(new TestService(), path, diagnostics.Log, cancellationToken))
             {
-                using (var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null))
+                using (var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log))
                 {
                     var session = await client.Attach(new AttachSessionRequest { UserSessionId = "existing" }, cancellationToken);
                     _ = await Assert.That(session.Id).IsEqualTo("existing");
                 }
 
-                using var another = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+                using var another = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log);
                 _ = await another.Client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
             }
 
@@ -206,12 +221,13 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Local_owner_shutdown_terminates_active_stream(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var root = TemporaryRoot();
         var path = Path.Combine(root, "parrot.sock");
         try
         {
-            var server = await GrpcServer.StartLocal(new TestService(), path, cancellationToken);
-            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+            var server = await GrpcServer.StartLocal(new TestService(), path, diagnostics.Log, cancellationToken);
+            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log);
             using var stream = client.Client.Listen(new ListenRequest(), cancellationToken: cancellationToken);
             try
             {
@@ -233,26 +249,33 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Attach_is_bounded_and_preserves_caller_cancellation(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var path = Path.Combine(TemporaryRoot(), "missing.sock");
-        using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+        using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log);
         _ = await Assert.That(async () => await client.Attach(
             new AttachSessionRequest { UserSessionId = "existing" }, cancellationToken)).Throws<TimeoutException>();
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         await cancelled.CancelAsync();
         _ = await Assert.That(async () => await client.Attach(
             new AttachSessionRequest { UserSessionId = "existing" }, cancelled.Token)).Throws<OperationCanceledException>();
+        var log = diagnostics.Read();
+        _ = await Assert.That(log).Contains("error=\"timeout\"");
+        _ = await Assert.That(log).Contains("outcome=\"cancelled\"");
+        _ = await Assert.That(log).Contains("duration_ms=");
+        _ = await Assert.That(log.Contains(path, StringComparison.Ordinal)).IsFalse();
     }
 
     [Test]
     public async Task Attach_retries_readiness_and_rejects_wrong_session(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var root = TemporaryRoot();
         var path = Path.Combine(root, "parrot.sock");
         try
         {
-            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null, diagnostics.Log);
             var attaching = client.Attach(new AttachSessionRequest { UserSessionId = "existing" }, cancellationToken);
-            await using var server = await GrpcServer.StartLocal(new TestService(), path, cancellationToken);
+            await using var server = await GrpcServer.StartLocal(new TestService(), path, diagnostics.Log, cancellationToken);
             _ = await Assert.That((await attaching).Id).IsEqualTo("existing");
             _ = await Assert.That(async () => await client.Attach(
                 new AttachSessionRequest { UserSessionId = "wrong" }, cancellationToken)).Throws<InvalidOperationException>();
@@ -266,14 +289,15 @@ internal sealed class GrpcTransportTests
     [Test]
     public async Task Local_transport_refuses_long_paths_and_preserves_replaced_entries(CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         var root = TemporaryRoot();
         var path = Path.Combine(root, "parrot.sock");
         try
         {
             _ = await Assert.That(async () => await GrpcServer.StartLocal(
-                new TestService(), Path.Combine(root, new string('x', 150) + ".sock"), cancellationToken))
+                new TestService(), Path.Combine(root, new string('x', 150) + ".sock"), diagnostics.Log, cancellationToken))
                 .Throws<InvalidOperationException>();
-            await using (var server = await GrpcServer.StartLocal(new TestService(), path, cancellationToken))
+            await using (var server = await GrpcServer.StartLocal(new TestService(), path, diagnostics.Log, cancellationToken))
             {
                 File.Delete(path);
                 await File.WriteAllTextAsync(path, "replacement", cancellationToken);
@@ -284,6 +308,65 @@ internal sealed class GrpcTransportTests
         finally
         {
             Delete(root);
+        }
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Attach_diagnostics_are_global_correlated_and_payload_free(
+        bool rejected, CancellationToken cancellationToken)
+    {
+        using var serverDiagnostics = new TransportDiagnosticsFixture();
+        using var clientDiagnostics = new TransportDiagnosticsFixture();
+        const string sentinel = "transport-secret-payload";
+        var token = TransportToken.Generate();
+        string addressText;
+        await using (var server = await GrpcServer.Start(
+            new DiagnosticTestService(rejected),
+            TransportAddress.Parse("http://127.0.0.1:0"),
+            token,
+            serverDiagnostics.Log,
+            cancellationToken))
+        {
+            addressText = server.Addresses.Single();
+            using var client = GrpcTransportClient.Connect(TransportAddress.Parse(addressText), token, clientDiagnostics.Log);
+            var request = new AttachSessionRequest { UserSessionId = sentinel, WorkingDirectory = sentinel };
+            if (rejected)
+            {
+                var failure = await Assert.That(async () => await client.Attach(request, cancellationToken)).Throws<RpcException>();
+                _ = await Assert.That(failure?.StatusCode).IsEqualTo(StatusCode.PermissionDenied);
+            }
+            else
+            {
+                _ = await Assert.That((await client.Attach(request, cancellationToken)).Id).IsEqualTo(sentinel);
+            }
+        }
+
+        var clientLog = clientDiagnostics.Read();
+        var serverLog = serverDiagnostics.Read();
+        _ = await Assert.That(clientLog).Contains("event=\"attach.start\"");
+        _ = await Assert.That(clientLog).Contains("event=\"attach.complete\"");
+        _ = await Assert.That(clientLog).Contains(rejected ? "outcome=\"failure\"" : "outcome=\"success\"");
+        _ = await Assert.That(clientLog).Contains("event=\"disconnect.complete\"");
+        _ = await Assert.That(clientLog.Contains("host.ready", StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(serverLog).Contains("event=\"host.ready\"");
+        _ = await Assert.That(serverLog).Contains("event=\"host.stop.complete\"");
+        _ = await Assert.That(serverLog.Contains("attach.start", StringComparison.Ordinal)).IsFalse();
+        var attachLines = clientLog.Split('\n').Where(line => line.Contains("event=\"attach.", StringComparison.Ordinal)).ToArray();
+        _ = await Assert.That(attachLines.Length).IsEqualTo(2);
+        var correlations = attachLines.Select(line => line.Split(' ').Single(field => field.StartsWith("correlation=", StringComparison.Ordinal)));
+        _ = await Assert.That(correlations.Distinct(StringComparer.Ordinal).Count()).IsEqualTo(1);
+        _ = await Assert.That(attachLines[1]).Contains("duration_ms=");
+        _ = await Assert.That(attachLines[1]).Contains(rejected ? "outcome=\"failure\"" : "outcome=\"success\"");
+        if (rejected)
+        {
+            _ = await Assert.That(attachLines[1]).Contains("error=\"PermissionDenied\"");
+        }
+
+        foreach (var secret in new[] { sentinel, token.Bearer, addressText })
+        {
+            _ = await Assert.That((clientLog + serverLog).Contains(secret, StringComparison.Ordinal)).IsFalse();
         }
     }
 
@@ -302,6 +385,14 @@ internal sealed class GrpcTransportTests
         catch (DirectoryNotFoundException)
         {
         }
+    }
+
+    private sealed class DiagnosticTestService(bool rejected) : GeneratedParrot.ParrotBase
+    {
+        public override Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context) =>
+            rejected
+                ? throw new RpcException(new Status(StatusCode.PermissionDenied, "transport-secret-payload"))
+                : Task.FromResult(new UserSession { Id = request.UserSessionId, Model = "transport-secret-payload" });
     }
 
     private sealed class TestService : GeneratedParrot.ParrotBase

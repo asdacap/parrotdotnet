@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using Parrot.Diagnostics;
+
 namespace Parrot.Questions;
 
 internal sealed class QuestionBroker : IDisposable
@@ -6,9 +9,10 @@ internal sealed class QuestionBroker : IDisposable
     private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _timeout;
+    private readonly IDiagnosticLog _diagnostics;
     private bool _disposed;
 
-    public QuestionBroker(TimeSpan timeout, TimeProvider timeProvider)
+    public QuestionBroker(TimeSpan timeout, TimeProvider timeProvider, IDiagnosticLog diagnostics)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         if (timeout != Timeout.InfiniteTimeSpan && timeout <= TimeSpan.Zero)
@@ -16,44 +20,38 @@ internal sealed class QuestionBroker : IDisposable
             throw new ArgumentOutOfRangeException(nameof(timeout), "The question request timeout must be positive or infinite.");
         }
 
+        _diagnostics = diagnostics;
         _timeout = timeout;
         _timeProvider = timeProvider;
     }
 
     public async Task<QuestionReply> Ask(IReadOnlyList<QuestionDefinition> questions, CancellationToken cancellationToken)
     {
-        var copied = QuestionValidation.CopyQuestions(questions);
-        QuestionValidation.ValidateQuestions(copied);
         var id = Identifier.QuestionRequestId();
-        var pending = new PendingRequest(copied);
-
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            _pending.Add(id, pending);
-        }
-
+        var started = Stopwatch.GetTimestamp();
+        _diagnostics.Write(new DiagnosticEvent("question", "wait_started", DiagnosticSeverity.Information) { CorrelationId = id });
         try
         {
-            return await pending.Answer.Task.WaitAsync(_timeout, _timeProvider, cancellationToken).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            if (Remove(id, pending))
+            var reply = await WaitForReply(questions, id, cancellationToken).ConfigureAwait(false);
+            _diagnostics.Write(new DiagnosticEvent("question", "wait_completed", DiagnosticSeverity.Information)
             {
-                return QuestionReply.UserAway;
-            }
-
-            return pending.RequireOutcome();
+                CorrelationId = id,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = reply.Kind == QuestionReplyKind.UserAway ? "timeout" : "answered",
+            });
+            return reply;
         }
-        catch (OperationCanceledException)
+        catch (Exception failure)
         {
-            if (Remove(id, pending))
+            _diagnostics.Write(new DiagnosticEvent("question", "wait_completed", failure is OperationCanceledException or QuestionRejectedException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
             {
-                throw;
-            }
-
-            return pending.RequireOutcome();
+                CorrelationId = id,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = failure is OperationCanceledException ? "cancelled"
+                    : failure is QuestionRejectedException ? "rejected" : "failed",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
         }
     }
 
@@ -134,6 +132,43 @@ internal sealed class QuestionBroker : IDisposable
         foreach (var item in pending)
         {
             item.Complete();
+        }
+    }
+
+    private async Task<QuestionReply> WaitForReply(
+        IReadOnlyList<QuestionDefinition> questions, string id, CancellationToken cancellationToken)
+    {
+        var copied = QuestionValidation.CopyQuestions(questions);
+        QuestionValidation.ValidateQuestions(copied);
+        var pending = new PendingRequest(copied);
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _pending.Add(id, pending);
+        }
+
+        try
+        {
+            return await pending.Answer.Task.WaitAsync(_timeout, _timeProvider, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            if (Remove(id, pending))
+            {
+                return QuestionReply.UserAway;
+            }
+
+            return pending.RequireOutcome();
+        }
+        catch (OperationCanceledException)
+        {
+            if (Remove(id, pending))
+            {
+                throw;
+            }
+
+            return pending.RequireOutcome();
         }
     }
 

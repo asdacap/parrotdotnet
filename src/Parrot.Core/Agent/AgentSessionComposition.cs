@@ -1,6 +1,7 @@
 using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Permissions;
@@ -176,7 +177,16 @@ internal partial class AgentSessionComposition : IAsyncDisposable
                 return arguments.Skills;
             })
             .Bind<ContextCadence>().As(Lifetime.Scoped).To<ContextCadence>()
-            .Bind<ProviderSessions>().As(Lifetime.Scoped).To<ProviderSessions>()
+            .Bind<IDiagnosticLog>().To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return arguments.Diagnostics;
+            })
+            .Bind<ProviderSessions>().As(Lifetime.Scoped).To(ctx =>
+            {
+                ctx.Inject<AgentSessionScopeArguments>(out var arguments);
+                return new ProviderSessions(arguments.Diagnostics, arguments.Identity.SessionId);
+            })
             .Bind<PermissionBroker>().To(ctx =>
             {
                 ctx.Inject<AgentSessionScopeArguments>(out var arguments);

@@ -1,3 +1,4 @@
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
@@ -66,7 +67,22 @@ internal sealed partial class AgentSession
         string? content,
         CancellationToken cancellationToken)
     {
-        var usage = eventRepository.Append(published, role, content);
+        SessionUsage? usage;
+        try
+        {
+            usage = eventRepository.Append(published, role, content);
+        }
+        catch (Exception failure)
+        {
+            diagnostics.Write(new("persistence", "append_failed", DiagnosticSeverity.Error)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = published.Id,
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
+        }
+
         await eventBroker.Publish(published, cancellationToken).ConfigureAwait(false);
         if (usage is not null)
         {

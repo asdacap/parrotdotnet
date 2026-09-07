@@ -552,7 +552,7 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             new ToolOutputBlobStore(_root),
             TestModels.CompactionGroupBlobs(),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
             new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,
             childQuestions,
@@ -563,11 +563,12 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
+            TestDiagnosticLog.Instance,
             cancellationToken));
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
         var selected = parent.CurrentSelection();
-        var catalog = new AgentTaskRunCatalog(cancellationToken);
+        var catalog = new AgentTaskRunCatalog(TestDiagnosticLog.Instance, cancellationToken);
         _catalogs.Add(catalog);
         return new RuntimeContext(
             router,
@@ -600,7 +601,8 @@ internal sealed class RunAgentTasksToolTests : IAsyncDisposable
             runtime.Completion,
             broker,
             runtime.Repository,
-            configuration);
+            configuration,
+            TestDiagnosticLog.Instance);
     }
 
     private sealed class RuntimeContext

@@ -3,6 +3,7 @@ using Grpc.Core;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -22,7 +23,8 @@ internal sealed class BasicCli(
     TextReader input,
     TextWriter output,
     TextWriter error,
-    PromptAttachmentUploader attachments)
+    PromptAttachmentUploader attachments,
+    IDiagnosticLog diagnostics)
 {
     private const string Prompt = "> ";
 
@@ -411,7 +413,8 @@ internal sealed class BasicCli(
             credentials,
             oauthClient,
             providerIds,
-            static _ => Task.CompletedTask);
+            static _ => Task.CompletedTask,
+            diagnostics);
         var interrupting = Interrupting(session, application.Token);
 
         var interruptListener = CliInterruptListener.Create(Interrupt);

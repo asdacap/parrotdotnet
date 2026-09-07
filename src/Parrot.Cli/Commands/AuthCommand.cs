@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Parrot.Auth;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 
 namespace Parrot.Cli.Commands;
@@ -7,13 +9,17 @@ internal sealed class AuthCommand(
     ICredentialStore credentials,
     IOAuthClient oauth,
     IReadOnlyList<string> providerIds,
-    ISlashDialog dialog) : ISlashCommand
+    ISlashDialog dialog,
+    IDiagnosticLog diagnostics) : ISlashCommand
 {
     public string Name => "/auth";
 
     public string Summary => "Manage provider credentials";
 
-    public async Task Run(string arguments, CancellationToken cancellationToken)
+    public Task Run(string arguments, CancellationToken cancellationToken) =>
+        RunOperation("interactive", SelectAction, cancellationToken);
+
+    private async Task<string> SelectAction(CancellationToken cancellationToken)
     {
         var action = await dialog.Select(
             "Authentication",
@@ -26,29 +32,29 @@ internal sealed class AuthCommand(
 
         if (action is null)
         {
-            return;
+            return "dismissed";
         }
 
         if (action.Id == "list")
         {
-            await List(cancellationToken).ConfigureAwait(false);
+            return await RunOperation("list", List, cancellationToken).ConfigureAwait(false);
         }
         else if (action.Id == "logout")
         {
-            await Logout(cancellationToken).ConfigureAwait(false);
+            return await RunOperation("logout", Logout, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            await Login(cancellationToken).ConfigureAwait(false);
+            return await RunOperation("login", Login, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private async Task Login(CancellationToken cancellationToken)
+    private async Task<string> Login(CancellationToken cancellationToken)
     {
         if (providerIds.Count == 0)
         {
             await dialog.ShowError("no providers are configured", cancellationToken).ConfigureAwait(false);
-            return;
+            return "no_providers";
         }
 
         var provider = await dialog.Select(
@@ -58,27 +64,27 @@ internal sealed class AuthCommand(
 
         if (provider is null)
         {
-            return;
+            return "dismissed";
         }
 
         if (provider.Id == ChatGptProvider.ProviderId)
         {
-            await OAuth(cancellationToken).ConfigureAwait(false);
-            return;
+            return await RunOperation("oauth", OAuth, cancellationToken).ConfigureAwait(false);
         }
 
         var key = await dialog.ReadSecret($"API key for {provider.Id}", cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(key))
         {
             await dialog.ShowError("nothing entered", cancellationToken).ConfigureAwait(false);
-            return;
+            return "empty_input";
         }
 
         await credentials.Set(provider.Id, Credential.ForApiKey(key.Trim()), cancellationToken).ConfigureAwait(false);
         await dialog.Show([$"stored a credential for {provider.Id}"], cancellationToken).ConfigureAwait(false);
+        return "completed";
     }
 
-    private async Task OAuth(CancellationToken cancellationToken)
+    private async Task<string> OAuth(CancellationToken cancellationToken)
     {
         var method = await dialog.Select(
             "Sign in to ChatGPT",
@@ -90,7 +96,7 @@ internal sealed class AuthCommand(
 
         if (method is null)
         {
-            return;
+            return "dismissed";
         }
 
         try
@@ -104,7 +110,7 @@ internal sealed class AuthCommand(
                     cancellationToken).ConfigureAwait(false);
                 if (!proceed)
                 {
-                    return;
+                    return "dismissed";
                 }
 
                 credential = await dialog.Load(
@@ -118,7 +124,7 @@ internal sealed class AuthCommand(
                     ["Opening your browser to authorize..."], cancellationToken).ConfigureAwait(false);
                 if (!proceed)
                 {
-                    return;
+                    return "dismissed";
                 }
 
                 credential = await dialog.Load(
@@ -131,14 +137,16 @@ internal sealed class AuthCommand(
                 .ConfigureAwait(false);
             await dialog.Show(
                 [$"stored a credential for {ChatGptProvider.ProviderId}"], cancellationToken).ConfigureAwait(false);
+            return "completed";
         }
         catch (AuthException failure)
         {
             await dialog.ShowError(failure.Message, cancellationToken).ConfigureAwait(false);
+            return "auth_failure";
         }
     }
 
-    private async Task List(CancellationToken cancellationToken)
+    private async Task<string> List(CancellationToken cancellationToken)
     {
         var stored = await dialog.Load(
             "Loading credentials…",
@@ -146,9 +154,10 @@ internal sealed class AuthCommand(
             cancellationToken).ConfigureAwait(false);
         await dialog.Show(stored.Count == 0 ? ["no credentials are stored"] : stored, cancellationToken)
             .ConfigureAwait(false);
+        return "completed";
     }
 
-    private async Task Logout(CancellationToken cancellationToken)
+    private async Task<string> Logout(CancellationToken cancellationToken)
     {
         var stored = await dialog.Load(
             "Loading credentials…",
@@ -157,7 +166,7 @@ internal sealed class AuthCommand(
         if (stored.Count == 0)
         {
             await dialog.Show(["no credentials are stored"], cancellationToken).ConfigureAwait(false);
-            return;
+            return "empty";
         }
 
         var selected = await dialog.Select(
@@ -167,10 +176,47 @@ internal sealed class AuthCommand(
 
         if (selected is null)
         {
-            return;
+            return "dismissed";
         }
 
         await credentials.Delete(selected.Id, cancellationToken).ConfigureAwait(false);
         await dialog.Show([$"removed the credential for {selected.Id}"], cancellationToken).ConfigureAwait(false);
+        return "completed";
+    }
+
+    private async Task<string> RunOperation(
+        string operation, Func<CancellationToken, Task<string>> run, CancellationToken cancellationToken)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var correlationId = Guid.NewGuid().ToString("N");
+        diagnostics.Write(new DiagnosticEvent("auth", operation + "_start", DiagnosticSeverity.Information)
+        {
+            CorrelationId = correlationId,
+        });
+        try
+        {
+            var outcome = await run(cancellationToken).ConfigureAwait(false);
+            diagnostics.Write(new DiagnosticEvent(
+                "auth", operation + "_complete", outcome == "auth_failure" ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                Outcome = outcome,
+                ErrorCode = outcome == "auth_failure" ? "auth" : null,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+            return outcome;
+        }
+        catch (Exception failure)
+        {
+            diagnostics.Write(new DiagnosticEvent(
+                "auth", operation + "_failure", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                Outcome = failure is OperationCanceledException ? "cancelled" : "failed",
+                ErrorCode = failure is AuthException ? "auth" : DiagnosticEvent.ClassifyFailure(failure),
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+            throw;
+        }
     }
 }

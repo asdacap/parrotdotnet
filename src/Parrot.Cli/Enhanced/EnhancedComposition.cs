@@ -1,6 +1,7 @@
 using Parrot.Auth;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Pure.DI;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -20,6 +21,7 @@ internal partial class EnhancedComposition
             .Arg<EnhancedChatRequest>("request")
             .Arg<ITerminal>("terminal")
             .Arg<PromptAttachmentUploader>("attachments")
+            .Arg<IDiagnosticLog>("diagnostics")
             .Bind<TimeProvider>().To(_ => TimeProvider.System)
             .Bind<Func<TimeSpan, CancellationToken, Task>>()
             .To<Func<TimeSpan, CancellationToken, Task>>(

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.AspNetCore.Builder;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Parrot.Diagnostics;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
@@ -20,13 +22,23 @@ internal sealed class GrpcServer : IAsyncDisposable
 
     private const UnixFileMode SocketMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
+    private readonly IDiagnosticLog _diagnostics;
+    private readonly string _hostId;
     private readonly WebApplication _application;
     private readonly string _ownedSocketPath;
     private readonly UnixSocketIdentity? _socketIdentity;
     private readonly bool _local;
 
-    private GrpcServer(WebApplication application, string ownedSocketPath, UnixSocketIdentity? socketIdentity, bool local)
+    private GrpcServer(
+        WebApplication application,
+        string ownedSocketPath,
+        UnixSocketIdentity? socketIdentity,
+        bool local,
+        IDiagnosticLog diagnostics,
+        string hostId)
     {
+        _diagnostics = diagnostics;
+        _hostId = hostId;
         _application = application;
         _ownedSocketPath = ownedSocketPath;
         _socketIdentity = socketIdentity;
@@ -41,42 +53,78 @@ internal sealed class GrpcServer : IAsyncDisposable
         GeneratedParrot.ParrotBase service,
         TransportAddress address,
         TransportToken? token,
+        IDiagnosticLog diagnostics,
         CancellationToken cancellationToken) =>
-        await StartTransport(service, address, token, false, cancellationToken).ConfigureAwait(false);
+        await StartTransport(service, address, token, false, diagnostics, cancellationToken).ConfigureAwait(false);
 
     public static async Task<GrpcServer> StartLocal(
         GeneratedParrot.ParrotBase service,
         string socketPath,
+        IDiagnosticLog diagnostics,
         CancellationToken cancellationToken) =>
-        await StartTransport(service, TransportAddress.Parse($"unix:{socketPath}"), null, true, cancellationToken)
+        await StartTransport(service, TransportAddress.Parse($"unix:{socketPath}"), null, true, diagnostics, cancellationToken)
             .ConfigureAwait(false);
 
     public async Task<int> Run(CancellationToken cancellationToken)
     {
-        await _application.WaitForShutdownAsync(cancellationToken).ConfigureAwait(false);
-        return CommandDispatcher.ExitSuccess;
+        var started = Stopwatch.GetTimestamp();
+        _diagnostics.Write(new DiagnosticEvent("transport", "host.run.start", DiagnosticSeverity.Information)
+        {
+            CorrelationId = _hostId,
+        });
+        try
+        {
+            await _application.WaitForShutdownAsync(cancellationToken).ConfigureAwait(false);
+            _diagnostics.Write(new DiagnosticEvent("transport", "host.run.complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = _hostId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = cancellationToken.IsCancellationRequested ? "cancelled" : "success",
+            });
+            return CommandDispatcher.ExitSuccess;
+        }
+        catch (Exception failure)
+        {
+            var cancelled = failure is OperationCanceledException;
+            _diagnostics.Write(new DiagnosticEvent(
+                "transport", "host.run.complete", cancelled ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = _hostId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = cancelled ? "cancelled" : "failure",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
+        var started = Stopwatch.GetTimestamp();
+        _diagnostics.Write(new DiagnosticEvent("transport", "host.stop.start", DiagnosticSeverity.Information)
+        {
+            CorrelationId = _hostId,
+        });
         try
         {
-            try
+            await StopTransport().ConfigureAwait(false);
+            _diagnostics.Write(new DiagnosticEvent("transport", "host.stop.complete", DiagnosticSeverity.Information)
             {
-                if (_local)
-                {
-                    using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-                    await _application.StopAsync(stopping.Token).ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                await _application.DisposeAsync().ConfigureAwait(false);
-            }
+                CorrelationId = _hostId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = "success",
+            });
         }
-        finally
+        catch (Exception failure)
         {
-            _socketIdentity?.Remove(_ownedSocketPath);
+            _diagnostics.Write(new DiagnosticEvent("transport", "host.stop.complete", DiagnosticSeverity.Error)
+            {
+                CorrelationId = _hostId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = "failure",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
         }
     }
 
@@ -85,6 +133,49 @@ internal sealed class GrpcServer : IAsyncDisposable
         TransportAddress address,
         TransportToken? token,
         bool quiet,
+        IDiagnosticLog diagnostics,
+        CancellationToken cancellationToken)
+    {
+        var hostId = FileDiagnosticLog.CreateInstanceId();
+        var started = Stopwatch.GetTimestamp();
+        diagnostics.Write(new DiagnosticEvent("transport", "host.start", DiagnosticSeverity.Information)
+        {
+            CorrelationId = hostId,
+        });
+        try
+        {
+            var server = await BindTransport(service, address, token, quiet, diagnostics, hostId, cancellationToken)
+                .ConfigureAwait(false);
+            diagnostics.Write(new DiagnosticEvent("transport", "host.ready", DiagnosticSeverity.Information)
+            {
+                CorrelationId = hostId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = "success",
+            });
+            return server;
+        }
+        catch (Exception failure)
+        {
+            var cancelled = failure is OperationCanceledException;
+            diagnostics.Write(new DiagnosticEvent(
+                "transport", "host.failure", cancelled ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = hostId,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = cancelled ? "cancelled" : "failure",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
+        }
+    }
+
+    private static async Task<GrpcServer> BindTransport(
+        GeneratedParrot.ParrotBase service,
+        TransportAddress address,
+        TransportToken? token,
+        bool quiet,
+        IDiagnosticLog diagnostics,
+        string hostId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(service);
@@ -145,7 +236,7 @@ internal sealed class GrpcServer : IAsyncDisposable
         try
         {
             await application.StartAsync(cancellationToken).ConfigureAwait(false);
-            return new(application, socketPath, socketIdentity, quiet);
+            return new(application, socketPath, socketIdentity, quiet, diagnostics, hostId);
         }
         catch (Exception failure)
         {
@@ -272,5 +363,28 @@ internal sealed class GrpcServer : IAsyncDisposable
 
         _ = Directory.CreateDirectory(directory, ControlDirectoryMode);
         File.SetUnixFileMode(directory, ControlDirectoryMode);
+    }
+
+    private async ValueTask StopTransport()
+    {
+        try
+        {
+            try
+            {
+                if (_local)
+                {
+                    using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                    await _application.StopAsync(stopping.Token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await _application.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _socketIdentity?.Remove(_ownedSocketPath);
+        }
     }
 }

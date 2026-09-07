@@ -410,7 +410,7 @@ internal sealed partial class SubagentTests
         CancellationToken cancellationToken)
     {
         using var provider = new SteppedProvider();
-        using var userQuestions = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
+        using var userQuestions = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
         var router = new RouterFixture(provider, []).Router;
         await using var registry = TestModels.Registry(
             new TestAgentSessions(router),

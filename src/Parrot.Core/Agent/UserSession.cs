@@ -1,5 +1,6 @@
 using Parrot.AgentTasks;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Permissions;
@@ -33,7 +34,7 @@ internal sealed class UserSession : IAsyncDisposable
     // What every drain inside this session is bounded by. It is owned here
     // rather than by an agent session because the drain outlives the request
     // that woke it, and this is the thing whose lifetime it should match.
-    private readonly CancellationTokenSource _lifetime = new();
+    private readonly CancellationTokenSource _lifetime;
 
     // The main agent session is built after the rest of this owner has been
     // initialized so recovered durable work can resume immediately. Its id is
@@ -44,7 +45,7 @@ internal sealed class UserSession : IAsyncDisposable
     private IAgentSessionScope? _main;
     private Task? _disposal;
 
-    public UserSession(
+    private UserSession(
         string id,
         string rootAgentName,
         ResolvedModelSelection model,
@@ -57,8 +58,22 @@ internal sealed class UserSession : IAsyncDisposable
         SkillCatalogFactory skillCatalogFactory,
         bool interactivePermissions,
         TimeSpan userInputTimeout,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        Stack<Func<ValueTask>> cleanup,
+        CancellationTokenSource lifetime)
     {
+        _resources = resources;
+        _lifetime = lifetime;
+        cleanup.Push(() =>
+        {
+            _lifetime.Dispose();
+            return ValueTask.CompletedTask;
+        });
+        cleanup.Push(() =>
+        {
+            _eventBroker.Dispose();
+            return ValueTask.CompletedTask;
+        });
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(agentSessionFactories);
 
@@ -67,7 +82,6 @@ internal sealed class UserSession : IAsyncDisposable
         _model = model.RequestedSelector;
         ProviderId = model.CanonicalModel.Provider.Id;
         CanonicalModel = model.CanonicalModel.Selector;
-        _resources = resources;
         _eventRepository = resources.Events;
         _modes = modes;
         _promptTemplates = promptTemplates ?? throw new ArgumentNullException(nameof(promptTemplates));
@@ -77,19 +91,43 @@ internal sealed class UserSession : IAsyncDisposable
         _modes.Attach(resources.Resources.AgentScratch(_mainSessionId));
         Mode = modes.Resolve(state.Mode);
         TimeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
-        Questions = new QuestionBroker(userInputTimeout, TimeProvider);
+        Questions = new QuestionBroker(userInputTimeout, TimeProvider, Diagnostics);
+        cleanup.Push(() =>
+        {
+            Questions.Dispose();
+            return ValueTask.CompletedTask;
+        });
         Permissions = new PermissionBroker(
             _eventBroker,
             _eventRepository,
             interactivePermissions,
             userInputTimeout,
-            TimeProvider);
+            TimeProvider,
+            Diagnostics);
+        cleanup.Push(() =>
+        {
+            Permissions.Dispose();
+            return ValueTask.CompletedTask;
+        });
         QueueCatalog = agentSessionFactories.CreateQueueCatalog(this);
+        cleanup.Push(() =>
+        {
+            QueueCatalog.Dispose();
+            return ValueTask.CompletedTask;
+        });
         ShellProcesses = agentSessionFactories.CreateShellProcesses(this);
-        AgentTaskRuns = new AgentTaskRunCatalog(_lifetime.Token);
+        cleanup.Push(() =>
+        {
+            ShellProcesses.Dispose();
+            return ValueTask.CompletedTask;
+        });
+        cleanup.Push(() => new ValueTask(ShellProcesses.Settle()));
+        AgentTaskRuns = new AgentTaskRunCatalog(Diagnostics, _lifetime.Token);
+        cleanup.Push(AgentTaskRuns.DisposeAsync);
         _agentSessions = agentSessionFactories.Create(this);
         var retainedAgents = new RetainedAgentBudget(1024);
-        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, _lifetime.Token);
+        Registry = new AgentRegistry(_agentSessions, _eventBroker, _eventRepository, profiles, _promptTemplates, retainedAgents, Diagnostics, _lifetime.Token);
+        cleanup.Push(Registry.BeginShutdown);
         Status = new RuntimeStatus(
             QueueCatalog,
             new ShellProcessOwnersStatusSource(ShellProcesses),
@@ -98,14 +136,6 @@ internal sealed class UserSession : IAsyncDisposable
             TimeProvider,
             AgentTaskRuns);
         Registry.AttachStatus(Status);
-        foreach (var agentSessionId in _eventRepository.AgentHistorySessionIds())
-        {
-            _ = _eventRepository.PrepareAgentHistory(agentSessionId);
-        }
-
-        var main = InitializeMain();
-        main.UseResolvedSelection(model);
-        main.Recover();
     }
 
     public string Id { get; }
@@ -132,6 +162,8 @@ internal sealed class UserSession : IAsyncDisposable
 
     internal UserSessionResources Resources => _resources.Resources;
 
+    internal IDiagnosticLog Diagnostics => _resources.Diagnostics;
+
     internal ImageArtifactRepository Images => _resources.Images;
 
     internal AgentQueueCatalog QueueCatalog { get; }
@@ -149,6 +181,97 @@ internal sealed class UserSession : IAsyncDisposable
     internal PermissionBroker Permissions { get; }
 
     internal SkillCatalog SkillCatalog { get; }
+
+    public static async Task<UserSession> Create(
+        string id,
+        string rootAgentName,
+        ResolvedModelSelection model,
+        string mode,
+        SessionResourceLease resources,
+        IAgentSessionFactorySource agentSessionFactories,
+        UserSessionModes modes,
+        PromptTemplateCatalog promptTemplates,
+        ProfileRegistry profiles,
+        SkillCatalogFactory skillCatalogFactory,
+        bool interactivePermissions,
+        TimeSpan userInputTimeout,
+        TimeProvider timeProvider)
+    {
+        var cleanup = new Stack<Func<ValueTask>>();
+        var lifetime = new CancellationTokenSource();
+        UserSession? session = null;
+        try
+        {
+            session = new UserSession(
+                id,
+                rootAgentName,
+                model,
+                mode,
+                resources,
+                agentSessionFactories,
+                modes,
+                promptTemplates,
+                profiles,
+                skillCatalogFactory,
+                interactivePermissions,
+                userInputTimeout,
+                timeProvider,
+                cleanup,
+                lifetime);
+            session.Diagnostics.Write(new("session", "recovering", DiagnosticSeverity.Information));
+            foreach (var agentSessionId in session._eventRepository.AgentHistorySessionIds())
+            {
+                _ = session._eventRepository.PrepareAgentHistory(agentSessionId);
+            }
+
+            var main = session.InitializeMain();
+            main.UseResolvedSelection(model);
+            main.Recover();
+            session.Diagnostics.Write(new("session", "recovered", DiagnosticSeverity.Information));
+            return session;
+        }
+        catch (Exception failure)
+        {
+            resources.Diagnostics.Write(new("session", "initialization_failed", DiagnosticSeverity.Error)
+            {
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            if (session is not null)
+            {
+                cleanup.Clear();
+                cleanup.Push(session.DisposeAsync);
+            }
+
+            try
+            {
+                await lifetime.CancelAsync().ConfigureAwait(false);
+            }
+            catch (Exception cancellationFailure)
+            {
+                resources.Diagnostics.Write(new("session", "cleanup_failed", DiagnosticSeverity.Error)
+                {
+                    ErrorCode = DiagnosticEvent.ClassifyFailure(cancellationFailure),
+                });
+            }
+
+            while (cleanup.TryPop(out var dispose))
+            {
+                try
+                {
+                    await dispose().ConfigureAwait(false);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    resources.Diagnostics.Write(new("session", "cleanup_failed", DiagnosticSeverity.Error)
+                    {
+                        ErrorCode = DiagnosticEvent.ClassifyFailure(cleanupFailure),
+                    });
+                }
+            }
+
+            throw;
+        }
+    }
 
     // Assigned, never rebuilt. The main session holds the conversation, the
     // input admitted against it and the drain that may be running: replacing it
@@ -170,6 +293,8 @@ internal sealed class UserSession : IAsyncDisposable
 
             _main?.Session.UpdateSelection(_model, selected);
         }
+
+        Diagnostics.Write(new("session", "mode_changed", DiagnosticSeverity.Information));
     }
 
     public IMode ResolveMode(string mode) => _modes.Resolve(mode);
@@ -199,6 +324,8 @@ internal sealed class UserSession : IAsyncDisposable
                 _main?.Session.UseResolvedSelection(model);
             }
         }
+
+        Diagnostics.Write(new("session", "selection_updated", DiagnosticSeverity.Information));
     }
 
     // Indefinite by design. It ends when the caller stops listening, not when
@@ -347,6 +474,7 @@ internal sealed class UserSession : IAsyncDisposable
 
     private async Task DisposeResources()
     {
+        Diagnostics.Write(new("session", "closing", DiagnosticSeverity.Information));
         Exception? failure = null;
 
         try
@@ -431,6 +559,10 @@ internal sealed class UserSession : IAsyncDisposable
         ShellProcesses.Dispose();
         QueueCatalog.Dispose();
         _agents.Clear();
+        Diagnostics.Write(new("session", "producers_stopped", failure is null ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+        {
+            ErrorCode = failure is null ? null : DiagnosticEvent.ClassifyFailure(failure),
+        });
         try
         {
             await _resources.DisposeAsync().ConfigureAwait(false);

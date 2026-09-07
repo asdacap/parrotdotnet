@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Questions;
@@ -280,6 +282,13 @@ internal sealed partial class AgentSession
         OwnedExecutionReservation? ownedExecution,
         CancellationToken cancellationToken)
     {
+        var executionId = Identifier.EventId();
+        var executionStarted = Stopwatch.GetTimestamp();
+        diagnostics.Write(new("agent", "execution_started", DiagnosticSeverity.Information)
+        {
+            AgentSessionId = SessionId,
+            CorrelationId = executionId,
+        });
         var activityExecution = Activity.BeginExecution();
         await Task.Yield();
 
@@ -384,6 +393,13 @@ internal sealed partial class AgentSession
             }
         }
 
+        diagnostics.Write(new("agent", "execution_finished", completed.Status == AgentExecutionStatus.Failed ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
+        {
+            AgentSessionId = SessionId,
+            CorrelationId = executionId,
+            Outcome = completed.Status.ToString(),
+            DurationMilliseconds = (long)Stopwatch.GetElapsedTime(executionStarted).TotalMilliseconds,
+        });
         Activity.FinishExecution(activityExecution, completed);
         if (parentScope.DeliveryPolicy == AgentCompletionDeliveryPolicy.Automatic
             && parentScope.Parent is { } parent)
@@ -496,107 +512,133 @@ internal sealed partial class AgentSession
         // turn on the admitting thread.
         await Task.Yield();
 
-        var started = ownedExecution is null || await ownedExecution.WaitForStartup().ConfigureAwait(false);
-        var completed = AgentExecution.Succeeded(string.Empty);
-
-        while (true)
+        var drainId = Identifier.EventId();
+        var drainStarted = Stopwatch.GetTimestamp();
+        diagnostics.Write(new("drain", "started", DiagnosticSeverity.Information)
         {
-            AgentExecution pass;
-            try
+            AgentSessionId = SessionId,
+            CorrelationId = drainId,
+        });
+        var completed = AgentExecution.Succeeded(string.Empty);
+        string? errorCode = null;
+        try
+        {
+            var started = ownedExecution is null || await ownedExecution.WaitForStartup().ConfigureAwait(false);
+            while (true)
             {
-                if (started)
+                AgentExecution pass;
+                try
                 {
-                    ownedExecution?.CancellationToken.ThrowIfCancellationRequested();
-                    await RunForcedCompactions(cancellationToken).ConfigureAwait(false);
+                    if (started)
+                    {
+                        ownedExecution?.CancellationToken.ThrowIfCancellationRequested();
+                        await RunForcedCompactions(cancellationToken).ConfigureAwait(false);
+                    }
+
+                    pass = started
+                        ? await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false)
+                        : AgentExecution.Canceled();
+                }
+                catch (OperationCanceledException) when (ownedExecution is not null)
+                {
+                    pass = AgentExecution.Canceled();
+                }
+                catch (Exception failure) when (ownedExecution is not null)
+                {
+                    pass = AgentExecution.Failed(BoundResult(failure.Message));
                 }
 
-                pass = started
-                    ? await Pass(turnOpen: false, null, cancellationToken).ConfigureAwait(false)
-                    : AgentExecution.Canceled();
-            }
-            catch (OperationCanceledException) when (ownedExecution is not null)
-            {
-                pass = AgentExecution.Canceled();
-            }
-            catch (Exception failure) when (ownedExecution is not null)
-            {
-                pass = AgentExecution.Failed(BoundResult(failure.Message));
-            }
-
-            if (ownedExecution is not null
-                && (!started || ownedExecution.CancellationToken.IsCancellationRequested))
-            {
-                var inputId = ownedExecution.Admission.Input.Id;
-                var canceled = eventRepository.CancelPendingInput(
-                    SessionId,
-                    inputId,
-                    () => new Event
+                if (ownedExecution is not null
+                    && (!started || ownedExecution.CancellationToken.IsCancellationRequested))
+                {
+                    var inputId = ownedExecution.Admission.Input.Id;
+                    var canceled = eventRepository.CancelPendingInput(
+                        SessionId,
+                        inputId,
+                        () => new Event
+                        {
+                            Id = Identifier.EventId(),
+                            AgentSessionId = SessionId,
+                            InputCanceled = new InputCanceled { InputId = inputId },
+                        });
+                    if (canceled is not null)
                     {
-                        Id = Identifier.EventId(),
-                        AgentSessionId = SessionId,
-                        InputCanceled = new InputCanceled { InputId = inputId },
-                    });
-                if (canceled is not null)
+                        try
+                        {
+                            await eventBroker.Publish(canceled, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception failure)
+                        {
+                            pass = AgentExecution.Failed(BoundResult(failure.Message));
+                        }
+                    }
+                }
+
+                if (pass.Status != AgentExecutionStatus.Succeeded || pass.Output.Length > 0)
+                {
+                    completed = pass;
+                }
+
+                lock (_drainLifecycle.Gate)
+                {
+                    // Admitted after the last promotion looked and before the drain
+                    // settled. Check durable input as well as the in-memory wake so
+                    // recovered or otherwise pre-existing input cannot be stranded.
+                    if (pass.Status == AgentExecutionStatus.Succeeded
+                        && !cancellationToken.IsCancellationRequested
+                        && (_forcedCompactions.Count > 0 || _drainLifecycle.Wake || eventRepository.HasPendingInputs(SessionId)))
+                    {
+                        _drainLifecycle.Wake = false;
+                        continue;
+                    }
+
+                    // Left alone while an interrupt is unwinding: that caller is
+                    // still holding it, and disposes it once this task has ended.
+                    if (!_drainLifecycle.Stopping)
+                    {
+                        _drainLifecycle.Cancellation?.Release();
+                    }
+
+                    _drainLifecycle.Cancellation = null;
+                    while (_forcedCompactions.TryDequeue(out var forcedCompaction))
+                    {
+                        _ = forcedCompaction.Completion.TrySetCanceled(cancellationToken);
+                    }
+
+                    _drainLifecycle.State = DrainState.Idle;
+                    Activity.ChangeState(DrainState.Idle);
+                }
+
+                if (completed.Status == AgentExecutionStatus.Succeeded
+                    && !cancellationToken.IsCancellationRequested)
                 {
                     try
                     {
-                        await eventBroker.Publish(canceled, CancellationToken.None).ConfigureAwait(false);
+                        _ = await queues.Deliver(cancellationToken).ConfigureAwait(false);
                     }
-                    catch (Exception failure)
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
-                        pass = AgentExecution.Failed(BoundResult(failure.Message));
                     }
                 }
-            }
 
-            if (pass.Status != AgentExecutionStatus.Succeeded || pass.Output.Length > 0)
+                return completed;
+            }
+        }
+        catch (Exception failure)
+        {
+            errorCode = DiagnosticEvent.ClassifyFailure(failure);
+            throw;
+        }
+        finally
+        {
+            diagnostics.Write(new("drain", "finished", errorCode is null or "cancelled" && completed.Status != AgentExecutionStatus.Failed ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
             {
-                completed = pass;
-            }
-
-            lock (_drainLifecycle.Gate)
-            {
-                // Admitted after the last promotion looked and before the drain
-                // settled. Check durable input as well as the in-memory wake so
-                // recovered or otherwise pre-existing input cannot be stranded.
-                if (pass.Status == AgentExecutionStatus.Succeeded
-                    && !cancellationToken.IsCancellationRequested
-                    && (_forcedCompactions.Count > 0 || _drainLifecycle.Wake || eventRepository.HasPendingInputs(SessionId)))
-                {
-                    _drainLifecycle.Wake = false;
-                    continue;
-                }
-
-                // Left alone while an interrupt is unwinding: that caller is
-                // still holding it, and disposes it once this task has ended.
-                if (!_drainLifecycle.Stopping)
-                {
-                    _drainLifecycle.Cancellation?.Release();
-                }
-
-                _drainLifecycle.Cancellation = null;
-                while (_forcedCompactions.TryDequeue(out var forcedCompaction))
-                {
-                    _ = forcedCompaction.Completion.TrySetCanceled(cancellationToken);
-                }
-
-                _drainLifecycle.State = DrainState.Idle;
-                Activity.ChangeState(DrainState.Idle);
-            }
-
-            if (completed.Status == AgentExecutionStatus.Succeeded
-                && !cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    _ = await queues.Deliver(cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                }
-            }
-
-            return completed;
+                AgentSessionId = SessionId,
+                CorrelationId = drainId,
+                Outcome = errorCode ?? completed.Status.ToString(),
+                ErrorCode = errorCode,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds,
+            });
         }
     }
 
@@ -613,6 +655,8 @@ internal sealed partial class AgentSession
         var providerRequests = 0;
         var completionRetryPending = false;
         ToolSnapshot? activeTools = null;
+        string? turnId = null;
+        var turnStarted = Stopwatch.GetTimestamp();
 
         try
         {
@@ -676,6 +720,13 @@ internal sealed partial class AgentSession
                                 },
                         },
                     };
+                    turnId = started.Id;
+                    turnStarted = Stopwatch.GetTimestamp();
+                    diagnostics.Write(new("turn", "started", DiagnosticSeverity.Information)
+                    {
+                        AgentSessionId = SessionId,
+                        CorrelationId = turnId,
+                    });
                     await EmitEvent(started, null, null, cancellationToken).ConfigureAwait(false);
                     if (!_epochContext.EpochInitialized)
                     {
@@ -704,6 +755,7 @@ internal sealed partial class AgentSession
                 if (providerRequests >= maxTurns)
                 {
                     await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
+                    FinishTurn("failed", "runaway");
                     return AgentExecution.Failed(_runawayMessage);
                 }
 
@@ -783,6 +835,7 @@ internal sealed partial class AgentSession
                     if (providerRequests == maxTurns)
                     {
                         await Fail(_runawayMessage, string.Empty, cancellationToken).ConfigureAwait(false);
+                        FinishTurn("failed", "runaway");
                         return AgentExecution.Failed(_runawayMessage);
                     }
 
@@ -884,6 +937,7 @@ internal sealed partial class AgentSession
 
                     await EmitEvent(ended, "assistant", completed.AssistantText, cancellationToken)
                         .ConfigureAwait(false);
+                    FinishTurn("completed", null);
                     Activity.RecordAssistantMessage(completed.AssistantText);
 
                     // Back to the top rather than out: a queued prompt is promoted
@@ -903,6 +957,8 @@ internal sealed partial class AgentSession
         }
         catch (OperationCanceledException)
         {
+            FinishTurn("cancelled", null);
+
             // Not a failure: the turn was stopped, and it stopped with every
             // tool call settled. Reported on the same event as any other
             // ending, because it is one.
@@ -930,6 +986,8 @@ internal sealed partial class AgentSession
         }
         catch (Exception failure)
         {
+            FinishTurn("failed", DiagnosticEvent.ClassifyFailure(failure));
+
             // A provider or tool boundary is a deliberate containment point, and
             // this one is total: the drain is nobody's awaited task, so an
             // escaping exception would be unobserved rather than reported.
@@ -942,6 +1000,24 @@ internal sealed partial class AgentSession
         finally
         {
             _skills.EndTurn();
+        }
+
+        void FinishTurn(string outcome, string? errorCode)
+        {
+            if (turnId is null)
+            {
+                return;
+            }
+
+            diagnostics.Write(new("turn", "finished", outcome == "failed" ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = turnId,
+                Outcome = outcome,
+                ErrorCode = errorCode,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(turnStarted).TotalMilliseconds,
+            });
+            turnId = null;
         }
     }
 
@@ -1259,8 +1335,22 @@ internal sealed partial class AgentSession
         await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
 
         var tool = snapshot.Find(call.Name);
+        var invocationStarted = Stopwatch.GetTimestamp();
+        diagnostics.Write(new("tool", "started", DiagnosticSeverity.Information)
+        {
+            AgentSessionId = SessionId,
+            CorrelationId = call.Id,
+            ToolName = tool?.Name,
+        });
         if (tool is null)
         {
+            diagnostics.Write(new("tool", "finished", DiagnosticSeverity.Warning)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = call.Id,
+                Outcome = "unknown_tool",
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(invocationStarted).TotalMilliseconds,
+            });
             return FailTool(call, $"unknown tool {call.Name}");
         }
 
@@ -1322,6 +1412,14 @@ internal sealed partial class AgentSession
             };
             var parts = new List<ConversationPart> { ConversationPart.TextPart(text) };
             parts.AddRange(result.ImageArtifacts.Select(ConversationPart.ImageArtifact));
+            diagnostics.Write(new("tool", "finished", DiagnosticSeverity.Information)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = call.Id,
+                ToolName = tool.Name,
+                Outcome = result.YieldedProcess is null ? "completed" : "yielded",
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(invocationStarted).TotalMilliseconds,
+            });
             return (finished, new ToolExecutionTerminal(
                 call.Id,
                 call.Name,
@@ -1331,10 +1429,27 @@ internal sealed partial class AgentSession
         }
         catch (OperationCanceledException)
         {
+            diagnostics.Write(new("tool", "finished", DiagnosticSeverity.Information)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = call.Id,
+                ToolName = tool.Name,
+                Outcome = "cancelled",
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(invocationStarted).TotalMilliseconds,
+            });
             return CancelTool(call);
         }
         catch (Exception failure)
         {
+            diagnostics.Write(new("tool", "finished", DiagnosticSeverity.Error)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = call.Id,
+                ToolName = tool.Name,
+                Outcome = "failed",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(invocationStarted).TotalMilliseconds,
+            });
             return FailTool(call, failure.Message);
         }
     }

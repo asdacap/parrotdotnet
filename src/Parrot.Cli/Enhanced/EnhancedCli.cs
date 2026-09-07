@@ -4,6 +4,7 @@ using Parrot.Auth;
 using Parrot.Cli.Commands;
 using Parrot.Cli.Enhanced.Tools;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Protocol;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
@@ -22,7 +23,8 @@ internal sealed class EnhancedCli(
     EnhancedTurnRenderer turnRenderer,
     TimeProvider timeProvider,
     Func<TimeSpan, CancellationToken, Task> delaySubmit,
-    PromptAttachmentUploader attachments)
+    PromptAttachmentUploader attachments,
+    IDiagnosticLog diagnostics)
 {
     private const string DisableBracketedPaste = "\u001b[?2004l";
     private const string DisableKeyboardEnhancement = "\u001b[<u";
@@ -294,7 +296,8 @@ internal sealed class EnhancedCli(
             credentials,
             oauthClient,
             providerIds,
-            token => skillCompletion.RefreshCatalog(session.Id, token));
+            token => skillCompletion.RefreshCatalog(session.Id, token),
+            diagnostics);
         var slashCompletion = new SlashCommandCompletion(commands);
 
         Task DrawPrompt(CancellationToken token)

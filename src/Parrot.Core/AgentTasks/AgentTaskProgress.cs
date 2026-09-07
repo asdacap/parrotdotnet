@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Protocol;
 using Parrot.Store;
@@ -8,7 +10,8 @@ internal sealed class AgentTaskProgress(
     EventBroker eventBroker,
     EventRepository eventRepository,
     string ownerAgentSessionId,
-    string originToolCallId)
+    string originToolCallId,
+    IDiagnosticLog diagnostics)
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<NodeHandle, ProgressNode> _nodes = [];
@@ -198,73 +201,6 @@ internal sealed class AgentTaskProgress(
         IReadOnlyList<ProgressNode> nodes) =>
         Array.AsReadOnly(nodes.Select(node => node.Handle).ToArray());
 
-    private static bool SetStatus(ProgressNode node, AgentTaskProgressStatus status)
-    {
-        if (node.Status == status)
-        {
-            return false;
-        }
-
-        node.Status = status;
-        return true;
-    }
-
-    private static bool BlockPending(IEnumerable<ProgressNode> nodes)
-    {
-        var changed = false;
-        foreach (var node in nodes)
-        {
-            if (node.Status == AgentTaskProgressStatus.Pending)
-            {
-                node.Status = AgentTaskProgressStatus.Blocked;
-                changed = true;
-            }
-
-            changed = BlockPending(node.Children) || changed;
-        }
-
-        return changed;
-    }
-
-    private static bool CancelRemaining(IEnumerable<ProgressNode> nodes)
-    {
-        var changed = false;
-        foreach (var node in nodes)
-        {
-            if (node.Status is AgentTaskProgressStatus.Pending or AgentTaskProgressStatus.Running)
-            {
-                node.Status = AgentTaskProgressStatus.Canceled;
-                changed = true;
-            }
-
-            changed = CancelRemaining(node.Children) || changed;
-        }
-
-        return changed;
-    }
-
-    private static bool FailRemaining(IEnumerable<ProgressNode> nodes)
-    {
-        var changed = false;
-        foreach (var node in nodes)
-        {
-            if (node.Status == AgentTaskProgressStatus.Running)
-            {
-                node.Status = AgentTaskProgressStatus.Failed;
-                changed = true;
-            }
-            else if (node.Status == AgentTaskProgressStatus.Pending)
-            {
-                node.Status = AgentTaskProgressStatus.Blocked;
-                changed = true;
-            }
-
-            changed = FailRemaining(node.Children) || changed;
-        }
-
-        return changed;
-    }
-
     private static AgentTaskProgressNode BuildSnapshotNode(ProgressNode node)
     {
         var snapshot = new AgentTaskProgressNode
@@ -275,6 +211,79 @@ internal sealed class AgentTaskProgress(
         };
         snapshot.Children.Add(node.Children.Select(BuildSnapshotNode));
         return snapshot;
+    }
+
+    private bool SetStatus(ProgressNode node, AgentTaskProgressStatus status)
+    {
+        if (node.Status == status)
+        {
+            return false;
+        }
+
+        node.Status = status;
+        if (status == AgentTaskProgressStatus.Running)
+        {
+            node.StartedTimestamp = Stopwatch.GetTimestamp();
+        }
+
+        WriteDiagnostic(node, status == AgentTaskProgressStatus.Running ? "running" : "terminal");
+        return true;
+    }
+
+    private bool BlockPending(IEnumerable<ProgressNode> nodes)
+    {
+        var changed = false;
+        foreach (var node in nodes)
+        {
+            if (node.Status == AgentTaskProgressStatus.Pending)
+            {
+                _ = SetStatus(node, AgentTaskProgressStatus.Blocked);
+                changed = true;
+            }
+
+            changed = BlockPending(node.Children) || changed;
+        }
+
+        return changed;
+    }
+
+    private bool CancelRemaining(IEnumerable<ProgressNode> nodes)
+    {
+        var changed = false;
+        foreach (var node in nodes)
+        {
+            if (node.Status is AgentTaskProgressStatus.Pending or AgentTaskProgressStatus.Running)
+            {
+                _ = SetStatus(node, AgentTaskProgressStatus.Canceled);
+                changed = true;
+            }
+
+            changed = CancelRemaining(node.Children) || changed;
+        }
+
+        return changed;
+    }
+
+    private bool FailRemaining(IEnumerable<ProgressNode> nodes)
+    {
+        var changed = false;
+        foreach (var node in nodes)
+        {
+            if (node.Status == AgentTaskProgressStatus.Running)
+            {
+                _ = SetStatus(node, AgentTaskProgressStatus.Failed);
+                changed = true;
+            }
+            else if (node.Status == AgentTaskProgressStatus.Pending)
+            {
+                _ = SetStatus(node, AgentTaskProgressStatus.Blocked);
+                changed = true;
+            }
+
+            changed = FailRemaining(node.Children) || changed;
+        }
+
+        return changed;
     }
 
     private void ReplaceChildrenNodes(ProgressNode node, AgentTaskPayload payload)
@@ -294,8 +303,18 @@ internal sealed class AgentTaskProgress(
             task.Description,
             task.Payload.Tasks?.Select(BuildNode).ToList() ?? []);
         _nodes.Add(node.Handle, node);
+        WriteDiagnostic(node, "scheduled");
         return node;
     }
+
+    private void WriteDiagnostic(ProgressNode node, string operation) =>
+        diagnostics.Write(new DiagnosticEvent("task", operation, node.Status == AgentTaskProgressStatus.Failed ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
+        {
+            AgentSessionId = ownerAgentSessionId,
+            CorrelationId = $"{originToolCallId}/{node.DiagnosticId}",
+            Outcome = node.Status.ToString().ToLowerInvariant(),
+            DurationMilliseconds = (long)Stopwatch.GetElapsedTime(node.StartedTimestamp).TotalMilliseconds,
+        });
 
     private ProgressNode Resolve(NodeHandle handle) =>
         _nodes.TryGetValue(handle, out var node)
@@ -307,6 +326,17 @@ internal sealed class AgentTaskProgress(
         foreach (var node in nodes)
         {
             RemoveNodes(node.Children);
+            if (node.Status is AgentTaskProgressStatus.Pending or AgentTaskProgressStatus.Running)
+            {
+                diagnostics.Write(new DiagnosticEvent("task", "terminal", DiagnosticSeverity.Information)
+                {
+                    AgentSessionId = ownerAgentSessionId,
+                    CorrelationId = $"{originToolCallId}/{node.DiagnosticId}",
+                    Outcome = "superseded",
+                    DurationMilliseconds = (long)Stopwatch.GetElapsedTime(node.StartedTimestamp).TotalMilliseconds,
+                });
+            }
+
             _ = _nodes.Remove(node.Handle);
         }
     }
@@ -339,6 +369,10 @@ internal sealed class AgentTaskProgress(
 
     private sealed class ProgressNode(string name, string description, List<ProgressNode> children)
     {
+        internal string DiagnosticId { get; } = $"task-{Guid.CreateVersion7():n}";
+
+        internal long StartedTimestamp { get; set; } = Stopwatch.GetTimestamp();
+
         internal string Name { get; } = name;
 
         internal string Description { get; set; } = description;

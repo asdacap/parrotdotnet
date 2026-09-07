@@ -10,6 +10,7 @@ namespace Parrot.Cli.Tests;
 
 internal sealed class CliLifecycleDriver : IDisposable
 {
+    private readonly TransportDiagnosticsFixture _diagnostics = new();
     private readonly bool _enhanced;
     private readonly EnhancedChatRequest _enhancedRequest;
     private readonly Func<TimeSpan, CancellationToken, Task> _delaySubmit;
@@ -168,7 +169,8 @@ internal sealed class CliLifecycleDriver : IDisposable
                 renderer,
                 _timeProvider,
                 _delaySubmit,
-                Attachments(_configuration)).Run(cancellationToken);
+                Attachments(_configuration),
+                _diagnostics.Log).Run(cancellationToken);
         }
 
         return new BasicCli(
@@ -185,12 +187,14 @@ internal sealed class CliLifecycleDriver : IDisposable
                 Input,
                 _output,
                 _error,
-                Attachments(_configuration))
+                Attachments(_configuration),
+                _diagnostics.Log)
         { InitialSession = _enhancedRequest.InitialSession }.Run(cancellationToken);
     }
 
     public void Dispose()
     {
+        _diagnostics.Dispose();
         Input.Dispose();
         _output.Dispose();
         _error.Dispose();

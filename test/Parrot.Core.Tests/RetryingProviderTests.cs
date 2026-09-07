@@ -8,6 +8,55 @@ internal sealed class RetryingProviderTests
     private static readonly LLMRequest Request = new() { Model = "m", Messages = [] };
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Silent_retry_observation_preserves_events_and_ignores_observer_failure(
+        bool observerFails,
+        CancellationToken cancellationToken)
+    {
+        var completed = LLMEvent.Completed("stop", 1, 0, 2, "private-sentinel", []);
+        var scripted = new ReplayProvider(
+            () => ThrowImmediately(new IOException("private-sentinel")),
+            () => Yield(completed));
+        ILLMProvider provider = new RetryingProvider(scripted);
+        await using var session = provider.OpenSession();
+        var observed = new List<(int Attempt, TimeSpan Delay)>();
+        var events = new List<LLMEvent>();
+        await foreach (var published in session.CallWithRetryObservation(Request, ObserveRetry, cancellationToken))
+        {
+            events.Add(published);
+        }
+
+        _ = await Assert.That(scripted.Calls).IsEqualTo(2);
+        _ = await Assert.That(events.SequenceEqual([completed])).IsTrue();
+        _ = await Assert.That(observed.SequenceEqual([(1, TimeSpan.FromMilliseconds(200))])).IsTrue();
+
+        void ObserveRetry(int attempt, TimeSpan delay)
+        {
+            observed.Add((attempt, delay));
+            if (observerFails)
+            {
+                throw new InvalidOperationException("private-sentinel");
+            }
+        }
+    }
+
+    [Test]
+    public async Task Visible_retry_is_not_also_reported_to_the_silent_observer(CancellationToken cancellationToken)
+    {
+        var scripted = new ReplayProvider(
+            () => ThrowImmediately(new ProviderHttpException(503, string.Empty, string.Empty, "Service Unavailable")));
+        ILLMProvider provider = new RetryingProvider(scripted);
+        await using var session = provider.OpenSession();
+        var observations = 0;
+        await using var enumerator = session.CallWithRetryObservation(
+            Request, (_, _) => observations++, cancellationToken).GetAsyncEnumerator(cancellationToken);
+        _ = await Assert.That(await enumerator.MoveNextAsync()).IsTrue();
+        _ = await Assert.That(enumerator.Current.Kind).IsEqualTo(LLMEventKind.Retry);
+        _ = await Assert.That(observations).IsEqualTo(0);
+    }
+
+    [Test]
     [Arguments(false, false, false)]
     [Arguments(true, false, false)]
     [Arguments(false, true, false)]

@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Parrot.Agent;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Protocol;
 using Parrot.Security;
@@ -26,6 +28,7 @@ internal sealed class PermissionBroker : IDisposable
     private readonly bool _interactive;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _timeout;
+    private readonly IDiagnosticLog _diagnostics;
     private bool _disposed;
 
     public PermissionBroker(
@@ -33,7 +36,8 @@ internal sealed class PermissionBroker : IDisposable
         EventRepository repository,
         bool interactive,
         TimeSpan timeout,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IDiagnosticLog diagnostics)
     {
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(repository);
@@ -43,6 +47,7 @@ internal sealed class PermissionBroker : IDisposable
             throw new ArgumentOutOfRangeException(nameof(timeout), "The permission request timeout must be positive or infinite.");
         }
 
+        _diagnostics = diagnostics;
         _events = events;
         _repository = repository;
         _interactive = interactive;
@@ -58,78 +63,37 @@ internal sealed class PermissionBroker : IDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        ArgumentNullException.ThrowIfNull(security);
-        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-        ArgumentNullException.ThrowIfNull(targets);
-
-        var copiedTargets = targets.ToArray();
-        if (copiedTargets.Length == 0)
-        {
-            throw new PermissionException("permission requests require at least one target");
-        }
-
-        foreach (var target in copiedTargets)
-        {
-            target.Validate();
-        }
-
-        lock (_gate)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-        }
-
-        if (!_interactive)
-        {
-            return new PermissionReply(PermissionDecision.Reject, string.Empty);
-        }
-
         var id = Identifier.PermissionRequestId();
-        var pending = new PendingRequest(identity, security, reason, copiedTargets);
-
-        lock (_gate)
+        var started = Stopwatch.GetTimestamp();
+        _diagnostics.Write(new DiagnosticEvent("permission", "request_started", DiagnosticSeverity.Information)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            _pending.Add(id, pending);
-
-            try
-            {
-                var published = new Event
-                {
-                    Id = Identifier.EventId(),
-                    AgentSessionId = identity.SessionId,
-                    PermissionPending = ToProtocol(id, pending),
-                };
-                _ = _repository.Append(published, null, null);
-                _events.Publish(published);
-            }
-            catch
-            {
-                _ = _pending.Remove(id);
-                throw;
-            }
-        }
-
+            AgentSessionId = identity.SessionId,
+            CorrelationId = id,
+        });
         try
         {
-            return await pending.Reply.Task.WaitAsync(_timeout, _timeProvider, cancellationToken).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            if (Remove(id, pending))
+            var reply = await RequestPending(identity, security, reason, targets, id, cancellationToken).ConfigureAwait(false);
+            _diagnostics.Write(new DiagnosticEvent("permission", "request_completed", DiagnosticSeverity.Information)
             {
-                return PermissionReply.UserAway;
-            }
-
-            return pending.RequireOutcome();
+                AgentSessionId = identity.SessionId,
+                CorrelationId = id,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = reply.Kind == PermissionReplyKind.UserAway ? "timeout"
+                    : reply.Decision == PermissionDecision.Grant ? "granted" : "rejected",
+            });
+            return reply;
         }
-        catch (OperationCanceledException)
+        catch (Exception failure)
         {
-            if (Remove(id, pending))
+            _diagnostics.Write(new DiagnosticEvent("permission", "request_completed", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
             {
-                throw;
-            }
-
-            return pending.RequireOutcome();
+                AgentSessionId = identity.SessionId,
+                CorrelationId = id,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                Outcome = failure is OperationCanceledException ? "cancelled" : "failed",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
         }
     }
 
@@ -238,6 +202,89 @@ internal sealed class PermissionBroker : IDisposable
             RequiresReason = choice.RequiresReason,
         }));
         return pending;
+    }
+
+    private async Task<PermissionReply> RequestPending(
+        AgentIdentity identity,
+        AgentSessionSecurity security,
+        string reason,
+        IReadOnlyList<SecurityWriteTarget> targets,
+        string id,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(security);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        ArgumentNullException.ThrowIfNull(targets);
+
+        var copiedTargets = targets.ToArray();
+        if (copiedTargets.Length == 0)
+        {
+            throw new PermissionException("permission requests require at least one target");
+        }
+
+        foreach (var target in copiedTargets)
+        {
+            target.Validate();
+        }
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+        }
+
+        if (!_interactive)
+        {
+            return new PermissionReply(PermissionDecision.Reject, string.Empty);
+        }
+
+        var pending = new PendingRequest(identity, security, reason, copiedTargets);
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _pending.Add(id, pending);
+
+            try
+            {
+                var published = new Event
+                {
+                    Id = Identifier.EventId(),
+                    AgentSessionId = identity.SessionId,
+                    PermissionPending = ToProtocol(id, pending),
+                };
+                _ = _repository.Append(published, null, null);
+                _events.Publish(published);
+            }
+            catch
+            {
+                _ = _pending.Remove(id);
+                throw;
+            }
+        }
+
+        try
+        {
+            return await pending.Reply.Task.WaitAsync(_timeout, _timeProvider, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            if (Remove(id, pending))
+            {
+                return PermissionReply.UserAway;
+            }
+
+            return pending.RequireOutcome();
+        }
+        catch (OperationCanceledException)
+        {
+            if (Remove(id, pending))
+            {
+                throw;
+            }
+
+            return pending.RequireOutcome();
+        }
     }
 
     private bool Remove(string id, PendingRequest expected)

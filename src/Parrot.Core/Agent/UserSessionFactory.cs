@@ -14,14 +14,14 @@ internal sealed class UserSessionFactory(
     TimeSpan userInputTimeout,
     TimeProvider timeProvider) : IUserSessionFactory
 {
-    public UserSession Create(
+    public Task<UserSession> Create(
         SessionResourceLease resources,
         string id,
         string rootAgentName,
         ResolvedModelSelection model,
         string mode,
         bool interactivePermissions) =>
-        new(
+        UserSession.Create(
             id,
             rootAgentName,
             model,

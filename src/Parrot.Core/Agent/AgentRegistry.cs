@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -13,6 +15,7 @@ internal sealed class AgentRegistry(
     ProfileRegistry profiles,
     PromptTemplateCatalog promptTemplates,
     RetainedAgentBudget retainedAgents,
+    IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IAgentRegistry
 {
     private readonly RetainedAgentBudget _retainedAgents = retainedAgents
@@ -195,18 +198,49 @@ internal sealed class AgentRegistry(
         IMode mode,
         Security.SecurityProfile securityProfile,
         RuntimeStatus status,
-        CancellationToken childLifetime) =>
-        agentSessions.Create(
-            identity,
-            parentLink,
-            model,
-            eventBroker,
-            eventRepository,
-            mode,
-            securityProfile,
-            status,
-            this,
-            childLifetime);
+        CancellationToken childLifetime)
+    {
+        var started = Stopwatch.GetTimestamp();
+        diagnostics.Write(new DiagnosticEvent("agent", "child_scope_start", DiagnosticSeverity.Information)
+        {
+            AgentSessionId = identity.SessionId,
+            CorrelationId = identity.ParentSessionId,
+        });
+        try
+        {
+            var scope = agentSessions.Create(
+                identity,
+                parentLink,
+                model,
+                eventBroker,
+                eventRepository,
+                mode,
+                securityProfile,
+                status,
+                this,
+                childLifetime);
+            diagnostics.Write(new DiagnosticEvent("agent", "child_scope_completed", DiagnosticSeverity.Information)
+            {
+                AgentSessionId = identity.SessionId,
+                CorrelationId = identity.ParentSessionId,
+                Outcome = "succeeded",
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+            return scope;
+        }
+        catch (Exception failure)
+        {
+            diagnostics.Write(new DiagnosticEvent("agent", "child_scope_completed", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                AgentSessionId = identity.SessionId,
+                CorrelationId = identity.ParentSessionId,
+                Outcome = failure is OperationCanceledException ? "cancelled" : "failed",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+            throw;
+        }
+    }
 
     public void InitializeChildHistory(
         string parentSessionId,

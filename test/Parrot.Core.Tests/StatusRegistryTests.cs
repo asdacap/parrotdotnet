@@ -269,7 +269,7 @@ internal sealed class StatusRegistryTests
             new StatePaths(root, root, root),
             UserSessionId.Parse(Guid.NewGuid().ToString("n")),
             ProjectWorkspace.FromLaunchDirectory(root));
-        return new AgentQueueCatalog(resources);
+        return new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
     }
 
     private sealed class ProcessStatusSource(params ShellProcessStatusSnapshot[] snapshots) : IProcessStatusSource

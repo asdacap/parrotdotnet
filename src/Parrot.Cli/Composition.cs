@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
@@ -44,6 +45,7 @@ internal partial class Composition
             .Arg<string>("workingDirectory", "workingDirectory")
             .Arg<string>("hostKey", "hostKey")
             .Arg<IUserSessionHost>("userSessionHost")
+            .Arg<DiagnosticLogs>("diagnostics")
 
             .Bind().As(Lifetime.Singleton).To(_ => StatePaths.ResolveFromEnvironment())
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -228,7 +230,8 @@ internal partial class Composition
                 ctx.Inject<ModeRegistry>(out var modes);
                 ctx.Inject<string>("workingDirectory", out var workingDirectory);
                 ctx.Inject<string>("hostKey", out var hostKey);
-                return new SessionStore(paths, workingDirectory, hostKey, userSessions, router, modes);
+                ctx.Inject<DiagnosticLogs>(out var diagnostics);
+                return new SessionStore(paths, workingDirectory, hostKey, userSessions, router, modes, diagnostics);
             })
 
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -241,7 +244,8 @@ internal partial class Composition
                 ctx.Inject<SessionCatalog>(out var sessionCatalog);
                 ctx.Inject<ModeRegistry>(out var modes);
                 ctx.Inject<IUserSessionHost>(out var userSessionHost);
-                return new ParrotService(router, registry, aliases, modelConfiguration, store, sessionCatalog, modes, userSessionHost);
+                ctx.Inject<DiagnosticLogs>(out var diagnostics);
+                return new ParrotService(router, registry, aliases, modelConfiguration, store, sessionCatalog, modes, userSessionHost, diagnostics.Global);
             })
 
             .Root<StatePaths>("Paths")

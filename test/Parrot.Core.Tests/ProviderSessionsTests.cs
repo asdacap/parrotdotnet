@@ -11,8 +11,8 @@ internal sealed class ProviderSessionsTests
         CancellationToken cancellationToken)
     {
         var provider = new SessionProvider();
-        var firstOwner = new ProviderSessions();
-        var secondOwner = new ProviderSessions();
+        var firstOwner = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test");
+        var secondOwner = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test");
 
         var first = firstOwner.Get(provider);
         var again = firstOwner.Get(provider);
@@ -48,7 +48,7 @@ internal sealed class ProviderSessionsTests
     {
         var expected = fail ? new InvalidOperationException("dispose failed") : null;
         var provider = new BlockingSessionProvider(expected);
-        var sessions = new ProviderSessions();
+        var sessions = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test");
         _ = sessions.Get(provider);
 
         var firstClose = sessions.Close().AsTask();
@@ -84,7 +84,7 @@ internal sealed class ProviderSessionsTests
     {
         var firstProvider = new SessionProvider();
         var secondProvider = new SessionProvider();
-        var sessions = new ProviderSessions();
+        var sessions = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test");
         _ = sessions.Get(firstProvider);
 
         sessions.BeginTurn();
@@ -103,7 +103,7 @@ internal sealed class ProviderSessionsTests
     public async Task Retrying_provider_opens_and_disposes_one_inner_session(CancellationToken cancellationToken)
     {
         var provider = new SessionProvider();
-        var sessions = new ProviderSessions();
+        var sessions = new ProviderSessions(TestDiagnosticLog.Instance, "agent-test");
         ILLMProvider retrying = new RetryingProvider(provider);
 
         var session = sessions.Get(retrying);

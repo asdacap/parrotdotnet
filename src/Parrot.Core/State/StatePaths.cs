@@ -16,6 +16,8 @@ internal sealed class StatePaths(string state, string config, string data)
 
     public string Control => Path.Combine(State, "control");
 
+    public string LogDirectory => Path.Combine(State, "logs");
+
     public static StatePaths Resolve(IReadOnlyDictionary<string, string> environment)
     {
         ArgumentNullException.ThrowIfNull(environment);

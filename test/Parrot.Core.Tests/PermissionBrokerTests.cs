@@ -30,7 +30,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: true,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System);
+            TimeProvider.System,
+            TestDiagnosticLog.Instance);
         var requestingSecurity = Security(_root);
         await using var requesting = Session("requesting", database, events, requestingSecurity);
         var otherSecurity = Security(_root);
@@ -69,7 +70,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: true,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System);
+            TimeProvider.System,
+            TestDiagnosticLog.Instance);
         var request = broker.Request(
             AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
@@ -102,7 +104,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: false,
             TimeSpan.FromSeconds(30),
-            TimeProvider.System);
+            TimeProvider.System,
+            TestDiagnosticLog.Instance);
 
         var reply = await broker.Request(
             AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
@@ -127,7 +130,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: true,
             TimeSpan.FromMinutes(20),
-            time);
+            time,
+            TestDiagnosticLog.Instance);
         var request = broker.Request(
             AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
@@ -156,7 +160,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: true,
             Timeout.InfiniteTimeSpan,
-            time);
+            time,
+            TestDiagnosticLog.Instance);
         var request = broker.Request(
             AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
@@ -183,7 +188,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: true,
             TimeSpan.FromMinutes(20),
-            time);
+            time,
+            TestDiagnosticLog.Instance);
         var request = broker.Request(
             AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
             Security(_root),
@@ -209,7 +215,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: true,
             Timeout.InfiniteTimeSpan,
-            TimeProvider.System);
+            TimeProvider.System,
+            TestDiagnosticLog.Instance);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var request = broker.Request(
             AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
@@ -235,7 +242,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: true,
             Timeout.InfiniteTimeSpan,
-            TimeProvider.System);
+            TimeProvider.System,
+            TestDiagnosticLog.Instance);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var request = broker.Request(
             AgentIdentity.Main("requesting", string.Empty, TestModels.PromptTemplates),
@@ -263,7 +271,8 @@ internal sealed class PermissionBrokerTests : IDisposable
             new EventRepository(database),
             interactive: true,
             Timeout.InfiniteTimeSpan,
-            TimeProvider.System);
+            TimeProvider.System,
+            TestDiagnosticLog.Instance);
         var security = Security(_root);
         await using var session = Session("requesting", database, events, security);
         var target = Target("dependency");
@@ -304,7 +313,7 @@ internal sealed class PermissionBrokerTests : IDisposable
         var repository = new EventRepository(database);
         var identity = AgentIdentity.Main(id, string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, CancellationToken.None);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
     }
 
     private static async Task<PermissionPending> WaitForPending(

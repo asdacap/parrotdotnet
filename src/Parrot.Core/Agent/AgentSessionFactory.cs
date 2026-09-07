@@ -84,6 +84,7 @@ internal sealed class AgentSessionFactory(
                 queues,
                 owner.Questions,
                 owner.TimeProvider,
+                owner.Diagnostics,
                 lifetime);
             var scope = new AgentSessionScope(arguments);
             try

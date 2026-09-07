@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Skills;
 using Parrot.State;
@@ -13,12 +14,109 @@ internal sealed class SessionStoreTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "parrot-tests", Guid.NewGuid().ToString("n"));
 
+    private readonly List<DiagnosticLogs> _diagnostics = [];
+
     public void Dispose()
     {
+        foreach (var diagnostics in _diagnostics)
+        {
+            diagnostics.Dispose();
+        }
+
         if (Directory.Exists(_root))
         {
             Directory.Delete(_root, recursive: true);
         }
+    }
+
+    [Test]
+    public async Task Automatic_session_logs_append_on_resume_and_remain_isolated()
+    {
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "logs-work")).FullName;
+        string firstLog;
+        string firstId;
+        string initial;
+        {
+            await using var first = await Open(workingDirectory);
+            firstLog = first.Resources.LogPath;
+            firstId = first.Id;
+            initial = await File.ReadAllTextAsync(firstLog);
+            _ = await Assert.That(initial).Contains("event=\"start\"").And.Contains($"session=\"{firstId}\"");
+        }
+
+        {
+            await using var resumed = await Open(workingDirectory);
+            _ = await Assert.That(resumed.Id).IsEqualTo(firstId);
+            var appended = await File.ReadAllTextAsync(firstLog);
+            _ = await Assert.That(appended.StartsWith(initial, StringComparison.Ordinal)).IsTrue();
+            _ = await Assert.That(appended).Contains("event=\"resume\"");
+        }
+
+        await using var separate = await Open(Directory.CreateDirectory(Path.Combine(_root, "other-work")).FullName);
+        _ = await Assert.That(await File.ReadAllTextAsync(separate.Resources.LogPath)).Contains("event=\"start\"").And.DoesNotContain(firstId);
+        _ = await Assert.That(await File.ReadAllTextAsync(firstLog)).DoesNotContain(separate.Id);
+    }
+
+    [Test]
+    public async Task Failed_metadata_publication_disposes_constructed_session_before_retry()
+    {
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "publication-failure")).FullName;
+        var paths = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
+        var sessions = new DirectAgentSessions();
+        ILLMProvider provider = new UnusedProvider();
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id));
+        var router = TestModels.Route(model);
+        sessions.Use(router);
+        var factory = new PublicationFailureUserSessions(new UserSessionFactory(
+            sessions,
+            Modes(),
+            TestModels.PromptTemplates,
+            new TestProfileFixture().Registry,
+            SkillCatalogFactory(),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System));
+        var store = new SessionStore(paths, workingDirectory, "host", factory, router, Modes(), Diagnostics());
+
+        _ = await Assert.That(async () =>
+        {
+            _ = await store.Open(TestModels.Resolve(model));
+        }).Throws<IOException>();
+        var constructed = factory.Session ?? throw new InvalidOperationException("Session was not constructed");
+        _ = await Assert.That(factory.Lifetime.IsCancellationRequested).IsTrue();
+        var log = await File.ReadAllTextAsync(constructed.Resources.LogPath);
+        _ = await Assert.That(log).Contains("outcome=\"failed\"");
+        using (var exclusive = new FileStream(constructed.Resources.LogPath, FileMode.Open, FileAccess.Write, FileShare.None))
+        {
+            _ = await Assert.That(exclusive.CanWrite).IsTrue();
+        }
+
+        Directory.Delete(constructed.Resources.MetadataPath);
+        await using var retry = await Open(workingDirectory);
+        _ = await Assert.That(retry.Id).IsEqualTo(constructed.Id);
+    }
+
+    [Test]
+    public async Task Failed_lease_open_closes_log_and_releases_activation()
+    {
+        var paths = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"));
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "lease-failure")).FullName;
+        var id = UserSessionId.Parse("lease-failure");
+        var resources = new UserSessionResources(paths, id, ProjectWorkspace.FromLaunchDirectory(workingDirectory));
+        var claim = new WorkingDirectoryClaim(paths.State, "host");
+        var admission = claim.CreateFresh(workingDirectory, id);
+        var activation = admission.ActivationLease ?? throw new InvalidOperationException("Missing activation");
+        using var diagnostics = Diagnostics();
+        var log = diagnostics.OpenSession(resources);
+        _ = Directory.CreateDirectory(resources.DatabasePath);
+
+        _ = await Assert.That(() => SessionResourceLease.Open(resources, activation, log)).ThrowsException();
+        var failedLog = await File.ReadAllTextAsync(resources.LogPath);
+        _ = await Assert.That(failedLog).Contains("outcome=\"failed\"");
+        log.Write(new DiagnosticEvent("test", "after-close", DiagnosticSeverity.Information));
+        _ = await Assert.That(await File.ReadAllTextAsync(resources.LogPath)).IsEqualTo(failedLog);
+        var retry = claim.Resume(workingDirectory, id);
+        using var retryActivation = retry.ActivationLease;
+        _ = await Assert.That(retryActivation).IsNotNull();
     }
 
     [Test]
@@ -58,13 +156,13 @@ internal sealed class SessionStoreTests : IDisposable
         StabilizeAdmission(legacyWork, legacyId);
         var catalog = new SessionCatalog(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")));
         {
-            await using var named = Open(namedWork);
+            await using var named = await Open(namedWork);
             _ = await Assert.That(catalog.Find(UserSessionId.Parse(namedId))?.RootAgentName).IsEqualTo("main");
             _ = await Assert.That(catalog.Find(UserSessionId.Parse(namedId))?.CreatedAt)
                 .IsEqualTo("2026-07-27T01:00:00Z");
         }
 
-        await using var legacy = Open(legacyWork);
+        await using var legacy = await Open(legacyWork);
         _ = await Assert.That(catalog.Find(UserSessionId.Parse(legacyId))?.RootAgentName).IsEqualTo("main");
         _ = await Assert.That(catalog.Find(UserSessionId.Parse(legacyId))?.CreatedAt)
             .IsEqualTo("2026-07-27T02:00:00Z");
@@ -101,7 +199,7 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(catalog.State).IsEqualTo(SessionCatalogState.Inactive);
         StabilizeAdmission(workingDirectory, id);
 
-        await using var session = Open(workingDirectory);
+        await using var session = await Open(workingDirectory);
         var republished = index.Find();
 
         _ = await Assert.That(session.Id).IsEqualTo(id);
@@ -138,7 +236,7 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(index.Find()?.Selector).IsNull();
         StabilizeAdmission(workingDirectory, id);
 
-        await using var session = Open(workingDirectory);
+        await using var session = await Open(workingDirectory);
         _ = await Assert.That(session.Model).IsEqualTo("unused/model");
         _ = await Assert.That(index.Find()?.Selector).IsEqualTo("unused/model");
     }
@@ -167,7 +265,7 @@ internal sealed class SessionStoreTests : IDisposable
         });
         StabilizeAdmission(linked, id);
 
-        await using var session = Open(physical);
+        await using var session = await Open(physical);
         var resumed = new SessionCatalog(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data"))).Find(UserSessionId.Parse(id));
 
         _ = await Assert.That(session.Id).IsEqualTo(id);
@@ -191,12 +289,17 @@ internal sealed class SessionStoreTests : IDisposable
             "host",
             new ThrowingUserSessions(),
             TestModels.Route(model),
-            modes);
+            modes,
+            Diagnostics());
 
-        _ = await Assert.That(() => failing.Open(TestModels.Resolve(model))).Throws<InvalidOperationException>();
+        _ = await Assert.That(async () =>
+        {
+            _ = await failing.Open(TestModels.Resolve(model));
+        }).Throws<InvalidOperationException>();
 
-        await using var session = Open(workingDirectory);
+        await using var session = await Open(workingDirectory);
         _ = await Assert.That(new SessionIndex(session.Resources).Find()?.RootAgentName).IsEqualTo("main");
+        _ = await Assert.That(await File.ReadAllTextAsync(session.Resources.LogPath)).Contains("outcome=\"failed\"").And.Contains("event=\"start\"");
     }
 
     [Test]
@@ -236,10 +339,14 @@ internal sealed class SessionStoreTests : IDisposable
             "host",
             new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
             router,
-            Modes());
+            Modes(),
+            Diagnostics());
         if (missingMetadata)
         {
-            _ = await Assert.That(() => store.Resume(UserSessionId.Parse(id), false)).Throws<InvalidOperationException>();
+            _ = await Assert.That(async () =>
+            {
+                _ = await store.Resume(UserSessionId.Parse(id), false);
+            }).Throws<InvalidOperationException>();
             var retry = new WorkingDirectoryClaim(new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")).State, "host").Resume(workingDirectory, id);
             _ = await Assert.That(retry.Disposition).IsEqualTo(ClaimDisposition.Resumed);
             if (retry.ActivationLease is { } activation)
@@ -250,7 +357,7 @@ internal sealed class SessionStoreTests : IDisposable
             return;
         }
 
-        var opened = store.Resume(UserSessionId.Parse(id), false);
+        var opened = await store.Resume(UserSessionId.Parse(id), false);
         await using var session = opened.Session;
         _ = await Assert.That(opened.Loaded).IsTrue();
         _ = await Assert.That(session.Mode.Profile.Id).IsEqualTo(ModeRegistry.Query);
@@ -263,7 +370,15 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(string.IsNullOrEmpty(recorded)).IsFalse();
         _ = await Assert.That(index.Find()?.CreatedAt).IsEqualTo("2026-01-01T00:00:00Z");
         _ = await Assert.That(store.DiscoverLatest().SessionId?.Value).IsEqualTo(id);
-        _ = await Assert.That(() => store.Resume(UserSessionId.Parse(id), false)).Throws<SessionAdmissionException>();
+        var beforeContention = await File.ReadAllTextAsync(session.Resources.LogPath);
+        _ = await Assert.That(async () =>
+        {
+            _ = await store.Resume(UserSessionId.Parse(id), false);
+        }).Throws<SessionAdmissionException>();
+        _ = await Assert.That(await File.ReadAllTextAsync(session.Resources.LogPath)).IsEqualTo(beforeContention);
+        var logDirectory = new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")).LogDirectory;
+        var globalLog = await File.ReadAllTextAsync(Directory.GetFiles(logDirectory, "parrot-*.log").Single());
+        _ = await Assert.That(globalLog).Contains("event=\"acquire\"").And.Contains("outcome=\"failed\"");
     }
 
     private static SkillCatalogFactory SkillCatalogFactory()
@@ -274,7 +389,7 @@ internal sealed class SessionStoreTests : IDisposable
         return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
     }
 
-    private UserSession Open(string workingDirectory)
+    private Task<UserSession> Open(string workingDirectory)
     {
         var sessions = new DirectAgentSessions();
         ILLMProvider provider = new UnusedProvider();
@@ -287,8 +402,20 @@ internal sealed class SessionStoreTests : IDisposable
             "host",
             new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, new TestProfileFixture().Registry, SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
             router,
-            Modes());
+            Modes(),
+            Diagnostics());
         return store.Open(router.Resolve(model.Selector));
+    }
+
+    private DiagnosticLogs Diagnostics()
+    {
+        var diagnostics = new DiagnosticLogs(
+            new StatePaths(Path.Combine(_root, "state"), Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            FileDiagnosticLog.CreateInstanceId(),
+            TextWriter.Null,
+            TimeProvider.System);
+        _diagnostics.Add(diagnostics);
+        return diagnostics;
     }
 
     private ModeRegistry Modes()
@@ -311,9 +438,30 @@ internal sealed class SessionStoreTests : IDisposable
         admission.ActivationLease?.Dispose();
     }
 
+    private sealed class PublicationFailureUserSessions(IUserSessionFactory factory) : IUserSessionFactory
+    {
+        public UserSession? Session { get; private set; }
+
+        public CancellationToken Lifetime { get; private set; }
+
+        public async Task<UserSession> Create(
+            SessionResourceLease resources,
+            string id,
+            string rootAgentName,
+            ResolvedModelSelection model,
+            string mode,
+            bool interactivePermissions)
+        {
+            Session = await factory.Create(resources, id, rootAgentName, model, mode, interactivePermissions);
+            Lifetime = Session.Lifetime;
+            _ = Directory.CreateDirectory(resources.Resources.MetadataPath);
+            return Session;
+        }
+    }
+
     private sealed class ThrowingUserSessions : IUserSessionFactory
     {
-        public UserSession Create(
+        public Task<UserSession> Create(
             SessionResourceLease resources,
             string id,
             string rootAgentName,

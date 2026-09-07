@@ -34,8 +34,8 @@ internal sealed class AgentSessionFactorySource(
             promptTemplates);
 
     public ShellProcessOwners CreateShellProcesses(UserSession owner) =>
-        new(owner.Resources, processes, owner.Lifetime);
+        new(owner.Resources, processes, owner.Diagnostics, owner.Lifetime);
 
     public AgentQueueCatalog CreateQueueCatalog(UserSession owner) =>
-        new(owner.Resources);
+        new(owner.Resources, owner.Diagnostics);
 }

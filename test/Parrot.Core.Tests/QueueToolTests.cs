@@ -13,7 +13,7 @@ internal sealed class QueueToolTests
     {
         using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-open", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
-        ITool tool = new QueueTakeTool(queues);
+        ITool tool = new QueueTakeTool(queues, TestDiagnosticLog.Instance);
         var result = await tool.Execute(
             new ToolInvocation("call", "{\"name\":\"work\",\"yield_after_ms\":20}"),
             new SelectionFixture().Selection,
@@ -29,7 +29,7 @@ internal sealed class QueueToolTests
     {
         using var queues = TestModels.Queues(AgentIdentity.Main("queue-tool-close", "main", TestModels.PromptTemplates));
         _ = queues.Create("work", string.Empty);
-        ITool takeTool = new QueueTakeTool(queues);
+        ITool takeTool = new QueueTakeTool(queues, TestDiagnosticLog.Instance);
         var waiting = takeTool.Execute(
             new ToolInvocation("take", "{\"name\":\"work\",\"yield_after_ms\":30000}"),
             new SelectionFixture().Selection,

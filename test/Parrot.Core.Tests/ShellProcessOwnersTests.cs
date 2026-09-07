@@ -1,5 +1,6 @@
 using Parrot.Agent;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
@@ -48,6 +49,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         using var coordinator = new ShellProcessOwners(
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var firstAgent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
         await using var secondAgent = CreateAgent("agent-2", model, events, repository, resources.AgentScratch("agent-2").BlobDirectory, lifetime.Token);
@@ -123,6 +125,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         using var coordinator = new ShellProcessOwners(
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
         var owner = coordinator.Prepare(agent.SessionId);
@@ -172,6 +175,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         using var coordinator = new ShellProcessOwners(
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
         var owner = coordinator.Prepare(agent.SessionId);
@@ -253,6 +257,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         using var coordinator = new ShellProcessOwners(
             resources,
             new ProcessRunner(CreateSandboxPassThrough()),
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
         var owner = coordinator.Prepare(agent.SessionId);
@@ -353,6 +358,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
                 UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
                 ProjectWorkspace.FromLaunchDirectory(_workspace)),
             new ProcessRunner(string.Empty),
+            TestDiagnosticLog.Instance,
             lifetime.Token);
 
         var settlement = coordinator.Settle();
@@ -360,6 +366,90 @@ internal sealed class ShellProcessOwnersTests : IDisposable
         _ = await Assert.That(() => coordinator.Prepare("late"))
             .Throws<InvalidOperationException>();
         await settlement;
+    }
+
+    [Test]
+    [Arguments(0)]
+    [Arguments(7)]
+    [Arguments(-1)]
+    [Arguments(-2)]
+    [Arguments(-3)]
+    public async Task Diagnostics_follow_yielded_process_to_actual_completion_without_payloads(
+        int exitCode,
+        CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var lifetime = new CancellationTokenSource();
+        using var events = new EventBroker();
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var model = new ProviderModel(new UnusedProvider(), new LLMModel("model", "unused"));
+        var resources = new UserSessionResources(
+            new StatePaths(Path.Combine(_workspace, "state"), Path.Combine(_workspace, "config"), Path.Combine(_workspace, "data")),
+            UserSessionId.Parse($"session-{Guid.NewGuid():n}"),
+            ProjectWorkspace.FromLaunchDirectory(_workspace));
+        using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
+        using var coordinator = new ShellProcessOwners(resources, new ProcessRunner(exitCode == -3 ? string.Empty : CreateSandboxPassThrough()), diagnostics, lifetime.Token);
+        await using var agent = CreateAgent("agent-1", model, events, repository, resources.AgentScratch("agent-1").BlobDirectory, lifetime.Token);
+        var owner = coordinator.Prepare(agent.SessionId);
+        coordinator.Register(owner);
+        if (exitCode == -3)
+        {
+            _ = await Assert.That(() => owner.Start(
+                "secret-process-name",
+                "secret-command",
+                ProcessEnvironmentOverrides.Empty,
+                agent,
+                SecurityProfile.Compose(readOnly: false, [], [], []),
+                ShellProcessTerminalMode.Pipe)).Throws<SandboxUnavailableException>();
+            var failedLog = await File.ReadAllTextAsync(resources.LogPath, cancellationToken);
+            _ = await Assert.That(failedLog).Contains("event=\"start\"")
+                .And.Contains("event=\"completed\"")
+                .And.Contains("outcome=\"failed\"")
+                .And.DoesNotContain("secret-");
+            return;
+        }
+
+        var process = owner.Start(
+            "secret-process-name",
+            exitCode < 0 ? "exec sleep 30 # secret-command" : $"sleep 0.2; printf secret-output; exit {exitCode}",
+            ProcessEnvironmentOverrides.Empty,
+            agent,
+            SecurityProfile.Compose(readOnly: false, [], [], []),
+            ShellProcessTerminalMode.Pipe);
+        var yielded = await process.Wait(TimeSpan.Zero, cancellationToken);
+        _ = await Assert.That(yielded.Running).IsTrue();
+        if (exitCode == -2)
+        {
+            await lifetime.CancelAsync();
+        }
+        else if (exitCode < 0)
+        {
+            await owner.Claim(process.Name).SendSignal(new ProcessSignal(15), cancellationToken);
+        }
+
+        while (!process.Completed)
+        {
+            await Task.Delay(10, cancellationToken);
+        }
+
+        await lifetime.CancelAsync();
+        await coordinator.Settle();
+        var log = await File.ReadAllTextAsync(resources.LogPath, cancellationToken);
+        _ = await Assert.That(log).Contains("event=\"start\"")
+            .And.Contains("event=\"yield\"")
+            .And.Contains("event=\"completed\"")
+            .And.Contains(process.State.ProcessId)
+            .And.Contains(exitCode == 0 ? "outcome=\"succeeded\"" : exitCode == -2 ? "outcome=\"cancelled\"" : "outcome=\"failed\"")
+            .And.DoesNotContain("secret-");
+        if (exitCode == -1)
+        {
+            _ = await Assert.That(log).Contains("event=\"signal\"");
+        }
     }
 
     private IAgentSession CreateAgent(
@@ -372,7 +462,7 @@ internal sealed class ShellProcessOwnersTests : IDisposable
     {
         var identity = AgentIdentity.Main(sessionId, sessionId, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private string CreateSandboxPassThrough()

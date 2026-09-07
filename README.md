@@ -630,6 +630,51 @@ conversation and the history cutoffs that reshape later context. Filesystem read
 follow the host-wide readable baseline and any configured `deny_read` rules;
 agent ownership still governs runtime history APIs and writes.
 
+### Operational logs
+
+Operational diagnostics are written automatically as readable text, separately
+from conversation history:
+
+- Each owned user session writes `<state>/sessions/<user-session-id>/session.log`.
+  The main agent and its children share this file; resuming the session appends
+  to it instead of truncating it.
+- Startup, configuration, authentication, and remote-client transport operations
+  write `<state>/logs/parrot-<instance-id>.log`. The instance ID includes startup
+  time, process ID, and a random identifier. Concurrent Parrot processes use
+  separate files in this shared directory, so they do not rotate or overwrite
+  one another's logs. An attached client does not write to the remote owner's
+  session file.
+
+`<state>` is `$XDG_STATE_HOME/parrotdotnet`, or
+`~/.local/state/parrotdotnet` when `XDG_STATE_HOME` is unset. Logs cover operation
+starts and outcomes, provider calls and retries, tools, permission/question
+waits, background agents/tasks/processes, recovery, and shutdown. Each line has
+an invariant UTC timestamp, `INFO`, `WARN`, or `ERROR`, and quoted key/value
+fields such as `category`, `event`, `instance`, `session`, `agent`,
+`correlation`, `outcome`, and `duration_ms`. Identifiers distinguish concurrent
+operations; numeric counts describe usage without recording content. Fields
+are escaped onto one line and overly long values are marked `[truncated]`.
+
+Logs exclude prompts, responses, reasoning, tool arguments/results, shell
+commands/output, file contents, credentials, authentication URLs/codes, and raw
+exception messages. Failures use fixed classifications rather than dumping
+exceptions. Provider/model identifiers and correlation IDs can still reveal
+operational metadata; treat log files accordingly when sharing diagnostics.
+Existing conversation history remains separate and can contain interaction
+content.
+
+Each file rotates before a write would exceed 10 MiB, retaining up to three
+backups (`.1` is newest, `.3` oldest). Rotation retires only that file's oldest
+backup. Historical global instance files are **not** cleaned up automatically:
+remove files belonging to stopped instances manually when no longer needed.
+The global directory is therefore not bounded across all past instances.
+
+Log open/write/flush/rotation failures disable only the affected sink and emit
+one safe stderr warning for that sink's lifetime. They do not stop the session
+or redirect its records to a different scope. Completed writes are flushed for
+live inspection, and normal shutdown closes session logs after their producers
+stop and before session activation ownership is released.
+
 ### Conversation checkpoints and child forks
 
 `set_checkpoint` durably names a point in the calling agent's conversation for a

@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Diagnostics;
 using Parrot.Store;
 
 namespace Parrot.Queues;
@@ -9,12 +10,14 @@ internal sealed class AgentQueueCatalog : IDisposable
     private readonly QueueInventory _inventory = new();
     private readonly Lock _gate = new();
     private readonly UserSessionResources _resources;
+    private readonly IDiagnosticLog _diagnostics;
     private bool _disposed;
 
-    public AgentQueueCatalog(UserSessionResources resources)
+    public AgentQueueCatalog(UserSessionResources resources, IDiagnosticLog diagnostics)
     {
         ArgumentNullException.ThrowIfNull(resources);
         _resources = resources;
+        _diagnostics = diagnostics;
         RemoveStaleAgentQueues(resources.AgentQueueRootDirectory);
     }
 
@@ -41,7 +44,7 @@ internal sealed class AgentQueueCatalog : IDisposable
             var directory = identity.Depth == 0
                 ? _resources.QueueDirectory
                 : _resources.AgentQueueDirectory(identity.SessionId);
-            var queues = new AgentQueues(this, identity, parent, directory, identity.Depth > 0);
+            var queues = new AgentQueues(this, identity, parent, directory, identity.Depth > 0, _diagnostics);
 
             try
             {
@@ -64,6 +67,7 @@ internal sealed class AgentQueueCatalog : IDisposable
 
     public QueueInfo Create(AgentQueues owner, string name, string description)
     {
+        QueueInfo created;
         lock (_gate)
         {
             RequireRegistered(owner);
@@ -74,8 +78,15 @@ internal sealed class AgentQueueCatalog : IDisposable
                 EnsureMissing(child, name);
             }
 
-            return owner.Local.Create(name, description);
+            created = owner.Local.Create(name, description);
         }
+
+        _diagnostics.Write(new DiagnosticEvent("queue", "created", DiagnosticSeverity.Information)
+        {
+            AgentSessionId = owner.SessionId,
+            Outcome = "created",
+        });
+        return created;
     }
 
     public IReadOnlyList<QueueInfo> List(string sessionId)

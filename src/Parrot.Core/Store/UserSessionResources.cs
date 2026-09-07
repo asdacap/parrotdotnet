@@ -17,6 +17,7 @@ internal sealed class UserSessionResources
         SocketPath = RequireContained(Root, Path.Combine(Root, "parrot.sock"));
         MetadataPath = RequireContained(Root, Path.Combine(Root, "meta.json"));
         DatabasePath = RequireContained(Root, Path.Combine(Root, "session.db"));
+        LogPath = RequireContained(Root, Path.Combine(Root, "session.log"));
         ArtifactDirectory = RequireContained(Root, Path.Combine(Root, "artifacts"));
         QueueDirectory = RequireContained(Root, Path.Combine(Root, "queues"));
         AgentQueueRootDirectory = RequireContained(QueueDirectory, Path.Combine(QueueDirectory, "agents"));
@@ -38,6 +39,8 @@ internal sealed class UserSessionResources
     public string MetadataPath { get; }
 
     public string DatabasePath { get; }
+
+    public string LogPath { get; }
 
     public string ArtifactDirectory { get; }
 

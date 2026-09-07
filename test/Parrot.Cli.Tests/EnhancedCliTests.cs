@@ -106,6 +106,7 @@ internal sealed class EnhancedCliTests
         var configuration = loadedConfiguration.Value;
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
+        using var diagnostics = new TransportDiagnosticsFixture();
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
             new Interrupts(stopping),
@@ -119,7 +120,8 @@ internal sealed class EnhancedCliTests
             renderer,
             TimeProvider.System,
             ImmediateDelay(),
-            new AttachmentsFixture().Uploader);
+            new AttachmentsFixture().Uploader,
+            diagnostics.Log);
         var running = cli.Run(cancellationToken);
 
         terminal.Type("first prompt\r");
@@ -978,6 +980,7 @@ internal sealed class EnhancedCliTests
         var configuration = loadedConfiguration.Value;
         var presenters = new ToolPresenterRegistry([], new GenericToolPresenter());
         var renderer = new EnhancedTurnRenderer(terminal, configuration, presenters);
+        using var diagnostics = new TransportDiagnosticsFixture();
         var cli = new EnhancedCli(
             new GeneratedParrot.ParrotClient(invoker),
             new Interrupts(stopping),
@@ -991,7 +994,8 @@ internal sealed class EnhancedCliTests
             renderer,
             TimeProvider.System,
             ImmediateDelay(),
-            new AttachmentsFixture().Uploader);
+            new AttachmentsFixture().Uploader,
+            diagnostics.Log);
         var running = cli.Run(cancellationToken);
 
         terminal.Type("/m");

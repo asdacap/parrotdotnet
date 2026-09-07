@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Security;
 using Parrot.State;
@@ -11,6 +12,7 @@ internal sealed class ReadImageToolTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-read-image-tool-tests", Guid.NewGuid().ToString("n"));
     private readonly SessionDatabase _database;
+    private readonly IDiagnosticLog _diagnostics;
     private readonly SessionResourceLease _resources;
     private readonly UserSessionResources _sessionResources;
 
@@ -22,12 +24,14 @@ internal sealed class ReadImageToolTests : IDisposable
             UserSessionId.Parse("images"),
             ProjectWorkspace.FromLaunchDirectory(_root));
         _database = SessionDatabase.Open(_sessionResources.DatabasePath);
-        _resources = SessionResourceLease.Own(_sessionResources, _database);
+        _diagnostics = FileDiagnosticLog.OpenSession(_sessionResources, "test", TextWriter.Null, TimeProvider.System);
+        _resources = SessionResourceLease.Own(_sessionResources, _database, _diagnostics);
     }
 
     public void Dispose()
     {
         _resources.Dispose();
+        _diagnostics.Dispose();
         _database.Dispose();
         if (Directory.Exists(_root))
         {

@@ -1,4 +1,5 @@
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Store;
 
@@ -80,6 +81,8 @@ internal sealed class Compactor(
         IReadOnlyList<LLMMessage> history,
         LLMMessage fixedMessage,
         CompactionGroupBlobStore groupBlobs,
+        IDiagnosticLog diagnostics,
+        string agentSessionId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selectedModel);
@@ -96,7 +99,7 @@ internal sealed class Compactor(
                 false,
                 IsComplete(messages)))
             .ToList();
-        var providerSessions = new ProviderSessions();
+        var providerSessions = new ProviderSessions(diagnostics, agentSessionId);
         try
         {
             return await CompactCore(
@@ -124,9 +127,11 @@ internal sealed class Compactor(
         long baseWatermark,
         LLMMessage fixedMessage,
         CompactionGroupBlobStore groupBlobs,
+        IDiagnosticLog diagnostics,
+        string agentSessionId,
         CancellationToken cancellationToken)
     {
-        var providerSessions = new ProviderSessions();
+        var providerSessions = new ProviderSessions(diagnostics, agentSessionId);
         try
         {
             return await CompactCore(

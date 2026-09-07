@@ -24,10 +24,11 @@ internal sealed class LocalChatStartupTests
         int expectedConfigurations,
         CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         using var workspace = new TestWorkspace();
         var service = new TestService(scenario, workspace);
-        await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, cancellationToken);
-        using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null);
+        await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, diagnostics.Log, cancellationToken);
+        using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null, diagnostics.Log);
         await using var activation = scenario == "fresh" ? null : workspace.Admit();
         if (scenario is "load" or "race" or "recover-race")
         {
@@ -39,7 +40,7 @@ internal sealed class LocalChatStartupTests
 
         service.OwnerActivation = activation;
         await using var ownerServer = scenario is "connect" or "rejected" or "race" or "recover" or "recover-race"
-            ? await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, cancellationToken)
+            ? await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, diagnostics.Log, cancellationToken)
             : null;
         using var error = new StringWriter();
         var localOpens = 0;
@@ -49,6 +50,7 @@ internal sealed class LocalChatStartupTests
             workspace.Root,
             "host",
             error,
+            diagnostics.Log,
             token =>
             {
                 token.ThrowIfCancellationRequested();
@@ -100,6 +102,12 @@ internal sealed class LocalChatStartupTests
             _ = await Assert.That(service.Attached?.WorkingDirectory).IsEqualTo(workspace.Root);
         }
 
+        var log = diagnostics.Read();
+        _ = await Assert.That(log).Contains("event=\"local.open.start\"");
+        _ = await Assert.That(log).Contains("event=\"local.open.complete\"");
+        _ = await Assert.That(log.Contains(workspace.Root, StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(log.Contains("fresh-model", StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(log.Contains("Attachment rejected.", StringComparison.Ordinal)).IsFalse();
         var diagnostic = error.ToString();
         if (scenario == "fresh")
         {
@@ -124,10 +132,11 @@ internal sealed class LocalChatStartupTests
     public async Task Cancellation_does_not_initialize_local_providers_or_create_a_fallback(
         bool duringAttach, CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         using var workspace = new TestWorkspace();
         await using var activation = workspace.Admit();
         var service = new TestService("cancel", workspace);
-        await using var server = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, cancellationToken);
+        await using var server = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, diagnostics.Log, cancellationToken);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var error = new StringWriter();
         var localOpens = 0;
@@ -137,6 +146,7 @@ internal sealed class LocalChatStartupTests
             workspace.Root,
             "host",
             error,
+            diagnostics.Log,
             token =>
             {
                 localOpens++;
@@ -166,6 +176,8 @@ internal sealed class LocalChatStartupTests
         _ = await Assert.That(service.ResumeCount).IsEqualTo(0);
         _ = await Assert.That(service.AttachStarted.Task.IsCompleted).IsEqualTo(duringAttach);
         _ = await Assert.That(error.ToString()).IsEmpty();
+        _ = await Assert.That(diagnostics.Read()).Contains("event=\"local.open.complete\"");
+        _ = await Assert.That(diagnostics.Read().Contains(workspace.Root, StringComparison.Ordinal)).IsFalse();
     }
 
     [Test]
@@ -174,12 +186,13 @@ internal sealed class LocalChatStartupTests
     public async Task Recovery_failure_or_cancellation_does_not_create_a_fallback(
         bool cancelRecovery, CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         using var workspace = new TestWorkspace();
         await using var activation = workspace.Admit();
         var service = new TestService(cancelRecovery ? "cancel-recovery" : "fail-recovery", workspace);
-        await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, cancellationToken);
-        await using var ownerServer = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, cancellationToken);
-        using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null);
+        await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, diagnostics.Log, cancellationToken);
+        await using var ownerServer = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, diagnostics.Log, cancellationToken);
+        using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null, diagnostics.Log);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var error = new StringWriter();
         var localOpens = 0;
@@ -189,6 +202,7 @@ internal sealed class LocalChatStartupTests
             workspace.Root,
             "host",
             error,
+            diagnostics.Log,
             token =>
             {
                 token.ThrowIfCancellationRequested();
@@ -217,6 +231,8 @@ internal sealed class LocalChatStartupTests
         _ = await Assert.That(service.Resumed?.WorkingDirectory).IsEqualTo(workspace.Root);
         _ = await Assert.That(service.Resumed?.InteractivePermissions).IsTrue();
         _ = await Assert.That(error.ToString()).IsEmpty();
+        _ = await Assert.That(diagnostics.Read()).Contains("event=\"local.open.complete\"");
+        _ = await Assert.That(diagnostics.Read().Contains(workspace.Root, StringComparison.Ordinal)).IsFalse();
     }
 
     private sealed class TestWorkspace : IDisposable

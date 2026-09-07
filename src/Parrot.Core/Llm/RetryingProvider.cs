@@ -245,12 +245,18 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
         public void BeginTurn() => _innerSession.BeginTurn();
 
         public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>
-            RetrySession(request, cancellationToken);
+            RetrySession(request, static (_, _) => { }, cancellationToken);
+
+        public IAsyncEnumerable<LLMEvent> CallWithRetryObservation(
+            LLMRequest request,
+            Action<int, TimeSpan> observeRetry,
+            CancellationToken cancellationToken) => RetrySession(request, observeRetry, cancellationToken);
 
         public ValueTask DisposeAsync() => _innerSession.DisposeAsync();
 
         private async IAsyncEnumerable<LLMEvent> RetrySession(
             LLMRequest request,
+            Action<int, TimeSpan> observeRetry,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             var state = new RetryState(request);
@@ -305,6 +311,17 @@ internal sealed class RetryingProvider(ILLMProvider inner) : ILLMProvider
                 if (retry.Reason.Length > 0)
                 {
                     yield return LLMEvent.Retry(retry.Attempt, retry.Delay, retry.Reason);
+                }
+                else
+                {
+                    try
+                    {
+                        observeRetry(retry.Attempt, retry.Delay);
+                    }
+                    catch (Exception)
+                    {
+                        // Operational observation must not change retry behavior.
+                    }
                 }
 
                 await Task.Delay(retry.Delay, cancellationToken).ConfigureAwait(false);

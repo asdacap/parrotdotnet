@@ -1,4 +1,5 @@
 using Grpc.Core;
+using Parrot.Diagnostics;
 
 namespace Parrot.Protocol;
 
@@ -12,7 +13,7 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
     private Task? _shutdown;
 
     public async Task<Agent.UserSession> Host(
-        Func<Agent.UserSession> open,
+        Func<Task<Agent.UserSession>> open,
         Func<Agent.UserSession, Task<IAsyncDisposable>> host)
     {
         ArgumentNullException.ThrowIfNull(open);
@@ -35,13 +36,18 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
 
         try
         {
-            var session = open();
+            var session = await open().ConfigureAwait(false);
             try
             {
                 created = new HostedSession(session, await host(session).ConfigureAwait(false));
             }
-            catch
+            catch (Exception failure)
             {
+                session.Diagnostics.Write(new DiagnosticEvent(
+                    "transport", "host_failure", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+                {
+                    ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+                });
                 await session.DisposeAsync().ConfigureAwait(false);
                 throw;
             }

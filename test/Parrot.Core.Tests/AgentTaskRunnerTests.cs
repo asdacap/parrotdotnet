@@ -1,10 +1,13 @@
 using Parrot.Agent;
 using Parrot.AgentTasks;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Security;
+using Parrot.State;
+using Parrot.Statuses;
 using Parrot.Store;
 
 namespace Parrot.Core.Tests;
@@ -21,6 +24,116 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     {
         _broker.Dispose();
         _database.Dispose();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Child_scope_diagnostics_preserve_creation_result_and_hide_failure_payload(
+        bool fail,
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-child-diagnostics", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        try
+        {
+            var resources = new UserSessionResources(
+                new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data")),
+                UserSessionId.Parse("session-diagnostics"),
+                ProjectWorkspace.FromLaunchDirectory(directory));
+            using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
+            var runtime = Runtime(new AgentTaskQueueProvider([]), cancellationToken);
+            await using var runtimeRegistry = runtime.Registry;
+            var factory = new DiagnosticChildFactory(runtime.ParentScope, fail);
+            await using IAgentRegistry registry = new AgentRegistry(
+                factory,
+                _broker,
+                _repository,
+                new TestProfileFixture().Registry,
+                TestModels.PromptTemplates,
+                new RetainedAgentBudget(10),
+                diagnostics,
+                cancellationToken);
+            var identity = AgentIdentity.Child(
+                "agent-child", runtime.Parent.SessionId, "secret-parent", "secret-child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates);
+            using var dependencies = TestModels.Dependencies(runtime.Parent.Identity, _broker, _repository, cancellationToken);
+            IAgentSessionScope CreateChild() => registry.CreateChildScope(
+                identity,
+                AgentSessionParentLink.Child(runtime.ParentScope, AgentCompletionDeliveryPolicy.RetainedOnly),
+                runtime.Selection.RequestedModel,
+                dependencies.Profile,
+                dependencies.Profile.Profile.SecurityProfile,
+                dependencies.Status,
+                cancellationToken);
+            if (fail)
+            {
+                _ = await Assert.That(CreateChild).Throws<InvalidOperationException>();
+            }
+            else
+            {
+                _ = await Assert.That(CreateChild()).IsSameReferenceAs(runtime.ParentScope);
+            }
+
+            var log = await File.ReadAllTextAsync(resources.LogPath, cancellationToken);
+            _ = await Assert.That(log).Contains("event=\"child_scope_start\"")
+                .And.Contains("event=\"child_scope_completed\"")
+                .And.Contains(fail ? "outcome=\"failed\"" : "outcome=\"succeeded\"")
+                .And.Contains("agent=\"agent-child\"")
+                .And.DoesNotContain("secret-");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    [Arguments(AgentTaskExecutionStatus.Succeeded)]
+    [Arguments(AgentTaskExecutionStatus.Failed)]
+    [Arguments(AgentTaskExecutionStatus.Canceled)]
+    public async Task Task_diagnostics_record_safe_scheduling_and_terminal_transitions(AgentTaskExecutionStatus status)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "parrot-task-diagnostics", Guid.NewGuid().ToString("n"));
+        _ = Directory.CreateDirectory(directory);
+        try
+        {
+            var resources = new UserSessionResources(
+                new StatePaths(Path.Combine(directory, "state"), Path.Combine(directory, "config"), Path.Combine(directory, "data")),
+                UserSessionId.Parse("session-diagnostics"),
+                ProjectWorkspace.FromLaunchDirectory(directory));
+            using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
+            var progress = new AgentTaskProgress(_broker, _repository, "agent-owner", "call", diagnostics);
+            var artifact = AgentTaskParser.ParseArtifact(
+                """
+                {"schema_version":1,"tasks":[{"name":"secret-name","description":"secret-description","payload":"secret-payload","acceptance_criteria":"secret-criteria"},{"name":"secret-dependent","dependencies":["secret-name"],"description":"secret-description","payload":"secret-payload","acceptance_criteria":"secret-criteria"}]}
+                """);
+            var handles = progress.Initialize(artifact.Tasks, CancellationToken.None);
+            _ = progress.ReplaceChildren(handles[0], AgentTaskPayload.FromTasks(artifact.Tasks), CancellationToken.None);
+            _ = progress.ReplaceChildren(handles[0], AgentTaskPayload.FromInstruction("secret-replacement"), CancellationToken.None);
+            progress.MarkRunning(handles[0], CancellationToken.None);
+            progress.MarkTerminal(handles[0], status, CancellationToken.None);
+            if (status == AgentTaskExecutionStatus.Canceled)
+            {
+                progress.MarkRemainingCanceled(CancellationToken.None);
+            }
+            else
+            {
+                progress.MarkBlocked(handles[1], CancellationToken.None);
+            }
+
+            var log = await File.ReadAllTextAsync(resources.LogPath);
+            _ = await Assert.That(log).Contains("event=\"scheduled\"")
+                .And.Contains("event=\"running\"")
+                .And.Contains("event=\"terminal\"")
+                .And.Contains("outcome=\"superseded\"")
+                .And.Contains($"outcome=\"{status.ToString().ToLowerInvariant()}\"")
+                .And.Contains("agent=\"agent-owner\"")
+                .And.DoesNotContain("secret-");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Test]
@@ -82,7 +195,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     [Test]
     public async Task Unexpected_graph_failure_leaves_a_fully_terminal_progress_tree()
     {
-        var progress = new AgentTaskProgress(_broker, _repository, "owner", "failure-call");
+        var progress = new AgentTaskProgress(_broker, _repository, "owner", "failure-call", TestDiagnosticLog.Instance);
         var artifact = AgentTaskParser.ParseArtifact(
             """
             {"schema_version":1,"tasks":[{"name":"root","description":"Root","payload":[{"name":"running","description":"Running","payload":"work","acceptance_criteria":"Done"},{"name":"pending","dependencies":["running"],"description":"Pending","payload":"work","acceptance_criteria":"Done"}],"acceptance_criteria":"Done"}]}
@@ -100,7 +213,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     [Test]
     public async Task Current_snapshot_is_an_independent_full_tree_with_current_revision()
     {
-        var progress = new AgentTaskProgress(_broker, _repository, "owner", "snapshot-call");
+        var progress = new AgentTaskProgress(_broker, _repository, "owner", "snapshot-call", TestDiagnosticLog.Instance);
         var artifact = AgentTaskParser.ParseArtifact("""
             {"schema_version":1,"tasks":[{"name":"root","description":"Root task","payload":[{"name":"child","description":"Child task","payload":"work","acceptance_criteria":"Done"}],"acceptance_criteria":"Root done"}]}
             """);
@@ -1108,7 +1221,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             new ToolOutputBlobStore(Path.GetTempPath()),
             TestModels.CompactionGroupBlobs(),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
             new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,
             childQuestions,
@@ -1119,6 +1232,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
+            TestDiagnosticLog.Instance,
             cancellationToken));
         registry.RegisterRootScope(parentScope);
         var parent = parentScope.Session;
@@ -1142,7 +1256,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
             runtime.Router,
             runtime.ParentScope,
             runtime.Selection,
-            new AgentTaskProgress(broker, repository, runtime.Parent.SessionId, originToolCallId),
+            new AgentTaskProgress(broker, repository, runtime.Parent.SessionId, originToolCallId, TestDiagnosticLog.Instance),
             new AgentTaskConfig(maximumAttempts, true, TestModels.PromptTemplates),
             new HistoryForkBoundary.AfterCompletedHistory());
     }
@@ -1154,4 +1268,20 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         IAgentSessionScope ParentScope,
         IAgentSession Parent,
         AgentTurnSelection Selection);
+
+    private sealed class DiagnosticChildFactory(IAgentSessionScope scope, bool fail) : IAgentSessionFactory
+    {
+        public IAgentSessionScope Create(
+            AgentIdentity identity,
+            AgentSessionParentLink parentLink,
+            ModelSelector model,
+            EventBroker eventBroker,
+            EventRepository eventRepository,
+            IMode mode,
+            SecurityProfile securityProfile,
+            RuntimeStatus status,
+            IAgentRegistry registry,
+            CancellationToken lifetime) =>
+            fail ? throw new InvalidOperationException("secret-exception") : scope;
+    }
 }

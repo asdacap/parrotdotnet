@@ -9,7 +9,7 @@ namespace Parrot.Agent;
 // for lazy root construction, not a user-session property.
 internal interface IUserSessionFactory
 {
-    UserSession Create(
+    Task<UserSession> Create(
         SessionResourceLease resources,
         string id,
         string rootAgentName,

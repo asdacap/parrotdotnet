@@ -1,4 +1,5 @@
 using Parrot.Auth;
+using Parrot.Diagnostics;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli.Commands;
@@ -14,13 +15,14 @@ internal static class SlashCommands
         ICredentialStore credentials,
         IOAuthClient oauth,
         IReadOnlyList<string> providerIds,
-        Func<CancellationToken, Task> refreshSkillCompletion)
+        Func<CancellationToken, Task> refreshSkillCompletion,
+        IDiagnosticLog diagnostics)
     {
         var commands = new List<ISlashCommand>();
         var registry = new SlashCommandRegistry(commands, dialog);
         var models = new ModelWizard(client, dialog);
         var modes = new ModeSelection(client, dialog);
-        commands.Add(new AuthCommand(credentials, oauth, providerIds, dialog));
+        commands.Add(new AuthCommand(credentials, oauth, providerIds, dialog, diagnostics));
         commands.Add(new ClearCommand(models, modes, session, activity, dialog));
         commands.Add(new CompactCommand(session, activity, dialog));
         commands.Add(new EffortCommand(client, session, activity, dialog));

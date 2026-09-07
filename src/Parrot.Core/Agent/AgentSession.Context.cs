@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Globalization;
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Protocol;
 using Parrot.Store;
@@ -308,6 +310,12 @@ internal sealed partial class AgentSession
             AgentSessionId = SessionId,
             CompactionStarted = new CompactionStarted(),
         };
+        var compactionStarted = Stopwatch.GetTimestamp();
+        diagnostics.Write(new("compaction", "started", DiagnosticSeverity.Information)
+        {
+            AgentSessionId = SessionId,
+            CorrelationId = started.Id,
+        });
         await EmitEvent(started, null, null, CancellationToken.None).ConfigureAwait(false);
 
         try
@@ -432,10 +440,26 @@ internal sealed partial class AgentSession
                 CompactionFinished = new CompactionFinished(),
             };
             await EmitEvent(finished, null, null, CancellationToken.None).ConfigureAwait(false);
+            diagnostics.Write(new("compaction", "finished", DiagnosticSeverity.Information)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = started.Id,
+                Outcome = "completed",
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(compactionStarted).TotalMilliseconds,
+            });
             return new CompactionEpochResult(instructions, reduced);
         }
         catch (Exception failure)
         {
+            var errorCode = DiagnosticEvent.ClassifyFailure(failure);
+            diagnostics.Write(new("compaction", "finished", errorCode == "cancelled" ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                AgentSessionId = SessionId,
+                CorrelationId = started.Id,
+                Outcome = errorCode == "cancelled" ? "cancelled" : "failed",
+                ErrorCode = errorCode,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(compactionStarted).TotalMilliseconds,
+            });
             var failed = new Event
             {
                 Id = Identifier.EventId(),

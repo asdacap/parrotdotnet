@@ -185,7 +185,7 @@ internal sealed class CompactContextToolTests : IDisposable
             new ToolOutputBlobStore(_workspace),
             _compactionGroupBlobs,
             new Compactor(99, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
             new ContextCadence(),
             TestModels.PromptTemplates,
             dependencies.ChildQuestions,
@@ -196,6 +196,7 @@ internal sealed class CompactContextToolTests : IDisposable
             dependencies.Status,
             dependencies.Queues,
             new AgentSessionActivity(TimeProvider.System),
+            TestDiagnosticLog.Instance,
             cancellationToken);
     }
 

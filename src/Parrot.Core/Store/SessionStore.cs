@@ -1,4 +1,5 @@
 using Parrot.Agent;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.State;
 
@@ -10,7 +11,8 @@ internal sealed class SessionStore(
     string hostKey,
     IUserSessionFactory userSessions,
     ModelRouter router,
-    ModeRegistry modes)
+    ModeRegistry modes,
+    DiagnosticLogs diagnostics)
 {
     public static void Publish(UserSession session)
     {
@@ -48,44 +50,30 @@ internal sealed class SessionStore(
     public AdmissionResult DiscoverLatest() =>
         new WorkingDirectoryClaim(paths.State, hostKey).DiscoverLatest(workingDirectory);
 
-    public OpenedSession Resume(UserSessionId id, bool interactivePermissions)
+    public Task<OpenedSession> Resume(UserSessionId id, bool interactivePermissions)
     {
         var workspace = ProjectWorkspace.FromLaunchDirectory(workingDirectory);
-        var admission = new WorkingDirectoryClaim(paths.State, hostKey).Resume(workingDirectory, id);
-        if (admission.ActivationLease is null)
-        {
-            throw new SessionAdmissionException(admission);
-        }
-
-        try
-        {
-            var existing = new SessionIndex(new UserSessionResources(paths, id, workspace)).Find()
-                ?? throw new InvalidOperationException($"Session metadata for '{id}' is unavailable.");
-            return Open(router.Resolve(StoredSelector(existing)), modes.Default, interactivePermissions, workspace, admission);
-        }
-        catch
-        {
-            admission.ActivationLease.Dispose();
-            throw;
-        }
+        var admission = Acquire(() => new WorkingDirectoryClaim(paths.State, hostKey).Resume(workingDirectory, id));
+        return Open(null, modes.Default, interactivePermissions, workspace, admission);
     }
 
-    public UserSession Open(ResolvedModelSelection model) => Open(model, modes.Default, false).Session;
+    public async Task<UserSession> Open(ResolvedModelSelection model) =>
+        (await Open(model, modes.Default, false).ConfigureAwait(false)).Session;
 
-    public OpenedSession Open(ResolvedModelSelection model, string mode, bool interactivePermissions)
+    public Task<OpenedSession> Open(ResolvedModelSelection model, string mode, bool interactivePermissions)
     {
         var workspace = ProjectWorkspace.FromLaunchDirectory(workingDirectory);
         var claim = new WorkingDirectoryClaim(paths.State, hostKey);
-        var admission = claim.OpenDefault(workspace.LaunchDirectory);
+        var admission = Acquire(() => claim.OpenDefault(workspace.LaunchDirectory));
         return Open(model, mode, interactivePermissions, workspace, admission);
     }
 
-    public UserSession CreateFresh(ResolvedModelSelection model, string mode, bool interactivePermissions)
+    public async Task<UserSession> CreateFresh(ResolvedModelSelection model, string mode, bool interactivePermissions)
     {
         var workspace = ProjectWorkspace.FromLaunchDirectory(workingDirectory);
         var claim = new WorkingDirectoryClaim(paths.State, hostKey);
-        var admission = claim.CreateFresh(workspace.LaunchDirectory, UserSessionId.Generate());
-        return Open(model, mode, interactivePermissions, workspace, admission).Session;
+        var admission = Acquire(() => claim.CreateFresh(workspace.LaunchDirectory, UserSessionId.Generate()));
+        return (await Open(model, mode, interactivePermissions, workspace, admission).ConfigureAwait(false)).Session;
     }
 
     private static string StoredSelector(SessionMeta meta)
@@ -100,8 +88,26 @@ internal sealed class SessionStore(
             : $"{meta.ProviderId}/{meta.Model}";
     }
 
-    private OpenedSession Open(
-        ResolvedModelSelection model,
+    private AdmissionResult Acquire(Func<AdmissionResult> admit)
+    {
+        try
+        {
+            var admission = admit();
+            return admission.ActivationLease is null ? throw new SessionAdmissionException(admission) : admission;
+        }
+        catch (Exception failure)
+        {
+            diagnostics.Global.Write(new DiagnosticEvent("session", "acquire", DiagnosticSeverity.Error)
+            {
+                Outcome = "failed",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            throw;
+        }
+    }
+
+    private async Task<OpenedSession> Open(
+        ResolvedModelSelection? model,
         string mode,
         bool interactivePermissions,
         ProjectWorkspace workspace,
@@ -111,55 +117,100 @@ internal sealed class SessionStore(
             ?? throw new SessionAdmissionException(admission);
         var activation = admission.ActivationLease
             ?? throw new SessionAdmissionException(admission);
+        UserSessionResources resources;
+        IDiagnosticLog sessionDiagnostics;
         try
         {
-            var resources = new UserSessionResources(paths, id, workspace);
-            var index = new SessionIndex(resources);
-            var existing = index.Find();
-            if (existing is null && File.Exists(resources.MetadataPath))
-            {
-                throw new InvalidOperationException($"Session metadata for '{id}' is invalid.");
-            }
-
-            var rootAgentName = string.IsNullOrEmpty(existing?.RootAgentName) ? "main" : existing.RootAgentName;
-            var selected = existing is null ? model : router.Resolve(StoredSelector(existing));
-            var selectedMode = existing is null ? mode
-                : string.IsNullOrEmpty(existing.Mode) ? modes.Default : existing.Mode;
-            var lease = (SessionResourceLease?)SessionResourceLease.Open(resources, activation);
-            try
-            {
-                var session = userSessions.Create(
-                    lease ?? throw new InvalidOperationException("The session resource lease was not acquired."),
-                    id.Value,
-                    rootAgentName,
-                    selected,
-                    selectedMode,
-                    interactivePermissions);
-                index.Publish(new SessionMeta
-                {
-                    Id = id.Value,
-                    WorkingDirectory = existing?.WorkingDirectory ?? workspace.LaunchDirectory,
-                    RootAgentName = rootAgentName,
-                    ProviderId = session.ProviderId,
-                    Model = session.CanonicalModel,
-                    Selector = session.Model,
-                    Mode = session.Mode.Profile.Id,
-                    LastOpenedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
-                    CreatedAt = existing?.CreatedAt
-                        ?? DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
-                });
-                lease = null;
-                return new OpenedSession(session, existing is not null);
-            }
-            finally
-            {
-                lease?.Dispose();
-            }
+            resources = new UserSessionResources(paths, id, workspace);
+            sessionDiagnostics = diagnostics.OpenSession(resources);
         }
         catch
         {
-            activation.Dispose();
+            await activation.DisposeAsync().ConfigureAwait(false);
             throw;
+        }
+
+        var lease = (SessionResourceLease?)SessionResourceLease.Open(resources, activation, sessionDiagnostics);
+        UserSession? session = null;
+        Exception? openingFailure = null;
+        try
+        {
+            var index = new SessionIndex(resources);
+            var existing = index.Find();
+            if (existing is null && (model is null || File.Exists(resources.MetadataPath)))
+            {
+                throw new InvalidOperationException($"Session metadata for '{id}' is unavailable or invalid.");
+            }
+
+            var rootAgentName = string.IsNullOrEmpty(existing?.RootAgentName) ? "main" : existing.RootAgentName;
+            var selected = existing is null
+                ? model ?? throw new InvalidOperationException("A new session requires a model.")
+                : router.Resolve(StoredSelector(existing));
+            var selectedMode = existing is null ? mode
+                : string.IsNullOrEmpty(existing.Mode) ? modes.Default : existing.Mode;
+            session = await userSessions.Create(
+                lease ?? throw new InvalidOperationException("The session resource lease was not acquired."),
+                id.Value,
+                rootAgentName,
+                selected,
+                selectedMode,
+                interactivePermissions).ConfigureAwait(false);
+            index.Publish(new SessionMeta
+            {
+                Id = id.Value,
+                WorkingDirectory = existing?.WorkingDirectory ?? workspace.LaunchDirectory,
+                RootAgentName = rootAgentName,
+                ProviderId = session.ProviderId,
+                Model = session.CanonicalModel,
+                Selector = session.Model,
+                Mode = session.Mode.Profile.Id,
+                LastOpenedAt = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+                CreatedAt = existing?.CreatedAt
+                    ?? DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            });
+            lease.Diagnostics.Write(new DiagnosticEvent("session", existing is null ? "start" : "resume", DiagnosticSeverity.Information)
+            {
+                Outcome = "success",
+            });
+            lease = null;
+            return new OpenedSession(session, existing is not null);
+        }
+        catch (Exception failure)
+        {
+            openingFailure = failure;
+            sessionDiagnostics.Write(new DiagnosticEvent("session", "open", DiagnosticSeverity.Error)
+            {
+                Outcome = "failed",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            try
+            {
+                if (session is not null)
+                {
+                    await session.DisposeAsync().ConfigureAwait(false);
+                    lease = null;
+                }
+            }
+            catch (Exception cleanupFailure)
+            {
+                sessionDiagnostics.Write(new DiagnosticEvent("session", "cleanup", DiagnosticSeverity.Error)
+                {
+                    Outcome = "failed",
+                    ErrorCode = DiagnosticEvent.ClassifyFailure(cleanupFailure),
+                });
+            }
+
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                await (lease?.DisposeAsync().AsTask() ?? Task.CompletedTask).ConfigureAwait(false);
+            }
+            catch (Exception) when (openingFailure is not null)
+            {
+            }
         }
     }
 }

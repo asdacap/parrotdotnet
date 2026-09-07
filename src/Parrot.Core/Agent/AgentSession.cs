@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Protocol;
@@ -47,6 +48,7 @@ internal sealed partial class AgentSession(
     RuntimeStatus status,
     AgentQueues queues,
     AgentSessionActivity activity,
+    IDiagnosticLog diagnostics,
     CancellationToken lifetime) : IAgentSession
 {
     private const string InterruptedFinish = "interrupted";
@@ -124,6 +126,7 @@ internal sealed partial class AgentSession(
         RuntimeStatus status,
         AgentQueues queues,
         AgentSessionActivity activity,
+        IDiagnosticLog diagnostics,
         CancellationToken lifetime)
         : this(
             identity,
@@ -150,6 +153,7 @@ internal sealed partial class AgentSession(
             status,
             queues,
             activity,
+            diagnostics,
             lifetime)
     {
     }

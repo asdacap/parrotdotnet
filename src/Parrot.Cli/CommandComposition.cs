@@ -1,4 +1,5 @@
 using Parrot.Auth;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Pure.DI;
 
@@ -12,6 +13,7 @@ internal partial class CommandComposition
             .Arg<Interrupts>("interrupts")
             .Arg<TextWriter>("output", "output")
             .Arg<TextWriter>("error", "error")
+            .Arg<DiagnosticLogs>("diagnostics")
             .Bind().As(Lifetime.Singleton).To(_ =>
                 new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false })
                 {
@@ -46,8 +48,9 @@ internal partial class CommandComposition
                 ctx.Inject<IBrowserOpener>(out var browserOpener);
                 ctx.Inject<IOAuthClient>(out var oauthClient);
                 ctx.Inject<ModelsDevInformationProvider>(out var modelsDev);
+                ctx.Inject<DiagnosticLogs>(out var diagnostics);
                 return new CommandDispatcher(
-                    interrupts, output, error, httpClients, browserOpener, oauthClient, modelsDev);
+                    interrupts, output, error, httpClients, browserOpener, oauthClient, modelsDev, diagnostics);
             })
             .Root<CommandDispatcher>("Dispatcher");
 }

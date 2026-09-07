@@ -57,13 +57,13 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         using var childProvider = new HeldProvider("child", LLMEvent.Completed("stop", 1, 0, 1, "child finished", []));
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), lifetime.Token);
+        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime.Token);
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)));
+        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), TestDiagnosticLog.Instance);
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
-            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
+            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 4);
@@ -127,9 +127,9 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         using var provider = new HeldProvider("parent", LLMEvent.Completed("stop", 1, 0, 1, "premature", []), LLMEvent.Completed("stop", 1, 0, 1, "finished", []));
         var router = Router(provider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), lifetime.Token);
+        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime.Token);
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)));
+        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), TestDiagnosticLog.Instance);
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
@@ -139,6 +139,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             new RetainedAgentBudget(1024),
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
@@ -182,9 +183,9 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         using var childProvider = new HeldProvider("child");
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), lifetime.Token);
+        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime.Token);
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)));
+        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), TestDiagnosticLog.Instance);
         var factory = new CompletionAgentSessions(
             router,
             processes,
@@ -193,7 +194,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
             queueCatalog,
             _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
-            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
+            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 3);
@@ -273,13 +274,13 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         using var childProvider = new HeldProvider("child", LLMEvent.Completed("stop", 1, 0, 1, "child finished", []));
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), lifetime.Token);
+        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime.Token);
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)));
+        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), TestDiagnosticLog.Instance);
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
-            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
+            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: false, maxTurns: 2);
@@ -320,13 +321,13 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         using var rootProvider = new HeldProvider("root");
         var router = Router(monitoredProvider, siblingProvider, grandchildProvider, rootProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), lifetime.Token);
+        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime.Token);
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)));
+        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), TestDiagnosticLog.Instance);
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
-            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
+            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         await using var root = Session(
@@ -402,13 +403,13 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         using var provider = new HeldProvider("parent", LLMEvent.Completed("stop", 1, 0, 1, "finished", []));
         var router = Router(provider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(CreateSandboxPassThrough()), lifetime.Token);
+        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(CreateSandboxPassThrough()), TestDiagnosticLog.Instance, lifetime.Token);
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)));
+        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), TestDiagnosticLog.Instance);
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
-            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
+            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         await using var parent = Session(
@@ -466,13 +467,13 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         using var childProvider = new HeldProvider("child", LLMEvent.Completed("stop", 1, 0, 1, "child finished", []));
         var router = Router(parentProvider, childProvider);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), lifetime.Token);
+        using var processes = new ShellProcessOwners(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime.Token);
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)));
+        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(new StatePaths(Path.Combine(_workspace, ".state"), Path.Combine(_workspace, ".config"), Path.Combine(_workspace, ".data")), UserSessionId.Parse($"session-{Guid.NewGuid():n}"), ProjectWorkspace.FromLaunchDirectory(_workspace)), TestDiagnosticLog.Instance);
         var factory = new CompletionAgentSessions(
             router, processes, repository, _broker, queueCatalog, _workspace);
         await using IAgentRegistry registry = new AgentRegistry(
-            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), lifetime.Token);
+            factory, _broker, repository, new TestProfileFixture().Registry, TestModels.PromptTemplates, new RetainedAgentBudget(1024), TestDiagnosticLog.Instance, lifetime.Token);
         var status = new RuntimeStatus(queueCatalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
         var mode = new CompletionMode(enforce: true, maxTurns: 2);
@@ -575,7 +576,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         var rootScope = TestAgentSessionScope.Build(identity, AgentSessionParentLink.Root(), registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
         {
             var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-            return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+            return new AgentSession(identity, sessionParentScope, new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, owner, TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, status, queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
         });
         TestModels.RegisterScope(rootScope);
         queues.Attach(rootScope.Session);
@@ -601,7 +602,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
         _childRegistries.Add(children);
         var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-        IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector($"{provider.Id}/model"), router, _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(_workspace), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(mode.Profile.SecurityProfile).Security, status, queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
         queues.Attach(session);
         return session;
     }
@@ -704,7 +705,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
                 new ToolOutputBlobStore(workspace),
                 TestModels.CompactionGroupBlobs(),
                 new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
-                new ProviderSessions(),
+                new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
                 new ContextCadence(),
                 TestModels.PromptTemplates,
                 scopedChildQuestions,
@@ -715,6 +716,7 @@ internal sealed class ActiveWorkCompletionTests : IAsyncDisposable
                 status,
                 queues,
                 new AgentSessionActivity(TimeProvider.System),
+                TestDiagnosticLog.Instance,
                 lifetime);
                 queues.Attach(session);
                 return session;

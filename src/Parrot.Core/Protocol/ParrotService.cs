@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Permissions;
 using Parrot.Questions;
@@ -29,26 +31,60 @@ internal sealed class ParrotService(
     SessionStore store,
     SessionCatalog sessionCatalog,
     ModeRegistry modes,
-    IUserSessionHost sessionHost) : GeneratedParrot.ParrotBase, IAsyncDisposable
+    IUserSessionHost sessionHost,
+    IDiagnosticLog diagnostics) : GeneratedParrot.ParrotBase, IAsyncDisposable
 {
     private readonly UserSessionRegistry _userSessions = new();
 
     public override async Task<ListModelsResponse> ListModels(ListModelsRequest request, ServerCallContext context)
     {
-        ArgumentNullException.ThrowIfNull(context);
-
-        var listed = await registry.AvailableModels(context.CancellationToken).ConfigureAwait(false);
-        var response = new ListModelsResponse();
-
-        foreach (var model in listed)
+        var started = Stopwatch.GetTimestamp();
+        var correlationId = Guid.NewGuid().ToString("N");
+        var operationDiagnostics = diagnostics;
+        var outcome = "succeeded";
+        operationDiagnostics.Write(new DiagnosticEvent("protocol", "list_models_start", DiagnosticSeverity.Information)
         {
-            var listedModel = new Model { Id = model.Model.Id, ProviderId = model.Model.ProviderId };
-            listedModel.Variants.AddRange(model.Model.Capabilities.Variants.Select(variant =>
-                new ModelVariant { Name = variant.Name, ReasoningEffort = variant.ReasoningEffort }));
-            response.Models.Add(listedModel);
-        }
+            CorrelationId = correlationId,
+        });
+        try
+        {
+            ArgumentNullException.ThrowIfNull(context);
 
-        return response;
+            var listed = await registry.AvailableModels(context.CancellationToken).ConfigureAwait(false);
+            var response = new ListModelsResponse();
+
+            foreach (var model in listed)
+            {
+                var listedModel = new Model { Id = model.Model.Id, ProviderId = model.Model.ProviderId };
+                listedModel.Variants.AddRange(model.Model.Capabilities.Variants.Select(variant =>
+                    new ModelVariant { Name = variant.Name, ReasoningEffort = variant.ReasoningEffort }));
+                response.Models.Add(listedModel);
+            }
+
+            return response;
+        }
+        catch (Exception failure)
+        {
+            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
+            operationDiagnostics.Write(new DiagnosticEvent(
+                "protocol", "list_models_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                ErrorCode = failure is RpcException rpcFailure
+                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
+                Outcome = outcome,
+            });
+            throw;
+        }
+        finally
+        {
+            operationDiagnostics.Write(new DiagnosticEvent("protocol", "list_models_complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                Outcome = outcome,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+        }
     }
 
     public override Task<ListModelAliasesResponse> ListModelAliases(
@@ -323,80 +359,182 @@ internal sealed class ParrotService(
 
     public override async Task<UserSession> CreateSession(CreateSessionRequest request, ServerCallContext context)
     {
-        ArgumentNullException.ThrowIfNull(request);
-
-        ResolvedModelSelection model;
-
+        var started = Stopwatch.GetTimestamp();
+        var correlationId = Guid.NewGuid().ToString("N");
+        var operationDiagnostics = diagnostics;
+        var outcome = "succeeded";
+        operationDiagnostics.Write(new DiagnosticEvent("protocol", "create_session_start", DiagnosticSeverity.Information)
+        {
+            CorrelationId = correlationId,
+        });
         try
         {
-            model = router.Resolve(request.Model);
-        }
-        catch (LLMProviderException failure)
-        {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
-        }
+            ArgumentNullException.ThrowIfNull(request);
 
-        Agent.UserSession created;
+            ResolvedModelSelection model;
 
-        try
-        {
-            _ = modes.Resolve(request.Mode);
-            created = await _userSessions.Host(
-                () => store.CreateFresh(model, request.Mode, request.InteractivePermissions),
-                session => sessionHost.Host(session, this, context.CancellationToken)).ConfigureAwait(false);
-        }
-        catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
-        {
-            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
-        }
+            try
+            {
+                model = router.Resolve(request.Model);
+            }
+            catch (LLMProviderException failure)
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+            }
 
-        return UserSession.From(created, false);
+            Agent.UserSession created;
+
+            try
+            {
+                _ = modes.Resolve(request.Mode);
+                created = await _userSessions.Host(
+                    () => store.CreateFresh(model, request.Mode, request.InteractivePermissions),
+                    session => sessionHost.Host(session, this, context.CancellationToken)).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+            }
+
+            operationDiagnostics = created.Diagnostics;
+            return UserSession.From(created, false);
+        }
+        catch (Exception failure)
+        {
+            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
+            operationDiagnostics.Write(new DiagnosticEvent(
+                "protocol", "create_session_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                ErrorCode = failure is RpcException rpcFailure
+                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
+                Outcome = outcome,
+            });
+            throw;
+        }
+        finally
+        {
+            operationDiagnostics.Write(new DiagnosticEvent("protocol", "create_session_complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                Outcome = outcome,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+        }
     }
 
     public override async Task<UserSession> ResumeSession(ResumeSessionRequest request, ServerCallContext context)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(context);
-        context.CancellationToken.ThrowIfCancellationRequested();
-        var id = ParseSessionId(request.UserSessionId);
-        var metadata = sessionCatalog.Find(id)
-            ?? throw new RpcException(new Status(StatusCode.NotFound, $"no user session {id}"));
-        if (metadata.State == SessionCatalogState.Corrupt)
+        var started = Stopwatch.GetTimestamp();
+        var correlationId = Guid.NewGuid().ToString("N");
+        var operationDiagnostics = diagnostics;
+        var outcome = "succeeded";
+        operationDiagnostics.Write(new DiagnosticEvent("protocol", "resume_session_start", DiagnosticSeverity.Information)
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, "session metadata is corrupt"));
-        }
-
-        ValidateWorkspace(request.WorkingDirectory, metadata.WorkingDirectory);
+            CorrelationId = correlationId,
+        });
         try
         {
-            var resumed = await _userSessions.Host(
-                () => store.Resume(id, request.InteractivePermissions).Session,
-                session => sessionHost.Host(session, this, context.CancellationToken)).ConfigureAwait(false);
-            return UserSession.From(resumed, true);
+            ArgumentNullException.ThrowIfNull(request);
+            ArgumentNullException.ThrowIfNull(context);
+            context.CancellationToken.ThrowIfCancellationRequested();
+            var id = ParseSessionId(request.UserSessionId);
+            var metadata = sessionCatalog.Find(id)
+                ?? throw new RpcException(new Status(StatusCode.NotFound, $"no user session {id}"));
+            if (metadata.State == SessionCatalogState.Corrupt)
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, "session metadata is corrupt"));
+            }
+
+            ValidateWorkspace(request.WorkingDirectory, metadata.WorkingDirectory);
+            try
+            {
+                var resumed = await _userSessions.Host(
+                    async () => (await store.Resume(id, request.InteractivePermissions).ConfigureAwait(false)).Session,
+                    session => sessionHost.Host(session, this, context.CancellationToken)).ConfigureAwait(false);
+                operationDiagnostics = resumed.Diagnostics;
+                return UserSession.From(resumed, true);
+            }
+            catch (SessionAdmissionException failure)
+            {
+                var status = failure.Admission?.Disposition is ClaimDisposition.Live or ClaimDisposition.Contended
+                    ? StatusCode.AlreadyExists
+                    : StatusCode.FailedPrecondition;
+                throw new RpcException(new Status(status, failure.Message));
+            }
+            catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, failure.Message));
+            }
         }
-        catch (SessionAdmissionException failure)
+        catch (Exception failure)
         {
-            var status = failure.Admission?.Disposition is ClaimDisposition.Live or ClaimDisposition.Contended
-                ? StatusCode.AlreadyExists
-                : StatusCode.FailedPrecondition;
-            throw new RpcException(new Status(status, failure.Message));
+            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
+            operationDiagnostics.Write(new DiagnosticEvent(
+                "protocol", "resume_session_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                ErrorCode = failure is RpcException rpcFailure
+                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
+                Outcome = outcome,
+            });
+            throw;
         }
-        catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
+        finally
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, failure.Message));
+            operationDiagnostics.Write(new DiagnosticEvent("protocol", "resume_session_complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                Outcome = outcome,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
         }
     }
 
     public override Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(context);
-        context.CancellationToken.ThrowIfCancellationRequested();
-        var id = ParseSessionId(request.UserSessionId);
-        var session = _userSessions.Find(id.Value);
-        ValidateWorkspace(request.WorkingDirectory, session.Resources.Workspace.LaunchDirectory);
-        SessionStore.RecordOpened(session);
-        return Task.FromResult(UserSession.From(session, false));
+        var started = Stopwatch.GetTimestamp();
+        var correlationId = Guid.NewGuid().ToString("N");
+        var operationDiagnostics = diagnostics;
+        var outcome = "succeeded";
+        operationDiagnostics.Write(new DiagnosticEvent("protocol", "attach_session_start", DiagnosticSeverity.Information)
+        {
+            CorrelationId = correlationId,
+        });
+        try
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            ArgumentNullException.ThrowIfNull(context);
+            context.CancellationToken.ThrowIfCancellationRequested();
+            var id = ParseSessionId(request.UserSessionId);
+            var session = _userSessions.Find(id.Value);
+            operationDiagnostics = session.Diagnostics;
+            ValidateWorkspace(request.WorkingDirectory, session.Resources.Workspace.LaunchDirectory);
+            SessionStore.RecordOpened(session);
+            return Task.FromResult(UserSession.From(session, false));
+        }
+        catch (Exception failure)
+        {
+            outcome = failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? "cancelled" : "failed";
+            operationDiagnostics.Write(new DiagnosticEvent(
+                "protocol", "attach_session_failure", failure is OperationCanceledException or RpcException { StatusCode: StatusCode.Cancelled } ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+            {
+                CorrelationId = correlationId,
+                ErrorCode = failure is RpcException rpcFailure
+                    ? rpcFailure.StatusCode.ToString() : DiagnosticEvent.ClassifyFailure(failure),
+                Outcome = outcome,
+            });
+            throw;
+        }
+        finally
+        {
+            operationDiagnostics.Write(new DiagnosticEvent("protocol", "attach_session_complete", DiagnosticSeverity.Information)
+            {
+                CorrelationId = correlationId,
+                Outcome = outcome,
+                DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            });
+        }
     }
 
     public override async Task<SetGoalResponse> SetGoal(SetGoalRequest request, ServerCallContext context)

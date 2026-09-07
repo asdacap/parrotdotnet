@@ -51,6 +51,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.Start(
             "interactive",
@@ -109,6 +110,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.Start(
             "spill",
@@ -163,6 +165,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.Start(
             "poll",
@@ -213,6 +216,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.Start(
             "live-pipe",
@@ -279,6 +283,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
             resources.AgentScratch(agent.SessionId),
             new ProcessRunner(CreateSandboxPassThrough()),
             inventory,
+            TestDiagnosticLog.Instance,
             lifetime.Token);
         var process = owner.Start(
             "claimed",
@@ -368,7 +373,7 @@ internal sealed class ShellProcessInteractionTests : IDisposable
         var repository = new EventRepository(database);
         var identity = AgentIdentity.Main("agent", "agent", TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, events, repository, lifetime);
-        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), events, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, _workspace, _workspace), new ToolOutputBlobStore(blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, new TestCompletionCallbacksFixture(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, events).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
     }
 
     private string CreateSandboxPassThrough()

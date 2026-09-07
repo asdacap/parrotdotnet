@@ -2,6 +2,7 @@ using Parrot.Agent;
 using Parrot.AgentTasks;
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Events;
 using Parrot.Llm;
 using Parrot.Process;
@@ -65,10 +66,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
     {
         var time = new ManualTimeProvider();
         var provider = new UnusedProvider();
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("schema-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("schema-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         await using var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         _ = queues.Create("work", "queued work");
@@ -122,10 +125,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
     {
         var repository = new EventRepository(_database);
         var provider = new UnusedProvider();
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("pending-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("pending-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         await using var session = Session(provider, [], repository, queueCatalog, queues);
         var unobservedProcesses = new UnobservedProcessStatusSource();
@@ -153,10 +158,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
     public async Task Agent_completion_identifies_the_agent_that_interrupted_wait(CancellationToken cancellationToken)
     {
         var provider = new UnusedProvider();
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("agent-completion-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("agent-completion-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         await using var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         ITool tool = new WaitTool(
@@ -177,10 +184,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
     {
         var provider = new UnusedProvider();
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("agent-task-completion-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("agent-task-completion-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         await using var session = Session(provider, [], repository, queueCatalog, queues);
         ITool tool = new WaitTool(
@@ -210,10 +219,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
     {
         var provider = new UnusedProvider();
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("agent-task-oversized-completion-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("agent-task-oversized-completion-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         await using var session = Session(provider, [], repository, queueCatalog, queues);
         var blobDirectory = Path.Combine(_root, "agent-task-blobs");
@@ -258,10 +269,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
     public async Task Process_completion_identifies_the_process_that_interrupted_wait(CancellationToken cancellationToken)
     {
         var provider = new UnusedProvider();
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("process-completion-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("process-completion-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         await using var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         ITool tool = new WaitTool(
@@ -285,10 +298,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
     public async Task Cancellation_clears_the_wait_registration(CancellationToken cancellationToken)
     {
         var provider = new UnusedProvider();
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("cancellation-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("cancellation-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         await using var session = Session(provider, [], selectedRepository: null, queueCatalog, queues);
         var unobservedProcesses = new UnobservedProcessStatusSource();
@@ -314,10 +329,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
             LLMEvent.Completed("tool_calls", 1, 0, 1, string.Empty, [new LLMToolCall("wait-call", "wait", "{}")]),
             LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("round-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("round-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var queues = queueCatalog.Register(AgentIdentity.Main("agent", "main", TestModels.PromptTemplates));
         var processes = new ProcessStatusSource();
         var agents = new AgentStatusSource();
@@ -356,10 +373,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
     {
         using var provider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("parent-listener-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        var resources = new UserSessionResources(
+            new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            UserSessionId.Parse("parent-listener-queues"),
+            ProjectWorkspace.FromLaunchDirectory(_root));
+        using var diagnostics = FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
+        using var queueCatalog = new AgentQueueCatalog(resources, diagnostics);
         using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates));
         using var childQueues = queueCatalog.Register(
             AgentIdentity.Child("child", "parent", "parent", "child", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
@@ -384,6 +403,9 @@ internal sealed class WaitToolTests : IAsyncDisposable
         _ = await Assert.That(parentQueues.Get("parent-work").Size).IsEqualTo(0);
         provider.Release();
         await child.DisposeAsync();
+        var log = await File.ReadAllTextAsync(resources.LogPath, cancellationToken);
+        _ = await Assert.That(log).Contains("event=\"delivery_completed\"").And.Contains("outcome=\"delivered\"")
+            .And.Contains("agent=\"child\"").And.DoesNotContain("parent-work").And.DoesNotContain("from-parent");
     }
 
     [Test]
@@ -392,10 +414,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var firstProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         using var secondProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("competing-listener-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("competing-listener-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates));
         using var firstQueues = queueCatalog.Register(
             AgentIdentity.Child("first-child", "parent", "parent", "first", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
@@ -470,10 +494,12 @@ internal sealed class WaitToolTests : IAsyncDisposable
         using var disabledProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         using var activeProvider = new SteppedProvider(LLMEvent.Completed("stop", 1, 0, 1, "done", []));
         var repository = new EventRepository(_database);
-        using var queueCatalog = new AgentQueueCatalog(new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse("disabled-listener-queues"),
-        ProjectWorkspace.FromLaunchDirectory(_root)));
+        using var queueCatalog = new AgentQueueCatalog(
+            new UserSessionResources(
+                new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+                UserSessionId.Parse("disabled-listener-queues"),
+                ProjectWorkspace.FromLaunchDirectory(_root)),
+            TestDiagnosticLog.Instance);
         using var parentQueues = queueCatalog.Register(AgentIdentity.Main("parent", "parent", TestModels.PromptTemplates));
         using var disabledQueues = queueCatalog.Register(
             AgentIdentity.Child("disabled-child", "parent", "parent", "disabled", 1, AgentScope.Empty(TestModels.PromptTemplates), TestModels.PromptTemplates));
@@ -532,7 +558,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var sessions = new WaitAgentSessions(router, TimeProvider.System, _root);
         var profiles = new TestProfileFixture().Registry;
         var modes = new ModeRegistry(profiles, ModeRegistry.Build);
-        await using var owner = new AgentUserSession(
+        await using var owner = await AgentUserSession.Create(
             "user",
             "main",
             router.Resolve(model.Selector),
@@ -584,12 +610,24 @@ internal sealed class WaitToolTests : IAsyncDisposable
         return new SkillCatalogFactory(configuration, Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "packaged-skills"));
     }
 
-    private SessionResourceLease Resources(string ownerId) => SessionResourceLease.Own(
-        new UserSessionResources(
-        new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
-        UserSessionId.Parse(ownerId),
-        ProjectWorkspace.FromLaunchDirectory(_root)),
-        _database);
+    private SessionResourceLease Resources(string ownerId)
+    {
+        var resources = new UserSessionResources(
+            new StatePaths(_root, Path.Combine(_root, "config"), Path.Combine(_root, "data")),
+            UserSessionId.Parse(ownerId),
+            ProjectWorkspace.FromLaunchDirectory(_root));
+        var diagnostics = (IDiagnosticLog?)FileDiagnosticLog.OpenSession(resources, "test", TextWriter.Null, TimeProvider.System);
+        try
+        {
+            var lease = SessionResourceLease.Own(resources, _database, diagnostics ?? throw new InvalidOperationException("Missing diagnostics"));
+            diagnostics = null;
+            return lease;
+        }
+        finally
+        {
+            diagnostics?.Dispose();
+        }
+    }
 
     private IAgentSession Session(
         ILLMProvider provider,
@@ -624,7 +662,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var childQuestions = new ChildQuestionCoordinator(AgentSessionParentScope.Root(), TestModels.PromptTemplates);
         _childQuestions.Add(childQuestions);
         var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-        IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, queues, new AgentSessionActivity(TimeProvider.System), CancellationToken.None);
+        IAgentSession session = new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, tools, tools.Count == 0 ? TestModels.EmptyToolDefinitions : new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, _root, _root), new ToolOutputBlobStore(Path.Combine(_root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates, null), exitReminder, repository, _broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, CancellationToken.None);
         queues.Attach(session);
         return session;
     }
@@ -634,6 +672,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
         var processes = new Parrot.Process.ShellProcessOwners(
             resources,
             new Parrot.Process.ProcessRunner(string.Empty),
+            TestDiagnosticLog.Instance,
             CancellationToken.None);
         _processOwners.Add(processes);
         return processes;
@@ -648,6 +687,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
             new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             new RetainedAgentBudget(1024),
+            TestDiagnosticLog.Instance,
             CancellationToken.None);
         _registries.Add(registry);
         return registry;
@@ -787,10 +827,10 @@ internal sealed class WaitToolTests : IAsyncDisposable
         public IAgentSessionFactory Create(AgentUserSession owner) => new Factory(this, owner, router, timeProvider, root);
 
         public Parrot.Process.ShellProcessOwners CreateShellProcesses(AgentUserSession owner) =>
-            new(owner.Resources, new Parrot.Process.ProcessRunner(string.Empty), owner.Lifetime);
+            new(owner.Resources, new Parrot.Process.ProcessRunner(string.Empty), owner.Diagnostics, owner.Lifetime);
 
         public Parrot.Queues.AgentQueueCatalog CreateQueueCatalog(AgentUserSession owner) =>
-            new(owner.Resources);
+            new(owner.Resources, owner.Diagnostics);
 
         public async Task<IAgentSession> WaitForSession(CancellationToken cancellationToken) =>
             await _created.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -823,7 +863,7 @@ internal sealed class WaitToolTests : IAsyncDisposable
                 return TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, owningScope, children, childQuestions) =>
                 {
                     var exitReminder = new ExitReminder(eventRepository, TestModels.PromptTemplates, identity.SessionId);
-                    IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, status, queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+                    IAgentSession session = new AgentSession(identity, sessionParentScope, model, router, eventBroker, eventRepository, [new WaitToolFactory(status, timeProvider)], new TestToolDefinitionsFixture("wait").Definitions, TestModels.MaterializePrompt(identity, root, root), new ToolOutputBlobStore(Path.Combine(root, "blobs")), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processes, TestModels.PromptTemplates, null), exitReminder, eventRepository, eventBroker).Callbacks, new SecurityProfileTestFixture(securityProfile).Security, status, queues, new AgentSessionActivity(TimeProvider.System), TestDiagnosticLog.Instance, lifetime);
                     queues.Attach(session);
                     _ = source._createdQueues.TrySetResult(queues);
                     _ = source._created.TrySetResult(session);

@@ -1,10 +1,13 @@
+using System.Diagnostics;
 using Parrot.Agent;
+using Parrot.Diagnostics;
 
 namespace Parrot.Process;
 
 internal sealed class ManagedShellProcess
 {
     private readonly IAgentSession _agent;
+    private readonly IDiagnosticLog _diagnostics;
     private readonly Task<ProcessResult> _completion;
     private readonly ShellProcessExecution _execution;
     private readonly ShellProcessInventory _inventory;
@@ -23,9 +26,11 @@ internal sealed class ManagedShellProcess
         IAgentSession agent,
         ShellProcessExecution execution,
         ShellProcessInventory inventory,
+        IDiagnosticLog diagnostics,
         CancellationToken lifetime)
     {
         State = state;
+        _diagnostics = diagnostics;
         _agent = agent;
         _execution = execution;
         _inventory = inventory;
@@ -101,7 +106,13 @@ internal sealed class ManagedShellProcess
         try
         {
             _execution.SendSignal(signal, cancellationToken);
+            WriteDiagnostic("signal", "sent", null);
             return Task.CompletedTask;
+        }
+        catch (Exception failure)
+        {
+            WriteDiagnostic("signal", failure is OperationCanceledException ? "cancelled" : "failed", failure);
+            throw;
         }
         finally
         {
@@ -130,13 +141,29 @@ internal sealed class ManagedShellProcess
         }
     }
 
+    private void WriteDiagnostic(string operation, string outcome, Exception? failure) =>
+        _diagnostics.Write(new DiagnosticEvent("shell", operation, outcome == "failed" ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
+        {
+            AgentSessionId = State.OwnerAgentSessionId,
+            CorrelationId = State.ProcessId,
+            Outcome = outcome,
+            DurationMilliseconds = (long)Stopwatch.GetElapsedTime(State.StartedTimestamp).TotalMilliseconds,
+            ErrorCode = failure is null ? null : DiagnosticEvent.ClassifyFailure(failure),
+        });
+
     private async Task<ProcessResult> ObserveCompletion(Task<ProcessResult> result)
     {
         ProcessResult? completed = null;
         try
         {
             completed = await result.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            WriteDiagnostic("completed", completed.ExitCode == 0 ? "succeeded" : "failed", null);
             return completed;
+        }
+        catch (Exception failure)
+        {
+            WriteDiagnostic("completed", failure is OperationCanceledException ? "cancelled" : "failed", failure);
+            throw;
         }
         finally
         {
@@ -198,6 +225,7 @@ internal sealed class ManagedShellProcess
             released = _released;
         }
 
+        WriteDiagnostic("yield", "running", null);
         _ = released.TrySetResult();
         return new ShellWaitResult(
             Name,

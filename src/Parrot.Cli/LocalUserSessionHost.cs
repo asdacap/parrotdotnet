@@ -11,7 +11,7 @@ internal sealed class LocalUserSessionHost : IUserSessionHost
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
-        return await GrpcServer.StartLocal(service, session.Resources.SocketPath, cancellationToken)
+        return await GrpcServer.StartLocal(service, session.Resources.SocketPath, session.Diagnostics, cancellationToken)
             .ConfigureAwait(false);
     }
 }

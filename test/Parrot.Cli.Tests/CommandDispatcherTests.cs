@@ -1,5 +1,7 @@
 using Parrot.Config;
+using Parrot.Diagnostics;
 using Parrot.Process;
+using Parrot.State;
 
 namespace Parrot.Cli.Tests;
 
@@ -19,13 +21,33 @@ internal sealed class CommandDispatcherTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         using var stopping = new CancellationTokenSource();
-        using var composition = new CommandComposition(new Interrupts(stopping), output, error);
+        using var workspace = new TestWorkspace();
+        using var diagnostics = new DiagnosticLogs(workspace.Paths, FileDiagnosticLog.CreateInstanceId(), error, TimeProvider.System);
+        using var composition = new CommandComposition(new Interrupts(stopping), output, error, diagnostics);
 
         var exitCode = await composition.Dispatcher.Run(argument.Length == 0 ? [] : [argument], cancellationToken);
 
         _ = await Assert.That(exitCode).IsEqualTo(expectedExitCode);
         _ = await Assert.That(output.ToString()).Contains(expectedFragment);
         _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Command_composition_does_not_close_process_diagnostics(CancellationToken cancellationToken)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        using var stopping = new CancellationTokenSource();
+        using var workspace = new TestWorkspace();
+        using var diagnostics = new DiagnosticLogs(workspace.Paths, FileDiagnosticLog.CreateInstanceId(), error, TimeProvider.System);
+        using (var composition = new CommandComposition(new Interrupts(stopping), output, error, diagnostics))
+        {
+            _ = await composition.Dispatcher.Run(["version"], cancellationToken);
+        }
+
+        diagnostics.Global.Write(new DiagnosticEvent("process", "after_composition", DiagnosticSeverity.Information));
+        var file = Directory.GetFiles(workspace.Paths.LogDirectory).Single();
+        _ = await Assert.That(await File.ReadAllTextAsync(file, cancellationToken)).Contains("event=\"after_composition\"");
     }
 
     [Test]
@@ -37,7 +59,9 @@ internal sealed class CommandDispatcherTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         using var stopping = new CancellationTokenSource();
-        using var composition = new CommandComposition(new Interrupts(stopping), output, error);
+        using var workspace = new TestWorkspace();
+        using var diagnostics = new DiagnosticLogs(workspace.Paths, FileDiagnosticLog.CreateInstanceId(), error, TimeProvider.System);
+        using var composition = new CommandComposition(new Interrupts(stopping), output, error, diagnostics);
         var arguments = followedByFlag ? new[] { "chat", "--variant", "--basic" } : ["chat", "--variant"];
 
         var exitCode = await composition.Dispatcher.Run(arguments, cancellationToken);
@@ -55,7 +79,9 @@ internal sealed class CommandDispatcherTests
         using var output = new StringWriter();
         using var error = new StringWriter();
         using var stopping = new CancellationTokenSource();
-        using var composition = new CommandComposition(new Interrupts(stopping), output, error);
+        using var workspace = new TestWorkspace();
+        using var diagnostics = new DiagnosticLogs(workspace.Paths, FileDiagnosticLog.CreateInstanceId(), error, TimeProvider.System);
+        using var composition = new CommandComposition(new Interrupts(stopping), output, error, diagnostics);
 
         var exitCode = await composition.Dispatcher.Run(argument.Length == 0 ? [] : [argument], cancellationToken);
 
@@ -77,5 +103,16 @@ internal sealed class CommandDispatcherTests
         _ = await Assert.That(CommandDispatcher.CliUtilityWarning(missing)).IsEqualTo(
             "warning: expected CLI utilities are unavailable: alpha, zeta; Bash shell commands may fail");
         _ = await Assert.That(CommandDispatcher.CliUtilityWarning(available)).IsEmpty();
+    }
+
+    private sealed class TestWorkspace : IDisposable
+    {
+        private readonly string _root = Path.Combine(Path.GetTempPath(), "parrot-command-tests-" + Guid.NewGuid().ToString("N"));
+
+        public TestWorkspace() => Paths = new StatePaths(_root, _root, _root);
+
+        public StatePaths Paths { get; }
+
+        public void Dispose() => Directory.Delete(_root, recursive: true);
     }
 }

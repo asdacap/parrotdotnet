@@ -1,3 +1,5 @@
+using Parrot.Diagnostics;
+
 namespace Parrot.Store;
 
 internal sealed class SessionResourceLease : IDisposable, IAsyncDisposable
@@ -9,11 +11,13 @@ internal sealed class SessionResourceLease : IDisposable, IAsyncDisposable
     private SessionResourceLease(
         UserSessionResources resources,
         SessionDatabase database,
-        IDisposable activation)
+        IDisposable activation,
+        IDiagnosticLog diagnostics)
     {
         Resources = resources;
         _database = database;
         _activation = activation;
+        Diagnostics = diagnostics;
         var imageStore = new ImageArtifactStore(resources);
         Events = new EventRepository(database, imageStore, new AgentHistoryFiles(resources));
         Images = new ImageArtifactRepository(imageStore, Events);
@@ -26,18 +30,42 @@ internal sealed class SessionResourceLease : IDisposable, IAsyncDisposable
 
     public ImageArtifactRepository Images { get; }
 
-    public static SessionResourceLease Open(UserSessionResources resources, IDisposable activation)
-    {
-        ArgumentNullException.ThrowIfNull(resources);
-        ArgumentNullException.ThrowIfNull(activation);
+    public IDiagnosticLog Diagnostics { get; }
 
+    public static SessionResourceLease Open(
+        UserSessionResources resources,
+        IDisposable activation,
+        IDiagnosticLog diagnostics)
+    {
+        SessionDatabase? database = null;
         try
         {
-            return Open(resources, activation, SessionDatabase.Open(resources.DatabasePath));
+            database = SessionDatabase.Open(resources.DatabasePath);
+            return new SessionResourceLease(resources, database, activation, diagnostics);
         }
-        catch
+        catch (Exception failure)
         {
-            activation.Dispose();
+            diagnostics.Write(new DiagnosticEvent("session", "open", DiagnosticSeverity.Error)
+            {
+                Outcome = "failed",
+                ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+            });
+            try
+            {
+                database?.Dispose();
+            }
+            finally
+            {
+                try
+                {
+                    diagnostics.Dispose();
+                }
+                finally
+                {
+                    activation.Dispose();
+                }
+            }
+
             throw;
         }
     }
@@ -53,10 +81,21 @@ internal sealed class SessionResourceLease : IDisposable, IAsyncDisposable
         try
         {
             _database.Dispose();
+            Diagnostics.Write(new DiagnosticEvent("session", "closed", DiagnosticSeverity.Information)
+            {
+                Outcome = "success",
+            });
         }
         finally
         {
-            _activation.Dispose();
+            try
+            {
+                Diagnostics.Dispose();
+            }
+            finally
+            {
+                _activation.Dispose();
+            }
         }
     }
 
@@ -66,14 +105,29 @@ internal sealed class SessionResourceLease : IDisposable, IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
-    internal static SessionResourceLease Own(UserSessionResources resources, SessionDatabase database) =>
-        Open(resources, EmptyActivation.Instance, database);
-
-    private static SessionResourceLease Open(
+    internal static SessionResourceLease Own(
         UserSessionResources resources,
-        IDisposable activation,
-        SessionDatabase database) =>
-        new(resources, database, activation);
+        SessionDatabase database,
+        IDiagnosticLog diagnostics)
+    {
+        try
+        {
+            return new SessionResourceLease(resources, database, EmptyActivation.Instance, diagnostics);
+        }
+        catch
+        {
+            try
+            {
+                database.Dispose();
+            }
+            finally
+            {
+                diagnostics.Dispose();
+            }
+
+            throw;
+        }
+    }
 
     private sealed class EmptyActivation : IDisposable
     {

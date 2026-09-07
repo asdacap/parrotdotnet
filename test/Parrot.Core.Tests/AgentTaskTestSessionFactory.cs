@@ -66,11 +66,11 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             new StatePaths(root, root, root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(root));
-        var owners = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
+        var owners = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
         ProcessOwners.Add(owners);
         var processes = owners.Prepare(identity.SessionId);
         owners.Register(processes);
-        var queues = new AgentQueueCatalog(resources);
+        var queues = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
         QueueCatalogs.Add(queues);
         if (identity.ParentSessionId.Length > 0)
         {
@@ -100,7 +100,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             new ToolOutputBlobStore(root),
             TestModels.CompactionGroupBlobs(),
             new Parrot.Context.Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates),
-            new ProviderSessions(),
+            new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"),
             new Parrot.Context.ContextCadence(),
             TestModels.PromptTemplates,
             childQuestions,
@@ -111,6 +111,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             status,
             agentQueues,
             new AgentSessionActivity(TimeProvider.System),
+            TestDiagnosticLog.Instance,
             lifetime);
             agentQueues.Attach(session);
             return session;

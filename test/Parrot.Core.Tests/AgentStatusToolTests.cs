@@ -45,8 +45,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new StatePaths(_root, _root, _root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(_root));
-        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), cancellationToken);
-        using var queues = new AgentQueueCatalog(resources);
+        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, cancellationToken);
+        using var queues = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
         var factory = new StatusAgentSessions(router, processes, queues, time);
         await using IAgentRegistry registry = new AgentRegistry(
             factory,
@@ -55,6 +55,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             new RetainedAgentBudget(1024),
+            TestDiagnosticLog.Instance,
             cancellationToken);
         var status = new RuntimeStatus(queues, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
@@ -133,8 +134,8 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new StatePaths(_root, _root, _root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(_root));
-        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), cancellationToken);
-        using var queues = new AgentQueueCatalog(resources);
+        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, cancellationToken);
+        using var queues = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
         var factory = new StatusAgentSessions(router, processes, queues, TimeProvider.System);
         await using IAgentRegistry registry = new AgentRegistry(
             factory,
@@ -143,6 +144,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             new RetainedAgentBudget(1024),
+            TestDiagnosticLog.Instance,
             cancellationToken);
         var status = new RuntimeStatus(queues, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);
@@ -212,7 +214,7 @@ internal sealed class AgentStatusToolTests : IAsyncDisposable
             var scope = TestAgentSessionScope.Build(identity, parentLink, registry, TestModels.PromptTemplates, (sessionParentScope, _, children, childQuestions) =>
             {
                 var exitReminder = new ExitReminder(repository, TestModels.PromptTemplates, identity.SessionId);
-                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates, null), exitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, queues, new AgentSessionActivity(timeProvider), lifetime);
+                IAgentSession session = new AgentSession(identity, sessionParentScope, new ModelSelector(router.Resolve(string.Empty).RequestedSelector.Value), router, broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(Path.GetTempPath()), TestModels.CompactionGroupBlobs(), new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(TestDiagnosticLog.Instance, "agent-test"), new ContextCadence(), TestModels.PromptTemplates, childQuestions, exitReminder, new TestProfileFixture().Mode, new TestCompletionCallbacksFixture(childQuestions, new ActiveWorkCompletionReminder(children, processOwner, TestModels.PromptTemplates, null), exitReminder, repository, broker).Callbacks, new SecurityProfileTestFixture(SecurityProfile.Compose(readOnly: false, [], [], [])).Security, status, queues, new AgentSessionActivity(timeProvider), TestDiagnosticLog.Instance, lifetime);
                 queues.Attach(session);
                 return session;
             });

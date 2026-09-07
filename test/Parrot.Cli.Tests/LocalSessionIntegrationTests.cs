@@ -1,6 +1,7 @@
 using Parrot.Agent;
 using Parrot.Config;
 using Parrot.Context;
+using Parrot.Diagnostics;
 using Parrot.Llm;
 using Parrot.Process;
 using Parrot.Protocol;
@@ -23,6 +24,7 @@ internal sealed class LocalSessionIntegrationTests
     public async Task Startup_attaches_without_local_ownership_or_warns_and_creates_when_owner_is_unreachable(
         bool reachable, CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         using var workspace = new TestWorkspace();
         await using var owner = new TestRuntime(workspace, reachable);
         var original = await owner.Client.CreateSessionAsync(
@@ -37,6 +39,7 @@ internal sealed class LocalSessionIntegrationTests
             workspace.Root,
             "host",
             diagnostic,
+            diagnostics.Log,
             token =>
             {
                 token.ThrowIfCancellationRequested();
@@ -68,7 +71,7 @@ internal sealed class LocalSessionIntegrationTests
             else
             {
                 using var simultaneous = GrpcTransportClient.Connect(
-                    TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(original.Id), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null);
+                    TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(original.Id), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null, diagnostics.Log);
                 _ = await Assert.That((await simultaneous.Attach(
                     new AttachSessionRequest { UserSessionId = original.Id, WorkingDirectory = workspace.Root }, cancellationToken)).Id)
                     .IsEqualTo(original.Id);
@@ -78,7 +81,7 @@ internal sealed class LocalSessionIntegrationTests
         if (reachable)
         {
             using var second = GrpcTransportClient.Connect(
-                TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(original.Id), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null);
+                TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(original.Id), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null, diagnostics.Log);
             var attached = await second.Attach(
                 new AttachSessionRequest { UserSessionId = original.Id, WorkingDirectory = workspace.Root }, cancellationToken);
             _ = await Assert.That(attached.Mode).IsEqualTo("plan");
@@ -91,6 +94,7 @@ internal sealed class LocalSessionIntegrationTests
     public async Task Reconnecting_older_session_updates_recency_and_owner_shutdown_allows_same_id_reload(
         CancellationToken cancellationToken)
     {
+        using var diagnostics = new TransportDiagnosticsFixture();
         using var workspace = new TestWorkspace();
         string olderId;
         await using (var owner = new TestRuntime(workspace, true))
@@ -106,7 +110,7 @@ internal sealed class LocalSessionIntegrationTests
             _ = await Assert.That(owner.Store.DiscoverLatest().SessionId?.Value).IsEqualTo(newer.Id);
 
             using var client = GrpcTransportClient.Connect(
-                TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(olderId), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null);
+                TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(olderId), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null, diagnostics.Log);
             var attached = await client.Attach(
                 new AttachSessionRequest { UserSessionId = olderId, WorkingDirectory = workspace.Root }, cancellationToken);
             _ = await Assert.That(attached.Mode).IsEqualTo("plan");
@@ -122,6 +126,7 @@ internal sealed class LocalSessionIntegrationTests
             workspace.Root,
             "host",
             diagnostic,
+            diagnostics.Log,
             token =>
             {
                 token.ThrowIfCancellationRequested();
@@ -136,7 +141,7 @@ internal sealed class LocalSessionIntegrationTests
         _ = await Assert.That(diagnostic.ToString()).Contains($"loaded existing user session {olderId}");
         _ = await Assert.That(Directory.GetFiles(workspace.Paths.State, "session.db", SearchOption.AllDirectories).Length).IsEqualTo(2);
         using var reattached = GrpcTransportClient.Connect(
-            TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(olderId), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null);
+            TransportAddress.Parse($"unix:{new UserSessionResources(workspace.Paths, UserSessionId.Parse(olderId), ProjectWorkspace.FromLaunchDirectory(workspace.Root)).SocketPath}"), null, diagnostics.Log);
         _ = await Assert.That((await reattached.Attach(
             new AttachSessionRequest { UserSessionId = olderId, WorkingDirectory = workspace.Root }, cancellationToken)).Id)
             .IsEqualTo(olderId);
@@ -162,6 +167,7 @@ internal sealed class LocalSessionIntegrationTests
     {
         private readonly WebFetcher _webFetcher = WebFetcher.Create(new PublicWebAddressPolicy());
         private readonly ParrotService _service;
+        private readonly DiagnosticLogs _diagnostics;
 
         public TestRuntime(TestWorkspace workspace, bool reachable)
         {
@@ -197,7 +203,8 @@ internal sealed class LocalSessionIntegrationTests
                 new SkillCatalogFactory(configuration, workspace.Root, Path.Combine(workspace.Root, "skills")),
                 TimeSpan.FromSeconds(30),
                 TimeProvider.System);
-            Store = new SessionStore(workspace.Paths, workspace.Root, "host", factory, router, modes);
+            _diagnostics = new DiagnosticLogs(workspace.Paths, FileDiagnosticLog.CreateInstanceId(), TextWriter.Null, TimeProvider.System);
+            Store = new SessionStore(workspace.Paths, workspace.Root, "host", factory, router, modes, _diagnostics);
             _service = new ParrotService(
                 router,
                 registry,
@@ -206,7 +213,8 @@ internal sealed class LocalSessionIntegrationTests
                 Store,
                 new SessionCatalog(workspace.Paths),
                 modes,
-                reachable ? new LocalUserSessionHost() : new UnexposedUserSessionHost());
+                reachable ? new LocalUserSessionHost() : new UnexposedUserSessionHost(),
+                _diagnostics.Global);
             Client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(_service));
         }
 
@@ -214,7 +222,17 @@ internal sealed class LocalSessionIntegrationTests
 
         public GeneratedParrot.ParrotClient Client { get; }
 
-        public ValueTask DisposeAsync() => _service.DisposeAsync();
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await _service.DisposeAsync();
+            }
+            finally
+            {
+                _diagnostics.Dispose();
+            }
+        }
     }
 
     private sealed class TestProvider : ILLMProvider

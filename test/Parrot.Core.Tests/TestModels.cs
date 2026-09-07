@@ -147,7 +147,7 @@ internal static class TestModels
             new StatePaths(root, root, root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(root));
-        var catalog = new AgentQueueCatalog(resources);
+        var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
         QueueCatalogs.Add(catalog);
         if (identity.ParentSessionId.Length > 0)
         {
@@ -200,9 +200,9 @@ internal static class TestModels
             new StatePaths(root, root, root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(root));
-        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
-        var catalog = new AgentQueueCatalog(resources);
-        IAgentRegistry registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, retainedAgents, lifetime);
+        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
+        var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
+        IAgentRegistry registry = new AgentRegistry(agentSessions, eventBroker, eventRepository, profiles, promptTemplates, retainedAgents, TestDiagnosticLog.Instance, lifetime);
         registry.AttachStatus(new RuntimeStatus(catalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System));
         ProcessOwners.Add(processes);
         QueueCatalogs.Add(catalog);
@@ -222,8 +222,8 @@ internal static class TestModels
             new StatePaths(root, root, root),
             UserSessionId.Parse(Guid.NewGuid().ToString("N")),
             ProjectWorkspace.FromLaunchDirectory(root));
-        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), lifetime);
-        var catalog = new AgentQueueCatalog(resources);
+        var processes = new ShellProcessOwners(resources, new ProcessRunner(string.Empty), TestDiagnosticLog.Instance, lifetime);
+        var catalog = new AgentQueueCatalog(resources, TestDiagnosticLog.Instance);
         IAgentRegistry registry = new AgentRegistry(
             new UnsupportedAgentSessionFactory(),
             eventBroker,
@@ -231,6 +231,7 @@ internal static class TestModels
             new TestProfileFixture().Registry,
             TestModels.PromptTemplates,
             new RetainedAgentBudget(1024),
+            TestDiagnosticLog.Instance,
             lifetime);
         var status = new RuntimeStatus(catalog, new ShellProcessOwnersStatusSource(processes), new AgentRegistryStatusSource(registry), TestModels.PromptTemplates, TimeProvider.System);
         registry.AttachStatus(status);

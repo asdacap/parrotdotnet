@@ -1,6 +1,8 @@
+using Parrot.Diagnostics;
+
 namespace Parrot.Llm;
 
-internal sealed class ProviderSessions
+internal sealed class ProviderSessions(IDiagnosticLog diagnostics, string agentSessionId)
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<ILLMProvider, ILLMProviderSession> _sessions =
@@ -37,6 +39,7 @@ internal sealed class ProviderSessions
 
             session = provider.OpenSession()
                 ?? throw new InvalidOperationException($"Provider \"{provider.Id}\" returned no session.");
+            session = new DiagnosticProviderSession(session, diagnostics, agentSessionId, provider.Id);
             if (_turnOpen)
             {
                 session.BeginTurn();

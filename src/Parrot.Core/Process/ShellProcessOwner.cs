@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Parrot.Agent;
+using Parrot.Diagnostics;
 using Parrot.Security;
 using Parrot.Statuses;
 using Parrot.Store;
@@ -12,6 +13,7 @@ internal sealed class ShellProcessOwner(
     AgentScratchDirectory scratch,
     ProcessRunner runner,
     ShellProcessInventory inventory,
+    IDiagnosticLog diagnostics,
     CancellationToken lifetime)
 {
     private readonly Dictionary<string, ManagedShellProcess> _processes = new(StringComparer.Ordinal);
@@ -77,16 +79,40 @@ internal sealed class ShellProcessOwner(
                 throw new InvalidOperationException($"Shell process name '{name}' is already reserved.");
             }
 
-            var execution = runner.Start(
-                command,
-                environment,
-                resources,
-                scratch,
-                securityProfile,
-                terminalMode,
-                lifetime);
+            var processId = $"shell-process-{Guid.CreateVersion7():n}";
+            var started = Stopwatch.GetTimestamp();
+            diagnostics.Write(new DiagnosticEvent("shell", "start", DiagnosticSeverity.Information)
+            {
+                AgentSessionId = sessionId,
+                CorrelationId = processId,
+            });
+            ShellProcessExecution execution;
+            try
+            {
+                execution = runner.Start(
+                    command,
+                    environment,
+                    resources,
+                    scratch,
+                    securityProfile,
+                    terminalMode,
+                    lifetime);
+            }
+            catch (Exception failure)
+            {
+                diagnostics.Write(new DiagnosticEvent("shell", "completed", failure is OperationCanceledException ? DiagnosticSeverity.Information : DiagnosticSeverity.Error)
+                {
+                    AgentSessionId = sessionId,
+                    CorrelationId = processId,
+                    Outcome = failure is OperationCanceledException ? "cancelled" : "failed",
+                    ErrorCode = DiagnosticEvent.ClassifyFailure(failure),
+                    DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                });
+                throw;
+            }
+
             var state = new ActiveShellProcessState(
-                $"shell-process-{Guid.CreateVersion7():n}",
+                processId,
                 name,
                 command,
                 originToolCallId,
@@ -97,7 +123,7 @@ internal sealed class ShellProcessOwner(
                 agent.Depth,
                 Stopwatch.GetTimestamp());
 
-            var process = new ManagedShellProcess(state, agent, execution, inventory, lifetime);
+            var process = new ManagedShellProcess(state, agent, execution, inventory, diagnostics, lifetime);
             _processes[name] = process;
             _ownedProcesses.Add(process);
             return process;

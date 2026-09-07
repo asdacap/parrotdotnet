@@ -11,7 +11,7 @@ internal sealed class QuestionToolTests
     [Test]
     public async Task Schema_shaped_input_is_mapped_and_answer_uses_labels(CancellationToken cancellationToken)
     {
-        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
         ITool tool = new QuestionTool(new UserQuestionRequester(broker));
         const string argumentsJson =
             """
@@ -38,7 +38,7 @@ internal sealed class QuestionToolTests
     [Test]
     public async Task Answers_follow_question_and_selection_order_with_custom_last(CancellationToken cancellationToken)
     {
-        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
         const string argumentsJson =
             """
             {"questions":[{"prompt":"Pick colours","options":["Red","Blue"],"multiple":true,"custom":true},{"prompt":"Pick a size","options":["Large"]}]}
@@ -66,7 +66,7 @@ internal sealed class QuestionToolTests
     [Arguments("{\"questions\":[{\"id\":\"colour\",\"prompt\":\"Pick\",\"options\":[{\"id\":\"blue\",\"label\":\"Blue\",\"unexpected\":true}]}]}")]
     public async Task Unknown_wire_properties_are_rejected(string argumentsJson, CancellationToken cancellationToken)
     {
-        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
         ITool tool = new QuestionTool(new UserQuestionRequester(broker));
         var result = (await tool.Execute(new ToolInvocation("test-call", argumentsJson), new SelectionFixture().Selection, cancellationToken)).Text;
 
@@ -78,7 +78,7 @@ internal sealed class QuestionToolTests
     public async Task Timeout_returns_user_away_as_a_normal_result(CancellationToken cancellationToken)
     {
         var time = new ControlledTimeProvider();
-        using var broker = new QuestionBroker(TimeSpan.FromMinutes(20), time);
+        using var broker = new QuestionBroker(TimeSpan.FromMinutes(20), time, TestDiagnosticLog.Instance);
         ITool tool = new QuestionTool(new UserQuestionRequester(broker));
         var executing = tool.Execute(
             new ToolInvocation(
@@ -97,7 +97,7 @@ internal sealed class QuestionToolTests
     [Test]
     public async Task Rejected_question_returns_error(CancellationToken cancellationToken)
     {
-        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System);
+        using var broker = new QuestionBroker(Timeout.InfiniteTimeSpan, TimeProvider.System, TestDiagnosticLog.Instance);
         ITool tool = new QuestionTool(new UserQuestionRequester(broker));
         var executing = tool.Execute(
             new ToolInvocation(

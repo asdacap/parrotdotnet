@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
+using Parrot.Diagnostics;
 using Parrot.Statuses;
 
 namespace Parrot.AgentTasks;
 
-internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IAsyncDisposable
+internal sealed class AgentTaskRunCatalog(IDiagnosticLog diagnostics, CancellationToken lifetime) : IAsyncDisposable
 {
     private readonly Dictionary<RunKey, AgentTaskRun> _runs = [];
     private readonly List<AgentTaskRun> _ownedRuns = [];
@@ -148,6 +150,16 @@ internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IAsyncDi
         }
     }
 
+    private void WriteDiagnostic(RunKey key, string operation, string outcome, long started, Exception? failure) =>
+        diagnostics.Write(new DiagnosticEvent("task_run", operation, outcome == "failed" ? DiagnosticSeverity.Error : DiagnosticSeverity.Information)
+        {
+            AgentSessionId = key.OwnerAgentSessionId,
+            CorrelationId = key.RunId,
+            Outcome = outcome,
+            DurationMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            ErrorCode = failure is null ? null : DiagnosticEvent.ClassifyFailure(failure),
+        });
+
     private void Retire(AgentTaskRun run)
     {
         lock (_gate)
@@ -196,6 +208,9 @@ internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IAsyncDi
         internal async Task Settle() =>
             await _execution.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 
+        private void WriteDiagnostic(string operation, string outcome, long started, Exception? failure) =>
+            catalog.WriteDiagnostic(key, operation, outcome, started, failure);
+
         private async Task Execute()
         {
             await Task.Yield();
@@ -206,7 +221,10 @@ internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IAsyncDi
                 request.Progress,
                 request.Configuration,
                 request.RootHistoryBoundary);
+            var started = Stopwatch.GetTimestamp();
+            WriteDiagnostic("start", "running", started, null);
             AgentTaskRunTerminal terminal;
+            Exception? executionFailure = null;
             try
             {
                 var result = await runner.Run(request.Artifact, lifetime).ConfigureAwait(false);
@@ -228,6 +246,7 @@ internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IAsyncDi
             }
             catch (Exception failure)
             {
+                executionFailure = failure;
                 terminal = new AgentTaskRunTerminal(
                     key.RunId,
                     _completionMessageId,
@@ -236,6 +255,7 @@ internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IAsyncDi
                     failure.Message);
             }
 
+            WriteDiagnostic("completed", terminal.Status.ToString().ToLowerInvariant(), started, executionFailure);
             try
             {
                 if (await DeliverUntilShutdown(terminal).ConfigureAwait(false))
@@ -257,6 +277,7 @@ internal sealed class AgentTaskRunCatalog(CancellationToken lifetime) : IAsyncDi
                     }
                 }
 
+                WriteDiagnostic("delivery", "failed", started, _deliveryFailure);
                 catalog.RecordFailure(
                     this,
                     _deliveryFailure ?? new InvalidOperationException("AgentTask completion delivery did not report a failure."));
