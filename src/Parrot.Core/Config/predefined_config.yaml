@@ -264,6 +264,10 @@ prompt_templates:
       An exit reminder was set: {reminder}
     allowed_arguments: [reminder]
     required_arguments: [reminder]
+  agent-session.exit-reminder-nth:
+    template: 'This is the {ordinal} exit reminder: {reminder}'
+    allowed_arguments: [reminder, ordinal]
+    required_arguments: [reminder, ordinal]
   agent-session.context-reminder:
     template: 'Context usage entered the {percentage}% notification band ({estimated_tokens} estimated tokens / {context_limit} configured limit). Notifications occur every {notification_interval}%; automatic compaction triggers strictly above {trigger}%.'
     allowed_arguments: [percentage, estimated_tokens, context_limit, notification_interval, trigger]
