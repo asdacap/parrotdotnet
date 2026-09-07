@@ -9,6 +9,7 @@ internal enum TerminalKeyKind
     Up,
     Down,
     Home,
+    PromptStart,
     End,
     Backspace,
     Delete,

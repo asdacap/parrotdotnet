@@ -157,6 +157,23 @@ internal sealed class TerminalInputTests
     }
 
     [Test]
+    public async Task Control_a_moves_to_the_start_of_the_prompt_while_home_moves_to_the_start_of_the_line()
+    {
+        var editor = new IncrementalEditor("> ", 64 * 1024);
+        editor.Replace("first\nsecond");
+
+        _ = editor.Apply(new TerminalKey(TerminalKeyKind.Home));
+        var afterHome = editor.Prompt;
+        var decoded = new TerminalKeyDecoder().Feed([0x01]);
+        _ = editor.Apply(decoded[0]);
+
+        _ = await Assert.That(decoded).HasSingleItem();
+        _ = await Assert.That(decoded[0]).IsEqualTo(new TerminalKey(TerminalKeyKind.PromptStart));
+        _ = await Assert.That(afterHome.Cursor).IsEqualTo(6);
+        _ = await Assert.That(editor.Prompt.Cursor).IsEqualTo(0);
+    }
+
+    [Test]
     [Arguments(0x0a)]
     [Arguments(0x0d)]
     public async Task Decoder_accepts_both_terminal_enter_encodings(int value)

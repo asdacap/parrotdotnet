@@ -28,6 +28,9 @@ internal sealed class IncrementalEditor(string prefix, int maximumRunes)
             case TerminalKeyKind.Home:
                 _cursor = LineStart();
                 break;
+            case TerminalKeyKind.PromptStart:
+                _cursor = 0;
+                break;
             case TerminalKeyKind.End:
                 _cursor = LineEnd();
                 break;

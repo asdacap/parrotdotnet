@@ -37,7 +37,7 @@ internal sealed class TerminalKeyDecoder
 
     private static TerminalKey? Control(byte value) => value switch
     {
-        0x01 => new(TerminalKeyKind.Home),
+        0x01 => new(TerminalKeyKind.PromptStart),
         0x03 => new(TerminalKeyKind.Interrupt),
         0x04 => new(TerminalKeyKind.EndOfFile),
         0x05 => new(TerminalKeyKind.End),
