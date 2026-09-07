@@ -49,7 +49,7 @@ internal sealed class EnhancedCli(
         try
         {
             request.Session.InteractivePermissions = request.Prompt.Length == 0;
-            session = await client.CreateSessionAsync(request.Session, cancellationToken: cancellationToken);
+            session = request.InitialSession ?? await client.CreateSessionAsync(request.Session, cancellationToken: cancellationToken);
         }
         catch (RpcException failure) when (failure.StatusCode == StatusCode.InvalidArgument)
         {
@@ -454,7 +454,7 @@ internal sealed class EnhancedCli(
             await skillCompletion.RefreshCatalog(activeSession.Id, cancellationToken).ConfigureAwait(false);
             binding = EnhancedListenBinding.Open(client, activeSession.Id, StartRendering, listening.Token);
             rendering = binding.Rendering;
-            if (initialSession.Loaded && !exitOnFirstCompletion)
+            if (initialSession.Loaded && request.InitialSession is null && !exitOnFirstCompletion)
             {
                 await renderingSession.Commit(
                     ImmediateScrollbackValue.Muted([$"Loaded session {session.Id}"]),

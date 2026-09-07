@@ -1,3 +1,4 @@
+using Grpc.Core;
 using Parrot.Agent;
 using Parrot.Auth;
 using Parrot.Cli.Commands;
@@ -56,6 +57,9 @@ internal sealed class CommandDispatcher(
 
         Bare `parrot` is `parrot chat`. In a terminal that opens a REPL; with a
         prompt or piped stdin it answers once. /help lists the slash commands.
+        Local chat loads or joins the workspace's last opened session. Failed
+        connection attempts are reported before creating a fresh session.
+        Existing sessions retain their model and mode; flags configure fresh ones.
         """;
 
     // The single top-level Run. Every other Run is a descendant of this call.
@@ -248,7 +252,7 @@ internal sealed class CommandDispatcher(
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, configuration, cancellationToken)
+        await using var composition = await BuildComposition(credentials, configuration, new UnexposedUserSessionHost(), cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -281,6 +285,7 @@ internal sealed class CommandDispatcher(
     private async Task<Composition?> BuildComposition(
         ICredentialStore credentials,
         Configuration configuration,
+        IUserSessionHost sessionHost,
         CancellationToken cancellationToken)
     {
         try
@@ -289,7 +294,7 @@ internal sealed class CommandDispatcher(
                 .Build(cancellationToken).ConfigureAwait(false);
 
             return new Composition(
-                registry, configuration, Directory.GetCurrentDirectory(), Environment.MachineName);
+                registry, configuration, Directory.GetCurrentDirectory(), Environment.MachineName, sessionHost);
         }
         catch (LLMProviderException failure)
         {
@@ -364,7 +369,7 @@ internal sealed class CommandDispatcher(
         }
 
         using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, configuration, cancellationToken)
+        await using var composition = await BuildComposition(credentials, configuration, new UnexposedUserSessionHost(), cancellationToken)
             .ConfigureAwait(false);
 
         if (composition is null)
@@ -582,83 +587,125 @@ internal sealed class CommandDispatcher(
             return await remoteChat.Cli.Run(cancellationToken).ConfigureAwait(false);
         }
 
-        using var credentials = new FileCredentialStore(StatePaths.ResolveFromEnvironment().CredentialsFile);
-        await using var composition = await BuildComposition(credentials, configuration, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (composition is null)
+        if (prompt.Length == 0 && Console.IsInputRedirected)
         {
-            return ExitFailure;
+            prompt = (await Console.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false)).Trim();
+            if (prompt.Length == 0)
+            {
+                return ExitUsage;
+            }
         }
 
-        await WarnAboutMissingCliUtilities(composition.CliUtilities, cancellationToken).ConfigureAwait(false);
-        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service));
-        if (variant is not null)
+        using var credentials = new FileCredentialStore(paths.CredentialsFile);
+        Composition? composition = null;
+        async Task<GeneratedParrot.ParrotClient> OpenLocalClient(CancellationToken token)
         {
-            var overridden = await OverrideVariant(client, model, variant, error, cancellationToken)
-                .ConfigureAwait(false);
-            if (overridden is null)
+            composition = await BuildComposition(credentials, configuration, new LocalUserSessionHost(), token)
+                .ConfigureAwait(false)
+                ?? throw new InvalidOperationException("cannot initialize local providers");
+            await WarnAboutMissingCliUtilities(composition.CliUtilities, token).ConfigureAwait(false);
+            return new GeneratedParrot.ParrotClient(new InProcessCallInvoker(composition.Service));
+        }
+
+        var invalidVariant = false;
+        async Task<CreateSessionRequest> ConfigureFresh(GeneratedParrot.ParrotClient freshClient, CancellationToken token)
+        {
+            if (variant is not null)
+            {
+                var overridden = await OverrideVariant(freshClient, model, variant, error, token).ConfigureAwait(false);
+                invalidVariant = overridden is null;
+                model = overridden ?? throw new RpcException(new Status(StatusCode.InvalidArgument, "invalid reasoning variant"));
+            }
+
+            return new CreateSessionRequest { Model = model, Mode = mode };
+        }
+
+        using var startup = new LocalChatStartup(
+            paths, Directory.GetCurrentDirectory(), Environment.MachineName, error, OpenLocalClient, ConfigureFresh);
+        try
+        {
+            var (client, initialSession) = await startup.Open(prompt.Length == 0, cancellationToken).ConfigureAwait(false);
+            model = initialSession.Model;
+            mode = initialSession.Mode;
+            var providerIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
+
+            if (basic || Console.IsOutputRedirected)
+            {
+                var cli = new BasicCli(
+                    client,
+                    interrupts,
+                    credentials,
+                    oauthClient,
+                    configuration,
+                    providerIds,
+                    model,
+                    mode,
+                    prompt,
+                    Console.IsInputRedirected,
+                    Console.In,
+                    output,
+                    error,
+                    attachments)
+                { InitialSession = initialSession };
+                return await cli.Run(cancellationToken).ConfigureAwait(false);
+            }
+
+            using var rawTerminal = UnixRawTerminal.Open();
+            if (rawTerminal is null)
+            {
+                var cli = new BasicCli(
+                    client,
+                    interrupts,
+                    credentials,
+                    oauthClient,
+                    configuration,
+                    providerIds,
+                    model,
+                    mode,
+                    prompt,
+                    Console.IsInputRedirected,
+                    Console.In,
+                    output,
+                    error,
+                    attachments)
+                { InitialSession = initialSession };
+                return await cli.Run(cancellationToken).ConfigureAwait(false);
+            }
+
+            var terminal = new ConsoleTerminal(output, error, rawTerminal);
+            var enhancedChat = new EnhancedComposition(
+                client,
+                interrupts,
+                credentials,
+                oauthClient,
+                configuration,
+                providerIds,
+                new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt)
+                {
+                    InitialSession = initialSession,
+                },
+                terminal,
+                attachments);
+            return await enhancedChat.Cli.Run(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception failure) when (failure is InvalidOperationException or RpcException or IOException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (invalidVariant)
             {
                 return ExitUsage;
             }
 
-            model = overridden;
+            var message = failure is RpcException rpcFailure ? rpcFailure.Status.Detail : failure.Message;
+            await error.WriteLineAsync($"parrot: {message}".AsMemory(), cancellationToken).ConfigureAwait(false);
+            return ExitFailure;
         }
-
-        var providerIds = ProviderRegistryBuilder.BuildableProviderIds(configuration);
-
-        if (basic || Console.IsOutputRedirected)
+        finally
         {
-            var cli = new BasicCli(
-                client,
-                interrupts,
-                credentials,
-                oauthClient,
-                configuration,
-                providerIds,
-                model,
-                mode,
-                prompt,
-                Console.IsInputRedirected,
-                Console.In,
-                output,
-                error,
-                attachments);
-            return await cli.Run(cancellationToken).ConfigureAwait(false);
+            if (composition is not null)
+            {
+                await composition.DisposeAsync().ConfigureAwait(false);
+            }
         }
-
-        using var rawTerminal = UnixRawTerminal.Open();
-        if (rawTerminal is null)
-        {
-            var cli = new BasicCli(
-                client,
-                interrupts,
-                credentials,
-                oauthClient,
-                configuration,
-                providerIds,
-                model,
-                mode,
-                prompt,
-                Console.IsInputRedirected,
-                Console.In,
-                output,
-                error,
-                attachments);
-            return await cli.Run(cancellationToken).ConfigureAwait(false);
-        }
-
-        var terminal = new ConsoleTerminal(output, error, rawTerminal);
-        var enhancedChat = new EnhancedComposition(
-            client,
-            interrupts,
-            credentials,
-            oauthClient,
-            configuration,
-            providerIds,
-            new EnhancedChatRequest(new CreateSessionRequest { Model = model, Mode = mode }, prompt),
-            terminal,
-            attachments);
-        return await enhancedChat.Cli.Run(cancellationToken).ConfigureAwait(false);
     }
 }

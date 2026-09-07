@@ -18,5 +18,7 @@ internal sealed record SessionMeta
 
     public string Mode { get; init; } = string.Empty;
 
+    public string LastOpenedAt { get; init; } = string.Empty;
+
     public string CreatedAt { get; init; } = string.Empty;
 }

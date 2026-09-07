@@ -7,4 +7,6 @@ internal sealed class EnhancedChatRequest(CreateSessionRequest session, string p
     public CreateSessionRequest Session { get; } = session;
 
     public string Prompt { get; } = prompt;
+
+    public UserSession? InitialSession { get; init; }
 }

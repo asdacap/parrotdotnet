@@ -5,15 +5,18 @@ namespace Parrot.Protocol;
 internal sealed class UserSessionRegistry : IAsyncDisposable
 {
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, Agent.UserSession> _sessions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HostedSession> _sessions = new(StringComparer.Ordinal);
     private bool _accepting = true;
     private int _opening;
     private SemaphoreSlim? _openingsSettled;
     private Task? _shutdown;
 
-    public async Task<Agent.UserSession> Host(Func<Agent.UserSession> open)
+    public async Task<Agent.UserSession> Host(
+        Func<Agent.UserSession> open,
+        Func<Agent.UserSession, Task<IAsyncDisposable>> host)
     {
         ArgumentNullException.ThrowIfNull(open);
+        ArgumentNullException.ThrowIfNull(host);
 
         lock (_gate)
         {
@@ -28,11 +31,20 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
             _opening++;
         }
 
-        Agent.UserSession created;
+        HostedSession created;
 
         try
         {
-            created = open();
+            var session = open();
+            try
+            {
+                created = new HostedSession(session, await host(session).ConfigureAwait(false));
+            }
+            catch
+            {
+                await session.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
         }
         catch
         {
@@ -50,7 +62,7 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
                 refusal = StatusCode.Unavailable;
                 message = "the service is shutting down";
             }
-            else if (!_sessions.TryAdd(created.Id, created))
+            else if (!_sessions.TryAdd(created.Session.Id, created))
             {
                 refusal = StatusCode.AlreadyExists;
                 message = "the user session is already hosted";
@@ -58,7 +70,7 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
             else
             {
                 CompleteOpeningUnderLock();
-                return created;
+                return created.Session;
             }
         }
 
@@ -80,7 +92,7 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
         {
             EnsureAccepting();
             return _sessions.TryGetValue(id, out var found)
-                ? found
+                ? found.Session
                 : throw new RpcException(new Status(StatusCode.NotFound, $"no user session {id}"));
         }
     }
@@ -109,10 +121,10 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
         }
     }
 
-    private static async Task Dispose(Agent.UserSession session) =>
+    private static async Task Dispose(HostedSession session) =>
         await session.DisposeAsync().ConfigureAwait(false);
 
-    private static async Task Shutdown(IReadOnlyList<Agent.UserSession> sessions, SemaphoreSlim? openingsSettled)
+    private static async Task Shutdown(IReadOnlyList<HostedSession> sessions, SemaphoreSlim? openingsSettled)
     {
         var disposal = sessions.Select(Dispose);
 
@@ -155,6 +167,23 @@ internal sealed class UserSessionRegistry : IAsyncDisposable
         if (!_accepting)
         {
             throw new RpcException(new Status(StatusCode.Unavailable, "the service is shutting down"));
+        }
+    }
+
+    private sealed class HostedSession(Agent.UserSession session, IAsyncDisposable listener) : IAsyncDisposable
+    {
+        public Agent.UserSession Session { get; } = session;
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await listener.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                await Session.DisposeAsync().ConfigureAwait(false);
+            }
         }
     }
 }

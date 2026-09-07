@@ -159,6 +159,63 @@ internal sealed class SessionStoreTests : IDisposable
         _ = await Assert.That(new SessionIndex(session.Resources).Find()?.RootAgentName).IsEqualTo("main");
     }
 
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Explicit_resume_preserves_settings_and_open_publication(bool missingMetadata)
+    {
+        const string id = "user-session-explicit";
+        var workingDirectory = Directory.CreateDirectory(Path.Combine(_root, "explicit-work")).FullName;
+        var index = Index(id, workingDirectory);
+        if (!missingMetadata)
+        {
+            index.Publish(Meta(id, "main", workingDirectory, "2026-01-01T00:00:00Z") with
+            {
+                Mode = ModeRegistry.Query,
+            });
+        }
+
+        StabilizeAdmission(workingDirectory, id);
+        var sessions = new DirectAgentSessions();
+        var model = Model();
+        var router = TestModels.Route(model);
+        sessions.Use(router);
+        var store = new SessionStore(
+            Paths(),
+            workingDirectory,
+            "host",
+            new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
+            router,
+            Modes());
+        if (missingMetadata)
+        {
+            _ = await Assert.That(() => store.Resume(UserSessionId.Parse(id), false)).Throws<InvalidOperationException>();
+            var retry = new WorkingDirectoryClaim(Paths().State, "host").Resume(workingDirectory, id);
+            _ = await Assert.That(retry.Disposition).IsEqualTo(ClaimDisposition.Resumed);
+            if (retry.ActivationLease is { } activation)
+            {
+                await activation.DisposeAsync();
+            }
+
+            return;
+        }
+
+        var opened = store.Resume(UserSessionId.Parse(id), false);
+        await using var session = opened.Session;
+        _ = await Assert.That(opened.Loaded).IsTrue();
+        _ = await Assert.That(session.Mode.Id).IsEqualTo(ModeRegistry.Query);
+        _ = await Assert.That(session.Model).IsEqualTo("unused/model");
+        _ = await Assert.That(session.Resources.SocketPath).IsEqualTo(Path.Combine(session.Resources.Root, "parrot.sock"));
+        SessionStore.RecordOpened(session);
+        var recorded = index.Find()?.LastOpenedAt;
+        SessionStore.Publish(session);
+        _ = await Assert.That(index.Find()?.LastOpenedAt).IsEqualTo(recorded);
+        _ = await Assert.That(string.IsNullOrEmpty(recorded)).IsFalse();
+        _ = await Assert.That(index.Find()?.CreatedAt).IsEqualTo("2026-01-01T00:00:00Z");
+        _ = await Assert.That(store.DiscoverLatest().SessionId?.Value).IsEqualTo(id);
+        _ = await Assert.That(() => store.Resume(UserSessionId.Parse(id), false)).Throws<SessionAdmissionException>();
+    }
+
     private static SessionMeta Meta(string id, string rootAgentName, string workingDirectory, string createdAt) =>
         new()
         {

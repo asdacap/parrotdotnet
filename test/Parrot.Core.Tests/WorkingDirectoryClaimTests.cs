@@ -39,7 +39,7 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
     }
 
     [Test]
-    public async Task Default_open_creates_fresh_when_all_associations_are_live()
+    public async Task Default_open_returns_live_candidate_without_activating()
     {
         var claim = Claim("host", static _ => Found("start"), "start");
         var first = claim.CreateFresh(_workspace, "user-session-one");
@@ -47,14 +47,14 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
         var second = claim.OpenDefault(_workspace);
 
         _ = await Assert.That(first.Disposition).IsEqualTo(ClaimDisposition.Fresh);
-        _ = await Assert.That(second.Disposition).IsEqualTo(ClaimDisposition.Fresh);
-        _ = await Assert.That(second.SessionId?.Value).IsNotEqualTo("user-session-one");
+        _ = await Assert.That(second.Disposition).IsEqualTo(ClaimDisposition.Live);
+        _ = await Assert.That(second.SessionId?.Value).IsEqualTo("user-session-one");
         await ReleaseAsync(first.ActivationLease);
         await ReleaseAsync(second.ActivationLease);
     }
 
     [Test]
-    public async Task Default_open_requires_selection_for_multiple_inactive_associations()
+    public async Task Default_open_uses_ordinal_tie_break_for_multiple_inactive_associations()
     {
         var claim = Claim("host", static _ => Missing(), "start");
         var first = claim.CreateFresh(_workspace, "user-session-one");
@@ -64,9 +64,9 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
 
         var result = claim.OpenDefault(_workspace);
 
-        _ = await Assert.That(result.Disposition).IsEqualTo(ClaimDisposition.SelectionRequired);
-        _ = await Assert.That(result.SessionId).IsNull();
-        _ = await Assert.That(result.ActivationLease).IsNull();
+        _ = await Assert.That(result.Disposition).IsEqualTo(ClaimDisposition.Resumed);
+        _ = await Assert.That(result.SessionId?.Value).IsEqualTo("user-session-one");
+        await ReleaseAsync(result.ActivationLease);
     }
 
     [Test]
@@ -87,8 +87,8 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
         var result = local.OpenDefault(_workspace);
 
         _ = await Assert.That(inspected).IsFalse();
-        _ = await Assert.That(result.Disposition).IsEqualTo(ClaimDisposition.Fresh);
-        _ = await Assert.That(result.SessionId?.Value).IsNotEqualTo("user-session-foreign");
+        _ = await Assert.That(result.Disposition).IsEqualTo(ClaimDisposition.Live);
+        _ = await Assert.That(result.SessionId?.Value).IsEqualTo("user-session-foreign");
         await ReleaseAsync(foreignActivation.ActivationLease);
         await ReleaseAsync(result.ActivationLease);
     }
@@ -187,6 +187,77 @@ internal sealed class WorkingDirectoryClaimTests : IDisposable
         _ = await Assert.That(File.Exists(Path.Combine(directory, "v3.json"))).IsFalse();
         _ = await Assert.That(WorkingDirectoryClaim.Current(directory)?.RuntimeInstanceId)
             .IsEqualTo("replacement-runtime");
+    }
+
+    [Test]
+    [Arguments(0, false, "")]
+    [Arguments(1, false, "user-session-one")]
+    [Arguments(2, false, "user-session-two")]
+    [Arguments(2, true, "user-session-one")]
+    public async Task Discovery_uses_successful_open_recency_without_activation(
+        int count, bool reopened, string expected)
+    {
+        var claim = Claim("host", static _ => Missing(), "start");
+        var paths = new Parrot.State.StatePaths(_root, string.Empty, string.Empty);
+        var workspace = ProjectWorkspace.FromLaunchDirectory(_workspace);
+        for (var index = 0; index < count; index++)
+        {
+            var id = UserSessionId.Parse(index == 0 ? "user-session-one" : "user-session-two");
+            var admission = claim.CreateFresh(_workspace, id);
+            await ReleaseAsync(admission.ActivationLease);
+            new SessionIndex(new UserSessionResources(paths, id, workspace)).Publish(new SessionMeta
+            {
+                Id = id.Value,
+                WorkingDirectory = _workspace,
+                ProviderId = "unused",
+                Model = "model",
+                CreatedAt = index == 0 ? "2026-01-01T00:00:00Z" : "2026-02-01T00:00:00Z",
+                LastOpenedAt = reopened && index == 0 ? "2026-03-01T00:00:00Z" : string.Empty,
+            });
+        }
+
+        var otherWorkspace = Directory.CreateDirectory(Path.Combine(_root, "other-workspace")).FullName;
+        var other = claim.CreateFresh(otherWorkspace, "user-session-other");
+        await ReleaseAsync(other.ActivationLease);
+        var result = claim.DiscoverLatest(_workspace);
+        _ = await Assert.That(result.SessionId?.Value ?? string.Empty).IsEqualTo(expected);
+        _ = await Assert.That(result.ActivationLease).IsNull();
+        _ = await Assert.That(result.Disposition).IsEqualTo(count == 0 ? ClaimDisposition.Fresh : ClaimDisposition.Resumed);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Unreadable_owner_and_corrupt_metadata_are_not_activated(bool corrupt)
+    {
+        var claim = Claim("host", static _ => new ProcessIdentity(ProcessIdentityStatus.Unreadable, null), "start");
+        var admission = claim.CreateFresh(_workspace, "user-session-uncertain");
+        if (corrupt)
+        {
+            var directory = Directory.CreateDirectory(Path.Combine(_root, "sessions", "user-session-uncertain"));
+            await File.WriteAllTextAsync(Path.Combine(directory.FullName, "meta.json"), "not-json");
+        }
+
+        var result = claim.OpenDefault(_workspace);
+        _ = await Assert.That(result.Disposition).IsEqualTo(corrupt ? ClaimDisposition.Corrupt : ClaimDisposition.Live);
+        _ = await Assert.That(result.ActivationLease).IsNull();
+        await ReleaseAsync(admission.ActivationLease);
+    }
+
+    [Test]
+    public async Task Concurrent_resume_grants_exactly_one_activation()
+    {
+        var claim = Claim("host", static _ => Found("start"), "start");
+        var initial = claim.CreateFresh(_workspace, "user-session-contended");
+        await ReleaseAsync(initial.ActivationLease);
+        var attempts = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
+            Task.Run(() => claim.Resume(_workspace, "user-session-contended"))));
+        _ = await Assert.That(attempts.Count(attempt => attempt.ActivationLease is not null)).IsEqualTo(1);
+        _ = await Assert.That(attempts.Count(attempt => attempt.Disposition == ClaimDisposition.Live)).IsEqualTo(7);
+        foreach (var attempt in attempts)
+        {
+            await ReleaseAsync(attempt.ActivationLease);
+        }
     }
 
     private static ProcessIdentity Missing() => new(ProcessIdentityStatus.Missing, null);

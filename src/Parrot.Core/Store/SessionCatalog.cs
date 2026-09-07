@@ -89,6 +89,7 @@ internal sealed class SessionCatalog
                 Selector = metadata.Selector,
                 Mode = metadata.Mode,
                 CreatedAt = metadata.CreatedAt,
+                LastOpenedAt = metadata.LastOpenedAt,
             };
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or JsonException)

@@ -17,6 +17,17 @@ internal sealed class ScriptedInput : TextReader
     // End of input, which is how the loop is told to leave.
     public void End() => _typed.Writer.TryComplete();
 
+    public override async Task<string> ReadToEndAsync(CancellationToken cancellationToken)
+    {
+        var lines = new List<string>();
+        while (await ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+        {
+            lines.Add(line);
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
     public override async ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken)
     {
         _ = Interlocked.Increment(ref _reads);
