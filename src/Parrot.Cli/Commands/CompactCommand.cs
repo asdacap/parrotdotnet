@@ -18,6 +18,16 @@ internal sealed class CompactCommand(
         }
 
         await activity.WaitUntilIdle(cancellationToken).ConfigureAwait(false);
-        await session.Compact(cancellationToken).ConfigureAwait(false);
+
+        // A failed compaction is already reported as a CompactionFailed event by
+        // the session; swallowing it here keeps the process up for the next prompt.
+        try
+        {
+            await session.Compact(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            await dialog.ShowError($"compaction failed: {failure.Message}", cancellationToken).ConfigureAwait(false);
+        }
     }
 }

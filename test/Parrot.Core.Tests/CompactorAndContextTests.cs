@@ -1732,6 +1732,30 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Compaction_retries_with_a_smaller_group_when_the_first_summary_is_empty(CancellationToken cancellationToken)
+    {
+        var provider = new FirstEmptyThenSummarisingProvider();
+        var compactor = new Compactor(90, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var history = Enumerable.Range(0, 6)
+            .Select(index => LLMMessage.User($"message {index} {new string('x', 300)}"))
+            .ToList();
+
+        var result = await compactor.Compact(
+            CompactionModel(provider, 1_000),
+            "instructions",
+            [],
+            history,
+            LLMMessage.User("fixed"),
+            _compactionGroupBlobs,
+            cancellationToken)
+            ?? throw new InvalidOperationException("Expected compaction.");
+
+        _ = await Assert.That(result.History[0].Content).Contains("smaller group summary");
+        _ = await Assert.That(result.History[^1].Content).IsEqualTo(history[^1].Content);
+        _ = await Assert.That(provider.Calls).IsGreaterThan(1);
+    }
+
+    [Test]
     public async Task Compaction_selects_a_fitting_checkpoint_and_reports_its_watermark(
         CancellationToken cancellationToken)
     {
@@ -1949,6 +1973,31 @@ internal sealed class CompactorAndContextTests : IDisposable
         {
             await Task.Yield();
             yield return LLMEvent.TextDelta("not durable");
+        }
+    }
+
+    // The first (largest-group) summarisation comes back empty, as when a
+    // reasoning model spends its output budget on reasoning; the retries with a
+    // smaller group return text.
+    private sealed class FirstEmptyThenSummarisingProvider : ILLMProvider
+    {
+        public int Calls { get; private set; }
+
+        public string Id => "first-empty";
+
+        public ValueTask<bool> HasCredential(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public Task<IReadOnlyList<LLMModel>> ListModels(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LLMModel>>([]);
+
+        public async IAsyncEnumerable<LLMEvent> Call(
+            LLMRequest request,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            Calls++;
+            var reply = Calls == 1 ? string.Empty : "smaller group summary";
+            yield return LLMEvent.Completed("stop", 1, 0, 1, reply, []);
         }
     }
 

@@ -207,6 +207,9 @@ internal sealed class Compactor(
         }
     }
 
+    private static List<LLMMessage> MessagesOf(IEnumerable<IReadOnlyList<LLMMessage>> groups) =>
+        [.. groups.SelectMany(group => group)];
+
     private static string BoundSummary(string summary, int maximumOutputTokens)
     {
         if (EstimateStringTokens(summary) <= maximumOutputTokens)
@@ -354,23 +357,24 @@ internal sealed class Compactor(
         }
 
         var summary = string.Empty;
-        var chunk = new List<LLMMessage>();
+        var chunk = new List<IReadOnlyList<LLMMessage>>();
         foreach (var group in toSummarise)
         {
             var providerGroup = providerGroups[group];
-            if (chunk.Count > 0 && EstimateRequestTokens(summary, chunk, providerGroup) > inputBudget)
+            if (chunk.Count > 0
+                && EstimateRequestTokens(summary, MessagesOf(chunk), providerGroup) > inputBudget)
             {
-                summary = await Summarise(
+                summary = await FoldGroups(
                     selectedModel,
                     summary,
                     chunk,
                     summaryTokens,
                     providerSessions,
-                    cancellationToken).ConfigureAwait(false);
-                chunk.Clear();
+                    cancellationToken);
+                chunk = [];
             }
 
-            if (EstimateRequestTokens(summary, chunk, providerGroup) > inputBudget)
+            if (EstimateRequestTokens(summary, MessagesOf(chunk), providerGroup) > inputBudget)
             {
                 if (!IsEligibleForSpill(group) || substitutions.ContainsKey(group))
                 {
@@ -383,22 +387,26 @@ internal sealed class Compactor(
                     [new PromptTemplateArgument("path", path)]));
                 substitutions.Add(group, notice);
                 providerGroup = [notice];
-                if (EstimateRequestTokens(summary, chunk, providerGroup) > inputBudget)
+                if (EstimateRequestTokens(summary, MessagesOf(chunk), providerGroup) > inputBudget)
                 {
                     throw new InvalidOperationException("A complete conversation group exceeds the compaction input budget.");
                 }
             }
 
-            chunk.AddRange(providerGroup);
+            chunk.Add(providerGroup);
         }
 
-        summary = await Summarise(
-            selectedModel,
-            summary,
-            chunk,
-            summaryTokens,
-            providerSessions,
-            cancellationToken).ConfigureAwait(false);
+        if (chunk.Count > 0)
+        {
+            summary = await FoldGroups(
+                selectedModel,
+                summary,
+                chunk,
+                summaryTokens,
+                providerSessions,
+                cancellationToken);
+        }
+
         var summaryMessage = LLMMessage.System($"{_summaryPrefix}{summary}");
         IReadOnlyList<LLMMessage> compacted = [summaryMessage, fixedMessage, .. retained];
         var compactedTokens = EstimateInputTokens(instructions, tools, compacted);
@@ -451,7 +459,62 @@ internal sealed class Compactor(
         return messages;
     }
 
-    private async Task<string> Summarise(
+    // A summarisation that comes back empty (a reasoning model may spend its
+    // output budget on reasoning and emit nothing visible) is retried with a
+    // smaller group: the pending groups split in half and each half folded, the
+    // second carrying the first's summary forward. A full fold clears the chunk;
+    // a partial one strictly halves it, so it terminates without dropping a group.
+    private async Task<string> FoldGroups(
+        ProviderModel selectedModel,
+        string precedingSummary,
+        List<IReadOnlyList<LLMMessage>> pending,
+        int maximumOutputTokens,
+        ProviderSessions providerSessions,
+        CancellationToken cancellationToken)
+    {
+        if (pending.Count == 1)
+        {
+            var single = await Summarise(
+                selectedModel,
+                precedingSummary,
+                pending[0],
+                maximumOutputTokens,
+                providerSessions,
+                cancellationToken).ConfigureAwait(false);
+            return single ?? throw new InvalidOperationException(
+                "The compaction provider did not complete with a summary.");
+        }
+
+        var whole = await Summarise(
+            selectedModel,
+            precedingSummary,
+            MessagesOf(pending),
+            maximumOutputTokens,
+            providerSessions,
+            cancellationToken).ConfigureAwait(false);
+        if (whole is not null)
+        {
+            return whole;
+        }
+
+        var half = (pending.Count + 1) / 2;
+        var firstHalf = await FoldGroups(
+            selectedModel,
+            precedingSummary,
+            [.. pending.Take(half)],
+            maximumOutputTokens,
+            providerSessions,
+            cancellationToken).ConfigureAwait(false);
+        return await FoldGroups(
+            selectedModel,
+            firstHalf,
+            [.. pending.Skip(half)],
+            maximumOutputTokens,
+            providerSessions,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string?> Summarise(
         ProviderModel selectedModel,
         string precedingSummary,
         IReadOnlyList<LLMMessage> chunk,
@@ -478,15 +541,10 @@ internal sealed class Compactor(
 
             if (llmEvent.Kind == LLMEventKind.Completed)
             {
-                summary = llmEvent.AssistantText;
+                summary = string.IsNullOrEmpty(llmEvent.AssistantText) ? null : llmEvent.AssistantText;
             }
         }
 
-        if (string.IsNullOrEmpty(summary))
-        {
-            throw new InvalidOperationException("The compaction provider did not complete with a summary.");
-        }
-
-        return BoundSummary(summary, maximumOutputTokens);
+        return summary is null ? null : BoundSummary(summary, maximumOutputTokens);
     }
 }
