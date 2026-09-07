@@ -263,6 +263,49 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Send_and_wait_starts_after_the_predecessors_completion_callbacks(
+        CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            Answer("first candidate"),
+            Answer("first answer"),
+            Answer("second answer"));
+        var repository = new EventRepository(_database);
+        var callback = new GatedCompletionCallback();
+        await using var session = SessionWithCompletionCallbacks(
+            provider,
+            repository,
+            [callback],
+            TestModels.Profile(),
+            cancellationToken);
+
+        var first = session.SendAndWaitForResult("first prompt", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var second = session.SendAndWaitForResult("second prompt", cancellationToken);
+        provider.Release();
+        await callback.WaitUntilEntered(cancellationToken);
+
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(first.IsCompleted).IsFalse();
+        _ = await Assert.That(second.IsCompleted).IsFalse();
+
+        callback.Release();
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
+        _ = await Assert.That(provider.Requests[1].Messages.Last(message => message.Role == LLMRole.System).Content)
+            .IsEqualTo("retry first turn");
+        _ = await Assert.That(second.IsCompleted).IsFalse();
+
+        provider.Release();
+        _ = await Assert.That(await first).IsEqualTo("first answer");
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[2].Messages.Last(message => message.Role == LLMRole.User).Content)
+            .IsEqualTo("second prompt");
+        provider.Release();
+        _ = await Assert.That(await second).IsEqualTo("second answer");
+    }
+
+    [Test]
     public async Task A_completion_callback_retry_resets_the_provider_request_budget(
         CancellationToken cancellationToken)
     {
@@ -1760,6 +1803,38 @@ internal sealed class DrainTests : IDisposable
         var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
         using var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
         return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, toolFactories, definitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, profile ?? dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+    }
+
+    private sealed class GatedCompletionCallback : IAgentTurnCompletionCallback
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _invocations;
+
+        public async ValueTask<AgentTurnCompletionOutcome> Complete(
+            AgentTurnCompletionCandidate candidate,
+            CancellationToken cancellationToken)
+        {
+            _ = candidate;
+            if (Interlocked.Increment(ref _invocations) == 1)
+            {
+                _ = _entered.TrySetResult();
+                await _released.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return AgentTurnCompletionOutcome.Retry(
+                    "retry first turn",
+                    false,
+                    false,
+                    false,
+                    null);
+            }
+
+            return AgentTurnCompletionOutcome.Continue(null, null);
+        }
+
+        internal Task WaitUntilEntered(CancellationToken cancellationToken) =>
+            _entered.Task.WaitAsync(cancellationToken);
+
+        internal void Release() => _ = _released.TrySetResult();
     }
 
     private sealed class RecordingCompletionCallback(

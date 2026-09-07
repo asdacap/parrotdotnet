@@ -18,6 +18,7 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
     private readonly Lock _gate = new();
     private readonly List<AgentIdentity> _identities = [];
     private readonly List<string> _profileIds = [];
+    private readonly List<IAgentSessionScope> _scopes = [];
 
     internal IReadOnlyList<AgentIdentity> Identities
     {
@@ -113,7 +114,20 @@ internal sealed class AgentTaskTestSessionFactory(ModelRouter router) : IAgentSe
             agentQueues.Attach(session);
             return session;
         });
+        lock (_gate)
+        {
+            _scopes.Add(scope);
+        }
+
         TestModels.RegisterScope(scope);
         return scope;
+    }
+
+    internal IAgentSessionScope ResolveScope(string name)
+    {
+        lock (_gate)
+        {
+            return _scopes.Single(scope => scope.Session.Name == name);
+        }
     }
 }

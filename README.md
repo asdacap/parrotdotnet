@@ -388,10 +388,16 @@ invocation. On each retry the same retained session receives a new user prompt
 while its previous exchange remains retained; no new fork occurs, and its
 non-system message count grows from its inherited baseline by 1, 3, 5, ... across
 attempts. The leaf response is parsed directly, rather than producing a separate
-execution transcript. Internal role-agent completions do not steer the invoking
-agent; only the owning graph's terminal completion does. A task's `model`, when
-present, is routed through normal model resolution; otherwise
-the selected child inherits the invoking turn's requested model.
+execution transcript. Every AgentTask role prompt uses the session's
+`SendAndWaitForResult` path. Calls on one session reserve full executions in FIFO
+order: a later prompt is not admitted until its predecessor has completed its
+turn-completion callbacks and retries, terminal bookkeeping, and parent-completion
+delivery, and each call receives its own execution result. Thus validation on a
+retained composite agent starts as a distinct turn after any unrelated execution
+already running on that agent. Internal role-agent completions do not steer the
+invoking agent; only the owning graph's terminal completion does. A task's `model`,
+when present, is routed through normal model resolution; otherwise the selected
+child inherits the invoking turn's requested model.
 
 Composite tasks begin with a mandatory preparation phase. It returns strict JSON
 with nonblank `context` and may omit `task_patch`; when supplied, the patch is
@@ -771,8 +777,12 @@ the user session. For a sender with a registered direct parent, the
 case-sensitive literal `parent`, actual parent ID, or actual parent friendly name
 resolves to that parent and takes precedence over a colliding direct-child
 friendly name; direct-child names resolve last. For a root sender, `parent` has
-no special meaning and can resolve a direct child with that name.When each child execution finishes, Parrot automatically sends its terminal
-status and result to its direct parent as normal steering input.
+no special meaning and can resolve a direct child with that name. Explicit
+`agent_send` messages remain steering input: when the recipient has a turn in
+flight, the message can join that turn at its next provider boundary. This differs
+from internal `SendAndWaitForResult` calls, which reserve a distinct subsequent
+execution. When each child execution finishes, Parrot automatically sends its
+terminal status and result to its direct parent as normal steering input.
 `agent_spawn.scope` is optional. When omitted or empty, it inherits the
 parent's scope. A supplied scope changes only the scope hierarchy in the child
 prompt; it is informational only and does not change permissions, session
