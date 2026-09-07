@@ -28,7 +28,8 @@ internal sealed class ParrotService(
     ModelConfigurationCoordinator modelConfiguration,
     SessionStore store,
     SessionCatalog sessionCatalog,
-    ModeRegistry modes) : GeneratedParrot.ParrotBase, IAsyncDisposable
+    ModeRegistry modes,
+    IUserSessionHost sessionHost) : GeneratedParrot.ParrotBase, IAsyncDisposable
 {
     private readonly UserSessionRegistry _userSessions = new();
 
@@ -340,8 +341,9 @@ internal sealed class ParrotService(
         try
         {
             _ = modes.Resolve(request.Mode);
-            created = await _userSessions.Host(() =>
-                store.CreateFresh(model, request.Mode, request.InteractivePermissions)).ConfigureAwait(false);
+            created = await _userSessions.Host(
+                () => store.CreateFresh(model, request.Mode, request.InteractivePermissions),
+                session => sessionHost.Host(session, this, context.CancellationToken)).ConfigureAwait(false);
         }
         catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
         {
@@ -349,6 +351,52 @@ internal sealed class ParrotService(
         }
 
         return UserSession.From(created, false);
+    }
+
+    public override async Task<UserSession> ResumeSession(ResumeSessionRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+        var id = ParseSessionId(request.UserSessionId);
+        var metadata = sessionCatalog.Find(id)
+            ?? throw new RpcException(new Status(StatusCode.NotFound, $"no user session {id}"));
+        if (metadata.State == SessionCatalogState.Corrupt)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, "session metadata is corrupt"));
+        }
+
+        ValidateWorkspace(request.WorkingDirectory, metadata.WorkingDirectory);
+        try
+        {
+            var resumed = await _userSessions.Host(
+                () => store.Resume(id, request.InteractivePermissions).Session,
+                session => sessionHost.Host(session, this, context.CancellationToken)).ConfigureAwait(false);
+            return UserSession.From(resumed, true);
+        }
+        catch (SessionAdmissionException failure)
+        {
+            var status = failure.Admission?.Disposition is ClaimDisposition.Live or ClaimDisposition.Contended
+                ? StatusCode.AlreadyExists
+                : StatusCode.FailedPrecondition;
+            throw new RpcException(new Status(status, failure.Message));
+        }
+        catch (Exception failure) when (failure is ModeRegistryException or LLMProviderException)
+        {
+            throw new RpcException(new Status(StatusCode.FailedPrecondition, failure.Message));
+        }
+    }
+
+    public override Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        context.CancellationToken.ThrowIfCancellationRequested();
+        var id = ParseSessionId(request.UserSessionId);
+        var session = _userSessions.Find(id.Value);
+        ValidateWorkspace(request.WorkingDirectory, session.Resources.Workspace.LaunchDirectory);
+        SessionStore.RecordOpened(session);
+        return Task.FromResult(UserSession.From(session, false));
     }
 
     public override async Task<SetGoalResponse> SetGoal(SetGoalRequest request, ServerCallContext context)
@@ -688,6 +736,27 @@ internal sealed class ParrotService(
     // first thing, so starting them together makes shutdown as long as the
     // slowest session rather than as long as all of them added up.
     public ValueTask DisposeAsync() => _userSessions.DisposeAsync();
+
+    private static UserSessionId ParseSessionId(string value) =>
+        UserSessionId.TryParse(value, out var id)
+            ? id
+            : throw new RpcException(new Status(StatusCode.InvalidArgument, "a valid user session id is required"));
+
+    private static void ValidateWorkspace(string requestedDirectory, string sessionDirectory)
+    {
+        try
+        {
+            if (!ProjectWorkspace.FromLaunchDirectory(requestedDirectory)
+                .Equals(ProjectWorkspace.FromLaunchDirectory(sessionDirectory)))
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, "the user session belongs to another workspace"));
+            }
+        }
+        catch (Exception failure) when (failure is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, failure.Message));
+        }
+    }
 
     private static async Task<AttachmentUploadHeader> ReadUploadHeader(
         IAsyncStreamReader<AttachmentUploadFrame> requestStream,

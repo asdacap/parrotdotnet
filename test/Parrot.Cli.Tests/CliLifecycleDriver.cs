@@ -92,6 +92,8 @@ internal sealed class CliLifecycleDriver : IDisposable
 
     public string Output => _output.Snapshot();
 
+    public bool InputRedirected { get; init; }
+
     public void Resize(int columns) =>
         (_terminal ?? throw new InvalidOperationException("the enhanced terminal is not running")).Resize(columns);
 
@@ -178,12 +180,13 @@ internal sealed class CliLifecycleDriver : IDisposable
                 ["provider"],
                 "provider/model",
                 "build",
-                string.Empty,
-                false,
+                _enhancedRequest.Prompt,
+                InputRedirected,
                 Input,
                 _output,
                 _error,
-                Attachments(_configuration)).Run(cancellationToken);
+                Attachments(_configuration))
+        { InitialSession = _enhancedRequest.InitialSession }.Run(cancellationToken);
     }
 
     public void Dispose()

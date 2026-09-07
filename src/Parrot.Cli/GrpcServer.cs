@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using GeneratedParrot = Parrot.Protocol.Parrot;
 
 namespace Parrot.Cli;
@@ -21,11 +22,15 @@ internal sealed class GrpcServer : IAsyncDisposable
 
     private readonly WebApplication _application;
     private readonly string _ownedSocketPath;
+    private readonly UnixSocketIdentity? _socketIdentity;
+    private readonly bool _local;
 
-    private GrpcServer(WebApplication application, string ownedSocketPath)
+    private GrpcServer(WebApplication application, string ownedSocketPath, UnixSocketIdentity? socketIdentity, bool local)
     {
         _application = application;
         _ownedSocketPath = ownedSocketPath;
+        _socketIdentity = socketIdentity;
+        _local = local;
     }
 
     public IReadOnlyList<string> Addresses =>
@@ -36,6 +41,50 @@ internal sealed class GrpcServer : IAsyncDisposable
         GeneratedParrot.ParrotBase service,
         TransportAddress address,
         TransportToken? token,
+        CancellationToken cancellationToken) =>
+        await StartTransport(service, address, token, false, cancellationToken).ConfigureAwait(false);
+
+    public static async Task<GrpcServer> StartLocal(
+        GeneratedParrot.ParrotBase service,
+        string socketPath,
+        CancellationToken cancellationToken) =>
+        await StartTransport(service, TransportAddress.Parse($"unix:{socketPath}"), null, true, cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<int> Run(CancellationToken cancellationToken)
+    {
+        await _application.WaitForShutdownAsync(cancellationToken).ConfigureAwait(false);
+        return CommandDispatcher.ExitSuccess;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            try
+            {
+                if (_local)
+                {
+                    using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                    await _application.StopAsync(stopping.Token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await _application.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _socketIdentity?.Remove(_ownedSocketPath);
+        }
+    }
+
+    private static async Task<GrpcServer> StartTransport(
+        GeneratedParrot.ParrotBase service,
+        TransportAddress address,
+        TransportToken? token,
+        bool quiet,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(service);
@@ -47,9 +96,27 @@ internal sealed class GrpcServer : IAsyncDisposable
         }
 
         var builder = WebApplication.CreateSlimBuilder();
+        if (quiet)
+        {
+            _ = builder.Logging.ClearProviders();
+        }
+
         var socketPath = address.Kind == TransportAddressKind.Unix ? address.UnixPath : string.Empty;
+        if (socketPath.Length > 0)
+        {
+            try
+            {
+                _ = new UnixDomainSocketEndPoint(socketPath);
+            }
+            catch (ArgumentException failure)
+            {
+                throw new InvalidOperationException($"cannot bind Unix socket path {socketPath}: {failure.Message}", failure);
+            }
+        }
+
         PrepareControlDirectory(socketPath);
-        ConfigureSocketBinding(builder, socketPath);
+        UnixSocketIdentity? socketIdentity = null;
+        ConfigureSocketBinding(builder, socketPath, identity => socketIdentity = identity);
         _ = builder.WebHost.ConfigureKestrel(options => ConfigureEndpoint(options, address));
         _ = builder.Services.AddGrpc(options =>
         {
@@ -78,29 +145,16 @@ internal sealed class GrpcServer : IAsyncDisposable
         try
         {
             await application.StartAsync(cancellationToken).ConfigureAwait(false);
-            return new(application, socketPath);
+            return new(application, socketPath, socketIdentity, quiet);
         }
         catch (Exception failure)
         {
             await application.DisposeAsync().ConfigureAwait(false);
+            socketIdentity?.Remove(socketPath);
+            cancellationToken.ThrowIfCancellationRequested();
             throw failure is InvalidOperationException
                 ? failure
                 : new InvalidOperationException($"cannot start transport {address.Value}: {failure.Message}", failure);
-        }
-    }
-
-    public async Task<int> Run(CancellationToken cancellationToken)
-    {
-        await _application.WaitForShutdownAsync(cancellationToken).ConfigureAwait(false);
-        return CommandDispatcher.ExitSuccess;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await _application.DisposeAsync().ConfigureAwait(false);
-        if (_ownedSocketPath.Length > 0)
-        {
-            File.Delete(_ownedSocketPath);
         }
     }
 
@@ -144,7 +198,8 @@ internal sealed class GrpcServer : IAsyncDisposable
             : throw new InvalidOperationException("a server TCP address must use localhost or a numeric IP address");
     }
 
-    private static void ConfigureSocketBinding(WebApplicationBuilder builder, string socketPath)
+    private static void ConfigureSocketBinding(
+        WebApplicationBuilder builder, string socketPath, Action<UnixSocketIdentity> bound)
     {
         if (socketPath.Length == 0)
         {
@@ -152,63 +207,44 @@ internal sealed class GrpcServer : IAsyncDisposable
         }
 
         _ = builder.WebHost.UseSockets(options =>
-            options.CreateBoundListenSocket = endpoint => BindSocket(endpoint, socketPath));
+            options.CreateBoundListenSocket = endpoint => BindSocket(endpoint, socketPath, bound));
     }
 
-    private static Socket BindSocket(EndPoint endpoint, string socketPath)
+    private static Socket BindSocket(EndPoint endpoint, string socketPath, Action<UnixSocketIdentity> bound)
     {
         if (OperatingSystem.IsWindows())
         {
             throw new InvalidOperationException("Unix socket transport is unavailable on Windows");
         }
 
-        var socket = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Unspecified);
+        var existing = UnixSocketIdentity.Read(socketPath);
+        if (existing is not null)
+        {
+            using var probe = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Unspecified);
+            try
+            {
+                probe.Connect(endpoint);
+                throw new InvalidOperationException($"transport socket is already active: {socketPath}");
+            }
+            catch (SocketException failure) when (failure.SocketErrorCode == SocketError.ConnectionRefused)
+            {
+                existing.Remove(socketPath);
+            }
+        }
+
+        var socket = UnixSocketIdentity.Bind(endpoint);
         try
         {
-            socket.Bind(endpoint);
+            var identity = UnixSocketIdentity.Read(socketPath)
+                ?? throw new InvalidOperationException("the bound Unix socket disappeared");
+            bound(identity);
+            File.SetUnixFileMode(socketPath, SocketMode);
+            return socket;
         }
-        catch (SocketException failure) when (failure.SocketErrorCode == SocketError.AddressAlreadyInUse)
+        catch
         {
             socket.Dispose();
-            RemoveStaleSocket(endpoint, socketPath);
-            socket = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Unspecified);
-            socket.Bind(endpoint);
-        }
-
-        File.SetUnixFileMode(socketPath, SocketMode);
-        return socket;
-    }
-
-    private static void RemoveStaleSocket(EndPoint endpoint, string socketPath)
-    {
-        RefuseNonSocket(socketPath);
-        using var probe = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Unspecified);
-        try
-        {
-            probe.Connect(endpoint);
-            throw new InvalidOperationException($"transport socket is already active: {socketPath}");
-        }
-        catch (SocketException failure) when (failure.SocketErrorCode == SocketError.ConnectionRefused)
-        {
-            File.Delete(socketPath);
-        }
-    }
-
-    private static void RefuseNonSocket(string socketPath)
-    {
-        var attributes = File.GetAttributes(socketPath);
-        if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
-        {
-            throw new InvalidOperationException($"transport path exists and is not a socket: {socketPath}");
-        }
-
-        try
-        {
-            using var file = File.OpenRead(socketPath);
-            throw new InvalidOperationException($"transport path exists and is not a socket: {socketPath}");
-        }
-        catch (IOException)
-        {
+            throw;
         }
     }
 
@@ -226,6 +262,14 @@ internal sealed class GrpcServer : IAsyncDisposable
 
         var directory = Path.GetDirectoryName(socketPath)
             ?? throw new InvalidOperationException("the Unix socket has no parent directory");
+        for (var ancestor = new DirectoryInfo(directory); ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if ((ancestor.Attributes & FileAttributes.ReparsePoint) != 0 && ancestor.Exists)
+            {
+                throw new InvalidOperationException("Unix socket directories cannot be symbolic links");
+            }
+        }
+
         _ = Directory.CreateDirectory(directory, ControlDirectoryMode);
         File.SetUnixFileMode(directory, ControlDirectoryMode);
     }

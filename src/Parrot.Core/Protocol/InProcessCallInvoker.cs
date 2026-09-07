@@ -2,9 +2,8 @@ using Grpc.Core;
 
 namespace Parrot.Protocol;
 
-// Local mode binds no socket (principle 12): the generated client reaches the
-// service through this invoker instead of Kestrel. Only the two call shapes the
-// contract uses are implemented; the rest throw rather than pretend.
+// The owning CLI reaches its service directly; attached CLIs use Kestrel.
+// Only the call shapes the contract uses are implemented; the rest throw.
 internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
 {
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
@@ -105,6 +104,8 @@ internal sealed class InProcessCallInvoker(ParrotService service) : CallInvoker
             ConfigureSkillRequest configure => await service.ConfigureSkill(configure, context).ConfigureAwait(false),
             ListSessionsRequest list => await service.ListSessions(list, context).ConfigureAwait(false),
             CreateSessionRequest create => await service.CreateSession(create, context).ConfigureAwait(false),
+            ResumeSessionRequest resume => await service.ResumeSession(resume, context).ConfigureAwait(false),
+            AttachSessionRequest attach => await service.AttachSession(attach, context).ConfigureAwait(false),
             SetGoalRequest setGoal => await service.SetGoal(setGoal, context).ConfigureAwait(false),
             UpdateSessionRequest update => await service.UpdateSession(update, context).ConfigureAwait(false),
             SendMessageRequest send => await service.SendMessage(send, context).ConfigureAwait(false),

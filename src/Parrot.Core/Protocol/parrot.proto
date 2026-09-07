@@ -24,6 +24,8 @@ service Parrot {
   rpc ConfigureSkill (ConfigureSkillRequest) returns (ConfigureSkillResponse);
   rpc ListSessions (ListSessionsRequest) returns (ListSessionsResponse);
   rpc CreateSession (CreateSessionRequest) returns (UserSession);
+  rpc ResumeSession (ResumeSessionRequest) returns (UserSession);
+  rpc AttachSession (AttachSessionRequest) returns (UserSession);
   rpc UpdateSession (UpdateSessionRequest) returns (UserSession);
   rpc SetGoal (SetGoalRequest) returns (SetGoalResponse);
   rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
@@ -59,6 +61,17 @@ message CreateSessionRequest {
   string model = 1;
   string mode  = 2;
   bool interactive_permissions = 3;
+}
+
+message ResumeSessionRequest {
+  string user_session_id = 1;
+  string working_directory = 2;
+  bool interactive_permissions = 3;
+}
+
+message AttachSessionRequest {
+  string user_session_id = 1;
+  string working_directory = 2;
 }
 
 message UpdateSessionRequest {

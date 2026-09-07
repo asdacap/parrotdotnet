@@ -1,0 +1,242 @@
+using Grpc.Core;
+using Parrot.Protocol;
+using Parrot.State;
+using Parrot.Store;
+using GeneratedParrot = Parrot.Protocol.Parrot;
+
+namespace Parrot.Cli.Tests;
+
+internal sealed class LocalChatStartupTests
+{
+    [Test]
+    [Arguments("fresh", true, 1, 1)]
+    [Arguments("load", false, 1, 0)]
+    [Arguments("connect", true, 0, 0)]
+    [Arguments("missing", false, 1, 1)]
+    [Arguments("rejected", true, 1, 1)]
+    [Arguments("race", true, 1, 0)]
+    public async Task Startup_selects_existing_sessions_before_configuring_fresh_settings(
+        string scenario,
+        bool interactivePermissions,
+        int expectedLocalOpens,
+        int expectedConfigurations,
+        CancellationToken cancellationToken)
+    {
+        using var workspace = new TestWorkspace();
+        var service = new TestService(scenario);
+        await using var localServer = await GrpcServer.StartLocal(service, workspace.LocalSocket, cancellationToken);
+        using var localClient = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{workspace.LocalSocket}"), null);
+        await using var activation = scenario == "fresh" ? null : workspace.Admit();
+        if (scenario is "load" or "race")
+        {
+            if (activation is not null)
+            {
+                await activation.DisposeAsync();
+            }
+        }
+
+        await using var ownerServer = scenario is "connect" or "rejected" or "race"
+            ? await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, cancellationToken)
+            : null;
+        using var error = new StringWriter();
+        var localOpens = 0;
+        var configurations = 0;
+        using var startup = new LocalChatStartup(
+            workspace.Paths,
+            workspace.Root,
+            "host",
+            error,
+            token =>
+            {
+                token.ThrowIfCancellationRequested();
+                localOpens++;
+                return Task.FromResult(localClient.Client);
+            },
+            (client, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                configurations++;
+                return Task.FromResult(new CreateSessionRequest { Model = "fresh-model", Mode = "fresh-mode" });
+            });
+
+        var (_, session) = await startup.Open(interactivePermissions, cancellationToken);
+
+        _ = await Assert.That(localOpens).IsEqualTo(expectedLocalOpens);
+        _ = await Assert.That(configurations).IsEqualTo(expectedConfigurations);
+        _ = await Assert.That(service.CreateCount).IsEqualTo(expectedConfigurations);
+        _ = await Assert.That(service.ResumeCount).IsEqualTo(scenario is "load" or "race" ? 1 : 0);
+        _ = await Assert.That(session.Id).IsEqualTo(expectedConfigurations == 1 ? "new-session" : "existing");
+        _ = await Assert.That(session.Model).IsEqualTo(expectedConfigurations == 1 ? "fresh-model" : "stored-model");
+        _ = await Assert.That(session.Mode).IsEqualTo(expectedConfigurations == 1 ? "fresh-mode" : "stored-mode");
+        if (expectedConfigurations == 1)
+        {
+            _ = await Assert.That(service.Created?.InteractivePermissions).IsEqualTo(interactivePermissions);
+        }
+
+        if (scenario is "load" or "race")
+        {
+            _ = await Assert.That(service.Resumed?.UserSessionId).IsEqualTo("existing");
+            _ = await Assert.That(service.Resumed?.WorkingDirectory).IsEqualTo(workspace.Root);
+            _ = await Assert.That(service.Resumed?.InteractivePermissions).IsEqualTo(interactivePermissions);
+        }
+
+        if (scenario is "connect" or "race" or "rejected")
+        {
+            _ = await Assert.That(service.Attached?.UserSessionId).IsEqualTo("existing");
+            _ = await Assert.That(service.Attached?.WorkingDirectory).IsEqualTo(workspace.Root);
+        }
+
+        var diagnostic = error.ToString();
+        if (scenario == "fresh")
+        {
+            _ = await Assert.That(diagnostic).IsEmpty();
+        }
+        else
+        {
+            _ = await Assert.That(diagnostic).Contains(scenario switch
+            {
+                "load" => "loaded existing user session existing",
+                "connect" or "race" => "connected to existing user session existing",
+                _ => "unable to connect to existing user session existing",
+            });
+            if (expectedConfigurations == 1)
+            {
+                _ = await Assert.That(diagnostic).Contains("creating a new user session");
+            }
+        }
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Cancellation_does_not_initialize_local_providers_or_create_a_fallback(
+        bool duringAttach, CancellationToken cancellationToken)
+    {
+        using var workspace = new TestWorkspace();
+        await using var activation = workspace.Admit();
+        var service = new TestService("cancel");
+        await using var server = await GrpcServer.StartLocal(service, workspace.Resources.SocketPath, cancellationToken);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var error = new StringWriter();
+        var localOpens = 0;
+        var configurations = 0;
+        using var startup = new LocalChatStartup(
+            workspace.Paths,
+            workspace.Root,
+            "host",
+            error,
+            token =>
+            {
+                localOpens++;
+                throw new InvalidOperationException("Local providers must remain lazy.");
+            },
+            (client, token) =>
+            {
+                configurations++;
+                throw new InvalidOperationException("Fresh settings must remain lazy.");
+            });
+        if (!duringAttach)
+        {
+            await stopping.CancelAsync();
+        }
+
+        var opening = startup.Open(true, stopping.Token);
+        if (duringAttach)
+        {
+            await service.AttachStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            await stopping.CancelAsync();
+        }
+
+        _ = await Assert.That(async () => await opening.WaitAsync(cancellationToken)).Throws<OperationCanceledException>();
+        _ = await Assert.That(localOpens).IsEqualTo(0);
+        _ = await Assert.That(configurations).IsEqualTo(0);
+        _ = await Assert.That(service.CreateCount).IsEqualTo(0);
+        _ = await Assert.That(service.ResumeCount).IsEqualTo(0);
+        _ = await Assert.That(service.AttachStarted.Task.IsCompleted).IsEqualTo(duringAttach);
+        _ = await Assert.That(error.ToString()).IsEmpty();
+    }
+
+    private sealed class TestWorkspace : IDisposable
+    {
+        public TestWorkspace()
+        {
+            Root = Path.Combine("/tmp", "ps", Guid.NewGuid().ToString("N"));
+            _ = Directory.CreateDirectory(Root);
+            Paths = new StatePaths(Path.Combine(Root, "s"), Path.Combine(Root, "c"), Path.Combine(Root, "d"));
+            Resources = new UserSessionResources(Paths, UserSessionId.Parse("existing"), ProjectWorkspace.FromLaunchDirectory(Root));
+        }
+
+        public string Root { get; }
+
+        public StatePaths Paths { get; }
+
+        public UserSessionResources Resources { get; }
+
+        public string LocalSocket => Path.Combine(Root, "local.sock");
+
+        public SessionActivationLease Admit()
+        {
+            var admission = new WorkingDirectoryClaim(Paths.State, "host").CreateFresh(Root, Resources.Id);
+            var activation = admission.ActivationLease ?? throw new InvalidOperationException("Admission failed.");
+            new SessionIndex(Resources).Publish(new SessionMeta
+            {
+                Id = Resources.Id.Value,
+                WorkingDirectory = Root,
+                ProviderId = "stored-provider",
+                Model = "stored-model",
+                Mode = "stored-mode",
+            });
+            return activation;
+        }
+
+        public void Dispose() => Directory.Delete(Root, recursive: true);
+    }
+
+    private sealed class TestService(string scenario) : GeneratedParrot.ParrotBase
+    {
+        public int CreateCount { get; private set; }
+
+        public int ResumeCount { get; private set; }
+
+        public CreateSessionRequest? Created { get; private set; }
+
+        public ResumeSessionRequest? Resumed { get; private set; }
+
+        public AttachSessionRequest? Attached { get; private set; }
+
+        public TaskCompletionSource AttachStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override Task<UserSession> CreateSession(CreateSessionRequest request, ServerCallContext context)
+        {
+            CreateCount++;
+            Created = request;
+            return Task.FromResult(new UserSession { Id = "new-session", Model = request.Model, Mode = request.Mode });
+        }
+
+        public override Task<UserSession> ResumeSession(ResumeSessionRequest request, ServerCallContext context)
+        {
+            ResumeCount++;
+            Resumed = request;
+            return scenario == "race"
+                ? throw new RpcException(new Status(StatusCode.AlreadyExists, "Another runtime acquired the session."))
+                : Task.FromResult(new UserSession { Id = request.UserSessionId, Model = "stored-model", Mode = "stored-mode", Loaded = true });
+        }
+
+        public override async Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context)
+        {
+            Attached = request;
+            AttachStarted.SetResult();
+            if (scenario == "cancel")
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, context.CancellationToken);
+            }
+
+            if (scenario == "rejected")
+            {
+                throw new RpcException(new Status(StatusCode.PermissionDenied, "Attachment rejected."));
+            }
+
+            return new UserSession { Id = request.UserSessionId, Model = "stored-model", Mode = "stored-mode", Loaded = true };
+        }
+    }
+}

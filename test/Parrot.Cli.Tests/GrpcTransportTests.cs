@@ -145,6 +145,148 @@ internal sealed class GrpcTransportTests
             .IsEqualTo(TransportAddressKind.Https);
     }
 
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Unix_transport_refuses_non_socket_entries(bool symbolicLink, CancellationToken cancellationToken)
+    {
+        var root = TemporaryRoot();
+        _ = Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "parrot.sock");
+        var target = Path.Combine(root, "target");
+        await File.WriteAllTextAsync(target, "preserved", cancellationToken);
+        if (symbolicLink)
+        {
+            _ = File.CreateSymbolicLink(path, target);
+        }
+        else
+        {
+            await File.WriteAllTextAsync(path, "preserved", cancellationToken);
+        }
+
+        try
+        {
+            _ = await Assert.That(async () => await GrpcServer.StartLocal(new TestService(), path, cancellationToken))
+                .Throws<InvalidOperationException>();
+            _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("preserved");
+        }
+        finally
+        {
+            Delete(root);
+        }
+    }
+
+    [Test]
+    public async Task Local_transport_attaches_and_client_disposal_preserves_owner(CancellationToken cancellationToken)
+    {
+        var root = TemporaryRoot();
+        var path = Path.Combine(root, "parrot.sock");
+        try
+        {
+            await using (var server = await GrpcServer.StartLocal(new TestService(), path, cancellationToken))
+            {
+                using (var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null))
+                {
+                    var session = await client.Attach(new AttachSessionRequest { UserSessionId = "existing" }, cancellationToken);
+                    _ = await Assert.That(session.Id).IsEqualTo("existing");
+                }
+
+                using var another = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+                _ = await another.Client.ListModesAsync(new ListModesRequest(), cancellationToken: cancellationToken);
+            }
+
+            _ = await Assert.That(File.Exists(path)).IsFalse();
+        }
+        finally
+        {
+            Delete(root);
+        }
+    }
+
+    [Test]
+    public async Task Local_owner_shutdown_terminates_active_stream(CancellationToken cancellationToken)
+    {
+        var root = TemporaryRoot();
+        var path = Path.Combine(root, "parrot.sock");
+        try
+        {
+            var server = await GrpcServer.StartLocal(new TestService(), path, cancellationToken);
+            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+            using var stream = client.Client.Listen(new ListenRequest(), cancellationToken: cancellationToken);
+            try
+            {
+                _ = await stream.ResponseStream.MoveNext(cancellationToken);
+            }
+            finally
+            {
+                await server.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+
+            _ = await Assert.That(async () => await stream.ResponseStream.MoveNext(cancellationToken)).Throws<RpcException>();
+        }
+        finally
+        {
+            Delete(root);
+        }
+    }
+
+    [Test]
+    public async Task Attach_is_bounded_and_preserves_caller_cancellation(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(TemporaryRoot(), "missing.sock");
+        using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+        _ = await Assert.That(async () => await client.Attach(
+            new AttachSessionRequest { UserSessionId = "existing" }, cancellationToken)).Throws<TimeoutException>();
+        using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await cancelled.CancelAsync();
+        _ = await Assert.That(async () => await client.Attach(
+            new AttachSessionRequest { UserSessionId = "existing" }, cancelled.Token)).Throws<OperationCanceledException>();
+    }
+
+    [Test]
+    public async Task Attach_retries_readiness_and_rejects_wrong_session(CancellationToken cancellationToken)
+    {
+        var root = TemporaryRoot();
+        var path = Path.Combine(root, "parrot.sock");
+        try
+        {
+            using var client = GrpcTransportClient.Connect(TransportAddress.Parse($"unix:{path}"), null);
+            var attaching = client.Attach(new AttachSessionRequest { UserSessionId = "existing" }, cancellationToken);
+            await using var server = await GrpcServer.StartLocal(new TestService(), path, cancellationToken);
+            _ = await Assert.That((await attaching).Id).IsEqualTo("existing");
+            _ = await Assert.That(async () => await client.Attach(
+                new AttachSessionRequest { UserSessionId = "wrong" }, cancellationToken)).Throws<InvalidOperationException>();
+        }
+        finally
+        {
+            Delete(root);
+        }
+    }
+
+    [Test]
+    public async Task Local_transport_refuses_long_paths_and_preserves_replaced_entries(CancellationToken cancellationToken)
+    {
+        var root = TemporaryRoot();
+        var path = Path.Combine(root, "parrot.sock");
+        try
+        {
+            _ = await Assert.That(async () => await GrpcServer.StartLocal(
+                new TestService(), Path.Combine(root, new string('x', 150) + ".sock"), cancellationToken))
+                .Throws<InvalidOperationException>();
+            await using (var server = await GrpcServer.StartLocal(new TestService(), path, cancellationToken))
+            {
+                File.Delete(path);
+                await File.WriteAllTextAsync(path, "replacement", cancellationToken);
+            }
+
+            _ = await Assert.That(await File.ReadAllTextAsync(path, cancellationToken)).IsEqualTo("replacement");
+        }
+        finally
+        {
+            Delete(root);
+        }
+    }
+
     private static string TemporaryRoot() =>
         Path.Combine(
             OperatingSystem.IsMacOS() ? "/tmp" : Path.GetTempPath(),
@@ -164,6 +306,15 @@ internal sealed class GrpcTransportTests
 
     private sealed class TestService : GeneratedParrot.ParrotBase
     {
+        public override async Task Listen(ListenRequest request, IServerStreamWriter<Event> responseStream, ServerCallContext context)
+        {
+            await responseStream.WriteAsync(new Event(), context.CancellationToken);
+            await Task.Delay(Timeout.InfiniteTimeSpan, context.CancellationToken);
+        }
+
+        public override Task<UserSession> AttachSession(AttachSessionRequest request, ServerCallContext context) =>
+            Task.FromResult(new UserSession { Id = "existing" });
+
         public override Task<ListModesResponse> ListModes(ListModesRequest request, ServerCallContext context) =>
             Task.FromResult(new ListModesResponse());
     }

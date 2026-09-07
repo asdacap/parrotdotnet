@@ -568,12 +568,25 @@ Session admission has three intentionally different forms:
 - **Fresh create** always creates a new user session with root agent `main`.
 - **Exact resume** opens only the requested existing session and fails if it
   cannot safely acquire that session.
-- **Default open** creates when there is no matching session, resumes when
-  exactly one matching session can be selected, and rejects ambiguity rather
-  than picking one arbitrarily.
+- **Default local chat** selects the workspace's most recently successfully
+  opened session, including reconnects. It creates when none exists, loads an
+  inactive session, or joins its live owner through `parrot.sock` inside that
+  session's state directory. Older metadata falls back to creation time, with
+  session ID breaking ties deterministically.
 
-A live owner is never joined or displaced. Resuming an older session preserves
-its stored root-agent name instead of rewriting compatibility data. Session
+This default applies to interactive, one-shot, and piped local chat. Successful
+loads and connections are logged to stderr. If a live or uncertain owner cannot
+be reached within three seconds, Parrot reports that failure before creating a
+fresh session; it never displaces the old owner. Cancellation does not create a
+fallback session, and a later disconnect never resubmits a prompt elsewhere.
+Multiple CLIs may share the session, but the original process retains ownership:
+closing an attached CLI leaves the owner running, while owner exit ends those
+connections. No background daemon or ownership transfer is involved.
+
+Existing sessions retain their model and mode; `--model`, `--mode`, and
+`--variant` only configure fresh local sessions. Explicit `--connect` and `serve`
+keep their existing behavior. Resuming an older session preserves its stored
+root-agent name instead of rewriting compatibility data. Session
 listing is a server-authoritative management operation when connected to a
 server; management callers read metadata through `SessionCatalog` and never
 obtain a live session, database, queue, or repository.

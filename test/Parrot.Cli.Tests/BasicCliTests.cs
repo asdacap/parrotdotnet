@@ -5,6 +5,85 @@ namespace Parrot.Cli.Tests;
 internal sealed class BasicCliTests
 {
     [Test]
+    [Arguments(false, false, "interactive")]
+    [Arguments(false, true, "interactive")]
+    [Arguments(true, false, "interactive")]
+    [Arguments(true, true, "interactive")]
+    [Arguments(false, false, "one-shot")]
+    [Arguments(false, true, "one-shot")]
+    [Arguments(true, false, "one-shot")]
+    [Arguments(true, true, "one-shot")]
+    [Arguments(false, false, "piped")]
+    [Arguments(false, true, "piped")]
+    public async Task Acquired_session_is_used_without_creating_or_logging_again(
+        bool enhanced,
+        bool loaded,
+        string inputMode,
+        CancellationToken cancellationToken)
+    {
+        var request = new Parrot.Cli.Enhanced.EnhancedChatRequest(
+            new CreateSessionRequest { Model = "ignored/model", Mode = "ignored-mode" },
+            inputMode == "one-shot" ? "hello" : string.Empty)
+        {
+            InitialSession = new UserSession
+            {
+                Id = "already-open",
+                Model = "provider/model",
+                Mode = "build",
+                Loaded = loaded,
+            },
+        };
+        using var driver = new CliLifecycleDriver(enhanced, request) { InputRedirected = inputMode == "piped" };
+        if (inputMode == "piped")
+        {
+            driver.Input.Type("hello");
+            driver.Input.End();
+        }
+
+        var running = driver.Drive(cancellationToken);
+        if (inputMode == "interactive")
+        {
+            while (driver.Input.Reads < 1)
+            {
+                await Task.Delay(5, cancellationToken);
+            }
+
+            driver.Input.Type("hello");
+        }
+
+        await driver.Sent(1, cancellationToken);
+        await driver.Invoker.Publish("already-open", new Event
+        {
+            TurnEnded = new TurnEnded { FinishReason = "stop" },
+        });
+        driver.Input.End();
+        _ = await running.WaitAsync(cancellationToken);
+
+        _ = await Assert.That(driver.Invoker.Created).IsEmpty();
+        _ = await Assert.That(driver.Invoker.SentTo.Single()).IsEqualTo("already-open");
+        _ = await Assert.That(driver.Output).DoesNotContain("Loaded session");
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Empty_piped_input_does_not_create_a_session(bool acquired, CancellationToken cancellationToken)
+    {
+        var request = new Parrot.Cli.Enhanced.EnhancedChatRequest(new CreateSessionRequest(), string.Empty)
+        {
+            InitialSession = acquired ? new UserSession { Id = "already-open" } : null,
+        };
+        using var driver = new CliLifecycleDriver(false, request) { InputRedirected = true };
+        driver.Input.End();
+
+        var exitCode = await driver.Drive(cancellationToken);
+
+        _ = await Assert.That(exitCode).IsEqualTo(CommandDispatcher.ExitUsage);
+        _ = await Assert.That(driver.Invoker.Created).IsEmpty();
+        _ = await Assert.That(driver.Invoker.SentTo).IsEmpty();
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Model_preset_commands_dispatch_in_both_interactive_clients(

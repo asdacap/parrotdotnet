@@ -58,7 +58,7 @@ internal sealed partial class WorkingDirectoryClaim
         return newest;
     }
 
-    public AdmissionResult OpenDefault(string workingDirectory)
+    public AdmissionResult DiscoverLatest(string workingDirectory)
     {
         var canonical = Canonicalize(workingDirectory);
         var associations = ReadAssociations(canonical, out var corrupt);
@@ -67,26 +67,62 @@ internal sealed partial class WorkingDirectoryClaim
             return Failed(ClaimDisposition.Corrupt);
         }
 
-        var inactive = new List<UserSessionId>();
+        var catalog = new SessionCatalog(new Parrot.State.StatePaths(StateDirectory, string.Empty, string.Empty));
+        var candidates = new List<(UserSessionId Id, string Recency)>();
         foreach (var sessionId in associations)
         {
-            var state = ReadActivation(sessionId, canonical, out corrupt);
+            _ = ReadActivation(sessionId, canonical, out corrupt);
             if (corrupt)
             {
                 return Failed(ClaimDisposition.Corrupt);
             }
 
-            if (state == ActivationStatus.Inactive)
+            var metadata = catalog.Find(sessionId);
+            var sessionDirectory = Path.Combine(StateDirectory, "sessions", sessionId.Value);
+            if (metadata?.State == SessionCatalogState.Corrupt
+                && (File.GetAttributes(sessionDirectory) & FileAttributes.ReparsePoint) == 0
+                && !File.Exists(Path.Combine(sessionDirectory, "meta.json")))
             {
-                inactive.Add(sessionId);
+                metadata = null;
             }
+
+            if (metadata is not null && (metadata.State == SessionCatalogState.Corrupt
+                || !string.Equals(Canonicalize(metadata.WorkingDirectory), canonical, StringComparison.Ordinal)))
+            {
+                return Failed(ClaimDisposition.Corrupt);
+            }
+
+            var recency = string.IsNullOrEmpty(metadata?.LastOpenedAt)
+                ? metadata?.CreatedAt ?? string.Empty
+                : metadata.LastOpenedAt;
+            candidates.Add((sessionId, recency));
         }
 
-        return inactive.Count switch
+        if (candidates.Count == 0)
         {
-            0 => CreateFresh(workingDirectory, UserSessionId.Generate()),
-            1 => Resume(workingDirectory, inactive[0]),
-            _ => Failed(ClaimDisposition.SelectionRequired),
+            return Failed(ClaimDisposition.Fresh);
+        }
+
+        var selected = candidates.OrderByDescending(candidate => candidate.Recency, StringComparer.Ordinal)
+            .ThenBy(candidate => candidate.Id.Value, StringComparer.Ordinal).First().Id;
+        var status = ReadActivation(selected, canonical, out corrupt);
+        var disposition = corrupt ? ClaimDisposition.Corrupt
+            : status == ActivationStatus.Inactive ? ClaimDisposition.Resumed : ClaimDisposition.Live;
+        return new AdmissionResult(
+            disposition,
+            selected,
+            null,
+            new OpenIntent(OpenOperation.Resume, selected, workingDirectory, canonical));
+    }
+
+    public AdmissionResult OpenDefault(string workingDirectory)
+    {
+        var candidate = DiscoverLatest(workingDirectory);
+        return candidate.Disposition switch
+        {
+            ClaimDisposition.Fresh => CreateFresh(workingDirectory, UserSessionId.Generate()),
+            ClaimDisposition.Resumed when candidate.SessionId is { } selected => Resume(workingDirectory, selected),
+            _ => candidate,
         };
     }
 

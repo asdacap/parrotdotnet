@@ -39,6 +39,8 @@ internal sealed class BasicCli(
     private SlashSession? _session;
     private PermissionInteractionPresenter.Session? _permissionSession;
 
+    public UserSession? InitialSession { private get; init; }
+
     public async Task<int> Run(CancellationToken cancellationToken)
     {
         var text = prompt;
@@ -58,7 +60,7 @@ internal sealed class BasicCli(
 
         try
         {
-            session = await client.CreateSessionAsync(
+            session = InitialSession ?? await client.CreateSessionAsync(
                 new CreateSessionRequest { Model = model, Mode = mode, InteractivePermissions = text.Length == 0 },
                 cancellationToken: cancellationToken);
         }
@@ -389,7 +391,7 @@ internal sealed class BasicCli(
         TextWriter error,
         CancellationToken cancellationToken)
     {
-        if (initialSession.Loaded)
+        if (initialSession.Loaded && InitialSession is null)
         {
             await output.WriteLineAsync($"Loaded session {initialSession.Id}".AsMemory(), cancellationToken)
                 .ConfigureAwait(false);

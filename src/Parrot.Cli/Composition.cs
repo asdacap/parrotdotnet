@@ -43,6 +43,7 @@ internal partial class Composition
             .Arg<Configuration>("configuration")
             .Arg<string>("workingDirectory", "workingDirectory")
             .Arg<string>("hostKey", "hostKey")
+            .Arg<IUserSessionHost>("userSessionHost")
 
             .Bind().As(Lifetime.Singleton).To(_ => StatePaths.ResolveFromEnvironment())
             .Bind().As(Lifetime.Singleton).To(ctx =>
@@ -245,7 +246,8 @@ internal partial class Composition
                 ctx.Inject<SessionStore>(out var store);
                 ctx.Inject<SessionCatalog>(out var sessionCatalog);
                 ctx.Inject<ModeRegistry>(out var modes);
-                return new ParrotService(router, registry, aliases, modelConfiguration, store, sessionCatalog, modes);
+                ctx.Inject<IUserSessionHost>(out var userSessionHost);
+                return new ParrotService(router, registry, aliases, modelConfiguration, store, sessionCatalog, modes, userSessionHost);
             })
 
             .Root<StatePaths>("Paths")

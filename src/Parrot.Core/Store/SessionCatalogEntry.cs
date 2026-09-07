@@ -18,5 +18,7 @@ internal sealed record SessionCatalogEntry
 
     public string Mode { get; init; } = string.Empty;
 
+    public string LastOpenedAt { get; init; } = string.Empty;
+
     public string CreatedAt { get; init; } = string.Empty;
 }

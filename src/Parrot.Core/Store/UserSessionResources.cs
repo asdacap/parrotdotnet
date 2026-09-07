@@ -14,6 +14,7 @@ internal sealed class UserSessionResources
         Workspace = workspace;
         SessionsDirectory = PlatformPath.Normalize(Path.Combine(paths.State, "sessions"));
         Root = RequireContained(SessionsDirectory, Path.Combine(SessionsDirectory, id.Value));
+        SocketPath = RequireContained(Root, Path.Combine(Root, "parrot.sock"));
         MetadataPath = RequireContained(Root, Path.Combine(Root, "meta.json"));
         DatabasePath = RequireContained(Root, Path.Combine(Root, "session.db"));
         ArtifactDirectory = RequireContained(Root, Path.Combine(Root, "artifacts"));
@@ -29,6 +30,10 @@ internal sealed class UserSessionResources
     public string SessionsDirectory { get; }
 
     public string Root { get; }
+
+    public Lock MetadataGate { get; } = new();
+
+    public string SocketPath { get; }
 
     public string MetadataPath { get; }
 

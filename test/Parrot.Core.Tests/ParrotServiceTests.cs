@@ -373,6 +373,112 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Resume_and_concurrent_attach_preserve_the_exact_session_without_new_activation(
+        CancellationToken cancellationToken)
+    {
+        var workspace = EnsureDirectory(Path.Combine(_root, "work"));
+        string sessionId;
+        await using (var initial = Service(Store()))
+        {
+            var created = await initial.CreateSession(
+                new CreateSessionRequest { Model = Selection, Mode = ModeRegistry.Plan },
+                new InProcessServerCallContext(cancellationToken));
+            sessionId = created.Id;
+        }
+
+        await using var owner = Service(Store());
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(owner));
+        var resumed = await client.ResumeSessionAsync(
+            new ResumeSessionRequest
+            {
+                UserSessionId = sessionId,
+                WorkingDirectory = workspace,
+            },
+            cancellationToken: cancellationToken);
+        var activationDirectory = Path.Combine(_root, "owners", "activations", sessionId);
+        var activationFiles = Directory.GetFiles(activationDirectory).Length;
+        var metadata = FindMeta(sessionId);
+        var attached = await Task.WhenAll(Enumerable.Range(0, 8).Select(async _ =>
+            await client.AttachSessionAsync(
+                new AttachSessionRequest
+                {
+                    UserSessionId = sessionId,
+                    WorkingDirectory = workspace,
+                },
+                cancellationToken: cancellationToken)));
+
+        _ = await Assert.That(resumed.Id).IsEqualTo(sessionId);
+        _ = await Assert.That(resumed.Loaded).IsTrue();
+        _ = await Assert.That(resumed.Model).IsEqualTo(Selection);
+        _ = await Assert.That(resumed.Mode).IsEqualTo(ModeRegistry.Plan);
+        _ = await Assert.That(attached.All(item => item.Id == sessionId
+            && item.Model == resumed.Model && item.Mode == resumed.Mode && !item.Loaded)).IsTrue();
+        _ = await Assert.That(Directory.GetFiles(activationDirectory).Length).IsEqualTo(activationFiles);
+        _ = await Assert.That(Directory.GetDirectories(Path.Combine(_root, "sessions")).Length).IsEqualTo(1);
+        _ = await Assert.That(string.CompareOrdinal(FindMeta(sessionId).LastOpenedAt, metadata.LastOpenedAt) >= 0).IsTrue();
+        var duplicate = await Assert.That(async () => await client.ResumeSessionAsync(
+            new ResumeSessionRequest
+            {
+                UserSessionId = sessionId,
+                WorkingDirectory = workspace,
+            },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+        _ = await Assert.That(duplicate?.StatusCode).IsEqualTo(StatusCode.AlreadyExists);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Existing_session_operations_reject_wrong_identity_workspace_and_unhosted_sessions(
+        bool resume,
+        CancellationToken cancellationToken)
+    {
+        var workspace = EnsureDirectory(Path.Combine(_root, "work"));
+        var otherWorkspace = EnsureDirectory(Path.Combine(_root, "other-work"));
+        await using var owner = Service(Store());
+        var client = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(owner));
+        var created = await client.CreateSessionAsync(
+            new CreateSessionRequest { Model = Selection }, cancellationToken: cancellationToken);
+        var before = FindMeta(created.Id).LastOpenedAt;
+
+        async Task<Protocol.UserSession> Open(string id, string directory) => resume
+            ? await client.ResumeSessionAsync(
+                new ResumeSessionRequest
+                {
+                    UserSessionId = id,
+                    WorkingDirectory = directory,
+                },
+                cancellationToken: cancellationToken)
+            : await client.AttachSessionAsync(
+                new AttachSessionRequest
+                {
+                    UserSessionId = id,
+                    WorkingDirectory = directory,
+                },
+                cancellationToken: cancellationToken);
+
+        var invalid = await Assert.That(async () => await Open("../invalid", workspace)).Throws<RpcException>();
+        var missing = await Assert.That(async () => await Open("user-session-missing", workspace)).Throws<RpcException>();
+        var foreign = await Assert.That(async () => await Open(created.Id, otherWorkspace)).Throws<RpcException>();
+        _ = await Assert.That(invalid?.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
+        _ = await Assert.That(missing?.StatusCode).IsEqualTo(StatusCode.NotFound);
+        _ = await Assert.That(foreign?.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
+        _ = await Assert.That(FindMeta(created.Id).LastOpenedAt).IsEqualTo(before);
+
+        await using var other = Service(Store());
+        var unhostedClient = new GeneratedParrot.ParrotClient(new InProcessCallInvoker(other));
+        var unhosted = await Assert.That(async () => await unhostedClient.AttachSessionAsync(
+            new AttachSessionRequest
+            {
+                UserSessionId = created.Id,
+                WorkingDirectory = workspace,
+            },
+            cancellationToken: cancellationToken)).Throws<RpcException>();
+        _ = await Assert.That(unhosted?.StatusCode).IsEqualTo(StatusCode.NotFound);
+        _ = await Assert.That(Directory.GetDirectories(Path.Combine(_root, "sessions")).Length).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Create_session_creates_fresh_instead_of_resuming_an_inactive_session(
         CancellationToken cancellationToken)
     {
@@ -916,6 +1022,27 @@ internal sealed class ParrotServiceTests : IDisposable
     }
 
     [Test]
+    public async Task Registry_releases_failed_hosts_and_disposes_listener_before_session(
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var store = Store();
+        await using var registry = new UserSessionRegistry();
+        _ = await Assert.That(async () => await registry.Host(
+            () => store.Open(_router.Resolve(Selection)),
+            _ => Task.FromException<IAsyncDisposable>(new IOException("listener failed")))).Throws<IOException>();
+        _ = await Assert.That(store.DiscoverLatest().Disposition).IsEqualTo(ClaimDisposition.Resumed);
+        await using var listener = new ObservingSessionListener(store);
+        var hosted = await registry.Host(
+            () => store.Open(_router.Resolve(Selection)),
+            _ => Task.FromResult<IAsyncDisposable>(listener));
+        _ = await Assert.That(registry.Find(hosted.Id)).IsSameReferenceAs(hosted);
+        await registry.DisposeAsync();
+        _ = await Assert.That(listener.DispositionDuringDisposal).IsEqualTo(ClaimDisposition.Live);
+        _ = await Assert.That(store.DiscoverLatest().Disposition).IsEqualTo(ClaimDisposition.Resumed);
+    }
+
+    [Test]
     public async Task Shutdown_closes_admission_without_waiting_to_acquire_a_slow_open_gate(
         CancellationToken cancellationToken)
     {
@@ -924,12 +1051,14 @@ internal sealed class ParrotServiceTests : IDisposable
         using var entered = new SemaphoreSlim(0, 1);
         using var release = new ManualResetEventSlim();
         var opening = Task.Run(
-            async () => await registry.Host(() =>
-            {
-                _ = entered.Release();
-                release.Wait(cancellationToken);
-                return store.Open(_router.Resolve(Selection));
-            }),
+            async () => await registry.Host(
+                () =>
+                {
+                    _ = entered.Release();
+                    release.Wait(cancellationToken);
+                    return store.Open(_router.Resolve(Selection));
+                },
+                _ => Task.FromResult<IAsyncDisposable>(new ObservingSessionListener(store))),
             cancellationToken);
         await entered.WaitAsync(cancellationToken);
 
@@ -1067,7 +1196,8 @@ internal sealed class ParrotServiceTests : IDisposable
         _models,
         store,
         new SessionCatalog(new StatePaths(_root, _root, _root)),
-        modes);
+        modes,
+        new UnexposedUserSessionHost());
 
     private ModelAliasConfigurator ModelAliases() => new(_models);
 
@@ -1091,5 +1221,16 @@ internal sealed class ParrotServiceTests : IDisposable
             new UserSessionFactory(sessions, Modes(), TestModels.PromptTemplates, TestModels.ProfileRegistry(), SkillCatalogFactory(), TimeSpan.FromSeconds(30), TimeProvider.System),
             _router,
             Modes());
+    }
+
+    private sealed class ObservingSessionListener(SessionStore store) : IAsyncDisposable
+    {
+        public ClaimDisposition? DispositionDuringDisposal { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            DispositionDuringDisposal = store.DiscoverLatest().Disposition;
+            return ValueTask.CompletedTask;
+        }
     }
 }
