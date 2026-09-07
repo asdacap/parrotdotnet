@@ -41,8 +41,11 @@ internal sealed class SkillsCommand(
 
             if (string.Equals(action.Id, ListId, StringComparison.Ordinal))
             {
-                await ShowInventory(await session.ListSkills(cancellationToken).ConfigureAwait(false), cancellationToken)
-                    .ConfigureAwait(false);
+                var listed = await dialog.Load(
+                    "Loading skills…",
+                    session.ListSkills,
+                    cancellationToken).ConfigureAwait(false);
+                await ShowInventory(listed, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -88,7 +91,10 @@ internal sealed class SkillsCommand(
     {
         while (true)
         {
-            var listed = await session.ListSkills(cancellationToken).ConfigureAwait(false);
+            var listed = await dialog.Load(
+                "Loading skills…",
+                session.ListSkills,
+                cancellationToken).ConfigureAwait(false);
             if (listed.Skills.Count == 0)
             {
                 await ShowInventory(listed, cancellationToken).ConfigureAwait(false);

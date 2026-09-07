@@ -11,7 +11,10 @@ internal sealed class ModelsCommand(GeneratedParrot.ParrotClient client, ISlashD
 
     public async Task Run(string arguments, CancellationToken cancellationToken)
     {
-        var listed = await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: cancellationToken);
+        var listed = await dialog.Load(
+            "Loading models…",
+            async token => await client.ListModelsAsync(new ListModelsRequest(), cancellationToken: token),
+            cancellationToken).ConfigureAwait(false);
         var lines = listed.Models.Select(model => $"{model.ProviderId}/{model.Id}").ToList();
 
         if (lines.Count == 0)

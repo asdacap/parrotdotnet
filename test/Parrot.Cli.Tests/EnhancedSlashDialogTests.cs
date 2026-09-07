@@ -135,6 +135,68 @@ internal sealed class EnhancedSlashDialogTests
         _ = await Assert.That(secretHost.Frames[^1][0]).IsEqualTo(new DialogMessageValue("failed", true));
     }
 
+    [Test]
+    public async Task Load_shows_spinner_frames_returns_the_result_and_clears_the_input(CancellationToken cancellationToken)
+    {
+        var host = new ScriptedLiveInputHost();
+        var dialog = new EnhancedSlashDialog(host);
+
+        var loaded = await dialog.Load(
+            "Loading models…",
+            token => Task.FromResult(new SlashDialogOption("id", "Label", "description")),
+            cancellationToken);
+
+        _ = await Assert.That(loaded.Id).IsEqualTo("id");
+        var frames = host.Frames;
+        _ = await Assert.That(frames.Count).IsGreaterThanOrEqualTo(2);
+        _ = await Assert.That(frames[0][0]).IsEqualTo(new PromptValue("> ", string.Empty, 0));
+        _ = await Assert.That(frames[0][1]).IsEqualTo(new SpinnerValue("Loading models…", 0));
+        _ = await Assert.That(frames[^1]).Count().IsEqualTo(1);
+        _ = await Assert.That(frames[^1][0]).IsEqualTo(new PromptValue("> ", string.Empty, 0));
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Load_propagates_failure_and_still_clears_the_input(bool cancel)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var host = new ScriptedLiveInputHost();
+        var dialog = new EnhancedSlashDialog(host);
+
+        _ = await Assert.That(async () => await dialog.Load<string>(
+            "Loading models…",
+            async token =>
+            {
+                if (cancel)
+                {
+                    await cancellation.CancelAsync();
+                }
+
+                token.ThrowIfCancellationRequested();
+                throw new InvalidOperationException("load failed");
+            },
+            cancellation.Token)).Throws<Exception>();
+
+        _ = await Assert.That(host.Frames[^1]).Count().IsEqualTo(1);
+        _ = await Assert.That(host.Frames[^1][0]).IsEqualTo(new PromptValue("> ", string.Empty, 0));
+    }
+
+    [Test]
+    public async Task Test_dialog_load_records_the_activity_and_returns_the_result(CancellationToken cancellationToken)
+    {
+        var dialog = new TestSlashDialog();
+
+        var loaded = await dialog.Load(
+            "Loading models…",
+            token => Task.FromResult("result"),
+            cancellationToken);
+
+        _ = await Assert.That(loaded).IsEqualTo("result");
+        _ = await Assert.That(dialog.Loads).Count().IsEqualTo(1);
+        _ = await Assert.That(dialog.Loads[0]).IsEqualTo("Loading models…");
+    }
+
     private sealed class CancellingLiveInputHost(
         CancellationTokenSource cancellation,
         TerminalKey key) : ILiveInputHost

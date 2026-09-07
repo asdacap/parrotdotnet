@@ -59,7 +59,10 @@ internal sealed class ModelPresetSelectCommand(
 
     private async Task<string?> PickPreset(CancellationToken cancellationToken)
     {
-        var presets = await session.ListModelPresets(cancellationToken).ConfigureAwait(false);
+        var presets = await dialog.Load(
+            "Loading presets…",
+            session.ListModelPresets,
+            cancellationToken).ConfigureAwait(false);
 
         if (presets.Count == 0)
         {

@@ -14,4 +14,6 @@ internal interface ISlashDialog
     Task<bool> Confirm(IReadOnlyList<string> lines, CancellationToken cancellationToken);
 
     Task ShowError(string message, CancellationToken cancellationToken);
+
+    Task<T> Load<T>(string activity, Func<CancellationToken, Task<T>> load, CancellationToken cancellationToken);
 }

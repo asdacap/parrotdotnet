@@ -8,6 +8,8 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
     private const int MaximumVisibleMessageLines = 9;
     private const int MaximumVisibleOptions = 8;
 
+    private static PromptValue CaretItem { get; } = new("> ", string.Empty, 0);
+
     public async Task<SlashDialogOption?> Select(
         string title,
         IReadOnlyList<SlashDialogOption> options,
@@ -99,6 +101,25 @@ internal sealed class EnhancedSlashDialog(ILiveInputHost input) : ISlashDialog
 
     public async Task ShowError(string message, CancellationToken cancellationToken) =>
         _ = await ShowMessage(message, true, cancellationToken).ConfigureAwait(false);
+
+    public async Task<T> Load<T>(
+        string activity,
+        Func<CancellationToken, Task<T>> load,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(activity);
+        ArgumentNullException.ThrowIfNull(load);
+
+        var pending = load(cancellationToken);
+        var spinner = new TerminalSpinner((items, token) =>
+            input.ReplaceInput([CaretItem, .. items], token));
+        await spinner.Run(
+            index => new SpinnerValue(activity, index),
+            (_, token) => pending.WaitAsync(token),
+            cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return await pending.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+    }
 
     private static bool IsCancellation(TerminalKey key) =>
         key.Kind is TerminalKeyKind.Escape or TerminalKeyKind.Interrupt or TerminalKeyKind.EndOfFile;

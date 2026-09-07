@@ -19,8 +19,11 @@ internal sealed class SessionsCommand(
 
         try
         {
-            listed = await client.ListSessionsAsync(
-                new ListSessionsRequest(), cancellationToken: cancellationToken).ConfigureAwait(false);
+            listed = await dialog.Load(
+                "Loading sessions…",
+                async token => await client.ListSessionsAsync(
+                    new ListSessionsRequest(), cancellationToken: token),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (RpcException failure) when (failure.StatusCode == StatusCode.Unimplemented)
         {

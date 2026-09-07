@@ -89,6 +89,13 @@ internal sealed class BasicSlashDialog(TextReader input, TextWriter output, Text
         await error.WriteLineAsync(message.AsMemory(), cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<T> Load<T>(string activity, Func<CancellationToken, Task<T>> load, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(activity);
+        ArgumentNullException.ThrowIfNull(load);
+        return load(cancellationToken);
+    }
+
     private static SlashDialogOption? Find(IReadOnlyList<SlashDialogOption> options, string answer)
     {
         if (int.TryParse(answer, NumberStyles.None, CultureInfo.InvariantCulture, out var number) &&
