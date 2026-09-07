@@ -168,9 +168,9 @@ internal sealed class SkillFoundationTests
         var packaged = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "skills"));
         var files = RelativeFiles(packaged);
 
-        _ = await Assert.That(files.Count).IsEqualTo(78);
+        _ = await Assert.That(files.Count).IsEqualTo(59);
         var manifest = await Manifest(packaged, files);
-        _ = await Assert.That(manifest).IsEqualTo("77604C1A24FD3343E1028A3FE4A66C76D7535BFCB34F171A31FF6694AB271472");
+        _ = await Assert.That(manifest).IsEqualTo("F2B747CF559AB58A9AE4B9789C39DAC7A8A659046640AFD3132E08026CB1F317");
     }
 
     private static SkillMetadata Skill(string name, string path, bool enabled) =>
