@@ -74,7 +74,7 @@ internal sealed class DrainTests : IDisposable
     [Arguments(0)]
     [Arguments(100_000)]
     [Arguments(20_000)]
-    public async Task Provider_output_budget_uses_32k_or_the_known_remaining_context(
+    public async Task Provider_output_budget_reserves_headroom_in_the_known_remaining_context(
         int contextWindow,
         CancellationToken cancellationToken)
     {
@@ -90,8 +90,9 @@ internal sealed class DrainTests : IDisposable
             request.Instructions,
             request.Tools,
             request.Messages);
+        var estimationHeadroom = (estimatedInputTokens + 19) / 20;
         var expectedMaximumOutputTokens = contextWindow > 0
-            ? (int)Math.Min(32_768, contextWindow - estimatedInputTokens)
+            ? (int)Math.Min(32_768, contextWindow - estimatedInputTokens - estimationHeadroom)
             : 32_768;
         _ = await Assert.That(expectedMaximumOutputTokens).IsGreaterThan(0);
         _ = await Assert.That(request.MaxTokens).IsEqualTo(expectedMaximumOutputTokens);
@@ -100,6 +101,33 @@ internal sealed class DrainTests : IDisposable
             _ = await Assert.That(estimatedInputTokens + request.MaxTokens).IsLessThanOrEqualTo(contextWindow);
         }
 
+        provider.Release();
+        await session.Settled();
+    }
+
+    [Test]
+    public async Task Provider_output_budget_uses_reported_input_usage_on_the_next_request(
+        CancellationToken cancellationToken)
+    {
+        const int contextWindow = 180_000;
+        const int reportedInputTokens = 147_776;
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", reportedInputTokens, 0, 1, "first answer", []),
+            Answer("done"));
+        var repository = new EventRepository(_database);
+        await using var session = Session(provider, repository, [], contextWindow, 0, 0, 0, cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("first prompt")], "message-1", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        provider.Release();
+        await session.Settled();
+
+        _ = await session.Send([ConversationPart.TextPart("second prompt")], "message-2", Delivery.Steer, cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var request = provider.Requests[1];
+        _ = await Assert.That(request.MaxTokens).IsGreaterThan(0);
+        _ = await Assert.That(reportedInputTokens + request.MaxTokens).IsLessThanOrEqualTo(contextWindow);
+        _ = await Assert.That(request.MaxTokens).IsLessThan(32_768);
         provider.Release();
         await session.Settled();
     }

@@ -192,7 +192,12 @@ internal sealed partial class AgentSession
             instructions,
             tools,
             _skills.HasSelection ? _skills.Augment(_history) : _history);
-        if (context.ExceedsTrigger)
+        var calibratedInputTokens = _providerTokenBudget.EstimateInputTokens(
+            selection.ResolvedModel.CanonicalModel.Selector,
+            context.EstimatedTokens);
+        if (context.ExceedsTrigger
+            || (context.InputLimit > 0
+                && calibratedInputTokens > (long)context.InputLimit * context.TriggerPercent / 100))
         {
             instructions = (await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false)).Instructions;
             context = compactor.EstimateContext(
@@ -405,6 +410,7 @@ internal sealed partial class AgentSession
                 }
 
                 reduced = true;
+                _providerTokenBudget.Reset();
                 _history.Clear();
                 _history.AddRange(RestoreHistory(eventRepository, SessionId));
                 var persistedContext = compactor.EstimateContext(

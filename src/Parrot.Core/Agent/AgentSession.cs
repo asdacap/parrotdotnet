@@ -50,7 +50,6 @@ internal sealed partial class AgentSession(
     CancellationToken lifetime) : IAgentSession
 {
     private const string InterruptedFinish = "interrupted";
-    private const int DefaultMaximumOutputTokens = 32 * 1024;
     private const int MaxAgentMessageBytes = 1024 * 1024;
     private const int MaxAgentResultBytes = 1024 * 1024;
 
@@ -88,6 +87,7 @@ internal sealed partial class AgentSession(
         ?? throw new ArgumentNullException(nameof(systemPrompt));
 
     private readonly ProviderSessions _providerSessions = providerSessions;
+    private readonly ProviderTokenBudget _providerTokenBudget = new();
 
     private AgentStatistics _statistics = eventRepository.LatestStatistics(identity.SessionId)
         ?? new AgentStatistics(0, 0, 0, 0, 0, 0, 0);
