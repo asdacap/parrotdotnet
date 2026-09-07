@@ -13,7 +13,7 @@ internal sealed class RetainedAgentBudgetTests
         retained.Commit();
         retained.Commit();
 
-        _ = await Assert.That(() => budget.Reserve()).Throws<AgentRegistryException>();
+        _ = await Assert.That(budget.Reserve).Throws<AgentRegistryException>();
 
         pending.Rollback();
         pending.Rollback();
@@ -21,7 +21,7 @@ internal sealed class RetainedAgentBudgetTests
         replacement.Commit();
         replacement.Rollback();
 
-        _ = await Assert.That(() => budget.Reserve()).Throws<AgentRegistryException>();
+        _ = await Assert.That(budget.Reserve).Throws<AgentRegistryException>();
 
         retained.Release();
         retained.Release();
