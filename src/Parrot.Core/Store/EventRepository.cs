@@ -361,6 +361,32 @@ internal sealed class EventRepository
         }
     }
 
+    public Event? CancelPendingInput(string agentSessionId, string inputId, Func<Event> compose)
+    {
+        ArgumentNullException.ThrowIfNull(compose);
+
+        lock (_database.Gate)
+        {
+            using var transaction = _database.Begin();
+            using var update = _database.Connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText =
+                "UPDATE input SET status = 'canceled' WHERE agent_session = $session AND id = $id AND status = 'pending';";
+            _ = update.Parameters.AddWithValue("$session", agentSessionId);
+            _ = update.Parameters.AddWithValue("$id", inputId);
+            if (update.ExecuteNonQuery() == 0)
+            {
+                transaction.Commit();
+                return null;
+            }
+
+            var published = compose();
+            _ = Record(transaction, published);
+            transaction.Commit();
+            return published;
+        }
+    }
+
     // Every pending steer, oldest first. Upstream bounds this by a sequence
     // cutoff; here the single transaction is the boundary, so a steer admitted
     // while this runs simply lands at the next one.

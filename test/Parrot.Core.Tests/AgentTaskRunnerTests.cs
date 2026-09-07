@@ -48,7 +48,10 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(runtime.Sessions.Identities.Single().Name).IsEqualTo("leaf");
         _ = await Assert.That(string.Join(",", runtime.Sessions.ProfileIds)).IsEqualTo("agent-task-payload");
         _ = await Assert.That(runtime.Sessions.Identities.All(identity => identity.ParentSessionId == runtime.Parent.SessionId)).IsTrue();
-        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
+        var retainedChild = runtime.ParentScope.ChildRegistry.ResolveNamedChildScope("leaf");
+        _ = await Assert.That(retainedChild.Session.SessionId).IsEqualTo(runtime.Sessions.Identities.Single().SessionId);
+        _ = await Assert.That(retainedChild.ChildRegistry.IsAccepting).IsTrue();
+        _ = await Assert.That(retainedChild.Session.IsActive()).IsFalse();
         _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
         _ = await Assert.That(provider.Requests[0].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(1);
         var prompt = provider.Requests[0].Messages.Last(message => message.Role == LLMRole.User).Content;
@@ -502,16 +505,14 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Tasks.Single().Tasks?.Single().Result).IsEqualTo("retry child result");
         _ = await Assert.That(result.Tasks.Single().RetryFeedback?.Single()).IsEqualTo("split it");
         var identities = runtime.Sessions.Identities;
-        _ = await Assert.That(identities).Count().IsEqualTo(4);
-        var composite = identities.Zip(runtime.Sessions.ProfileIds)
-            .Last(agent => agent.Second == "agent-task-prepare").First;
+        _ = await Assert.That(identities).Count().IsEqualTo(2);
+        var composite = identities.Single(identity => identity.Name == "parent");
         var replacementChild = identities.Single(identity => identity.Name == "retry-child");
         _ = await Assert.That(composite.Name).DoesNotContain("prepare");
         _ = await Assert.That(composite.ParentSessionId).IsEqualTo(runtime.Parent.SessionId);
         _ = await Assert.That(replacementChild.ParentSessionId).IsEqualTo(composite.SessionId);
-        _ = await Assert.That(provider.Requests[^1].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(3);
-        _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
-            .Count(profile => profile == "agent-task-prepare")).IsEqualTo(2);
+        _ = await Assert.That(provider.Requests[^1].Messages.Count(message => message.Role != LLMRole.System)).IsEqualTo(5);
+        _ = await Assert.That(string.Join(",", runtime.Sessions.ProfileIds)).IsEqualTo("agent-task-payload,agent-task-payload");
         _ = await Assert.That(identities.Select((identity, index) => runtime.Sessions.ProfileIds[index])
             .Count(profile => profile == "agent-task-validation")).IsEqualTo(0);
         var preparationPrompt = provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content;
@@ -779,7 +780,7 @@ internal sealed class AgentTaskRunnerTests : IDisposable
     }
 
     [Test]
-    public async Task Failed_role_reports_failure_and_releases_active_internal_child(CancellationToken cancellationToken)
+    public async Task Failed_role_reports_failure_and_retains_inactive_child(CancellationToken cancellationToken)
     {
         var provider = new TerminalFailureProvider("role failed");
         var runtime = Runtime(provider, cancellationToken);
@@ -795,11 +796,14 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
         _ = await Assert.That(task.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
         _ = await Assert.That(task.Failure).IsEqualTo("execution agent failed: role failed");
-        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants().Where(session => session.IsActive())).IsEmpty();
+        var retainedChild = runtime.ParentScope.ChildRegistry.ResolveNamedChildScope("failed-role");
+        _ = await Assert.That(retainedChild.Session.SessionId).IsEqualTo(runtime.Sessions.Identities.Single().SessionId);
+        _ = await Assert.That(retainedChild.ChildRegistry.IsAccepting).IsTrue();
+        _ = await Assert.That(retainedChild.Session.IsActive()).IsFalse();
     }
 
     [Test]
-    public async Task Nested_graph_retires_the_created_scope_tree(CancellationToken cancellationToken)
+    public async Task Nested_graph_retains_the_created_scope_tree_until_owner_shutdown(CancellationToken cancellationToken)
     {
         var provider = new AgentTaskQueueProvider([
             "{\"context\":\"prepared\"}",
@@ -817,7 +821,21 @@ internal sealed class AgentTaskRunnerTests : IDisposable
 
         _ = await Assert.That(result.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
         _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(2);
+        var compositeScope = runtime.ParentScope.ChildRegistry.ResolveNamedChildScope("root");
+        var nestedScope = compositeScope.ChildRegistry.ResolveNamedChildScope("child");
+        _ = await Assert.That(compositeScope.Session.SessionId).IsEqualTo(runtime.Sessions.ResolveScope("root").Session.SessionId);
+        _ = await Assert.That(nestedScope.Session.SessionId).IsEqualTo(runtime.Sessions.ResolveScope("child").Session.SessionId);
+        _ = await Assert.That(nestedScope.Session.ParentSessionId).IsEqualTo(compositeScope.Session.SessionId);
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).Count().IsEqualTo(2);
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants().Where(session => session.IsActive())).IsEmpty();
+        _ = await Assert.That(compositeScope.ChildRegistry.IsAccepting).IsTrue();
+        _ = await Assert.That(nestedScope.ChildRegistry.IsAccepting).IsTrue();
+
+        await registry.BeginShutdown();
+
         _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
+        _ = await Assert.That(compositeScope.ChildRegistry.IsAccepting).IsFalse();
+        _ = await Assert.That(nestedScope.ChildRegistry.IsAccepting).IsFalse();
     }
 
     [Test]
@@ -837,13 +855,221 @@ internal sealed class AgentTaskRunnerTests : IDisposable
         await canceled.CancelAsync();
         _ = await Assert.That(running).Throws<OperationCanceledException>();
 
-        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
+        var retainedChild = runtime.ParentScope.ChildRegistry.ResolveNamedChildScope("cancel");
+        _ = await Assert.That(retainedChild.Session.SessionId).IsEqualTo(runtime.Sessions.Identities.Single().SessionId);
+        _ = await Assert.That(retainedChild.ChildRegistry.IsAccepting).IsTrue();
+        _ = await Assert.That(retainedChild.Session.IsActive()).IsFalse();
         var snapshots = ProgressEvents("runner-call");
         _ = await Assert.That(snapshots[^1].RootNodes.Single().Status)
             .IsEqualTo(AgentTaskProgressStatus.Canceled);
         _ = await Assert.That(snapshots[^1].Revision).IsEqualTo((ulong)snapshots.Length);
         _ = await Assert.That(_repository.Replay()[^1].AgentTaskProgressSnapshot.Revision)
             .IsEqualTo(snapshots[^1].Revision);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Repeated_graphs_reuse_leaf_and_nested_history(bool nested, CancellationToken cancellationToken)
+    {
+        string[] answers = nested
+            ? ["{\"context\":\"first preparation\",\"task_patch\":{\"model\":\"missing-provider/missing-model\"}}", "{\"result\":\"first result\",\"verdict\":\"accept\",\"evidence\":\"done\"}", "{\"verdict\":\"accept\",\"evidence\":\"first validation\"}",
+                "{\"context\":\"second preparation\"}", "{\"result\":\"second result\",\"verdict\":\"accept\",\"evidence\":\"done\"}", "{\"verdict\":\"accept\",\"evidence\":\"second validation\"}"]
+            : ["{\"result\":\"first result\",\"verdict\":\"accept\",\"evidence\":\"done\"}", "{\"result\":\"second result\",\"verdict\":\"accept\",\"evidence\":\"done\"}"];
+        var provider = new AgentTaskQueueProvider(answers);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact(nested
+            ? """
+                {"schema_version":1,"tasks":[{"name":"root","description":"Root","payload":[{"name":"leaf","description":"Leaf","payload":"work","acceptance_criteria":"Done"}],"acceptance_criteria":"Done"}]}
+                """
+            : """
+                {"schema_version":1,"tasks":[{"name":"leaf","description":"Leaf","payload":"work","acceptance_criteria":"Done"}]}
+                """);
+
+        var first = await new RunnerFixture(runtime, "first-graph", 5, _broker, _repository).Runner.Run(artifact, cancellationToken);
+        var identities = runtime.Sessions.Identities.Select(identity => identity.SessionId).ToArray();
+        var firstLeafRequest = provider.Requests[nested ? 1 : 0];
+        var second = await new RunnerFixture(runtime, "second-graph", 5, _broker, _repository).Runner.Run(artifact, cancellationToken);
+        var secondLeafRequest = provider.Requests[nested ? 4 : 1];
+
+        _ = await Assert.That(first.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(second.Status).IsEqualTo(AgentTaskExecutionStatus.Succeeded);
+        _ = await Assert.That(nested ? second.Tasks.Single().Tasks?.Single().Result : second.Tasks.Single().Result).IsEqualTo("second result");
+        _ = await Assert.That(string.Join(',', runtime.Sessions.Identities.Select(identity => identity.SessionId)))
+            .IsEqualTo(string.Join(',', identities));
+        _ = await Assert.That(secondLeafRequest.Messages.Count(message => message.Role != LLMRole.System))
+            .IsEqualTo(firstLeafRequest.Messages.Count(message => message.Role != LLMRole.System) + 2);
+        _ = await Assert.That(secondLeafRequest.Messages.Select(message => message.Content)).Contains(answers[nested ? 1 : 0]);
+        var leafOwner = nested ? runtime.ParentScope.ChildRegistry.ResolveNamedChildScope("root") : runtime.ParentScope;
+        var leafScope = leafOwner.ChildRegistry.ResolveNamedChildScope("leaf");
+        _ = await Assert.That(leafScope.Session.ParentSessionId).IsEqualTo(leafOwner.Session.SessionId);
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants().Any(session => session.IsActive())).IsFalse();
+        if (nested)
+        {
+            _ = await Assert.That(provider.Requests[3].Messages.Select(message => message.Content)).Contains(answers[2]);
+        }
+
+        await registry.BeginShutdown();
+        _ = await Assert.That(leafScope.ChildRegistry.IsAccepting).IsFalse();
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.SnapshotDescendants()).IsEmpty();
+    }
+
+    [Test]
+    public async Task Reuses_manual_agent_configuration_and_delivery_before_resolving_requested_model(CancellationToken cancellationToken)
+    {
+        var provider = new AgentTaskQueueProvider([
+            "manual history",
+            "parent acknowledged manual completion",
+            "{\"result\":\"task result\",\"verdict\":\"accept\",\"evidence\":\"done\"}",
+            "parent acknowledged task completion",
+        ]);
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var manualScope = runtime.ParentScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
+            runtime.Parent,
+            runtime.Selection,
+            "worker",
+            runtime.Selection.RequestedModel,
+            "Existing Agent",
+            "manual scope",
+            HistoryForkSelection.Parse(string.Empty),
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            AgentCompletionDeliveryPolicy.Automatic));
+        _ = await manualScope.Session.SendAndWaitForResult("manual prompt", cancellationToken);
+        await runtime.Parent.Settled();
+        var originalSelection = manualScope.Session.CurrentSelection();
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"Existing Agent","description":"Reuse manual child","model":"missing-provider/missing-model","payload":"work","acceptance_criteria":"Done"}]}
+            """);
+
+        var result = await new RunnerFixture(runtime, "manual-reuse", 5, _broker, _repository).Runner.Run(artifact, cancellationToken);
+        await runtime.Parent.Settled();
+
+        _ = await Assert.That(result.Tasks.Single().Result).IsEqualTo("task result");
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(1);
+        _ = await Assert.That(runtime.Sessions.ProfileIds.Single()).IsEqualTo("worker");
+        _ = await Assert.That(manualScope.Session.CurrentSelection()).IsEqualTo(originalSelection);
+        _ = await Assert.That(manualScope.ParentScope.DeliveryPolicy).IsEqualTo(AgentCompletionDeliveryPolicy.Automatic);
+        _ = await Assert.That(provider.Requests[2].Messages.Select(message => message.Content)).Contains("manual history");
+        _ = await Assert.That(_repository.Replay().Any(published => published.AgentSessionId == runtime.Parent.SessionId
+            && published.InputAdmitted is not null && published.InputAdmitted.Content.Contains("task result", StringComparison.Ordinal))).IsTrue();
+
+        var newAgentArtifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"new-agent","description":"Cannot launch","model":"missing-provider/missing-model","payload":"work","acceptance_criteria":"Done"}]}
+            """);
+        var failed = await new RunnerFixture(runtime, "invalid-new-model", 5, _broker, _repository).Runner.Run(newAgentArtifact, cancellationToken);
+        _ = await Assert.That(failed.Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(1);
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(4);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Overlapping_graphs_skip_canceled_reservations_without_overtaking_busy_agent(bool cancelTail, CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "unrelated result", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "{\"result\":\"first result\",\"verdict\":\"accept\",\"evidence\":\"done\"}", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "{\"result\":\"last result\",\"verdict\":\"accept\",\"evidence\":\"done\"}", []));
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var manualScope = runtime.ParentScope.AgentSpawner.SpawnScope(new AgentLaunchRequest(
+            runtime.Parent,
+            runtime.Selection,
+            "worker",
+            runtime.Selection.RequestedModel,
+            "shared",
+            string.Empty,
+            HistoryForkSelection.Parse(string.Empty),
+            new HistoryForkBoundary.AfterCompletedHistory(),
+            AgentCompletionDeliveryPolicy.RetainedOnly));
+        var predecessor = manualScope.Session.SendAndWaitForResult("unrelated prompt", cancellationToken);
+        await provider.Arrived(cancellationToken);
+        var firstArtifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"shared","description":"First","payload":"first work","acceptance_criteria":"Done"}]}
+            """);
+        var canceledArtifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"shared","description":"Canceled","payload":"canceled work","acceptance_criteria":"Done"}]}
+            """);
+        var lastArtifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"shared","description":"Last","payload":"last work","acceptance_criteria":"Done"}]}
+            """);
+        using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var first = new RunnerFixture(runtime, "first-shared", 5, _broker, _repository).Runner.Run(firstArtifact, cancellationToken);
+        var canceledGraph = new RunnerFixture(runtime, "canceled-shared", 5, _broker, _repository).Runner.Run(canceledArtifact, canceled.Token);
+        Task<AgentTaskGraphResult>? last = null;
+        if (!cancelTail)
+        {
+            last = new RunnerFixture(runtime, "last-shared", 5, _broker, _repository).Runner.Run(lastArtifact, cancellationToken);
+        }
+
+        await canceled.CancelAsync();
+        _ = await Assert.That(canceledGraph).Throws<OperationCanceledException>();
+        last ??= new RunnerFixture(runtime, "last-shared", 5, _broker, _repository).Runner.Run(lastArtifact, cancellationToken);
+        _ = await Assert.That(predecessor.IsCompleted).IsFalse();
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(1);
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(1);
+
+        provider.Release();
+        _ = await Assert.That(await predecessor).IsEqualTo("unrelated result");
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[1].Messages.Last(message => message.Role == LLMRole.User).Content).Contains("first work");
+        _ = await Assert.That(last.IsCompleted).IsFalse();
+        provider.Release();
+        _ = await Assert.That((await first).Tasks.Single().Result).IsEqualTo("first result");
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(provider.Requests[2].Messages.Last(message => message.Role == LLMRole.User).Content).Contains("last work");
+        provider.Release();
+        _ = await Assert.That((await last).Tasks.Single().Result).IsEqualTo("last result");
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(3);
+        _ = await Assert.That(string.Join(' ', provider.Requests.SelectMany(request => request.Messages).Select(message => message.Content)))
+            .DoesNotContain("canceled work");
+        _ = await Assert.That(_repository.Replay().Any(published => published.InputAdmitted is not null
+            && published.InputAdmitted.Content.Contains("canceled work", StringComparison.Ordinal))).IsFalse();
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.ResolveNamedChildScope("shared").Session.SessionId).IsEqualTo(manualScope.Session.SessionId);
+        _ = await Assert.That(manualScope.Session.IsActive()).IsFalse();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Reuses_agent_after_failed_or_canceled_graph(bool cancelFirst, CancellationToken cancellationToken)
+    {
+        using var provider = new SteppedProvider(
+            LLMEvent.Completed("stop", 1, 0, 1, "invalid leaf verdict", []),
+            LLMEvent.Completed("stop", 1, 0, 1, "{\"result\":\"recovered\",\"verdict\":\"accept\",\"evidence\":\"done\"}", []));
+        var runtime = Runtime(provider, cancellationToken);
+        await using var registry = runtime.Registry;
+        var artifact = AgentTaskParser.ParseArtifact("""
+            {"schema_version":1,"tasks":[{"name":"recover","description":"Recover","payload":"work","acceptance_criteria":"Done"}]}
+            """);
+        using var firstCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var first = new RunnerFixture(runtime, "failed-predecessor", 5, _broker, _repository).Runner.Run(artifact, firstCancellation.Token);
+        await provider.Arrived(cancellationToken);
+        var retainedScope = runtime.ParentScope.ChildRegistry.ResolveNamedChildScope("recover");
+        var second = new RunnerFixture(runtime, "recovered-graph", 5, _broker, _repository).Runner.Run(artifact, cancellationToken);
+        if (cancelFirst)
+        {
+            await firstCancellation.CancelAsync();
+            _ = await Assert.That(first).Throws<OperationCanceledException>();
+        }
+        else
+        {
+            provider.Release();
+            _ = await Assert.That((await first).Status).IsEqualTo(AgentTaskExecutionStatus.Failed);
+        }
+
+        await provider.Arrived(cancellationToken);
+        _ = await Assert.That(second.IsCompleted).IsFalse();
+        provider.Release();
+        _ = await Assert.That((await second).Tasks.Single().Result).IsEqualTo("recovered");
+        _ = await Assert.That(runtime.Sessions.Identities).Count().IsEqualTo(1);
+        _ = await Assert.That(runtime.ParentScope.ChildRegistry.ResolveNamedChildScope("recover").Session.SessionId)
+            .IsEqualTo(retainedScope.Session.SessionId);
+        _ = await Assert.That(retainedScope.Session.IsActive()).IsFalse();
+        _ = await Assert.That(provider.Requests).Count().IsEqualTo(2);
     }
 
     private AgentTaskProgressSnapshot[] ProgressEvents(string originToolCallId) =>

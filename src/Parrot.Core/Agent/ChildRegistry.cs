@@ -164,7 +164,10 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
             child.ChildRegistry.SnapshotDescendants().Prepend(child.Session))];
     }
 
-    public IAgentSessionScope ResolveNamedChildScope(string name)
+    public IAgentSessionScope ResolveNamedChildScope(string name) =>
+        FindNamedChildScope(name) ?? throw new AgentRegistryException($"child agent not found: {name}");
+
+    public IAgentSessionScope? FindNamedChildScope(string name)
     {
         lock (_gate)
         {
@@ -176,7 +179,7 @@ internal sealed class ChildRegistry(AgentIdentity owner) : IChildRegistry, IAsyn
             }
         }
 
-        throw new AgentRegistryException($"child agent not found: {name}");
+        return null;
     }
 
     public bool TryAdd(IAgentSessionScope scope)

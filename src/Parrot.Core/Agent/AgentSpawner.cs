@@ -12,6 +12,7 @@ internal sealed class AgentSpawner : IAsyncDisposable
     private readonly IChildRegistry _children;
     private readonly CancellationTokenSource _lifetime;
     private readonly Lock _gate = new();
+    private readonly Lock _spawnGate = new();
     private readonly Dictionary<string, RetainedAgentReservation> _retainedAgents = new(StringComparer.Ordinal);
     private readonly List<Task> _rejectedScopeDisposals = [];
     private bool _accepting = true;
@@ -44,6 +45,33 @@ internal sealed class AgentSpawner : IAsyncDisposable
             catch (ChildNameConflictException)
             {
                 conflictingNames++;
+            }
+        }
+    }
+
+    public IAgentSessionScope GetOrSpawnScope(string requestedName, Func<AgentLaunchRequest> selectLaunch)
+    {
+        lock (_spawnGate)
+        {
+            lock (_gate)
+            {
+                EnsureAccepting();
+            }
+
+            var name = Sanitize(requestedName);
+            var existing = _children.FindNamedChildScope(name);
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            try
+            {
+                return SpawnScopeCandidate(selectLaunch(), 0);
+            }
+            catch (ChildNameConflictException)
+            {
+                return _children.ResolveNamedChildScope(name);
             }
         }
     }

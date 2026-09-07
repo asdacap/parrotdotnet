@@ -171,6 +171,73 @@ internal sealed class InputAdmissionTests : IDisposable
         _ = await Assert.That(_repository.PromoteNextQueue(Session, static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session })).IsEmpty();
     }
 
+    [Test]
+    [Arguments(Delivery.Steer)]
+    [Arguments(Delivery.Queue)]
+    public async Task Cancellation_only_removes_the_owned_pending_input_and_records_one_event(Delivery delivery)
+    {
+        var admitted = _repository.Admit(Session, "cancel", "canceled prompt", delivery, static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+        var unrelated = _repository.Admit(Session, "unrelated", "unrelated prompt", delivery, static _ => new Event { Id = Identifier.EventId(), AgentSessionId = Session });
+        var otherSession = _repository.Admit("other-agent", "other", "other prompt", delivery, static _ => new Event { Id = Identifier.EventId(), AgentSessionId = "other-agent" });
+        var canceledEvent = new Event
+        {
+            Id = Identifier.EventId(),
+            AgentSessionId = Session,
+            InputCanceled = new InputCanceled { InputId = admitted.Input.Id },
+        };
+
+        _ = await Assert.That(_repository.CancelPendingInput("other-agent", admitted.Input.Id, static () => throw new InvalidOperationException("wrong session"))).IsNull();
+        _ = await Assert.That(_repository.CancelPendingInput(Session, otherSession.Input.Id, static () => throw new InvalidOperationException("wrong owner"))).IsNull();
+        _ = await Assert.That(_repository.CancelPendingInput(Session, "missing", static () => throw new InvalidOperationException("missing input"))).IsNull();
+        _ = await Assert.That(_repository.CancelPendingInput(Session, admitted.Input.Id, () => canceledEvent)).IsEqualTo(canceledEvent);
+        _ = await Assert.That(_repository.CancelPendingInput(Session, admitted.Input.Id, static () => throw new InvalidOperationException("already canceled"))).IsNull();
+
+        var recorded = _repository.Replay().Single(published => published.PayloadCase == Event.PayloadOneofCase.InputCanceled);
+        _ = await Assert.That(recorded).IsEqualTo(canceledEvent);
+        _ = await Assert.That(_repository.InputsForNextPromotion(Session).Single().Id).IsEqualTo(unrelated.Input.Id);
+        _ = await Assert.That(_repository.InputsForNextPromotion("other-agent").Single().Id).IsEqualTo(otherSession.Input.Id);
+        _ = await Assert.That(Promote(delivery)).IsEqualTo(1);
+        _ = await Assert.That(_repository.Messages(Session).Single()).IsEqualTo("user: unrelated prompt");
+        _ = await Assert.That(_repository.HasPendingInputs(Session)).IsFalse();
+        _ = await Assert.That(_repository.CancelPendingInput(Session, unrelated.Input.Id, static () => throw new InvalidOperationException("already promoted"))).IsNull();
+        _ = await Assert.That(_repository.Replay().Count(published => published.PayloadCase == Event.PayloadOneofCase.InputCanceled)).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Failed_cancellation_rolls_back_the_input_and_event(bool failComposition)
+    {
+        var admittedEvent = new Event { Id = Identifier.EventId(), AgentSessionId = Session };
+        var admitted = _repository.Admit(Session, "cancel", "pending prompt", Delivery.Queue, _ => admittedEvent);
+        var canceledEvent = new Event
+        {
+            Id = admittedEvent.Id,
+            AgentSessionId = Session,
+            InputCanceled = new InputCanceled { InputId = admitted.Input.Id },
+        };
+
+        if (failComposition)
+        {
+            _ = await Assert.That(() => _repository.CancelPendingInput(Session, admitted.Input.Id, static () => throw new InvalidOperationException("composition failed")))
+                .Throws<InvalidOperationException>();
+        }
+        else
+        {
+            _ = await Assert.That(() => _repository.CancelPendingInput(Session, admitted.Input.Id, () => canceledEvent))
+                .Throws<Microsoft.Data.Sqlite.SqliteException>();
+        }
+
+        _ = await Assert.That(_repository.InputsForNextPromotion(Session).Single().Id).IsEqualTo(admitted.Input.Id);
+        _ = await Assert.That(_repository.Replay().Single()).IsEqualTo(admittedEvent);
+        canceledEvent.Id = Identifier.EventId();
+        _ = await Assert.That(_repository.CancelPendingInput(Session, admitted.Input.Id, () => canceledEvent)).IsEqualTo(canceledEvent);
+        _ = await Assert.That(_repository.HasPendingInputs(Session)).IsFalse();
+        _ = await Assert.That(_repository.Replay()[^1]).IsEqualTo(canceledEvent);
+        _ = await Assert.That(Promote(Delivery.Queue)).IsEqualTo(0);
+        _ = await Assert.That(_repository.Messages(Session)).IsEmpty();
+    }
+
     private static Delivery Other(Delivery delivery) =>
         delivery == Delivery.Steer ? Delivery.Queue : Delivery.Steer;
 
