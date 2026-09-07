@@ -33,6 +33,39 @@ internal sealed class SetExitReminderToolTests
     }
 
     [Test]
+    public async Task Repeated_injections_count_up_and_reset_on_change_or_clear()
+    {
+        using var database = SessionDatabase.Open(":memory:");
+        var repository = new EventRepository(database);
+        var reminder = new ExitReminder(repository, TestModels.PromptTemplates, "agent");
+        var steps = new (string? Set, bool Clear, string? ExpectedBuild)[]
+        {
+            (null, false, null),
+            ("X", false, "An exit reminder was set: X"),
+            (null, false, "This is the 2nd exit reminder: X"),
+            (null, false, "This is the 3rd exit reminder: X"),
+            ("Y", false, "An exit reminder was set: Y"),
+            (null, false, "This is the 2nd exit reminder: Y"),
+            (null, true, null),
+            ("Z", false, "An exit reminder was set: Z"),
+        };
+
+        foreach (var (set, clear, expectedBuild) in steps)
+        {
+            if (set is not null)
+            {
+                reminder.Set(set);
+            }
+            else if (clear)
+            {
+                reminder.Set(null);
+            }
+
+            _ = await Assert.That(reminder.Build()).IsEqualTo(expectedBuild);
+        }
+    }
+
+    [Test]
     public async Task Null_and_malformed_arguments_are_handled_strictly()
     {
         using var database = SessionDatabase.Open(":memory:");
