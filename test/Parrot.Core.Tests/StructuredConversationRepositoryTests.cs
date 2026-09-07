@@ -126,6 +126,7 @@ internal sealed class StructuredConversationRepositoryTests : IDisposable
         _ = await Assert.That(repository.AppendContextReminder(
             reminder,
             new ContextReminderCheckpoint("provider/model", 10_000, 75),
+            77,
             "reminder")).IsTrue();
         _ = await Assert.That(repository.LatestContextReminder("agent")).IsNotNull();
         var secondStatus = Published("second-status");

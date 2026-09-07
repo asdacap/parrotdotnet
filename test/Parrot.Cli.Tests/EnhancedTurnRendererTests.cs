@@ -29,7 +29,7 @@ internal sealed class EnhancedTurnRendererTests
                 new Event
                 {
                     Id = "context-reminder",
-                    ContextReminderInjected = new ContextReminderInjected(),
+                    ContextReminderInjected = new ContextReminderInjected { UsagePercent = 27 },
                 },
                 new Event
                 {
@@ -128,7 +128,7 @@ internal sealed class EnhancedTurnRendererTests
         _ = await Assert.That(output).DoesNotContain("  ↻ Status prompt injected");
         _ = await Assert.That(output).Contains("↻ Active work reminder injected");
         _ = await Assert.That(output).DoesNotContain("  ↻ Active work reminder injected");
-        _ = await Assert.That(output).Contains("↻ Context reminder injected");
+        _ = await Assert.That(output).Contains("↻ Context reminder injected (27% context used)");
         _ = await Assert.That(output).DoesNotContain("  ↻ Context reminder injected");
         _ = await Assert.That(output).Contains("↻ Final provider request prompt injected");
         _ = await Assert.That(output).DoesNotContain("  ↻ Final provider request prompt injected");

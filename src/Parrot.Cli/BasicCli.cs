@@ -194,7 +194,7 @@ internal sealed class BasicCli(
                     break;
 
                 case Event.PayloadOneofCase.ContextReminderInjected:
-                    await output.WriteLineAsync("↻ Context reminder injected".AsMemory(), cancellationToken)
+                    await output.WriteLineAsync($"↻ Context reminder injected ({published.ContextReminderInjected.UsagePercent}% context used)".AsMemory(), cancellationToken)
                         .ConfigureAwait(false);
                     break;
 

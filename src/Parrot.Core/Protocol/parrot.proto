@@ -618,7 +618,9 @@ message ExitReminderInjected {}
 
 // Transient notification that a durable context-usage reminder was added to
 // model history. Its text remains in history, not on the wire.
-message ContextReminderInjected {}
+message ContextReminderInjected {
+  int32 usage_percent = 1;
+}
 
 // Transient notification that a durable system prompt explains that this is the
 // final provider request of the turn and tools are unavailable.
