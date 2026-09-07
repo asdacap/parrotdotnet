@@ -9,6 +9,8 @@ internal sealed record ModelConfig
 
     public int MaxTokens { get; init; }
 
+    public int MaxInputTokens { get; init; }
+
     public double InputPrice { get; init; }
 
     public double CachedInputPrice { get; init; }

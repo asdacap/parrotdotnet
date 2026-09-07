@@ -7,7 +7,8 @@ internal sealed class ProviderRegistryBuilder(
     Configuration configuration,
     ICredentialStore store,
     ProviderHttpClientCatalog httpClients,
-    IBrowserOpener browser)
+    IBrowserOpener browser,
+    ModelsDevInformationProvider modelsDev)
 {
     public static IReadOnlyList<string> BuildableProviderIds(Configuration configuration)
     {
@@ -26,13 +27,25 @@ internal sealed class ProviderRegistryBuilder(
     {
         var providers = new List<ILLMProvider>();
         var catalogues = new Dictionary<string, IReadOnlyList<LLMModel>>(StringComparer.Ordinal);
+        var externalCatalogues = await modelsDev.Fetch(cancellationToken).ConfigureAwait(false);
 
         foreach (var id in BuildableProviderIds(configuration))
         {
             var config = configuration.Providers[id];
             var implementation = ProviderImplementations.Resolve(id);
             var httpClient = httpClients.Resolve(config.BaseUrl, config.AllowInvalidTlsCertificate);
-            var built = implementation.Build(new(id, config, store, httpClient, browser));
+            IReadOnlyList<LLMModel> externalModels;
+            if (id == ChatGptProvider.ProviderId)
+            {
+                var openAiModels = externalCatalogues.TryGetValue("openai", out var models) ? models : [];
+                externalModels = ChatGptModelCatalogue.FilterExternal(openAiModels);
+            }
+            else
+            {
+                externalModels = externalCatalogues.TryGetValue(id, out var models) ? models : [];
+            }
+
+            var built = implementation.Build(new(id, config, store, httpClient, browser, externalModels));
             providers.Add(new RetryingProvider(built.Provider));
             catalogues[id] = built.Seed;
         }

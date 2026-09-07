@@ -756,10 +756,10 @@ internal sealed partial class AgentSession(
 
     private static void EnsureRequestFitsAfterCompaction(ContextSnapshot context)
     {
-        if (context.IsAvailable && context.EstimatedTokens > context.ContextLimit)
+        if (context.ExceedsInputLimit)
         {
             throw new InvalidOperationException(
-                "The compacted conversation exceeds the selected model context window.");
+                "The compacted conversation exceeds the selected model input limit.");
         }
     }
 

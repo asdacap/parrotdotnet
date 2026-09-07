@@ -1438,6 +1438,40 @@ internal sealed class CompactorAndContextTests : IDisposable
     }
 
     [Test]
+    public async Task Maximum_input_controls_compaction_while_context_reporting_stays_total(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("summary");
+        var compactor = new Compactor(50, 30, 60_000, 1024, TestModels.PromptTemplates);
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id)
+        {
+            ContextWindow = 400_000,
+            MaxInputTokens = 1_000,
+        });
+        var history = Enumerable.Range(0, 6)
+            .Select(index => LLMMessage.User($"message {index} {new string('x', 500)}"))
+            .ToList();
+
+        var before = compactor.EstimateContext(model, string.Empty, [], history);
+        var result = await compactor.Compact(
+            model,
+            string.Empty,
+            [],
+            history,
+            LLMMessage.User("fixed"),
+            _compactionGroupBlobs,
+            cancellationToken) ?? throw new InvalidOperationException("Expected compaction.");
+        var after = compactor.EstimateContext(model, string.Empty, [], result.History);
+
+        _ = await Assert.That(before.ContextLimit).IsEqualTo(400_000);
+        _ = await Assert.That(before.UsagePercent).IsEqualTo(0);
+        _ = await Assert.That(before.ExceedsTrigger).IsTrue();
+        _ = await Assert.That(after.ContextLimit).IsEqualTo(400_000);
+        _ = await Assert.That(after.EstimatedTokens).IsLessThanOrEqualTo(300);
+        _ = await Assert.That(after.ExceedsInputLimit).IsFalse();
+    }
+
+    [Test]
     public async Task Compaction_targets_percentage_and_retains_the_maximal_recent_suffix(
         CancellationToken cancellationToken)
     {

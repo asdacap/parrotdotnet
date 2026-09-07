@@ -85,7 +85,7 @@ internal sealed partial class AgentSession
 
         var instructions = _systemPrompt.Build(selection);
         var before = EstimateContextForHistory(selection, instructions, tools.Definitions, [.. _history]);
-        if (!before.IsAvailable)
+        if (before.InputLimit <= 0)
         {
             return new ContextCompactionResult(before, false);
         }
@@ -254,7 +254,7 @@ internal sealed partial class AgentSession
             return instructions;
         }
 
-        if (insertedContext.EstimatedTokens > insertedContext.ContextLimit || insertedContext.ExceedsTrigger)
+        if (insertedContext.ExceedsInputLimit || insertedContext.ExceedsTrigger)
         {
             var compacted = await CompactEpoch(selection, tools, instructions, cancellationToken).ConfigureAwait(false);
             var compactedContext = compactor.EstimateContext(selectedModel, compacted.Instructions, tools, _history);
@@ -346,9 +346,9 @@ internal sealed partial class AgentSession
                 cancellationToken).ConfigureAwait(false);
             var currentWatermark = effective.Snapshot?.Watermark ?? 0;
             if ((compacted is null || compacted.Watermark <= currentWatermark)
-                && Compactor.EstimateInputTokens(instructions, tools, _history) > selectedModel.Model.ContextWindow)
+                && Compactor.EstimateInputTokens(instructions, tools, _history) > selectedModel.Model.InputTokenLimit)
             {
-                throw new InvalidOperationException("The conversation has no safe compaction boundary before the context limit.");
+                throw new InvalidOperationException("The conversation has no safe compaction boundary before the input limit.");
             }
 
             if (compacted is not null && compacted.Watermark > currentWatermark)
@@ -384,10 +384,10 @@ internal sealed partial class AgentSession
 
                 compacted = compacted with { History = compactedHistory };
                 var finalContext = EstimateContextForHistory(selection, instructions, tools, compacted.History);
-                if (finalContext.IsAvailable && finalContext.EstimatedTokens > finalContext.ContextLimit)
+                if (finalContext.ExceedsInputLimit)
                 {
                     throw new InvalidOperationException(
-                        "The compacted conversation exceeds the selected model context window.");
+                        "The compacted conversation exceeds the selected model input limit.");
                 }
 
                 var statusInjected = new Event

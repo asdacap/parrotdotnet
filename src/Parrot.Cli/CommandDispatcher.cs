@@ -21,7 +21,8 @@ internal sealed class CommandDispatcher(
     TextWriter error,
     ProviderHttpClientCatalog httpClients,
     IBrowserOpener browserOpener,
-    OpenAiOAuthClient oauthClient)
+    OpenAiOAuthClient oauthClient,
+    ModelsDevInformationProvider modelsDev)
 {
     public const int ExitSuccess = 0;
     public const int ExitUsage = 2;
@@ -284,7 +285,7 @@ internal sealed class CommandDispatcher(
     {
         try
         {
-            var registry = await new ProviderRegistryBuilder(configuration, credentials, httpClients, browserOpener)
+            var registry = await new ProviderRegistryBuilder(configuration, credentials, httpClients, browserOpener, modelsDev)
                 .Build(cancellationToken).ConfigureAwait(false);
 
             return new Composition(

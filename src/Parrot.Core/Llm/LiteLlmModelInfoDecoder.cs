@@ -6,6 +6,7 @@ internal sealed class LiteLlmModelInfoDecoder : IModelListDecoder
 {
     private const ModelMetadataFields SupplementalFields = ModelMetadataFields.ContextWindow
         | ModelMetadataFields.MaxOutputTokens
+        | ModelMetadataFields.MaxInputTokens
         | ModelMetadataFields.InputPrice
         | ModelMetadataFields.CachedInputPrice
         | ModelMetadataFields.OutputPrice
@@ -57,14 +58,14 @@ internal sealed class LiteLlmModelInfoDecoder : IModelListDecoder
                 && configuredModelInfo.ValueKind == JsonValueKind.Object)
             {
                 configured = ModelMetadataDecoder.Decode(
-                    id, providerId, id, configuredModelInfo, ["max_input_tokens"], readName: false);
+                    id, providerId, id, configuredModelInfo, [], readName: false);
             }
 
             if (item.TryGetProperty("model_info", out var normalizedModelInfo)
                 && normalizedModelInfo.ValueKind == JsonValueKind.Object)
             {
                 normalized = ModelMetadataDecoder.Decode(
-                    id, providerId, id, normalizedModelInfo, ["max_input_tokens"], readName: false);
+                    id, providerId, id, normalizedModelInfo, [], readName: false);
             }
 
             LLMModel decoded;
@@ -112,6 +113,8 @@ internal sealed class LiteLlmModelInfoDecoder : IModelListDecoder
             ModelMetadataFields.ContextWindow, first.ContextWindow, next.ContextWindow, combined.ContextWindow);
         var maxOutputTokens = MinimumExplicit(
             ModelMetadataFields.MaxOutputTokens, first.MaxOutputTokens, next.MaxOutputTokens, combined.MaxOutputTokens);
+        var maxInputTokens = MinimumExplicit(
+            ModelMetadataFields.MaxInputTokens, first.MaxInputTokens, next.MaxInputTokens, combined.MaxInputTokens);
         var inputPrice = CombinePrice(
             ModelMetadataFields.InputPrice, first.InputPrice, next.InputPrice, combined.InputPrice);
         var cachedInputPrice = CombinePrice(
@@ -163,6 +166,7 @@ internal sealed class LiteLlmModelInfoDecoder : IModelListDecoder
         {
             ContextWindow = contextWindow,
             MaxOutputTokens = maxOutputTokens,
+            MaxInputTokens = maxInputTokens,
             InputPrice = inputPrice,
             CachedInputPrice = cachedInputPrice,
             OutputPrice = outputPrice,

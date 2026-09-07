@@ -105,6 +105,28 @@ internal sealed class DrainTests : IDisposable
     }
 
     [Test]
+    public async Task Maximum_input_fails_before_calling_provider_without_changing_reported_context(
+        CancellationToken cancellationToken)
+    {
+        var provider = new ScriptedProvider("should not be called");
+        var repository = new EventRepository(_database);
+        await using var session = SessionWithInputLimit(
+            provider,
+            repository,
+            contextWindow: 400_000,
+            maximumInputTokens: 1,
+            cancellationToken);
+
+        _ = await session.Send([ConversationPart.TextPart("prompt")], "message", Delivery.Steer, cancellationToken);
+        await session.Settled();
+
+        _ = await Assert.That(provider.Requests).IsEmpty();
+        _ = await Assert.That(repository.Replay().Last(published =>
+            published.PayloadCase == Event.PayloadOneofCase.TurnFailed).TurnFailed.Message)
+            .Contains("input limit");
+    }
+
+    [Test]
     public async Task Exhausted_known_context_fails_before_calling_the_provider(
         CancellationToken cancellationToken)
     {
@@ -1624,6 +1646,24 @@ internal sealed class DrainTests : IDisposable
             cachedInputPrice,
             outputPrice,
             lifetime);
+
+    private AgentSession SessionWithInputLimit(
+        ScriptedProvider provider,
+        EventRepository repository,
+        int contextWindow,
+        int maximumInputTokens,
+        CancellationToken lifetime)
+    {
+        var model = new ProviderModel(provider, new LLMModel("model", provider.Id)
+        {
+            ContextWindow = contextWindow,
+            MaxInputTokens = maximumInputTokens,
+        });
+        var identity = AgentIdentity.Main("agent", string.Empty, TestModels.PromptTemplates);
+        var dependencies = TestModels.Dependencies(identity, _broker, repository, lifetime);
+        _dependencies.Add(dependencies);
+        return new AgentSession(identity, AgentSessionParentScope.Root(), new ModelSelector(model.Selector), TestModels.Route(model), _broker, repository, [], TestModels.EmptyToolDefinitions, TestModels.MaterializePrompt(identity, ".", "."), new ToolOutputBlobStore(_blobDirectory), TestModels.CompactionGroupBlobs(), new Compactor(int.MaxValue, 30, 60_000, 1024, TestModels.PromptTemplates), new ProviderSessions(), new ContextCadence(), TestModels.PromptTemplates, dependencies.ChildQuestions, dependencies.ExitReminder, dependencies.Profile, TestModels.CompletionCallbacks(dependencies.ChildQuestions, dependencies.ActiveWorkReminder, dependencies.ExitReminder, repository, _broker), SecurityProfileTestFactory.Create(SecurityProfile.Compose(readOnly: false, [], [], [])), dependencies.Status, dependencies.Queues, new AgentSessionActivity(TimeProvider.System), lifetime);
+    }
 
     private AgentSession SessionWithSkills(
         ILLMProvider provider,

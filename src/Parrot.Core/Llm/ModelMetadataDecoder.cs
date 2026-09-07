@@ -17,6 +17,7 @@ internal static class ModelMetadataDecoder
         var hasName = readName && JsonRead.TryReadString(metadata, "name", out name);
         var hasContext = TryReadFirstNonNegativeInt(metadata, contextFields, out var contextWindow);
         var hasMaxTokens = TryReadNonNegativeInt(metadata, "max_output_tokens", out var maxOutputTokens);
+        var hasMaxInputTokens = TryReadNonNegativeInt(metadata, "max_input_tokens", out var maxInputTokens);
         var hasInputPrice = JsonRead.TryReadNonNegativeNumber(metadata, "input_cost_per_token", out var inputPrice);
         var hasCachedInputPrice = JsonRead.TryReadNonNegativeNumber(
             metadata, "cache_read_input_token_cost", out var cachedInputPrice);
@@ -30,6 +31,7 @@ internal static class ModelMetadataDecoder
         fields |= hasName ? ModelMetadataFields.Name : ModelMetadataFields.None;
         fields |= hasContext ? ModelMetadataFields.ContextWindow : ModelMetadataFields.None;
         fields |= hasMaxTokens ? ModelMetadataFields.MaxOutputTokens : ModelMetadataFields.None;
+        fields |= hasMaxInputTokens ? ModelMetadataFields.MaxInputTokens : ModelMetadataFields.None;
         fields |= hasInputPrice ? ModelMetadataFields.InputPrice : ModelMetadataFields.None;
         fields |= hasCachedInputPrice ? ModelMetadataFields.CachedInputPrice : ModelMetadataFields.None;
         fields |= hasOutputPrice ? ModelMetadataFields.OutputPrice : ModelMetadataFields.None;
@@ -47,6 +49,7 @@ internal static class ModelMetadataDecoder
             Name = hasName ? name : fallbackName,
             ContextWindow = contextWindow,
             MaxOutputTokens = maxOutputTokens,
+            MaxInputTokens = maxInputTokens,
             InputPrice = inputPrice,
             CachedInputPrice = cachedInputPrice,
             OutputPrice = outputPrice,

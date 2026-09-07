@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Text.Json;
 using Parrot.Config;
 using Parrot.Security;
@@ -190,6 +191,29 @@ internal sealed class ConfigurationTests : IDisposable
     public async Task Provider_model_prices_must_be_finite_non_negative_numbers(string price)
     {
         var path = Write($"providers:\n  custom:\n    models:\n      m:\n        cached_input_price: {price}\n");
+
+        _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    [Arguments("0")]
+    [Arguments("128")]
+    public async Task Provider_model_maximum_input_tokens_are_read_as_non_negative_integers(string limit)
+    {
+        var provider = Load(Write($"providers:\n  custom:\n    models:\n      model:\n        max_input_tokens: {limit}\n")).Providers["custom"];
+        var model = provider.Models["model"];
+
+        _ = await Assert.That(model.MaxInputTokens).IsEqualTo(int.Parse(limit, CultureInfo.InvariantCulture));
+        _ = await Assert.That(model.Fields.HasFlag(ModelConfigFields.MaxInputTokens)).IsTrue();
+    }
+
+    [Test]
+    [Arguments("-1")]
+    [Arguments("1.5")]
+    [Arguments("not-a-number")]
+    public async Task Provider_model_maximum_input_tokens_must_be_non_negative_integers(string limit)
+    {
+        var path = Write($"providers:\n  custom:\n    models:\n      model:\n        max_input_tokens: {limit}\n");
 
         _ = await Assert.That(() => Load(path)).Throws<InvalidDataException>();
     }

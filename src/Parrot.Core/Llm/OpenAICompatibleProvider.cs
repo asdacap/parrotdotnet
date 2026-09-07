@@ -16,6 +16,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     private readonly IReadOnlyDictionary<string, string> _headers;
     private readonly IReadOnlyList<LLMModel> _declared;
     private readonly IReadOnlyList<LLMModel> _defaults;
+    private readonly IReadOnlyList<LLMModel> _external;
     private readonly IModelListDecoder _decoder;
     private readonly HttpClient _client;
     private readonly TimeSpan _headerTimeout;
@@ -67,6 +68,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
         _headers = HttpStreaming.ValidateHeaders(options.Headers);
         _declared = options.Models;
         _defaults = options.ModelDefaults;
+        _external = options.ExternalModels;
         _decoder = options.Decoder;
         _client = client;
         _headerTimeout = options.HeaderTimeout;
@@ -78,7 +80,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
     public string Id { get; }
 
     // The offline catalogue: what is selectable before the endpoint is reached.
-    public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults);
+    public IReadOnlyList<LLMModel> SeedModels() => ModelCatalogue.Merge(null, _declared, _defaults, _external);
 
     public ILLMProviderSession OpenSession() =>
         _protocol == CompatibleProtocol.Responses
@@ -110,7 +112,7 @@ internal sealed class OpenAICompatibleProvider : ILLMProvider
             models = await SupplementModels(models, headers, cancellationToken).ConfigureAwait(false);
         }
 
-        return ModelCatalogue.Merge(models, _declared, _defaults);
+        return ModelCatalogue.Merge(models, _declared, _defaults, _external);
     }
 
     public IAsyncEnumerable<LLMEvent> Call(LLMRequest request, CancellationToken cancellationToken) =>

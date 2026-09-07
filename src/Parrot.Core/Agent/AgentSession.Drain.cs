@@ -994,11 +994,16 @@ internal sealed partial class AgentSession
     {
         var selectedModel = selection?.ResolvedModel.CanonicalModel
             ?? throw new AgentRegistryException("turn selection is unavailable");
+        var estimatedInputTokens = Compactor.EstimateInputTokens(instructions, snapshot.Definitions, messages);
+        if (selectedModel.Model.MaxInputTokens > 0 && estimatedInputTokens > selectedModel.Model.InputTokenLimit)
+        {
+            throw new InvalidOperationException("The conversation exceeds the selected model input limit.");
+        }
+
         var maximumOutputTokens = DefaultMaximumOutputTokens;
         if (selectedModel.Model.ContextWindow > 0)
         {
-            var availableOutputTokens = selectedModel.Model.ContextWindow
-                - Compactor.EstimateInputTokens(instructions, snapshot.Definitions, messages);
+            var availableOutputTokens = selectedModel.Model.ContextWindow - estimatedInputTokens;
             if (availableOutputTokens <= 0)
             {
                 throw new InvalidOperationException(
